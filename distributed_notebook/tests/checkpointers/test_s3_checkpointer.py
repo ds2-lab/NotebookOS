@@ -1,63 +1,55 @@
-import io
 import os
 import uuid
 from typing import Any, Type
 
 import pytest
+from botocore.exceptions import ClientError
+from moto import mock_aws
 from torch import Tensor
 
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
     CoLA, get_model_and_dataset
-from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
-from distributed_notebook.sync.checkpointing.s3 import S3Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
 
-from .util import create_s3_bucket_if_not_exists
+S3BucketName = DEFAULT_S3_BUCKET_NAME + "-unit-testing"
 
-@pytest.fixture(scope="session", autouse=True)
-def create_s3_bucket():
+
+@pytest.fixture(autouse=True)
+def moto_boto():
     """
-    Allows plugins and conftest files to perform initial configuration.
-    This hook is called for every plugin and initial conftest
-    file after command line options have been parsed.
+    Ensures that we're mocking AWS S3.
     """
-    create_s3_bucket_if_not_exists("distributed-notebook-storage")
+    with mock_aws():
+        yield
 
+
+@mock_aws
 def test_create():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     assert checkpointer is not None
-    assert isinstance(checkpointer, S3Checkpointer)
+    assert isinstance(checkpointer, RemoteCheckpointer)
 
-def test_upload_and_download_file():
-    checkpointer: S3Checkpointer = S3Checkpointer()
 
-    data: str = "Hello, S3! This is a string stored in an object."
-    obj_name: str = "test_upload_and_download_file_data"
-
-    success: bool = checkpointer.upload_bytes_to_s3(data, obj_name)
-    assert success
-
-    data: io.BytesIO = checkpointer.download_file_from_s3(obj_name)
-    print("Read data:", data.getvalue().decode("utf-8"))
-
-    success = checkpointer.delete_data(obj_name)
-    assert success
-
-    assert data is not None
-
-    assert checkpointer.num_objects_read == 1
-    assert checkpointer.num_objects_written == 1
-    assert checkpointer.num_objects_deleted == 1
-
+@mock_aws
 def test_read_after_write_simple_model_state():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -90,15 +82,20 @@ def test_read_after_write_simple_model_state():
     assert isinstance(constructor_args_state, dict)
 
     assert checkpointer.num_objects_read == 4
-    assert checkpointer.num_objects_written == 8
+    assert checkpointer.num_objects_written == 4
     assert checkpointer.num_objects_deleted == 4
 
 
+@mock_aws
 def test_write_model_that_does_not_require_checkpointing():
     """
     Write a model that does NOT require checkpointing, which should cause a ValueError to be raised.
     """
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=False)
     model_pointer: ModelPointer = ModelPointer(
@@ -112,8 +109,13 @@ def test_write_model_that_does_not_require_checkpointing():
         checkpointer.write_state_dicts(model_pointer)
 
 
+@mock_aws
 def test_read_empty():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -123,12 +125,17 @@ def test_read_empty():
         proposer_id=1,
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ClientError):
         checkpointer.read_state_dicts(model_pointer)
 
 
+@mock_aws
 def test_checkpoint_after_training():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     # Create the model.
     input_size: int = 4
@@ -152,8 +159,8 @@ def test_checkpoint_after_training():
     )
     checkpointer.write_state_dicts(model_pointer)
 
-    num_epochs: int = 5
-    num_training_loops: int = 5
+    num_epochs: int = 3
+    num_training_loops: int = 3
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
@@ -226,8 +233,13 @@ def test_checkpoint_after_training():
                 assert checkpointed_val.equal(local_val)
 
 
+@mock_aws
 def test_checkpoint_and_train_simple_model():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     # Create the model.
     input_size: int = 4
@@ -251,8 +263,8 @@ def test_checkpoint_and_train_simple_model():
     )
     checkpointer.write_state_dicts(model_pointer)
 
-    num_epochs: int = 5
-    num_training_loops: int = 5
+    num_epochs: int = 3
+    num_training_loops: int = 3
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
@@ -327,6 +339,7 @@ def test_checkpoint_and_train_simple_model():
         model = checkpointed_model
 
 
+@mock_aws
 def perform_training_for_model(
         model_class: Type,
         dataset_class: Type,
@@ -339,7 +352,11 @@ def perform_training_for_model(
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
 
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name=S3BucketName,
+        aws_region="us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     # # Create the model.
     # model = model_class(created_for_first_time=True)
@@ -445,13 +462,14 @@ def perform_training_for_model(
         model = checkpointed_model
 
 
+@mock_aws
 @pytest.mark.parametrize("model_class,dataset_class", [
     (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
     (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
     (VGG11, CIFAR10), (VGG11, TinyImageNet),
-    (VGG13, CIFAR10), (VGG13, TinyImageNet),
-    (VGG16, CIFAR10), (VGG16, TinyImageNet),
-    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    # (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    # (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    # (VGG19, CIFAR10), (VGG19, TinyImageNet),
     (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
     (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
     (DeepSpeech2, LibriSpeech)

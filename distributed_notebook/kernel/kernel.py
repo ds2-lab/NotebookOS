@@ -34,17 +34,17 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
 from distributed_notebook.gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
-from distributed_notebook.sync.checkpointing.factory import get_remote_checkpointer
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
+from distributed_notebook.sync.checkpointing.checkpointer_factory import get_checkpointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
-from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.election import Election, ElectionTimestamps
 from distributed_notebook.sync.errors import DiscardMessageError
 from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer import (
@@ -56,7 +56,10 @@ from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
 from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
-from ..deep_learning.data.nlp.base import NLPDataset
+from ..sync.log import SyncLog
+from ..sync.remote_storage_log import RemoteStorageLog
+from ..sync.storage.redis_provider import RedisProvider
+from ..sync.storage.s3_provider import S3Provider
 
 import_torch_start: float = time.time()
 try:
@@ -276,6 +279,32 @@ class DistributedKernel(IPythonKernel):
         default_value="redis",
     ).tag(config=True)
 
+    s3_bucket: Union[str, Unicode] = Unicode(
+        help="The AWS S3 bucket name if we're using AWS S3 for our remote storage.",
+        default_value="distributed-notebook-storage",
+    ).tag(config=True)
+
+    aws_region: Union[str, Unicode] = Unicode(
+        help="The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).",
+        default_value="us-east-1",
+    ).tag(config=True)
+
+    redis_password: Optional[Union[str, Unicode]] = Unicode(
+        help="The password to access Redis (only relevant if using Redis for remote storage).",
+        default_value=None,
+        allow_none=True
+    ).tag(config=True)
+
+    redis_port: Integer = Integer(
+        default_value=6379,
+        help="Port of the Redis server (only relevant if using Redis for remote storage)."
+    ).tag(config=True)
+
+    redis_database: Integer = Integer(
+        default_value=0,
+        help="Redis database number to use (only relevant if using Redis for remote storage)."
+    ).tag(config=True)
+
     prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(
         config=True
     )
@@ -347,6 +376,9 @@ class DistributedKernel(IPythonKernel):
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(
         config=False
     )
+
+    # Indicates whether we should embed Election metadata in "execute_reply" messages.
+    include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
@@ -468,6 +500,14 @@ class DistributedKernel(IPythonKernel):
         #       So, at best, we would just know of a potential conflict, but not how to resolve it...
         self.dataset_pointers_catchup: Dict[str, DatasetPointer] = {}
 
+        if "include_election_metadata" in kwargs:
+            self.include_election_metadata = kwargs["include_election_metadata"]
+
+        if self.include_election_metadata:
+            self.log.debug("Will include election metadata in 'execute_reply' messages.")
+        else:
+            self.log.debug("Will NOT include election metadata in 'execute_reply' messages.")
+
         # Committed ModelPointers that we encounter while catching-up after a migration.
         # Once we're caught-up, we download all of these.
         #
@@ -520,8 +560,30 @@ class DistributedKernel(IPythonKernel):
         # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
         self._user_ns_lock: asyncio.Lock = asyncio.Lock()
 
-        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(
-            self.remote_storage, self.remote_storage_hostname
+        if "aws_region" in kwargs:
+            self.aws_region = kwargs["aws_region"]
+
+        if "s3_bucket" in kwargs:
+            self.s3_bucket = kwargs["s3_bucket"]
+
+        if "redis_port" in kwargs:
+            self.redis_port = kwargs["redis_port"]
+
+        if "redis_database" in kwargs:
+            self.redis_database = kwargs["redis_database"]
+
+        if "redis_password" in kwargs:
+            self.redis_password = kwargs["redis_password"]
+
+        # Arguments not relevant to the specified remote storage will be ignored.
+        self._remote_checkpointer: Checkpointer = get_checkpointer(
+            remote_storage_name=self.remote_storage,
+            host=self.remote_storage_hostname,
+            s3_bucket=self.s3_bucket,
+            aws_region=self.aws_region,
+            redis_port=self.redis_port,
+            redis_database=self.redis_database,
+            redis_password=self.redis_password,
         )
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
@@ -1216,7 +1278,8 @@ class DistributedKernel(IPythonKernel):
         """
         self.shell_received_at: float = time.time() * 1.0e3
 
-        if self.synclog is not None and self.synclog.fallback_future_io_loop is None:
+        if self.synclog is not None and hasattr(self.synclog,
+                                                "fallback_future_io_loop") and self.synclog.fallback_future_io_loop is None:
             self.synclog.fallback_future_io_loop = asyncio.get_running_loop()
 
         if not self.session:
@@ -1624,7 +1687,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Overrode shell hooks.")
 
         # Get synclog for synchronization.
-        sync_log: RaftLog = await self.get_synclog(self.store_path)
+        sync_log: SyncLog = await self.get_synclog(self.store_path)
 
         self.init_raft_log_event.set()
 
@@ -1635,15 +1698,17 @@ class DistributedKernel(IPythonKernel):
             store_path=self.store_path,
             module=self.shell.user_module,
             opts=CHECKPOINT_AUTO,
+            num_replicas=self.num_replicas,
             node_id=self.smr_node_id,
             large_object_pointer_committed=self.large_object_pointer_committed,
             remote_checkpointer=self._remote_checkpointer,
         )  # type: ignore
 
-        sync_log.set_fast_forward_executions_handler(
-            self.synchronizer.fast_forward_execution_count
-        )
-        sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
+        if isinstance(sync_log, RaftLog):
+            sync_log.set_fast_forward_executions_handler(
+                self.synchronizer.fast_forward_execution_count
+            )
+            sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
 
         self.init_synchronizer_event.set()
 
@@ -1656,52 +1721,46 @@ class DistributedKernel(IPythonKernel):
 
         # If we're not using real GPUs, then we can simulate downloading the model and training data here.
         if self.simulate_training_using_sleep:
-            (
-                download_model_duration,
-                download_training_data_duration,
-            ) = await self.simulate_download_model_and_training_data()
+            download_model_dur, download_training_data_dur = await self.simulate_download_model_and_training_data()
 
-            if download_model_duration > 0 and self.prometheus_enabled:
+            if download_model_dur > 0 and self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).observe(download_model_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(download_model_dur * 1e3)
+
                 self.delay_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).inc(download_model_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).inc(download_model_dur * 1e3)
 
                 if self.current_execution_stats is not None:
-                    self.current_execution_stats.download_model_microseconds = (
-                            download_model_duration * 1.0e6
-                    )
+                    self.current_execution_stats.download_model_microseconds = (download_model_dur * 1.0e6)
 
-            if download_training_data_duration > 0 and self.prometheus_enabled:
+            if download_training_data_dur > 0 and self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).observe(download_training_data_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(download_training_data_dur * 1e3)
+
                 self.delay_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).inc(download_training_data_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).inc(download_training_data_dur * 1e3)
 
                 if self.current_execution_stats is not None:
-                    self.current_execution_stats.download_training_data_microseconds = (
-                            download_training_data_duration * 1.0e6
-                    )
+                    self.current_execution_stats.download_training_data_microseconds = \
+                        download_training_data_dur * 1.0e6
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
         # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
         # it gets committed. This cannot be done until the RaftLog has started. And the RaftLog is started by the
         # Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
-            self.log.debug(
-                'RaftLog will need to propose a "catch up" value '
-                "so that it can tell when it has caught up with its peers."
-            )
+            self.log.debug('Need to restore user namespace via the SyncLog.')
 
             await self.synclog.catchup_with_peers()
 
             await self.__download_pointers_committed_while_catching_up()
-
-        # TODO: Retrieve time spent downloading model state here.
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
@@ -1892,54 +1951,6 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name, gpu_device_ids
 
-    async def checkpoint_model_state(self):
-        """
-        Checkpoint the state dictionary of the DeepLearningModel used during training to remote storage.
-
-        This particular method is only used for non-SMR/non-replica-based scheduling policies.
-
-        :return: the e2e latency of the network write, if it occurred, in milliseconds
-        """
-        # Write the updated model state to remote storage.
-        async with self._user_ns_lock:
-            model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
-
-        if model is None:
-            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
-            return
-
-        if model.requires_checkpointing:
-            self.log.debug(
-                f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
-            return
-
-        model_pointer: ModelPointer = ModelPointer(
-            deep_learning_model=model,
-            user_namespace_variable_name="model",
-            model_path=os.path.join(self.store_path, model.name),
-            proposer_id=self.smr_node_id,
-        )
-
-        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
-
-        st: float = time.time()
-        await self._remote_checkpointer.write_state_dicts_async(model_pointer)
-        et: float = time.time()
-        duration_ms: float = (et - st) * 1.0e3
-
-        if self.prometheus_enabled and getattr(self, "remote_storage_write_latency_milliseconds") is not None:
-            self.remote_storage_write_latency_milliseconds.labels(
-                session_id=self.kernel_id, workload_id=self.workload_id
-            ).observe(duration_ms * 1e3)
-
-        self.current_execution_stats.upload_model_and_training_data_microseconds += (
-                duration_ms * 1.0e3
-        )
-        self.current_execution_stats.upload_model_start_unix_millis = st
-        self.current_execution_stats.upload_model_end_unix_millis = et
-
-        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
-
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
@@ -2030,6 +2041,14 @@ class DistributedKernel(IPythonKernel):
         if inspect.isawaitable(reply_content):
             reply_content = await reply_content
 
+        # Flush output before sending the reply.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # FIXME: on rare occasions, the flush doesn't seem to make it to the clients...
+        #        This seems to mitigate the problem, but we definitely need to better understand what's going on.
+        if self._execute_sleep:
+            time.sleep(self._execute_sleep)
+
         term_number: int = -1
         was_primary_replica: bool = False
         if LEADER_KEY in reply_content:
@@ -2051,53 +2070,124 @@ class DistributedKernel(IPythonKernel):
                 code=code,
             )
 
-        # Flush output before sending the reply.
-        sys.stdout.flush()
-        sys.stderr.flush()
-        # FIXME: on rare occasions, the flush doesn't seem to make it to the clients...
-        #        This seems to mitigate the problem, but we definitely need to better understand what's going on.
-        if self._execute_sleep:
-            time.sleep(self._execute_sleep)
-
         # Send the reply.
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
         if self.smr_enabled:
-            # Schedule task to wait until this current election either fails (due to all replicas yielding)
-            # or until the leader finishes executing the user-submitted code.
+            # Embed the election metadata if we've been configured to do so.
             current_election: Election = self.synchronizer.current_election
-            metadata["election_metadata"] = current_election.get_election_metadata()
-            metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
-            metadata["election_metadata"]["leader_id"] = self.synclog.leader_id
+            if self.include_election_metadata:
+                metadata["election_metadata"] = current_election.get_election_metadata()
+                metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
+                metadata["election_metadata"]["leader_id"] = self.synclog.leader_id
 
             # If we weren't the lead replica, then we didn't recover the term number up above, so
             # let's get the current term number from the election object.
             if term_number == -1:
                 term_number = current_election.term_number
+
+            # If SMR is enabled, then we send the response now.
+            self.log.debug("Sending 'execute_reply' message now.")
+
+            # Send the reply now.
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+                stream,
+                "execute_reply",
+                reply_content,
+                parent,
+                metadata=metadata,
+                ident=ident,
+                buffers=buffers,
+            )
+
+            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
+
+        # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
+        # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
+        # or Redis, depending on the system's configuration.
+        await self.synchronize_updated_state(term_number)
+
+        # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+        #
+        # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
+        # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
+        #
+        # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
+        # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
+        # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
+        # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
+        # runtime state.
+        await self.schedule_notify_execution_complete(term_number)
+
+        # Record synchronization and checkpointing overhead.
+        # For replica-based approaches, this won't be included in what is sent back to the client.
+        # But we will update the Prometheus metrics (if Prometheus is enabled).
+
+        # Add the time from the synchronizer (so, the overhead of calling `append` on the SyncLog by the synchronizer)
+        self.current_execution_stats.upload_model_and_training_data_microseconds += \
+            (self.synchronizer.synchronization_time_seconds * 1.0e6)
+
+        # Add the `write_time` from the remote checkpointer.
+        self.current_execution_stats.upload_model_and_training_data_microseconds += \
+            (self._remote_checkpointer.storage_provider.write_time * 1.0e6)
+
+        # Add the time to load and apply serialized state from remote storage.
+        self.current_execution_stats.download_model_microseconds += \
+            (self.synclog.restoration_time_seconds * 1.0e6)
+
+        # For SMR-based policies, the "restore namespace" time is how long it takes to "catch up".
+        # For other policies, the "restore namespace" time is the time taken to read the data from remote storage.
+        if self.smr_enabled and self.num_replicas > 1:
+            self.current_execution_stats.download_model_microseconds += \
+                (self.synclog.restore_namespace_time_seconds * 1.0e6)
         else:
-            await self.checkpoint_model_state()
+            self.current_execution_stats.download_model_microseconds += \
+                (self.synclog.restore_namespace_time_seconds * 1.0e6)
 
-        # Send the reply now.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1, execution_stats=self.current_execution_stats
-        )
-        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
-            stream,
-            "execute_reply",
-            reply_content,
-            parent,
-            metadata=metadata,
-            ident=ident,
-            buffers=buffers,
-        )
+        self.current_execution_stats.download_model_microseconds += \
+            (self._remote_checkpointer.storage_provider.read_time * 1.0e6)
 
-        self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
+        # If prometheus is enabled, then publish the write latencies from the state synchronization to prometheus
+        # (though it may or may not be scraped correctly for policies in which containers only exist for a single
+        # training event due to the short-lived nature of those containers...)
+        if self.prometheus_enabled:
+            self.remote_storage_write_latency_milliseconds.labels(
+                session_id=self.kernel_id, workload_id=self.workload_id
+            ).observe(self._remote_checkpointer.storage_provider.write_time * 1e3)
 
-        if self.smr_enabled and was_primary_replica:
-            # Synchronize.
-            await self.synchronize_updated_state(term_number)
-            await self.schedule_notify_execution_complete(term_number)
+            for write_time_sec in self.synchronizer.synchronization_times:
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).observe(write_time_sec * 1e3)
+
+
+        self.synchronizer.clear_sync_time()
+        self._remote_checkpointer.storage_provider.clear_statistics()
+        self.synclog.clear_restoration_time()
+        self.synclog.clear_restore_namespace_time_seconds()
+
+        if not self.smr_enabled:
+            self.log.debug("Sending 'execute_reply' message now.")
+
+            # Send the reply now.
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+                stream,
+                "execute_reply",
+                reply_content,
+                parent,
+                metadata=metadata,
+                ident=ident,
+                buffers=buffers,
+            )
+
+            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
@@ -2146,7 +2236,7 @@ class DistributedKernel(IPythonKernel):
             )
 
             # TODO: What if we receive next message before this completes?
-            if duration > 0 and self.prometheus_enabled:
+            if duration > 0 and self.prometheus_enabled and hasattr(self, "remote_storage_write_latency_milliseconds"):
                 self.remote_storage_write_latency_milliseconds.labels(
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(duration * 1e3)
@@ -3166,9 +3256,12 @@ class DistributedKernel(IPythonKernel):
         :param term_number: the term for which we're performing the state synchronization.
         """
         if self.execution_ast is None:
-            self.log.warning("Execution AST is None. Synchronization will likely fail...")
+            self.log.warning(f"Synchronizing AST for term {term_number}. "
+                             f"Execution AST is None. "
+                             f"Synchronization will likely fail...")
         else:
-            self.log.debug("Synchronizing now. Execution AST is NOT None.")
+            self.log.debug(f"Synchronizing AST for term {term_number}. "
+                           f"Execution AST is NOT None.")
 
         sync_start_time: float = time.time() * 1.0e3
 
@@ -3529,6 +3622,18 @@ class DistributedKernel(IPythonKernel):
     async def schedule_notify_execution_complete(self, term_number: int):
         """
         Schedule the proposal of an "execution complete" notification for this election.
+
+        The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+
+        For multi-replica deployments, this will notify the follower/non-primary replicas that we're done
+        executing the user-submitted code, and that they're up-to-date in terms of receiving state updates
+        from the RaftLog.
+
+        For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote
+        storage (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list
+        of keys is used if and when we (this kernel) is recreated in a new container for a future execution.
+        Specifically, we'll read the list of keys, and then we'll read the data for each key in the list. Doing
+        so will restore our runtime state.
         """
 
         # Add task to the set. This creates a strong reference.
@@ -3989,7 +4094,7 @@ class DistributedKernel(IPythonKernel):
 
                 # We only want to embed election statistics if this request trace is being embedded in an
                 # "execute_request" or "yield_request" message (i.e., a code submission).
-                if msg_type == "execute_request" or msg_type == "yield_request":
+                if self.smr_enabled and (msg_type == "execute_request" or msg_type == "yield_request"):
                     current_election: Election = self.synchronizer.current_election
 
                     # It shouldn't be None, but let's double-check, just to be safe.
@@ -4431,15 +4536,13 @@ class DistributedKernel(IPythonKernel):
 
             if not self.smr_enabled or self.num_replicas <= 1:
                 assert self.current_execution_stats is not None
-                self.current_execution_stats.download_model_microseconds += (
-                                                                                    read_et - read_st
-                                                                            ) * 1.0e6
-                self.current_execution_stats.download_model_start_unix_millis += (
-                        read_st * 1.0e3
-                )
-                self.current_execution_stats.download_model_end_unix_millis += (
-                        read_et * 1.0e3
-                )
+                self.current_execution_stats.download_model_microseconds += \
+                    (read_et - read_st) * 1.0e6
+                self.current_execution_stats.download_model_start_unix_millis += \
+                    read_st * 1.0e3
+                self.current_execution_stats.download_model_end_unix_millis += \
+                    read_et * 1.0e3
+
         except Exception as exc:
             self.log.error(
                 f'Failed to read state dictionaries for model "{pointer.large_object_name}" '
@@ -4663,7 +4766,7 @@ class DistributedKernel(IPythonKernel):
             f"{time.time() - self.created_at} seconds."
         )
 
-    async def get_synclog(self, store_path) -> RaftLog:
+    async def get_synclog(self, store_path) -> SyncLog:
         assert isinstance(self.smr_nodes, list)
         assert isinstance(self.smr_nodes_map, dict)
         assert isinstance(self.smr_node_id, int)
@@ -4690,49 +4793,86 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self.log.debug("Creating RaftLog now.")
-        try:
-            self.synclog: RaftLog = RaftLog(
-                self.smr_node_id,
+        self.log.debug("Creating SyncLog now.")
+
+        if self.smr_enabled and self.num_replicas > 1:
+            try:
+                self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
+                self.synclog: RaftLog = RaftLog(
+                    self.smr_node_id,
+                    base_path=store,
+                    kernel_id=self.kernel_id,
+                    num_replicas=self.num_replicas,
+                    remote_storage_hostname=self.remote_storage_hostname,
+                    remote_storage=self.remote_storage,
+                    should_read_data=self.should_read_data_from_remote_storage,
+                    peer_addresses=peer_addresses,
+                    peer_ids=ids,
+                    join=self.smr_join,
+                    debug_port=self.debug_port,
+                    report_error_callback=self.report_error,
+                    send_notification_func=self.send_notification,
+                    remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
+                    deployment_mode=self.deployment_mode,
+                    election_timeout_seconds=self.election_timeout_seconds,
+                    loaded_serialized_state_callback=self.loaded_serialized_state_callback,
+                )
+            except Exception as exc:
+                self.log.error("Error while creating RaftLog: %s" % str(exc))
+
+                # Print the stack.
+                stack: list[str] = traceback.format_exception(exc)
+                for stack_entry in stack:
+                    self.log.error(stack_entry)
+
+                self.report_error(
+                    error_title="Failed to Create RaftLog", error_message=str(exc)
+                )
+
+                # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
+                await asyncio.sleep(10)
+
+                # Terminate.
+                await self.do_shutdown(False)
+
+                exit(1)
+        else:
+            self.log.debug(f"SMR is disabled and/or we only have 1 replica. (We have {self.num_replicas}.) "
+                           f"Using RemoteStorageLog.")
+
+            remote_storage_read_latency_milliseconds: Optional[Histogram] = None
+            if hasattr(self,
+                       "remote_storage_read_latency_milliseconds") and self.remote_storage_read_latency_milliseconds is not None:
+                remote_storage_read_latency_milliseconds = self.remote_storage_read_latency_milliseconds
+
+            if self.remote_storage.lower() == "redis":
+                remote_storage_provider: RedisProvider = RedisProvider(
+                    host=self.remote_storage_hostname,
+                    port=self.redis_port,
+                    db=self.redis_database,
+                    password=self.redis_password,
+                )
+            elif self.remote_storage.lower() == "s3" or self.remote_storage.lower() == "aws s3":
+                remote_storage_provider: S3Provider = S3Provider(
+                    bucket_name=self.s3_bucket,
+                    aws_region=self.aws_region,
+                )
+            else:
+                raise ValueError(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
+
+            assert remote_storage_provider is not None
+            self.synclog: RemoteStorageLog = RemoteStorageLog(
+                node_id=self.smr_node_id,
+                remote_storage_provider=remote_storage_provider,
                 base_path=store,
+                prometheus_enabled=self.prometheus_enabled,
                 kernel_id=self.kernel_id,
-                num_replicas=self.num_replicas,
-                remote_storage_hostname=self.remote_storage_hostname,
-                remote_storage=self.remote_storage,
-                should_read_data=self.should_read_data_from_remote_storage,
-                peer_addresses=peer_addresses,
-                peer_ids=ids,
-                join=self.smr_join,
-                debug_port=self.debug_port,
-                report_error_callback=self.report_error,
-                send_notification_func=self.send_notification,
-                remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
-                deployment_mode=self.deployment_mode,
-                election_timeout_seconds=self.election_timeout_seconds,
-                remote_checkpointer=self._remote_checkpointer,
-                loaded_serialized_state_callback=self.loaded_serialized_state_callback,
-            )
-        except Exception as exc:
-            self.log.error("Error while creating RaftLog: %s" % str(exc))
-
-            # Print the stack.
-            stack: list[str] = traceback.format_exception(exc)
-            for stack_entry in stack:
-                self.log.error(stack_entry)
-
-            self.report_error(
-                error_title="Failed to Create RaftLog", error_message=str(exc)
+                workload_id=self.workload_id,
+                remote_storage_write_latency_milliseconds=remote_storage_read_latency_milliseconds,
             )
 
-            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
-            await asyncio.sleep(10)
-
-            # Terminate.
-            await self.do_shutdown(False)
-
-            exit(1)
-
-        self.log.debug("Successfully created RaftLog.")
+        assert self.synclog is not None
+        self.log.debug("Successfully created SyncLog.")
 
         return self.synclog
 

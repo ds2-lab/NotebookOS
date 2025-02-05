@@ -3,9 +3,10 @@ import asyncio
 import logging
 import os
 import sys
+import time
 import traceback
 import types
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, List
 
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.logs import ColoredLogFormatter
@@ -13,7 +14,7 @@ from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 from .ast import SyncAST
 from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
-from .checkpointing.remote_checkpointer import RemoteCheckpointer
+from .checkpointing.checkpointer import Checkpointer
 from .election import Election
 from .errors import DiscardMessageError, SyncError
 from .log import KEY_SYNC_END, Checkpointer, SynchronizedValue, SyncLog
@@ -45,10 +46,11 @@ class Synchronizer:
         ns=None,
         opts=0,
         node_id: int = -1,
+        num_replicas: int = 3,
         large_object_pointer_committed: Callable[
             [SyncPointer], Optional[CustomDataset | DeepLearningModel]
         ] = None,
-        remote_checkpointer: RemoteCheckpointer = None,
+        remote_checkpointer: Checkpointer = None,
     ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
@@ -63,6 +65,7 @@ class Synchronizer:
 
         self._store_path: str = store_path
         self._node_id: int = node_id
+        self._num_replicas: int = num_replicas
 
         # Set callbacks for synclog
         sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)
@@ -89,6 +92,10 @@ class Synchronizer:
 
         self.log.debug("Got asyncio io loop")
 
+        self._sync_time_sec: float = 0
+        self._sync_times: List[float] = []
+        self._lifetime_sync_time_sec: float = 0
+
         self._tags = {}
         self._ast = SyncAST()
         self.log.debug("Created SyncAST")
@@ -104,9 +111,45 @@ class Synchronizer:
 
         if remote_checkpointer is None:
             raise ValueError("remote checkpointer cannot be null")
-        self._remote_checkpointer: RemoteCheckpointer = remote_checkpointer
+        self._remote_checkpointer: Checkpointer = remote_checkpointer
 
         self.log.debug("Finished creating Synchronizer")
+
+    @property
+    def synchronization_time_seconds(self)->float:
+        """
+        Return the amount of time spent synchronizing state in seconds.
+        """
+        return self._sync_time_sec
+
+    @property
+    def synchronization_times(self)->List[float]:
+        """
+        Return the amount of time spent synchronizing state in seconds.
+        """
+        return self._sync_times
+
+    @property
+    def lifetime_synchronization_time_seconds(self)->float:
+        """
+        Return the amount of time spent synchronizing state in seconds.
+        """
+        return self._lifetime_sync_time_sec
+
+    def __record_sync_time(self, time_sec: float):
+        self._sync_time_sec += time_sec
+        self._sync_times.append(time_sec)
+
+        self._lifetime_sync_time_sec += time_sec
+
+    def clear_sync_time(self):
+        """
+        Clears the '_sync_time_sec' field (but NOT the '_lifetime_sync_time_sec' field).
+
+        This also clears the '_sync_times' slice.
+        """
+        self._sync_time_sec = 0.0
+        self._sync_times.clear()
 
     def start(self):
         self.log.debug("Starting Synchronizer")
@@ -553,13 +596,17 @@ class Synchronizer:
             #     sync_ast.set_election_term(current_election.term_number)
             #     sync_ast.set_attempt_number(current_election.current_attempt_number)
 
-            self.log.debug(
-                f"Appending value: {sync_ast}. Checkpointing={checkpointing}."
-            )
+            self.log.debug(f"Appending value: {sync_ast}. Checkpointing={checkpointing}.")
+
+            st: float = time.time()
             await sync_log.append(sync_ast)
-            self.log.debug(
-                f"Successfully appended value: {sync_ast}. Checkpointing={checkpointing}."
-            )
+            et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.__record_sync_time(time_elapsed)
+            self.log.debug(f"Successfully appended value in {round(time_elapsed * 1.0e3, 3):,} ms: {sync_ast}. "
+                           f"Checkpointing={checkpointing}.")
+
             self.log.debug(f"Synchronizing {len(keys)} key(s) now.")
 
             unknown_keys: set[str] = set()
@@ -699,10 +746,20 @@ class Synchronizer:
             sync_val.set_should_end_execution(end_execution)
 
             assert sync_log is not None
+
+            st: float = time.time()
             await sync_log.append(sync_val)
+            et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.__record_sync_time(time_elapsed)
+            self.log.debug(f'Successfully appended key "{key}" in {round(time_elapsed * 1.0e3, 3):,} ms: {sync_val}. '
+                           f'Checkpointing={checkpointing}.')
         elif end_execution:
             # Synthesize end
             assert sync_log is not None
+
+            st: float = time.time()
             await sync_log.append(
                 SynchronizedValue(
                     None,
@@ -713,6 +770,12 @@ class Synchronizer:
                     proposer_id=self._node_id,
                 )
             )
+            et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.__record_sync_time(time_elapsed)
+            self.log.debug(f'Successfully appended key "{key}" in {round(time_elapsed * 1.0e3, 3):,} ms: {sync_val}. '
+                           f'Checkpointing={checkpointing}.')
 
     def should_checkpoint_callback(self, sync_log: SyncLog) -> bool:
         cp = False

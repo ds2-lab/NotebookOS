@@ -46,7 +46,8 @@ type Host interface {
 	SchedulerPoolType() SchedulerPoolType
 	GetResourceSpec() types.Spec
 	IsProperlyInitialized() bool
-
+	// GetGpuDeviceIdsAssignedToReplica returns the GPU device IDs assigned to the specified kernel replica.
+	GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error)
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(types.HeapElementMetadataKey, int)
 	GetIdx(types.HeapElementMetadataKey) int
@@ -126,7 +127,7 @@ type Host interface {
 	// the de-allocation request if it is outdated.
 	//
 	// PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
-	PreCommitResources(container KernelContainer, executionId string) error
+	PreCommitResources(container KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error)
 
 	// ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
 	//

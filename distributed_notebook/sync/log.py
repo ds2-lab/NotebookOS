@@ -1,10 +1,9 @@
-import asyncio
 import datetime
 import time
 import uuid
 from enum import Enum
 from json import JSONEncoder
-from typing import Tuple, Optional, Any
+from typing import Optional, Any, List, Dict
 
 from typing_extensions import Protocol, runtime_checkable
 
@@ -414,6 +413,52 @@ class SyncLog(Protocol):
         """
 
     @property
+    def leader_id(self)->int:
+        """
+        Return the ID of the last/current leader node.
+        """
+
+    @property
+    def leader_term(self)->int:
+        """
+        Return the term number of the last/current leader node.
+        """
+
+    async def remove_node(self, node_id):
+        """Remove a node from the etcd-raft cluster."""
+        pass
+
+    def close_remote_storage_client(self) -> None:
+        """
+        Close the LogNode's RemoteStorage client.
+        """
+
+    async def write_data_dir_to_remote_storage(
+            self,
+            last_resource_request: Optional[
+                Dict[str, float | int | List[float] | List[int]]
+            ] = None,
+            remote_storage_definitions: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Write the contents of the etcd-Raft data directory to RemoteStorage.
+        """
+
+    async def update_node(self, node_id, address):
+        """Add a node to the etcd-raft  cluster."""
+
+    async def add_node(self, node_id, address):
+        """
+        Add a node to the etcd-raft cluster.
+
+        NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
+
+        Args:
+            node_id: the ID of the node being added.
+            address: the IP address of the node being added.
+        """
+
+    @property
     def created_first_election(self)->bool:
         """
         :return: return a boolean indicating whether we've created the first election yet.
@@ -429,9 +474,43 @@ class SyncLog(Protocol):
         :return: a list of term numbers for which we have an associated Election object
         """
 
+    @property
+    def needs_to_catch_up(self)->bool:
+        """
+        :return: true if we need to catch up because a migration just occurred
+        """
+
+    async def catchup_with_peers(self)->None:
+        """
+        Propose a new value and wait for it to be commited to know that we're "caught up".
+        """
+        pass
+
+    @property
+    def restoration_time_seconds(self)->float:
+        """
+        Return the time spent on restoring previous state from remote storage.
+        """
+
+    def clear_restoration_time(self):
+        """
+        Clear the 'restoration_time_seconds' metric.
+        """
+
+    @property
+    def restore_namespace_time_seconds(self)->float:
+        """
+        Return the time spent restoring the user namespace.
+        """
+
+    def clear_restore_namespace_time_seconds(self):
+        """
+        Clear the 'restore_namespace_time_seconds' metric.
+        """
+
     def start(self, handler):
-        """Register change handler, restore internel states, and start monitoring changes.
-          handler will be in the form listerner(key, val: SyncValue)"""
+        """Register change handler, restore internal states, and start monitoring changes.
+          handler will be in the form listener(key, val: SyncValue)"""
 
     def set_should_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
@@ -448,29 +527,12 @@ class SyncLog(Protocol):
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
 
-    async def set_election_waiter_ioloop(self, io_loop: asyncio.AbstractEventLoop, term_number: int):
-        """
-        Set the asyncio IOLoop that will be used when notifying the calling thread that the election of the
-        specified term number has completed.
-        """
-
     async def wait_for_election_to_end(self, term_number: int):
         """
         Wait until the leader of the specified election finishes executing the code,
         or until we know that all replicas yielded.
 
         :param term_number: the term number of the election
-        """
-
-    async def append_execution_end_notification(self, notification: ExecutionCompleteNotification):
-        """
-        Explicitly propose and append (to the synchronized Raft log) a ExecutionCompleteNotification object to
-        signify that we've finished executing code in the current election.
-
-        This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
-        rather than mocking the more generic _serialize_and_append_value method.
-
-        :param notification: the notification to be appended to the sync log
         """
 
     async def notify_execution_complete(self, term_number: int):
@@ -483,12 +545,6 @@ class SyncLog(Protocol):
 
     async def append(self, val: SynchronizedValue):
         """Append the difference of the value of specified key to the synchronization queue."""
-
-    def sync(self, term):
-        """Manually trigger the synchronization of changes since specified term."""
-
-    def reset(self, term, logs: Tuple[SynchronizedValue]):
-        """Clear logs equal and before specified term and replaced with specified logs"""
 
     def close(self):
         """Ensure all async coroutines end and clean up."""

@@ -119,6 +119,24 @@ func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, k
 	return resultChan
 }
 
+// UnregisterKernel is used to stop the goroutine that is forwarding messages to a particular kernel.
+//
+// UnregisterKernel will return true if the "stop" channel for the specified kernel is loaded and a notification
+// to stop is successfully sent over the channel.
+//
+// UnregisterKernel is non-blocking.
+func (s *ExecuteRequestForwarder[MessageType]) UnregisterKernel(kernelId string) bool {
+	stopChan, loaded := s.executeRequestQueueStopChannels.Load(kernelId)
+	if !loaded {
+		s.log.Warn("Unable to load \"stop channel\" for \"execute_request\" forwarder for kernel %s", kernelId)
+		return false
+	}
+
+	// Tell the goroutine to stop.
+	stopChan <- struct{}{}
+	return true
+}
+
 // RegisterKernel creates the necessary internal infrastructure to send "execute_request" messages to a kernel.
 func (s *ExecuteRequestForwarder[MessageType]) RegisterKernel(kernel MessageRecipient,
 	requestHandler RequestHandler[MessageType], responseHandler scheduling.KernelReplicaMessageHandler) {

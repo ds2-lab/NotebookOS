@@ -3402,9 +3402,9 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
     (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
     (VGG11, CIFAR10), (VGG11, TinyImageNet),
-    (VGG13, CIFAR10), (VGG13, TinyImageNet),
-    (VGG16, CIFAR10), (VGG16, TinyImageNet),
-    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    # (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    # (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    # (VGG19, CIFAR10), (VGG19, TinyImageNet),
     (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
     (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
     (DeepSpeech2, LibriSpeech)

@@ -22,7 +22,7 @@ fi
 # Get the first argument and validate
 new_value=$1
 if [[ "$new_value" != "default" && "$new_value" != "static" && "$new_value" != "dynamic-v3" && "$new_value" != "dynamic-v4" && "$new_value" != "fcfs-batch" && "$new_value" != "auto-scaling-fcfs-batch" && "$new_value" != "reservation" && "$new_value" != "gandiva" ]]; then
-  echo "Error: Argument must be 'true' or 'false'."
+  echo "Usage: $0 <default|static|dynamic-v3|dynamic-v4|fcfs-batch|auto-scaling-fcfs-batch|reservation|gandiva>"
   exit 1
 fi
 

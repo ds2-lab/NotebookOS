@@ -121,6 +121,21 @@ type DockerInvoker struct {
 	simulateCheckpointingLatency         bool
 	SmrEnabled                           bool
 	IsInDockerSwarm                      bool
+
+	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	S3Bucket string
+
+	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	AwsRegion string
+
+	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	RedisPassword string
+
+	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisPort int
+
+	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+	RedisDatabase int
 }
 
 // DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
@@ -145,6 +160,11 @@ type DockerInvokerOptions struct {
 	BindDebugpyPort                      bool
 	SaveStoppedKernelContainers          bool
 	BindGPUs                             bool
+	S3Bucket                             string
+	AwsRegion                            string
+	RedisPassword                        string
+	RedisPort                            int
+	RedisDatabase                        int
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
@@ -188,6 +208,11 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		BindDebugpyPort:                      opts.BindDebugpyPort,
 		SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
 		BindGPUs:                             opts.BindGPUs,
+		S3Bucket:                             opts.S3Bucket,
+		AwsRegion:                            opts.AwsRegion,
+		RedisPassword:                        opts.RedisPassword,
+		RedisPort:                            opts.RedisPort,
+		RedisDatabase:                        opts.RedisDatabase,
 	}
 
 	config.InitLogger(&invoker.log, invoker)

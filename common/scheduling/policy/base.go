@@ -78,6 +78,10 @@ func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnable
 	return basePolicy, nil
 }
 
+func (p *baseSchedulingPolicy) getLogger() logger.Logger {
+	return p.log
+}
+
 // SupportsMigration returns true if the Policy allows for the migration of one or more replicas of
 // a kernel when no replicas are able to serve a code execution request.
 //

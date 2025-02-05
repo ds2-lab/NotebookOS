@@ -2346,6 +2346,21 @@ func (mr *MockHostMockRecorder) GetCreatedAt() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCreatedAt", reflect.TypeOf((*MockHost)(nil).GetCreatedAt))
 }
 
+// GetGpuDeviceIdsAssignedToReplica mocks base method.
+func (m *MockHost) GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGpuDeviceIdsAssignedToReplica", replicaId, kernelId)
+	ret0, _ := ret[0].([]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGpuDeviceIdsAssignedToReplica indicates an expected call of GetGpuDeviceIdsAssignedToReplica.
+func (mr *MockHostMockRecorder) GetGpuDeviceIdsAssignedToReplica(replicaId, kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpuDeviceIdsAssignedToReplica", reflect.TypeOf((*MockHost)(nil).GetGpuDeviceIdsAssignedToReplica), replicaId, kernelId)
+}
+
 // GetGrpcConnection mocks base method.
 func (m *MockHost) GetGrpcConnection() *grpc.ClientConn {
 	m.ctrl.T.Helper()
@@ -3030,17 +3045,18 @@ func (mr *MockHostMockRecorder) PlacedVRAM() *gomock.Call {
 }
 
 // PreCommitResources mocks base method.
-func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
+func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId, gpuDeviceIds)
+	ret0, _ := ret[0].([]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // PreCommitResources indicates an expected call of PreCommitResources.
-func (mr *MockHostMockRecorder) PreCommitResources(container, executionId any) *gomock.Call {
+func (mr *MockHostMockRecorder) PreCommitResources(container, executionId, gpuDeviceIds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container, executionId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container, executionId, gpuDeviceIds)
 }
 
 // PrepareToMigrate mocks base method.
@@ -4094,6 +4110,21 @@ func (mr *MockUnitTestingHostMockRecorder) GetCreatedAt() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCreatedAt", reflect.TypeOf((*MockUnitTestingHost)(nil).GetCreatedAt))
 }
 
+// GetGpuDeviceIdsAssignedToReplica mocks base method.
+func (m *MockUnitTestingHost) GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGpuDeviceIdsAssignedToReplica", replicaId, kernelId)
+	ret0, _ := ret[0].([]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGpuDeviceIdsAssignedToReplica indicates an expected call of GetGpuDeviceIdsAssignedToReplica.
+func (mr *MockUnitTestingHostMockRecorder) GetGpuDeviceIdsAssignedToReplica(replicaId, kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpuDeviceIdsAssignedToReplica", reflect.TypeOf((*MockUnitTestingHost)(nil).GetGpuDeviceIdsAssignedToReplica), replicaId, kernelId)
+}
+
 // GetGrpcConnection mocks base method.
 func (m *MockUnitTestingHost) GetGrpcConnection() *grpc.ClientConn {
 	m.ctrl.T.Helper()
@@ -4778,17 +4809,18 @@ func (mr *MockUnitTestingHostMockRecorder) PlacedVRAM() *gomock.Call {
 }
 
 // PreCommitResources mocks base method.
-func (m *MockUnitTestingHost) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
+func (m *MockUnitTestingHost) PreCommitResources(container scheduling.KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId, gpuDeviceIds)
+	ret0, _ := ret[0].([]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // PreCommitResources indicates an expected call of PreCommitResources.
-func (mr *MockUnitTestingHostMockRecorder) PreCommitResources(container, executionId any) *gomock.Call {
+func (mr *MockUnitTestingHostMockRecorder) PreCommitResources(container, executionId, gpuDeviceIds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockUnitTestingHost)(nil).PreCommitResources), container, executionId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockUnitTestingHost)(nil).PreCommitResources), container, executionId, gpuDeviceIds)
 }
 
 // PrepareToMigrate mocks base method.
@@ -10990,18 +11022,18 @@ func (mr *MockAllocationManagerMockRecorder) PlacedVRAM() *gomock.Call {
 }
 
 // PreCommitResourcesToExistingContainer mocks base method.
-func (m *MockAllocationManager) PreCommitResourcesToExistingContainer(replicaId int32, kernelId, executionId string, resourceRequestArg types.Spec) ([]int, error) {
+func (m *MockAllocationManager) PreCommitResourcesToExistingContainer(replicaId int32, kernelId, executionId string, resourceRequestArg types.Spec, gpuDeviceIds []int) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResourcesToExistingContainer", replicaId, kernelId, executionId, resourceRequestArg)
+	ret := m.ctrl.Call(m, "PreCommitResourcesToExistingContainer", replicaId, kernelId, executionId, resourceRequestArg, gpuDeviceIds)
 	ret0, _ := ret[0].([]int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PreCommitResourcesToExistingContainer indicates an expected call of PreCommitResourcesToExistingContainer.
-func (mr *MockAllocationManagerMockRecorder) PreCommitResourcesToExistingContainer(replicaId, kernelId, executionId, resourceRequestArg any) *gomock.Call {
+func (mr *MockAllocationManagerMockRecorder) PreCommitResourcesToExistingContainer(replicaId, kernelId, executionId, resourceRequestArg, gpuDeviceIds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResourcesToExistingContainer", reflect.TypeOf((*MockAllocationManager)(nil).PreCommitResourcesToExistingContainer), replicaId, kernelId, executionId, resourceRequestArg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResourcesToExistingContainer", reflect.TypeOf((*MockAllocationManager)(nil).PreCommitResourcesToExistingContainer), replicaId, kernelId, executionId, resourceRequestArg, gpuDeviceIds)
 }
 
 // PromotePreCommitment mocks base method.

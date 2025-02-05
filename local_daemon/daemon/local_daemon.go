@@ -103,9 +103,6 @@ type LocalScheduler struct {
 	kernelClientCreationChannels        hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 	kernels                             hashmap.HashMap[string, scheduling.KernelReplica]
 	provisioner                         proto.ClusterGatewayClient
-	executeRequestQueueStopChannels     hashmap.HashMap[string, chan interface{}]
-	outgoingExecuteRequestQueueMutexes  hashmap.HashMap[string, *sync.Mutex]
-	outgoingExecuteRequestQueue         hashmap.HashMap[string, chan *enqueuedExecOrYieldRequest]
 	schedulingPolicy                    scheduling.Policy
 	kernelsStopping                     hashmap.HashMap[string, chan struct{}]
 	virtualGpuPluginServer              device.VirtualGpuPluginServer
@@ -131,6 +128,9 @@ type LocalScheduler struct {
 	dockerStorageBase                   string
 	remoteStorage                       string
 	remoteStorageEndpoint               string
+	S3Bucket                            string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	AwsRegion                           string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	RedisPassword                       string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
 	deploymentMode                      types.DeploymentMode
 	schedulerDaemonOptions              domain.SchedulerDaemonOptions
 	prometheusStarted                   sync.WaitGroup
@@ -139,6 +139,8 @@ type LocalScheduler struct {
 	kernelRegistryPort                  int
 	electionTimeoutSeconds              int
 	prometheusPort                      int
+	RedisPort                           int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisDatabase                       int // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 	prometheusInterval                  time.Duration
 	kernelErrorReporterServerPort       int
 	connectingToGateway                 atomic.Int32
@@ -184,40 +186,42 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	ip := os.Getenv("POD_IP")
 
 	daemon := &LocalScheduler{
-		connectionOptions:                  connectionOptions,
-		transport:                          "tcp",
-		ip:                                 ip,
-		id:                                 dockerNodeId,
-		nodeName:                           nodeName,
-		kernelsStopping:                    hashmap.NewCornelkMap[string, chan struct{}](128),
-		kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
-		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
-		kernelDebugPorts:                   hashmap.NewCornelkMap[string, int](256),
-		closed:                             make(chan struct{}),
-		cleaned:                            make(chan struct{}),
-		kernelRegistryPort:                 kernelRegistryPort,
-		kernelErrorReporterServerPort:      kernelErrorReporterServerPort,
-		localDaemonOptions:                 localDaemonOptions,
-		smrPort:                            localDaemonOptions.SMRPort,
-		virtualGpuPluginServer:             virtualGpuPluginServer,
-		deploymentMode:                     types.DeploymentMode(localDaemonOptions.DeploymentMode),
-		remoteStorageEndpoint:              localDaemonOptions.RemoteStorageEndpoint,
-		remoteStorage:                      localDaemonOptions.RemoteStorage,
-		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
-		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
-		prometheusInterval:                 time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
-		prometheusPort:                     localDaemonOptions.PrometheusPort,
-		numResendAttempts:                  localDaemonOptions.NumResendAttempts,
-		runKernelsInGdb:                    localDaemonOptions.RunKernelsInGdb,
-		outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecOrYieldRequest](128),
-		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
-		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
-		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
-		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
-		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
-		simulateTrainingUsingSleep:         localDaemonOptions.SimulateTrainingUsingSleep,
-		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
-		saveStoppedKernelContainers:        localDaemonOptions.SaveStoppedKernelContainers,
+		connectionOptions:              connectionOptions,
+		transport:                      "tcp",
+		ip:                             ip,
+		id:                             dockerNodeId,
+		nodeName:                       nodeName,
+		kernelsStopping:                hashmap.NewCornelkMap[string, chan struct{}](128),
+		kernels:                        hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
+		kernelClientCreationChannels:   hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
+		kernelDebugPorts:               hashmap.NewCornelkMap[string, int](256),
+		closed:                         make(chan struct{}),
+		cleaned:                        make(chan struct{}),
+		kernelRegistryPort:             kernelRegistryPort,
+		kernelErrorReporterServerPort:  kernelErrorReporterServerPort,
+		localDaemonOptions:             localDaemonOptions,
+		smrPort:                        localDaemonOptions.SMRPort,
+		virtualGpuPluginServer:         virtualGpuPluginServer,
+		deploymentMode:                 types.DeploymentMode(localDaemonOptions.DeploymentMode),
+		remoteStorageEndpoint:          localDaemonOptions.RemoteStorageEndpoint,
+		remoteStorage:                  localDaemonOptions.RemoteStorage,
+		dockerStorageBase:              localDaemonOptions.DockerStorageBase,
+		DebugMode:                      localDaemonOptions.CommonOptions.DebugMode,
+		prometheusInterval:             time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
+		prometheusPort:                 localDaemonOptions.PrometheusPort,
+		numResendAttempts:              localDaemonOptions.NumResendAttempts,
+		runKernelsInGdb:                localDaemonOptions.RunKernelsInGdb,
+		MessageAcknowledgementsEnabled: localDaemonOptions.MessageAcknowledgementsEnabled,
+		SimulateCheckpointingLatency:   localDaemonOptions.SimulateCheckpointingLatency,
+		electionTimeoutSeconds:         localDaemonOptions.ElectionTimeoutSeconds,
+		simulateTrainingUsingSleep:     localDaemonOptions.SimulateTrainingUsingSleep,
+		bindDebugpyPort:                localDaemonOptions.BindDebugPyPort,
+		saveStoppedKernelContainers:    localDaemonOptions.SaveStoppedKernelContainers,
+		S3Bucket:                       localDaemonOptions.S3Bucket,
+		AwsRegion:                      localDaemonOptions.AwsRegion,
+		RedisPassword:                  localDaemonOptions.RedisPassword,
+		RedisPort:                      localDaemonOptions.RedisPort,
+		RedisDatabase:                  localDaemonOptions.RedisDatabase,
 	}
 
 	for _, configFunc := range configs {
@@ -883,6 +887,11 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		BindGPUs:                             d.realGpusAvailable,
 		BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
 		AssignedGpuDeviceIds:                 kernelReplicaSpec.ResourceSpec().GpuDeviceIds,
+		S3Bucket:                             d.S3Bucket,
+		AwsRegion:                            d.AwsRegion,
+		RedisPassword:                        d.RedisPassword,
+		RedisPort:                            d.RedisPort,
+		RedisDatabase:                        d.RedisDatabase,
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -919,13 +928,6 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		// TODO: Handle this more gracefully.
 		return nil, nil
 	}
-
-	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
-	executeRequestStopChan := make(chan interface{}, 1)
-	executeRequestQueue := make(chan *enqueuedExecOrYieldRequest, DefaultExecuteRequestQueueSize)
-	d.outgoingExecuteRequestQueue.Store(kernelReplicaSpec.Kernel.Id, executeRequestQueue)
-	d.outgoingExecuteRequestQueueMutexes.Store(kernelReplicaSpec.Kernel.Id, &sync.Mutex{})
-	d.executeRequestQueueStopChannels.Store(kernelReplicaSpec.Kernel.Id, executeRequestStopChan)
 
 	d.registerKernelWithExecReqForwarder(kernel)
 
@@ -1857,6 +1859,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			BindGPUs:                             d.realGpusAvailable,
 			BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
+			S3Bucket:                             d.S3Bucket,
+			AwsRegion:                            d.AwsRegion,
+			RedisPassword:                        d.RedisPassword,
+			RedisPort:                            d.RedisPort,
+			RedisDatabase:                        d.RedisDatabase,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		// Note that we could pass d.prometheusManager directly in the call above.
@@ -2010,13 +2017,9 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 		return nil, err
 	}
 
-	stopChan, loaded := d.executeRequestQueueStopChannels.Load(kernel.ID())
-	if !loaded {
-		d.log.Warn("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
-			kernel.ReplicaID(), kernel.ID())
-	} else {
-		// Tell the goroutine to stop.
-		stopChan <- struct{}{}
+	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
+	if !stopped {
+		d.log.Warn("Failed to stop 'execute_request' forwarder for kernel \"%s\"...", in.Id)
 	}
 
 	//_ = d.allocationManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
@@ -2555,10 +2558,21 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("[gid=%d] Attempting to pre-commit the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		//gpuDeviceIds, resourceAllocationError := d.allocationManager.CommitResourcesToExistingContainer(
-		//	kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec(), true)
-		gpuDeviceIds, resourceAllocationError := d.allocationManager.PreCommitResourcesToExistingContainer(
-			kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec())
+
+		var (
+			gpuDeviceIds            []int
+			resourceAllocationError error
+		)
+
+		if val, loaded := metadataDict["gpu_device_ids"]; loaded {
+			gpuDeviceIds = val.([]int)
+
+			d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
+				msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
+		}
+
+		gpuDeviceIds, resourceAllocationError = d.allocationManager.PreCommitResourcesToExistingContainer(
+			kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec(), gpuDeviceIds)
 
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",

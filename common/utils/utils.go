@@ -85,3 +85,35 @@ func GenerateRandomString(n int) string {
 
 	return *(*string)(unsafe.Pointer(&b))
 }
+
+// SetDifferenceIfSubset returns the set difference of A and B if B is a subset of A along with the flag true.
+//
+// If B is not a subset of A, then SetDifferenceIfSubset returns the original value of A and false.
+func SetDifferenceIfSubset(a, b []int) ([]int, bool) {
+	// Create a map to count occurrences of each element in A.
+	elementCount := make(map[int]int)
+	for _, elem := range a {
+		elementCount[elem]++
+	}
+
+	// Check if B is a subset of A.
+	for _, elem := range b {
+		if elementCount[elem] == 0 {
+			// Not a subset.
+			return a, false
+		}
+
+		elementCount[elem]--
+	}
+
+	// Compute the set difference.
+	setDifference := make([]int, 0)
+	for _, elem := range a {
+		if elementCount[elem] > 0 {
+			setDifference = append(setDifference, elem)
+			elementCount[elem]--
+		}
+	}
+
+	return setDifference, true
+}

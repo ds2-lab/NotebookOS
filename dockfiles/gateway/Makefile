@@ -19,6 +19,9 @@ docker: build-in-container
 #	rm gateway
 # ../clean.sh
 
+build-and-push: docker
+	docker push $(DOCKER_USER)gateway:latest
+
 # Don't rebuild the Gateway executable.
 # If there is no `gateway` (executable) file in this directory, then this recipe will fail.
 docker-no-rebuild:
