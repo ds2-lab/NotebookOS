@@ -16,13 +16,13 @@ import (
 //
 
 type WebSocketProxyServer struct {
+	log            logger.Logger
 	stopChan       chan struct{} // Tell the server to stop listening.
 	errorChan      chan error    // Report errors via this channel.
 	connectionChan chan net.Conn
 	server         *http.Server // The underlying HTTP server.
 	address        string       // The address that the HTTP server will listen on.
 
-	log logger.Logger
 }
 
 func NewWebSocketProxyServer(address string) *WebSocketProxyServer {

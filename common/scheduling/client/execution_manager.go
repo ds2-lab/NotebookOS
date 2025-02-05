@@ -38,17 +38,17 @@ func validateReply(msg *messaging.JupyterMessage) error {
 // ExecutionManager manages the Execution instances associated with a DistributedKernelClient / scheduling.Kernel.
 type ExecutionManager struct {
 	log logger.Logger
-	mu  sync.Mutex
 
 	// Kernel is the kernel associated with the ExecutionManager.
 	Kernel scheduling.Kernel
 
-	// NumReplicas is how many replicas the Kernel has.
-	NumReplicas int
-
 	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
 	// code execution. It will be nil if no code executions have occurred.
 	lastPrimaryReplica scheduling.KernelReplica
+
+	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
+	// for updating Prometheus metrics.
+	statisticsProvider scheduling.StatisticsProvider
 
 	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
 	// the code submission with the aforementioned ID.
@@ -95,6 +95,27 @@ type ExecutionManager struct {
 
 	// executionIndicesToExecutions is a mapping from ExecutionIndex to *Execution.
 	executionIndicesToExecutions map[int32]*Execution
+
+	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
+	notificationCallback scheduling.NotificationCallback
+
+	// executionFailedCallback is a callback for when execution fails (such as all replicas proposing 'YIELD').
+	executionFailedCallback scheduling.ExecutionFailedCallback
+
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each scheduling.Kernel and
+	// subsequently the scheduling.Kernel's ExecutionManager.
+	//
+	// When a scheduling.Kernel receives a notification that a kernel has started execution user-submitted code,
+	// the scheduling.Kernel will check if its ActiveExecution struct has the original "sent-at" timestamp
+	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+	// so that a relevant Prometheus metric can be updated.
+	executionLatencyCallback scheduling.ExecutionLatencyCallback
+
+	// NumReplicas is how many replicas the Kernel has.
+	NumReplicas int
+
+	mu sync.Mutex
 
 	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
 	nextExecutionIndex atomic.Int32
@@ -150,26 +171,6 @@ type ExecutionManager struct {
 	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
 	// in terms of what the client is doing/submitting.
 	completedExecutionIndex int32
-
-	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
-	notificationCallback scheduling.NotificationCallback
-
-	// executionFailedCallback is a callback for when execution fails (such as all replicas proposing 'YIELD').
-	executionFailedCallback scheduling.ExecutionFailedCallback
-
-	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each scheduling.Kernel and
-	// subsequently the scheduling.Kernel's ExecutionManager.
-	//
-	// When a scheduling.Kernel receives a notification that a kernel has started execution user-submitted code,
-	// the scheduling.Kernel will check if its ActiveExecution struct has the original "sent-at" timestamp
-	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
-	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
-	// so that a relevant Prometheus metric can be updated.
-	executionLatencyCallback scheduling.ExecutionLatencyCallback
-
-	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
-	// for updating Prometheus metrics.
-	statisticsProvider scheduling.StatisticsProvider
 }
 
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given Kernel.

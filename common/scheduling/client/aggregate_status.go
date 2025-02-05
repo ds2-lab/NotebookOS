@@ -54,21 +54,23 @@ type StatusMsg struct {
 type AggregateKernelStatus struct {
 	promise.Promise
 
-	mu sync.Mutex
-
-	kernel           *DistributedKernelClient // The client that manages all the replicas.
-	expectingStatus  string                   // Expected status.
-	expectingMatches int32                    // The number of collected status that matches the expected status.
-	allowViolation   bool                     // If true, the status collection will stop on status dismatch.
-	collecting       int32                    // The number of replicas that are collecting status.
-	collectedMap     map[int32]int32          // Map from replica ID to its status.
-	numCollected     int32                    // Number of statuses we've collected.
-	matches          int32                    // The number of collected status that matches the expected status.
-	status           string                   // The last resolved status.
-	sampleMsg        *messaging.JupyterMessage
-	lastErr          error
+	lastErr error
 
 	// collected        []int32                  // A map that tracks the progress of the status collection. The first element is the number of collected status.
+
+	kernel          *DistributedKernelClient // The client that manages all the replicas.
+	collectedMap    map[int32]int32          // Map from replica ID to its status.
+	sampleMsg       *messaging.JupyterMessage
+	expectingStatus string // Expected status.
+	status          string // The last resolved status.
+
+	mu sync.Mutex
+
+	expectingMatches int32 // The number of collected status that matches the expected status.
+	collecting       int32 // The number of replicas that are collecting status.
+	numCollected     int32 // Number of statuses we've collected.
+	matches          int32 // The number of collected status that matches the expected status.
+	allowViolation   bool  // If true, the status collection will stop on status dismatch.
 }
 
 // NewAggregateKernelStatus creates a new aggregate status with configured number of replicas.

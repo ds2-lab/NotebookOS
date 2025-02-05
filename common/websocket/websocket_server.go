@@ -13,9 +13,8 @@ import (
 )
 
 type WebsocketServer struct {
+	log  logger.Logger
 	port int
-
-	log logger.Logger
 }
 
 func NewWebsocketServer(port int) *WebsocketServer {

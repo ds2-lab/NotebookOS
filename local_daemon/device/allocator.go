@@ -26,24 +26,25 @@ var (
 )
 
 type virtualGpuAllocatorImpl struct {
-	sync.Mutex
-
 	log logger.Logger
 
 	kubeClient kubernetes.Interface
-	nodeName   string
+
+	resourceManager ResourceManager
+
+	podCache PodCache
 
 	opts *domain.VirtualGpuPluginServerOptions
 
-	resourceManager ResourceManager
-	stopChan        chan interface{}
-
-	podCache PodCache
+	stopChan chan interface{}
 
 	vgpusChangedChan chan interface{}
 
 	// Mapping from PodID to its allocation.
 	allocations map[string]*proto.VirtualGpuAllocation
+	nodeName    string
+
+	sync.Mutex
 }
 
 // NewVirtualGpuAllocatorForTesting creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.

@@ -14,7 +14,6 @@ import (
 // request from the kernel before the new "container created" notification is received and stored in the
 // ContainerStartedNotificationManager.
 type ContainerStartedNotificationManager struct {
-	mu sync.Mutex
 
 	// notifications is a map from kernel ID to the latest *observer.ContainerStartedNotification received for
 	// a replica/container associated with that kernel.
@@ -24,6 +23,7 @@ type ContainerStartedNotificationManager struct {
 	// goroutines when there are no notifications available at the time that the GetAndDeleteNotification method
 	// is called.
 	notificationChannels map[string]chan *observer.ContainerStartedNotification
+	mu                   sync.Mutex
 }
 
 func NewContainerStartedNotificationManager() *ContainerStartedNotificationManager {

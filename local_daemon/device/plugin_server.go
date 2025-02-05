@@ -32,18 +32,19 @@ var (
 )
 
 type virtualGpuPluginServerImpl struct {
-	srv        *grpc.Server
-	socketFile string // Fully-qualified path.
-	opts       *domain.VirtualGpuPluginServerOptions
-	log        logger.Logger
-	podCache   PodCache
+	log      logger.Logger
+	podCache PodCache
+
+	srv  *grpc.Server
+	opts *domain.VirtualGpuPluginServerOptions
 
 	stopChan                   chan interface{}
 	totalNumVirtualGpusChanged chan interface{}
 
-	enabled bool
+	allocator  *virtualGpuAllocatorImpl
+	socketFile string // Fully-qualified path.
 
-	allocator *virtualGpuAllocatorImpl
+	enabled bool
 }
 
 func NewVirtualGpuPluginServer(opts *domain.VirtualGpuPluginServerOptions, nodeName string, disabled bool) VirtualGpuPluginServer {

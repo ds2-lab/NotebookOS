@@ -19,14 +19,15 @@ func getKey(replicaId int32, kernelId string) string {
 // Allocation encapsulates an allocation of HostResources to a kernel replica.
 // Each Allocation encapsulates an allocation of GPU, CPU, and Memory HostResources.
 type Allocation struct {
+
+	// Timestamp is the time at which the HostResources were allocated to the replica.
+	Timestamp time.Time `json:"timestamp"`
+
 	// AllocationId is the unique ID of the allocation.
 	AllocationId string `json:"ID"`
 
 	// GPUs is the number of GPUs in the Allocation.
 	GPUs decimal.Decimal `json:"gpus"`
-
-	// GPUDeviceIDs refers to the specific GPU devices that are being allocated.
-	GpuDeviceIds []int `json:"gpu_device_ids"`
 
 	// VramGB is the amount of VRAM (i.e., GPU memory) in GB.
 	VramGB decimal.Decimal `json:"vram"`
@@ -38,14 +39,8 @@ type Allocation struct {
 	// MemoryMB is the amount of RAM in the Allocation in megabytes.
 	MemoryMB decimal.Decimal `json:"memory"`
 
-	// ReplicaId is the SMR node ID of the replica to which the GPUs were allocated.
-	ReplicaId int32 `json:"replica_id"`
-
 	// KernelId is the ID of the kernel whose replica was allocated GPUs.
 	KernelId string `json:"kernel_id"`
-
-	// Timestamp is the time at which the HostResources were allocated to the replica.
-	Timestamp time.Time `json:"timestamp"`
 
 	// ExecutionId is the Jupyter message ID ("msg_id" from the header) of the associated "execute_request" message.
 	ExecutionId string
@@ -65,6 +60,15 @@ type Allocation struct {
 	// associated kernel replica. These HostResources are not available for use by other kernel replicas.
 	AllocationType scheduling.AllocationType `json:"allocation_type"`
 
+	// cachedAllocationKey is the cached return value of getKey(Allocation.ReplicaId, Allocation.KernelId).
+	cachedAllocationKey string
+
+	// GPUDeviceIDs refers to the specific GPU devices that are being allocated.
+	GpuDeviceIds []int `json:"gpu_device_ids"`
+
+	// ReplicaId is the SMR node ID of the replica to which the GPUs were allocated.
+	ReplicaId int32 `json:"replica_id"`
+
 	// IsPreCommittedAllocation indicates whether the HostResources were commited in anticipation of a code execution occurring,
 	// or if they are committed to a kernel that is actively training.
 	IsPreCommittedAllocation bool `json:"is_pre_committed"`
@@ -75,9 +79,6 @@ type Allocation struct {
 	// running on the scheduling.Host (or that the notification that the scheduling.KernelContainer has started
 	// running has not yet been received).
 	IsReservationAllocation bool `json:"is_reservation"`
-
-	// cachedAllocationKey is the cached return value of getKey(Allocation.ReplicaId, Allocation.KernelId).
-	cachedAllocationKey string
 }
 
 func (a *Allocation) GetHostId() string {
@@ -322,15 +323,15 @@ type AllocationBuilder struct {
 	vramGb          decimal.Decimal
 	millicpus       decimal.Decimal
 	memoryMb        decimal.Decimal
-	isReservation   bool
-	isPreCommitment bool
 	hostId          string
 	hostName        string
-	gpuDeviceIds    []int
-	replicaId       int32
 	kernelId        string
 	executionId     string
 	allocationType  scheduling.AllocationType
+	gpuDeviceIds    []int
+	replicaId       int32
+	isReservation   bool
+	isPreCommitment bool
 }
 
 // NewResourceAllocationBuilder creates a new AllocationBuilder and returns a pointer to it.

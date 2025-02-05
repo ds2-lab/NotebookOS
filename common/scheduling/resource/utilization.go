@@ -5,6 +5,12 @@ import (
 )
 
 type Utilization struct {
+
+	// IndividualGpuUtilizationValues is a []float64 containing the individual GPU utilization values for each GPU.
+	// The length of IndividualGpuUtilizationValues is equal to NumGpus.
+	// The maximum value of IndividualGpuUtilizationValues[i] for i in range 0 to NumGpus is 100.
+	IndividualGpuUtilizationValues []float64 `json:"individual_gpu_utilization_values"`
+
 	// CpuUsage is the % CPU utilization.
 	// This value will be between 0 and 100.
 	CpuUtilization float64 `json:"cpu_utilization"`
@@ -19,11 +25,6 @@ type Utilization struct {
 	// The minimum value of AggregateGpuUtilization is 0.
 	// The maximum value of AggregateGpuUtilization is NumGpus * 100.
 	AggregateGpuUtilization float64 `json:"aggregate_gpu_utilization"`
-
-	// IndividualGpuUtilizationValues is a []float64 containing the individual GPU utilization values for each GPU.
-	// The length of IndividualGpuUtilizationValues is equal to NumGpus.
-	// The maximum value of IndividualGpuUtilizationValues[i] for i in range 0 to NumGpus is 100.
-	IndividualGpuUtilizationValues []float64 `json:"individual_gpu_utilization_values"`
 
 	// The number of GPUs currently in-use.
 	NumGpus int `json:"num_gpus"`

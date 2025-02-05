@@ -16,10 +16,8 @@ import (
 // AbstractPlacer implements basic place/reclaim functionality.
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
-	mu               sync.Mutex
 	metricsProvider  scheduling.MetricsProvider
 	log              logger.Logger
-	numReplicas      int
 	instance         internalPlacer
 	schedulingPolicy scheduling.Policy
 
@@ -40,6 +38,8 @@ type AbstractPlacer struct {
 	// If resources could not be reserved, then false is returned, along with an error explaining why
 	// the resources could not be reserved.
 	replicaResourceReserver replicaResourceReserver
+	numReplicas             int
+	mu                      sync.Mutex
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.

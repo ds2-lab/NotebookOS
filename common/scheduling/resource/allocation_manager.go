@@ -44,10 +44,6 @@ var (
 // scheduling.KernelContainer is scheduled on the scheduling.Host whose resources are managed by the
 // AllocationManager associated with the scheduledKernels.
 type scheduledKernels struct {
-	mu sync.Mutex
-
-	// NodeId is the unique identifier of the node on which the scheduledContainers exists.
-	NodeId string
 
 	// Kernels is a map from kernel ID to a kernelContainers struct which keeps track of the
 	// scheduling.KernelContainer instances running on the associated scheduling.Host.
@@ -58,6 +54,11 @@ type scheduledKernels struct {
 	// scheduling.Host at some point in time; however, there may no longer be any scheduling.KernelContainer for
 	// that scheduling.Kernel running on the associated scheduling.Host anymore.
 	Kernels map[string]int32
+
+	// NodeId is the unique identifier of the node on which the scheduledContainers exists.
+	NodeId string
+
+	mu sync.Mutex
 }
 
 // GetScheduledReplica returns the replica ID of the scheduling.KernelReplica that is scheduled for the
@@ -204,7 +205,35 @@ func newScheduledKernels(nodeId string) *scheduledKernels {
 // For an overview of the scheduling-related terminology used in the API of this struct, please refer to the
 // documentation of the scheduling.AllocationManager interface.
 type AllocationManager struct {
-	mu sync.Mutex
+	log logger.Logger // Logger.
+
+	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> scheduling.Allocation.
+	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
+	// "<KernelID>-<ReplicaID>" and values are scheduling.Allocation.
+	//
+	// allocationIdMap contains Allocation structs of both types (CommittedAllocation and PendingAllocation).
+	allocationKernelReplicaMap hashmap.HashMap[string, scheduling.Allocation]
+
+	// kernelAllocationMap is a map from Kernel ID to the allocation associated with any replica of that kernel.
+	kernelAllocationMap hashmap.HashMap[string, scheduling.Allocation]
+
+	// schedulingPolicy is the configured scheduling.Policy in use by the cluster.
+	schedulingPolicy scheduling.Policy
+
+	scheduledKernels *scheduledKernels
+
+	// resourceManager encapsulates the state of all HostResources (idle, pending, committed, and spec) managed
+	// by this AllocationManager.
+	resourceManager *Manager
+
+	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
+	availableGpuDevices *queue.Fifo[int]
+
+	metricsManager *metrics.LocalDaemonPrometheusManager
+
+	updateIndex func(replicaId int32, kernelId string) error
+
+	updateSubscriptionRatio func() decimal.Decimal
 
 	// GetId is the unique identifier of the AllocationManager. This is distinct from the NodeId.
 	Id string
@@ -218,9 +247,7 @@ type AllocationManager struct {
 	// is assigned a value during the execution of the SetID RPC.
 	NodeId string
 
-	log logger.Logger // Logger.
-
-	scheduledKernels *scheduledKernels
+	mu sync.Mutex
 
 	// resourceSnapshotCounter is an atomic, thread-safe counter used to associate a monotonically-increasing
 	// identifier with each newly-created ComputeResourceSnapshot and *proto.NodeResourcesSnapshot struct.
@@ -232,20 +259,6 @@ type AllocationManager struct {
 	// Thus, the total ordering provided by the monotonically-increasing counter actually applies to all
 	// *ManagerSnapshot structs and all *ManagerSnapshot structs originating from the same node.
 	resourceSnapshotCounter atomic.Int32
-
-	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> scheduling.Allocation.
-	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
-	// "<KernelID>-<ReplicaID>" and values are scheduling.Allocation.
-	//
-	// allocationIdMap contains Allocation structs of both types (CommittedAllocation and PendingAllocation).
-	allocationKernelReplicaMap hashmap.HashMap[string, scheduling.Allocation]
-
-	// kernelAllocationMap is a map from Kernel ID to the allocation associated with any replica of that kernel.
-	kernelAllocationMap hashmap.HashMap[string, scheduling.Allocation]
-
-	// resourceManager encapsulates the state of all HostResources (idle, pending, committed, and spec) managed
-	// by this AllocationManager.
-	resourceManager *Manager
 
 	// numPendingAllocations is the number of active Allocation instances of type scheduling.PendingAllocation.
 	//
@@ -294,18 +307,6 @@ type AllocationManager struct {
 
 	// numFailedPreCommitments is the number of times we attempted to pre-commit resources and failed to do so.
 	numFailedPreCommitments atomic.Int32
-
-	// schedulingPolicy is the configured scheduling.Policy in use by the cluster.
-	schedulingPolicy scheduling.Policy
-
-	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
-	availableGpuDevices *queue.Fifo[int]
-
-	metricsManager *metrics.LocalDaemonPrometheusManager
-
-	updateIndex func(replicaId int32, kernelId string) error
-
-	updateSubscriptionRatio func() decimal.Decimal
 }
 
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.

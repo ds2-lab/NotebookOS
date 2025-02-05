@@ -69,12 +69,11 @@ func GetStaticIndexBucket(gpus int32, gpusPerHost int32) int32 {
 // StaticIndex is a struct that implements the scheduling.ClusterIndex interface
 // and provides support for the Static scheduling algorithm/policy.
 type StaticIndex struct {
+	log        logger.Logger
 	MultiIndex *MultiIndex[*LeastLoadedIndex]
 
 	GpusPerHost int32
 	NumPools    int32
-
-	log logger.Logger
 }
 
 // isPowerOf2 returns true if the given value is a power of 2.

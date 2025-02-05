@@ -56,15 +56,9 @@ type basePrometheusManager struct {
 
 	instance prometheusHandler
 
-	// serving indicates whether the manager has been started and is serving requests.
-	serving            bool
-	metricsInitialized bool
-	mu                 sync.Mutex
-	engine             *gin.Engine
-	httpServer         *http.Server
-	prometheusHandler  http.Handler
-	port               int
-	nodeId             string
+	prometheusHandler http.Handler
+	engine            *gin.Engine
+	httpServer        *http.Server
 
 	// initializeInstanceMetrics is a field that is to be assigned by "child" structs in their "constructors".
 	// Specifically, this function is assigned by the 'instance' to initialize the instance's metrics.
@@ -129,6 +123,14 @@ type basePrometheusManager struct {
 
 	// MessagesSent simply counts the number of Jupyter messages that are sent, NOT including resubmission
 	JupyterUniqueMessagesSent *prometheus.CounterVec
+	nodeId                    string
+
+	port int
+	mu   sync.Mutex
+
+	// serving indicates whether the manager has been started and is serving requests.
+	serving            bool
+	metricsInitialized bool
 }
 
 // newBasePrometheusManager creates a new basePrometheusManager and returns a pointer to it.
