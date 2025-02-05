@@ -28,9 +28,9 @@ type LocalDaemonOptions struct {
 	S3Bucket        string `name:"s3_bucket" json:"s3_bucket" yaml:"s3_bucket"`                // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
 	AwsRegion       string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
 	RedisPassword   string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
-	SchedulerDaemonOptions
 	VirtualGpuPluginServerOptions
 	jupyter.ConnectionInfo
+	SchedulerDaemonOptions
 	Port               int `name:"port" usage:"Port that the gRPC service listens on."`
 	KernelRegistryPort int `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
 	RedisPort          int `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
