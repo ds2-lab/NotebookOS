@@ -960,6 +960,11 @@ func (c *DistributedKernelClient) ActiveTrainingStartedAt() time.Time {
 	return time.Time{}
 }
 
+// NumCompletedTrainings returns the number of training events that have been completed successfully.
+func (c *DistributedKernelClient) NumCompletedTrainings() int {
+	return c.ExecutionManager.NumCompletedTrainings()
+}
+
 // IsTraining returns true if one of the target DistributedKernelClient's replicas is actively training.
 func (c *DistributedKernelClient) IsTraining() bool {
 	c.replicasMutex.RLock()

@@ -6745,6 +6745,20 @@ func (mr *MockKernelMockRecorder) NumActiveMigrationOperations() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumActiveMigrationOperations", reflect.TypeOf((*MockKernel)(nil).NumActiveMigrationOperations))
 }
 
+// NumCompletedTrainings mocks base method.
+func (m *MockKernel) NumCompletedTrainings() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumCompletedTrainings")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// NumCompletedTrainings indicates an expected call of NumCompletedTrainings.
+func (mr *MockKernelMockRecorder) NumCompletedTrainings() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumCompletedTrainings", reflect.TypeOf((*MockKernel)(nil).NumCompletedTrainings))
+}
+
 // PersistentID mocks base method.
 func (m *MockKernel) PersistentID() string {
 	m.ctrl.T.Helper()
@@ -9477,6 +9491,20 @@ func (m *MockExecutionManager) NumActiveExecutionOperations() int {
 func (mr *MockExecutionManagerMockRecorder) NumActiveExecutionOperations() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumActiveExecutionOperations", reflect.TypeOf((*MockExecutionManager)(nil).NumActiveExecutionOperations))
+}
+
+// NumCompletedTrainings mocks base method.
+func (m *MockExecutionManager) NumCompletedTrainings() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumCompletedTrainings")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// NumCompletedTrainings indicates an expected call of NumCompletedTrainings.
+func (mr *MockExecutionManagerMockRecorder) NumCompletedTrainings() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumCompletedTrainings", reflect.TypeOf((*MockExecutionManager)(nil).NumCompletedTrainings))
 }
 
 // RegisterExecution mocks base method.

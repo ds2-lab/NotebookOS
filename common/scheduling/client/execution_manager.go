@@ -678,6 +678,11 @@ func (m *ExecutionManager) TotalNumExecutionOperations() int {
 	return len(m.allExecutions)
 }
 
+// NumCompletedTrainings returns the number of training events that have been completed successfully.
+func (m *ExecutionManager) NumCompletedTrainings() int {
+	return len(m.finishedExecutions)
+}
+
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
 func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
 	// Decode the jupyter.MessageSMRLeadTask message.

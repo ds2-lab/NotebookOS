@@ -151,6 +151,8 @@ type Kernel interface {
 	// ReplicasAreScheduled returns a flag indicating whether the replicas of this Kernel are scheduled.
 	// Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 	ReplicasAreScheduled() bool
+	// NumCompletedTrainings returns the number of training events that have been completed successfully.
+	NumCompletedTrainings() int
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int

@@ -74,6 +74,9 @@ type ExecutionManager interface {
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
 
+	// NumCompletedTrainings returns the number of training events that have been completed successfully.
+	NumCompletedTrainings() int
+
 	// LastTrainingStartedAt returns the time at which the last training to occur began. If there is an active
 	// training when LastTrainingStartedAt is called, then LastTrainingStartedAt will return the time at which
 	// the active training began.

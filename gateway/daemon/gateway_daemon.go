@@ -135,7 +135,7 @@ func newKernelDescheduleAttempt(kernel scheduling.Kernel) *kernelDescheduleAttem
 	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
 
 	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
-	err := weightedSemaphore.Acquire(context.Background(), 999999)
+	err := weightedSemaphore.Acquire(context.Background(), maxSemaphoreWeight)
 	if err != nil {
 		panic(err)
 	}
@@ -816,7 +816,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			kernelsSeen[kernel.ID()] = struct{}{}
 
 			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
-			if !kernel.ReplicasAreScheduled() {
+			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning {
 				return true
 			}
 
@@ -825,16 +825,25 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			timeElapsedSinceLastTrainingBegan := time.Since(kernel.LastTrainingStartedAt())
 			timeElapsedSinceLastTrainingEnded := time.Since(kernel.LastTrainingEndedAt())
 
+			// For sessions that have not executed any training events, the idle timeout is 5x longer.
+			var multiplier time.Duration
+			if kernel.NumCompletedTrainings() == 0 {
+				// TODO: Switch this back once idle session reclamation is confirmed to be working.
+				multiplier = time.Duration(1) // time.Duration(5)
+			} else {
+				multiplier = time.Duration(1)
+			}
+
 			// Compute how long it has been since the kernel last submitted a training event, last began training,
 			// and last completed training. If the idle interval has elapsed for all of these times, then the
 			// session is eligible for idle reclamation.
-			idleIntervalElapsedSinceLastTrainingSubmitted := timeElapsedSinceLastTrainingSubmitted > d.IdleSessionReclamationInterval
-			idleIntervalElapsedSinceLastTrainingBegan := timeElapsedSinceLastTrainingBegan > d.IdleSessionReclamationInterval
-			idleIntervalElapsedSinceLastTrainingEnded := timeElapsedSinceLastTrainingEnded > d.IdleSessionReclamationInterval
+			idleIntervalElapsedSinceLastTrainingSubmitted := timeElapsedSinceLastTrainingSubmitted > (d.IdleSessionReclamationInterval * multiplier)
+			idleIntervalElapsedSinceLastTrainingBegan := timeElapsedSinceLastTrainingBegan > (d.IdleSessionReclamationInterval * multiplier)
+			idleIntervalElapsedSinceLastTrainingEnded := timeElapsedSinceLastTrainingEnded > (d.IdleSessionReclamationInterval * multiplier)
 
 			if idleIntervalElapsedSinceLastTrainingSubmitted && idleIntervalElapsedSinceLastTrainingBegan && idleIntervalElapsedSinceLastTrainingEnded {
-				reclaimerLog.Debug("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
-					"and last finished training %v ago, so kernel \"%s\" is now eligible for idle reclamation.",
+				reclaimerLog.Debug(utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
+					"and last finished training %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
 					kernelId, timeElapsedSinceLastTrainingSubmitted,
 					timeElapsedSinceLastTrainingBegan, timeElapsedSinceLastTrainingEnded)
 
@@ -859,7 +868,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 				if err != nil {
 					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
 				} else {
-					reclaimerLog.Debug("Successfully removed replicas of idle kernel \"%s\" in %v.",
+					reclaimerLog.Debug(utils.LightPurpleStyle.Render("Successfully removed replicas of idle kernel \"%s\" in %v."),
 						kernel.ID(), time.Since(reclamationStartTime))
 				}
 			}
