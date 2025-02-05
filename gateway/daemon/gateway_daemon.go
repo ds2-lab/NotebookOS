@@ -116,7 +116,7 @@ type DistributedClientProvider interface {
 type kernelDescheduleAttempt struct {
 	// Semaphore is used to enable waiting with a timeout for the de-scheduling operation to complete.
 	Semaphore *semaphore.Weighted
-	
+
 	// StartedAt is the time at which the de-scheduling operation began.
 	StartedAt time.Time
 
@@ -196,6 +196,44 @@ type kernelCreateContainers struct {
 	// instances has started. Generally, if this stage is reached, then the operation will most-likely complete
 	// successfully, as errors are unlikely, and it means that resources were available and whatnot.
 	PlacementInProgress atomic.Bool
+}
+
+// newKernelCreateContainers creates a new kernelCreateContainers struct and returns a pointer to it.
+func newKernelCreateContainers(kernel scheduling.Kernel) *kernelCreateContainers {
+	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
+
+	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
+	err := weightedSemaphore.Acquire(context.Background(), 999999)
+	if err != nil {
+		panic(err)
+	}
+
+	return &kernelCreateContainers{
+		Semaphore: weightedSemaphore,
+		StartedAt: time.Now(),
+		KernelId:  kernel.ID(),
+		Kernel:    kernel,
+	}
+}
+
+// Wait blocks until the target kernelCreateContainers is finished, or until the given context.Context is cancelled.
+func (a *kernelCreateContainers) Wait(ctx context.Context) error {
+	return a.Semaphore.Acquire(ctx, 1)
+}
+
+// IsComplete returns true if the target kernelCreateContainers has finished.
+//
+// Note that if IsComplete is true, that doesn't necessarily mean that the associated container creation operation
+// finished successfully. It may have encountered errors or timed-out on its own.
+func (a *kernelCreateContainers) IsComplete() bool {
+	return a.Complete.Load()
+}
+
+// SetDone records that the target kernelCreateContainers has finished.
+func (a *kernelCreateContainers) SetDone() {
+	// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
+	a.Semaphore.Release(maxSemaphoreWeight)
+	a.Complete.Store(true)
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
@@ -1934,7 +1972,36 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 
 // scheduleReplicas actually scheduled the replicas of the specified kernel.
 func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec) error {
-	d.log.Debug("Scheduling replica container(s) of kernel %s startTime.", kernel.ID())
+	d.log.Debug("Scheduling %d replica container(s) of kernel %s.", d.NumReplicas(), kernel.ID())
+
+	existingScheduleAttempt, loaded := d.kernelsWithReplicasBeingCreated.Load(kernel.ID())
+	if loaded {
+		if existingScheduleAttempt.IsComplete() {
+			d.kernelsWithReplicasBeingCreated.Delete(kernel.ID())
+		} else {
+			d.log.Warn("Found existing attempt to create container(s) for replica(s) of kernel \"%s\" that began %v ago with PlacementInProgress=%v.",
+				kernel.ID(), time.Since(existingScheduleAttempt.StartedAt), existingScheduleAttempt.PlacementInProgress.Load())
+
+			err := existingScheduleAttempt.Wait(ctx)
+			if err != nil {
+				d.log.Error("Error while waiting for existing container-creation operation for kernel \"%s\" to complete: %v",
+					kernel.ID(), err)
+
+				return err
+			}
+		}
+	}
+
+	// Verify that the replicas aren't scheduled.
+	// If we encountered an existing scheduling operation up above that we waited for and that completed successfully,
+	// then the replicas may well be available now, so we can just return.
+	if kernel.ReplicasAreScheduled() {
+		d.log.Debug("Replicas of kernel \"%s\" are apparently scheduled now. Returning.", kernel.ID())
+		return nil
+	}
+
+	scheduleAttempt := newKernelCreateContainers(kernel)
+	d.kernelsWithReplicasBeingCreated.Store(kernel.ID(), scheduleAttempt)
 
 	scheduleReplicasStartedEvents := make(map[int32]*metrics.ClusterEvent)
 	replicaRegisteredTimestamps := make(map[int32]time.Time)
@@ -2050,6 +2117,18 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, event)
 		d.clusterStatisticsMutex.Unlock()
 	}
+
+	// At this point, the replicas are scheduled. So, before we signal that the operation is done, we'll
+	// remove it from the mapping, so that nobody else can retrieve it. If it is retrieved before we
+	// signal, then whoever retrieved it will see that it is completed once we signal.
+	deleted := d.kernelsWithReplicasBeingCreated.CompareAndDelete(kernel.ID(), scheduleAttempt)
+	if !deleted {
+		d.log.Error("Failed to remove now-complete container scheduling attempt for kernel \"%s\" from mapping...",
+			kernel.ID())
+	}
+
+	// Signal that the operation is complete.
+	scheduleAttempt.SetDone()
 
 	return nil
 }
@@ -3685,14 +3764,63 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 	d.log.Debug("Replicas of kernel %s are NOT scheduled. Scheduling replicas now before handling Jupyter \"execute_request\" message %s (JupyterID=\"%s\").",
 		kernel.ID(), msg.RequestId, msg.JupyterMessageId())
 
-	err := d.scheduleReplicas(context.Background(), kernel, kernel.KernelSpec())
-	if err != nil {
-		d.log.Error("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
-			kernel.ID(), msg.JupyterMessageType(), err)
-		return nil, false, err
-	}
+	// We'll wait up to 5 minutes for this operation to complete successfully.
+	// That's a long time.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
 
-	return nil, false, nil
+	// We'll use this as a means for the other goroutine to communicate the result of the scheduling operation to us.
+	notifyChan := make(chan interface{}, 1)
+	startTime := time.Now()
+
+	// Create the kernel containers in another goroutine.
+	go func() {
+		err := d.scheduleReplicas(ctx, kernel, kernel.KernelSpec())
+
+		if err == nil {
+			// No error. Just send a struct{}{}.
+			notifyChan <- struct{}{}
+		} else {
+			// Send the error.
+			notifyChan <- err
+		}
+	}()
+
+	// Wait for either the context to time out, for the operation to succeed, or for the operation to fail explicitly
+	// for some other reason.
+	select {
+	case <-ctx.Done():
+		{
+			var err error
+
+			// If there's an error attached to the context, then we'll return it.
+			if err = ctx.Err(); err != nil {
+				d.log.Error("Timed-out waiting for replica container(s) of kernel \"%s\" to be created after %v: %v",
+					kernel.ID(), time.Since(startTime), err)
+			} else {
+				d.log.Error("Timed-out waiting for replica container(s) of kernel \"%s\" to be created after %v.",
+					kernel.ID(), time.Since(startTime))
+
+				// We'll return an error indicating that the operation timed out.
+				err = fmt.Errorf("%w: creation of replica container(s) for kernel \"%s\" timed out after %v",
+					types.ErrRequestTimedOut, kernel.ID(), time.Since(startTime))
+			}
+
+			return nil, false, err
+		}
+	case v := <-notifyChan:
+		{
+			// If we received an error over the channel, then we'll log an error message and return the error.
+			if err, ok := v.(error); ok {
+				d.log.Error("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
+					kernel.ID(), msg.JupyterMessageType(), err)
+				return nil, false, err
+			} else {
+				// Not an error. Operation must have succeeded.
+				return nil, false, nil
+			}
+		}
+	}
 }
 
 func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {

@@ -94,6 +94,19 @@ func (m *ThreadsafeCornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (
 	}
 }
 
+// CompareAndDelete atomically deletes the value stored at the specified key if that value is equal
+// to the provided value. If this is the case, then true is returned. Otherwise, false is returned.
+func (m *ThreadsafeCornelkMap[K, V]) CompareAndDelete(key K, oldVal V) (deleted bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.hashmap.Cas(key, oldVal, deleted) {
+		return true
+	} else {
+		return false
+	}
+}
+
 func (m *ThreadsafeCornelkMap[K, V]) Range(cb func(K, V) bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
