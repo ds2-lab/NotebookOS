@@ -131,7 +131,7 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,StartedAt=%v,ResourceSpec=%v,Host=%v]",
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,startedAt=%v,ResourceSpec=%v,Host=%v]",
 		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 

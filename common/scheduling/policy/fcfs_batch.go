@@ -41,7 +41,7 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 	return policy, nil
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if p.SupportsMigration() {
 		panic("FcfsBatchSchedulingPolicy isn't supposed to support migration, yet apparently it does?")
@@ -50,7 +50,7 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 	return nil, ErrMigrationNotSupported
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates

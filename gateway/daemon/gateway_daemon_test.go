@@ -673,7 +673,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) error {
 				defer GinkgoRecover()
-				fmt.Printf("Mocked Kernel::RegisterActiveExecution has been called with message: %v\n", msg)
+				fmt.Printf("Mocked kernel::RegisterActiveExecution has been called with message: %v\n", msg)
 
 				Expect(msg).ToNot(BeNil())
 
@@ -1062,7 +1062,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2, nil)
 			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3, nil)
 
-			//mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+			//mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.kernel, replica scheduling.KernelReplica, commitResources bool) error {
 			//	host := replica.Host()
 			//
 			//	// Normally this would go through a placer
@@ -1339,7 +1339,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 			kernel.EXPECT().ReplicasAreScheduled().Return(true).AnyTimes()
 
-			//mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+			//mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.kernel, replica scheduling.KernelReplica, commitResources bool) error {
 			//	host := replica.Host()
 			//
 			//	// Normally this would go through a placer
@@ -1831,7 +1831,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			setActiveCall := mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) error {
 				defer GinkgoRecover()
-				fmt.Printf("Mocked Kernel::RegisterActiveExecution has been called with message: %v\n", msg)
+				fmt.Printf("Mocked kernel::RegisterActiveExecution has been called with message: %v\n", msg)
 
 				Expect(msg).ToNot(BeNil())
 
@@ -2199,7 +2199,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				mockedSession.EXPECT().GetReplicaContainer(replicaId).AnyTimes().Return(container, true)
 				mockedSession.EXPECT().RemoveReplicaById(replicaId).MaxTimes(1).Return(nil)
 
-				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-Kernel-%s-Replica-%d", kernelId, replicaId))
+				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-kernel-%s-Replica-%d", kernelId, replicaId))
 				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
 				replica.EXPECT().KernelSpec().AnyTimes().Return(mockedKernelSpec)
 				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
@@ -3819,7 +3819,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//				SignatureScheme: jupyterConnInfo.SignatureScheme,
 			//				Key:             jupyterConnInfo.Key,
 			//			},
-			//			KernelId:           kernelId,
+			//			kernelId:           kernelId,
 			//			HostId:             host.GetID(),
 			//			SessionId:          "N/A",
 			//			ReplicaId:          replicaId,

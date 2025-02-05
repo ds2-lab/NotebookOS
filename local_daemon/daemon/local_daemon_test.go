@@ -510,7 +510,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -525,7 +525,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(processedMessageHeader.MsgType.String()).To(Equal(messaging.ShellExecuteRequest))
 
-			By("Creating a pending allocation for Kernel 2")
+			By("Creating a pending allocation for kernel 2")
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
 			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
@@ -618,7 +618,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -743,7 +743,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -1113,7 +1113,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -1283,7 +1283,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 		Context("Adjusting resource specs", func() {
 			updateKernelResourceSpec := func(kernelReplica *mock_scheduling.MockKernelReplica, newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
-				GinkgoWriter.Printf("Updating resource spec of Kernel 1 Replica 1 from %v to %v.\n", kernelReplica.ResourceSpec(), newSpec)
+				GinkgoWriter.Printf("Updating resource spec of kernel 1 Replica 1 from %v to %v.\n", kernelReplica.ResourceSpec(), newSpec)
 
 				Expect(tx).To(BeNil())
 
@@ -1294,7 +1294,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				currentSpec.GPUs = decimal.NewFromFloat(newSpec.GPU())
 				currentSpec.VRam = decimal.NewFromFloat(newSpec.VRAM())
 
-				GinkgoWriter.Printf("Kernel 1 Replica 1 resource spec post-modification: %v\n", kernelReplica.ResourceSpec())
+				GinkgoWriter.Printf("kernel 1 Replica 1 resource spec post-modification: %v\n", kernelReplica.ResourceSpec())
 
 				return nil
 			}
@@ -1415,7 +1415,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				validateCommittedReserved(kernel1Replica1)
 
-				By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+				By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 				var metadata map[string]interface{}
 				err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 				GinkgoWriter.Printf("metadata: %v\n", metadata)

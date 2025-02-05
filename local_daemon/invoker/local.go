@@ -31,7 +31,7 @@ const (
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
 // throttle stop
-// Kernel replica is not supported so far. Add if needed.
+// kernel replica is not supported so far. Add if needed.
 type LocalInvoker struct {
 	closedAt  time.Time
 	createdAt time.Time
@@ -282,7 +282,7 @@ func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []str
 
 	go func() {
 		if err := ivk.cmd.Wait(); err != nil {
-			ivk.log.Debug("Kernel %s exited with error: %v\n", id, err)
+			ivk.log.Debug("kernel %s exited with error: %v\n", id, err)
 		}
 		ivk.closedAt = time.Now()
 		close(ivk.closed)

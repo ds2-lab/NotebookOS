@@ -503,7 +503,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 }
 
 // ReserveResourcesForReplica is used to instruct the KernelScheduler to explicitly reserve resources for a
-// particular KernelReplica of a particular Kernel.
+// particular KernelReplica of a particular kernel.
 //
 // The primary use case for ReserveResourcesForReplica is when a specific scheduling.KernelReplica is specified to
 // serve as the primary replica within the metadata of an "execute_request" message. This may occur because the user
@@ -857,7 +857,7 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 	return nil, failureReason
 }
 
-// MigrateKernelReplica tries to migrate the given Kernel to another Host.
+// MigrateKernelReplica tries to migrate the given kernel to another Host.
 //
 // The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
 // It simply provides an explanation for why the migration failed.
@@ -1609,12 +1609,12 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	return released, nil
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	return s.schedulingPolicy.SelectReplicaForMigration(kernel)
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates

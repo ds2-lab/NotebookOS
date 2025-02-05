@@ -97,7 +97,7 @@ func (p *GandivaPolicy) ValidateCapacity(_ scheduling.Cluster) {
 	}
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *GandivaPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if !p.SupportsMigration() {
 		panic("GandivaPolicy is supposed to support migration, yet apparently it doesn't?")
@@ -107,7 +107,7 @@ func (p *GandivaPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sch
 	return kernel.GetReplicaByID(1) // IDs start at 1.
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates

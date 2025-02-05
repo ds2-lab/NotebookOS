@@ -593,7 +593,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *messaging.Jupyter
 		keySet             bool
 	)
 
-	// If we're a server in a Kernel or DistributedKernelClient, then the Meta field should be non-nil
+	// If we're a server in a kernel or DistributedKernelClient, then the Meta field should be non-nil
 	// and will have the connection info. So, we can get the signature scheme and key from there.
 	if s.Meta != nil {
 		signatureScheme = s.Meta.SignatureScheme

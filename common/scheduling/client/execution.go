@@ -39,7 +39,7 @@ type Execution struct {
 	// Replies is a map of the responses from each replica. Note that replies are only saved if debug mode is enabled.
 	Replies hashmap.HashMap[int32, *messaging.JupyterMessage]
 
-	// ActiveReplica is the Kernel connected to the replica of the kernel that is actually
+	// ActiveReplica is the kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
 	ActiveReplica scheduling.KernelReplica
 
@@ -228,7 +228,7 @@ func (e *Execution) SetExecuted() {
 }
 
 func (e *Execution) String() string {
-	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,TransactionState=%s,Attempt=%d,NumReplicas=%d,"+
+	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,kernel=%s,Session=%s,TransactionState=%s,Attempt=%d,NumReplicas=%d,"+
 		"NumLeadProposals=%d,NumYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,"+
 		"CreatedAtTimestamp=%v]",
 		e.ExecuteRequestMessageId, e.KernelId, e.SessionId, e.State.String(), e.AttemptNumber, e.NumReplicas,

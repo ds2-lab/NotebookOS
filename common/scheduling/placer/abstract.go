@@ -196,7 +196,7 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 }
 
 // ReserveResourcesForReplica is used to instruct the scheduling.Placer to explicitly reserve resources for a
-// particular KernelReplica of a particular Kernel.
+// particular KernelReplica of a particular kernel.
 //
 // The primary use case for ReserveResourcesForReplica is when a specific scheduling.KernelReplica is specified to
 // serve as the primary replica within the metadata of an "execute_request" message. This may occur because the user

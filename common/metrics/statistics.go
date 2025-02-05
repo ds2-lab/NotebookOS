@@ -45,7 +45,7 @@ type ClusterEvent struct {
 	now := time.Now()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
 		Name:                statistics.KernelCreationStarted,
-		KernelId:            in.Id,
+		kernelId:            in.Id,
 		ReplicaId:           -1,
 		Timestamp:           now,
 		TimestampUnixMillis: now.UnixMilli(),
@@ -115,7 +115,7 @@ type ClusterStatistics struct {
 	// CumulativeRequestProcessingTimeKernel is calculated using the RequestTrace proto message.
 
 	////////////////////////////////////////
-	// Execution/Kernel-Related Overheads //
+	// Execution/kernel-Related Overheads //
 	////////////////////////////////////////
 
 	// CumulativeCudaInitMicroseconds is the cumulative, aggregate time spent initializing CUDA runtimes by all kernels.

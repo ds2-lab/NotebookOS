@@ -100,7 +100,7 @@ func (p *DynamicV3Policy) ScalingConfiguration() *scheduling.ScalingConfiguratio
 	return p.scalingConfiguration
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *DynamicV3Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if !p.SupportsMigration() {
 		panic("DynamicV3Policy is supposed to support migration, yet apparently it doesn't?")
@@ -150,7 +150,7 @@ func (p *DynamicV3Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (s
 	panic("Not implemented.")
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates

@@ -43,7 +43,7 @@ type sessionStateTransition struct {
 type Session struct {
 	preemptionPriority cache.InlineCache // Preemption Priority
 	trainingStart      time.Time         // Time at which the current training began.
-	idleStartTime      time.Time         // idleStartTime is the time at which the Distributed Kernel Client last began idling.
+	idleStartTime      time.Time         // idleStartTime is the time at which the Distributed kernel Client last began idling.
 	migrationStart     time.Time         // Time at which the migration began.
 	startedAt          time.Time         // Time at which the session began running.
 
@@ -332,17 +332,17 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 	return promise.Resolved(s.instance)
 }
 
-// SessionStartedTraining should be called when one of the Session's Kernel replicas begins training.
+// SessionStartedTraining should be called when one of the Session's kernel replicas begins training.
 //
 // Note: this method is thread-safe.
 //
 // In the Local Daemon, this won't be called, as the Local Daemon does not track ComputeResource in this way.
 //
-// In the Cluster Gateway, this is called in the SessionStartedTraining method of the Kernel.
-// The Kernel's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
+// In the Cluster Gateway, this is called in the SessionStartedTraining method of the kernel.
+// The kernel's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
 // of DistributedKernelClient.
 //
-// DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
+// DistributedKernelClient::handleSmrLeadTaskMessage --> kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
 func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) promise.Promise {
 	if container == nil {
 		s.log.Error("Specified container for training is nil. Cannot start training.")
@@ -403,9 +403,9 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 	return promise.Resolved(s.instance)
 }
 
-// SessionStoppedTraining should be called when the actively-training Kernel replica of the Session stops training.
+// SessionStoppedTraining should be called when the actively-training kernel replica of the Session stops training.
 //
-// This should be called by the Kernel's KernelStoppedTraining method.
+// This should be called by the kernel's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
 func (s *Session) SessionStoppedTraining(reason string) promise.Promise {

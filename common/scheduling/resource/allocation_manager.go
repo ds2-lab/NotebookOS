@@ -214,7 +214,7 @@ type AllocationManager struct {
 	// allocationIdMap contains Allocation structs of both types (CommittedAllocation and PendingAllocation).
 	allocationKernelReplicaMap hashmap.HashMap[string, scheduling.Allocation]
 
-	// kernelAllocationMap is a map from Kernel ID to the allocation associated with any replica of that kernel.
+	// kernelAllocationMap is a map from kernel ID to the allocation associated with any replica of that kernel.
 	kernelAllocationMap hashmap.HashMap[string, scheduling.Allocation]
 
 	// schedulingPolicy is the configured scheduling.Policy in use by the cluster.

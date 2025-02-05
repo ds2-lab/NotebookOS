@@ -53,7 +53,7 @@ func (c *TemporaryKernelReplicaClient) ReplicaID() int32 {
 	return 0 // 0 is never used as an actual replica ID, so it indicates that it's a "fake" replica.
 }
 
-// DistributedKernelClient is a client of a Distributed Jupyter Kernel that is used by the Gateway daemon.
+// DistributedKernelClient is a client of a Distributed Jupyter kernel that is used by the Gateway daemon.
 // It wraps individual KernelReplicaClient instances -- one for each replica of the kernel.
 type DistributedKernelClient struct {
 	scheduling.SessionManager
@@ -96,6 +96,9 @@ type DistributedKernelClient struct {
 
 	numActiveAddOperations atomic.Int32 // Number of active migrations of the associated kernel's replicas.
 
+	createReplicaContainersAttempt *CreateReplicaContainersAttempt
+	creatingReplicaContainers      atomic.Int32
+
 	nextNodeId atomic.Int32
 
 	closing int32
@@ -128,7 +131,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 			s.DebugMode = debugMode
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			s.StatisticsAndMetricsProvider = statisticsProvider
-			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
+			config.InitLogger(&s.Log, fmt.Sprintf("kernel %s ", spec.Id))
 		}),
 		status:               jupyter.KernelStatusInitializing,
 		notificationCallback: notificationCallback,
@@ -150,6 +153,91 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		executionLatencyCallback, statisticsProvider)
 
 	return kernel
+}
+
+// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
+// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
+// the time at which the active training was submitted to the kernel.
+func (c *DistributedKernelClient) LastTrainingSubmittedAt() time.Time {
+	return c.ExecutionManager.LastTrainingSubmittedAt()
+}
+
+// LastTrainingStartedAt returns the time at which the last training to occur began. If there is an active
+// training when LastTrainingStartedAt is called, then LastTrainingStartedAt will return the time at which
+// the active training began.
+func (c *DistributedKernelClient) LastTrainingStartedAt() time.Time {
+	return c.ExecutionManager.LastTrainingStartedAt()
+}
+
+// BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
+//
+// If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
+// associated with the active/ongoing container creation operation.
+//
+// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
+// BeginSchedulingReplicaContainers will return false and nil.
+func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, scheduling.CreateReplicaContainersAttempt) {
+	c.replicasMutex.RLock()
+	defer c.replicasMutex.RUnlock()
+
+	// Attempt to take ownership over the next/current scheduling attempt.
+	// If this CAS operation fails, then that means that there's another active container creation attempt.
+	if !c.creatingReplicaContainers.CompareAndSwap(0, 1) {
+		return false, c.createReplicaContainersAttempt
+	}
+
+	// Sanity check. This field should be nil if there was not an active scheduling operation.
+	if c.createReplicaContainersAttempt != nil {
+		c.log.Error("Began attempt to schedule %d replica container(s), but 'createReplicaContainersAttempt' field is non-nil...",
+			c.targetNumReplicas)
+
+		panic("Found existing, non-nil value for 'createReplicaContainersAttempt' field upon beginning new container creation operation.")
+	}
+
+	// Check if our replicas are already scheduled. If they are, then we'll return false and nil,
+	// indicating that our replicas are scheduled, and that nobody needs to do anything as a result.
+	if c.unsafeAreReplicasScheduled() {
+		c.log.Debug("Began attempt to schedule %d replica container(s), but replica(s) are already scheduled.",
+			c.targetNumReplicas)
+
+		concluded := c.concludeSchedulingReplicaContainers()
+		if !concluded {
+			panic("Failed to conclude container creation operation immediately after initiating it...")
+		}
+
+		return false, nil
+	}
+
+	c.log.Debug("Beginning attempt to schedule %d replica container(s).", c.targetNumReplicas)
+	c.createReplicaContainersAttempt = newCreateReplicaContainersAttempt(c)
+	return true, c.createReplicaContainersAttempt
+}
+
+// concludeSchedulingReplicaContainers is called automatically by a CreateReplicaContainersAttempt struct
+// when the container creation operation associated with the CreateReplicaContainersAttempt concludes.
+//
+// concludeSchedulingReplicaContainers should return true, meaning that the kernel's flag that indicates
+// whether an active container-creation operation is occurring was successfully flipped from 1 --> 0.
+//
+// If concludeSchedulingReplicaContainers returns false, then the CreateReplicaContainersAttempt struct that is
+// invoking the concludeSchedulingReplicaContainers method will ultimately end up panicking.
+func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
+	c.replicasMutex.RLock()
+	defer c.replicasMutex.RUnlock()
+
+	if !c.creatingReplicaContainers.CompareAndSwap(1, 0) {
+		c.log.Error("Failed to flip value of 'CreatingReplicaContainers' flag from 1 to 0.")
+		return false
+	}
+
+	if c.unsafeAreReplicasScheduled() {
+		c.log.Debug("Successfully scheduled %d replica container(s).", c.targetNumReplicas)
+	} else {
+		c.log.Warn("Attempt to schedule %d replica container(s) has failed.", c.targetNumReplicas)
+	}
+
+	c.createReplicaContainersAttempt = nil
+	return true
 }
 
 // SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
@@ -310,7 +398,7 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 	return nil
 }
 
-// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its Replica instances, the UserSession
+// UpdateResourceSpec updates the ResourceSpec of the kernel, all of its Replica instances, the UserSession
 // of each Replica, and the KernelContainer of each Replica.
 //
 // It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
@@ -500,7 +588,7 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 		c.SetSignatureScheme(r.ConnectionInfo().SignatureScheme)
 		c.SetKernelKey(r.ConnectionInfo().Key)
 
-		c.log.Debug("Replica %d of kernel %s is available. Kernel is ready. Assigned signature scheme \"%s\" and key \"%s\"",
+		c.log.Debug("Replica %d of kernel %s is available. kernel is ready. Assigned signature scheme \"%s\" and key \"%s\"",
 			r.ReplicaID(), c.id, r.ConnectionInfo().SignatureScheme, r.ConnectionInfo().Key)
 
 		// Collect the status of all replicas.
@@ -850,22 +938,22 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 	return c.RequestWithHandlerAndReplicas(ctx, "Forwarding", typ, jupyterMessages, handler, done, replicas...)
 }
 
-// TrainingEndedAt returns the time at which the last training ended.
+// LastTrainingEndedAt returns the time at which the last training ended.
 //
 // If the kernel is currently training, then TrainingEndedAt returns the time at which the previous training ended.
-func (c *DistributedKernelClient) TrainingEndedAt() time.Time {
-	return c.ExecutionManager.TrainingEndedAt()
+func (c *DistributedKernelClient) LastTrainingEndedAt() time.Time {
+	return c.ExecutionManager.LastTrainingEndedAt()
 }
 
-// TrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
+// ActiveTrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
 // began actively training, if there is an actively-training replica.
-func (c *DistributedKernelClient) TrainingStartedAt() time.Time {
+func (c *DistributedKernelClient) ActiveTrainingStartedAt() time.Time {
 	c.replicasMutex.RLock()
 	defer c.replicasMutex.RUnlock()
 
 	for _, replica := range c.replicas {
 		if replica.IsTraining() {
-			return replica.TrainingStartedAt()
+			return replica.ActiveTrainingStartedAt()
 		}
 	}
 
@@ -1275,12 +1363,12 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 
 // Shutdown releases all replicas and closes the session.
 func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, restart bool) error {
-	c.log.Debug("Shutting down Kernel %s.", c.id)
+	c.log.Debug("Shutting down kernel %s.", c.id)
 	c.replicasMutex.RLock()
 
 	if c.status == jupyter.KernelStatusExited {
 		c.replicasMutex.RUnlock()
-		c.log.Warn("Kernel %s has already exited; there's no need to shutdown.", c.id)
+		c.log.Warn("kernel %s has already exited; there's no need to shutdown.", c.id)
 		return nil
 	}
 
@@ -1450,9 +1538,18 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 	return nil
 }
 
-// ReplicasAreScheduled returns a flag indicating whether the replicas of this Kernel are scheduled.
+// ReplicasAreScheduled returns a flag indicating whether the replicas of this kernel are scheduled.
 // Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
+	c.replicasMutex.RLock()
+	defer c.replicasMutex.RUnlock()
+
+	return c.unsafeAreReplicasScheduled()
+}
+
+// unsafeAreReplicasScheduled returns a flag indicating whether the replicas of this kernel are scheduled.
+// Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
+func (c *DistributedKernelClient) unsafeAreReplicasScheduled() bool {
 	return int32(len(c.replicas)) == c.targetNumReplicas
 }
 

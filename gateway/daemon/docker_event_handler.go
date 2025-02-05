@@ -18,10 +18,10 @@ type ContainerStartedNotification struct {
 type DockerEventHandler struct {
 	log logger.Logger
 
-	// Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
+	// Mapping from kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	channels hashmap.BaseHashMap[string, []chan string]
 
-	// Mapping from Kernel ID to []*ContainerStartedNotification structs for which there was no channel registered
+	// Mapping from kernel ID to []*ContainerStartedNotification structs for which there was no channel registered
 	// when the notification was received. This exists so the Docker container ID can be retrieved for the initial
 	// kernel replica containers that are created when a kernel is created for the first time.
 	//

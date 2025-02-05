@@ -59,7 +59,7 @@ func (x *RequestTrace) Clone() *RequestTrace {
 	//return &RequestTrace{
 	//	MessageId:                      x.MessageId,
 	//	MessageType:                    x.MessageType,
-	//	KernelId:                       x.KernelId,
+	//	kernelId:                       x.kernelId,
 	//	ReplicaId:                      x.ReplicaId,
 	//	RequestReceivedByGateway:       x.RequestReceivedByGateway,
 	//	RequestSentByGateway:           x.RequestSentByGateway,
@@ -108,52 +108,52 @@ func (x *RequestTrace) PopulateNextField(unixMilliseconds int64, log logger.Logg
 	if x.RequestReceivedByGateway == DefaultTraceTimingValue {
 		x.RequestReceivedByGateway = unixMilliseconds
 		//log.Debug("Assigned value to \"RequestReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.RequestSentByGateway == DefaultTraceTimingValue {
 		x.RequestSentByGateway = unixMilliseconds
 		//log.Debug("Assigned value to \"RequestSentByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.RequestReceivedByLocalDaemon == DefaultTraceTimingValue {
 		x.RequestReceivedByLocalDaemon = unixMilliseconds
 		//log.Debug("Assigned value to \"RequestReceivedByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.RequestSentByLocalDaemon == DefaultTraceTimingValue {
 		x.RequestSentByLocalDaemon = unixMilliseconds
 		//log.Debug("Assigned value to \"RequestSentByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.RequestReceivedByKernelReplica == DefaultTraceTimingValue {
 		x.RequestReceivedByKernelReplica = unixMilliseconds
 		//log.Debug("Assigned value to \"RequestReceivedByKernelReplica\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.ReplySentByKernelReplica == DefaultTraceTimingValue {
 		x.ReplySentByKernelReplica = unixMilliseconds
 		//log.Debug("Assigned value to \"ReplySentByKernelReplica\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.ReplyReceivedByLocalDaemon == DefaultTraceTimingValue {
 		x.ReplyReceivedByLocalDaemon = unixMilliseconds
 		//log.Debug("Assigned value to \"ReplyReceivedByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.ReplySentByLocalDaemon == DefaultTraceTimingValue {
 		x.ReplySentByLocalDaemon = unixMilliseconds
 		//log.Debug("Assigned value to \"ReplySentByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.ReplyReceivedByGateway == DefaultTraceTimingValue {
 		x.ReplyReceivedByGateway = unixMilliseconds
 		//log.Debug("Assigned value to \"ReplyReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else if x.ReplySentByGateway == DefaultTraceTimingValue {
 		x.ReplySentByGateway = unixMilliseconds
 		//log.Debug("Assigned value to \"ReplySentByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-		//	x.MessageType, x.MessageId, x.KernelId)
+		//	x.MessageType, x.MessageId, x.kernelId)
 		return true
 	} else {
 		return false
