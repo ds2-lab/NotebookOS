@@ -9550,6 +9550,18 @@ func (mr *MockExecutionManagerMockRecorder) RegisterExecution(msg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterExecution", reflect.TypeOf((*MockExecutionManager)(nil).RegisterExecution), msg)
 }
 
+// ReplicaRemoved mocks base method.
+func (m *MockExecutionManager) ReplicaRemoved(replica scheduling.KernelReplica) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ReplicaRemoved", replica)
+}
+
+// ReplicaRemoved indicates an expected call of ReplicaRemoved.
+func (mr *MockExecutionManagerMockRecorder) ReplicaRemoved(replica any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplicaRemoved", reflect.TypeOf((*MockExecutionManager)(nil).ReplicaRemoved), replica)
+}
+
 // SendingExecuteRequest mocks base method.
 func (m *MockExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) error {
 	m.ctrl.T.Helper()

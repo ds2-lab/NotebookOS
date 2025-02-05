@@ -890,6 +890,8 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 				} else {
 					reclaimerLog.Debug(utils.LightPurpleStyle.Render("Successfully removed all %d replica(s) of idle kernel \"%s\" in %v."),
 						d.NumReplicas(), kernel.ID(), time.Since(reclamationStartTime))
+					reclaimerLog.Debug("Status of idle-reclaimed kernel \"%s\": %v", kernel.ID(), kernel.Status())
+					reclaimerLog.Debug("Aggregate busy status of idle-reclaimed kernel \"%s\": %v", kernel.ID(), kernel.AggregateBusyStatus())
 				}
 			}
 		}
