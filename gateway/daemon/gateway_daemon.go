@@ -4648,10 +4648,10 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 	goroutineId := goid.Get()
 
 	if kernel == nil {
-		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.JupyterFrames.String())
+		d.log.Debug(utils.CyanStyle.Render("[gid=%d] Received %s message targeting unknown kernel/session. Inspecting now: %v"), goroutineId, typ.String(), msg.JupyterFrames.String())
 		kernel, _ /* messageType */, err = d.kernelAndTypeFromMsg(msg)
 	} else {
-		d.log.Debug(utils.BlueStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
+		d.log.Debug(utils.CyanStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
 
 		// Check availability.
 		// TODO: This only matters if the replicas should already be running.

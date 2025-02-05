@@ -1344,7 +1344,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 				// Unexpected response without request ID, fallback to default handler.
 				handler = defaultHandler
 			} else {
-				// s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
+				// s.Log.Debug(utils.CyanStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
 				// matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.
