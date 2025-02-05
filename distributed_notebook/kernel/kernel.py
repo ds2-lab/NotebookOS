@@ -1756,10 +1756,7 @@ class DistributedKernel(IPythonKernel):
         # it gets committed. This cannot be done until the RaftLog has started. And the RaftLog is started by the
         # Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
-            self.log.debug(
-                'RaftLog will need to propose a "catch up" value '
-                "so that it can tell when it has caught up with its peers."
-            )
+            self.log.debug('Need to restore user namespace via the SyncLog.')
 
             await self.synclog.catchup_with_peers()
 
@@ -4097,7 +4094,7 @@ class DistributedKernel(IPythonKernel):
 
                 # We only want to embed election statistics if this request trace is being embedded in an
                 # "execute_request" or "yield_request" message (i.e., a code submission).
-                if msg_type == "execute_request" or msg_type == "yield_request":
+                if self.smr_enabled and (msg_type == "execute_request" or msg_type == "yield_request"):
                     current_election: Election = self.synchronizer.current_election
 
                     # It shouldn't be None, but let's double-check, just to be safe.

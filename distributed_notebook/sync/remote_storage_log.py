@@ -2,7 +2,7 @@ import logging
 import os
 import pickle
 import time
-from typing import Optional, Any, Dict, Collection, List
+from typing import Optional, Any, Dict, Collection, List, Callable
 
 from prometheus_client import Histogram
 
@@ -57,6 +57,8 @@ class RemoteStorageLog(object):
         self._workload_id: Optional[str] = workload_id
 
         self._storage_provider: RemoteStorageProvider = remote_storage_provider
+
+        self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None
 
         # The full keys that we've written.
         self._keys_written: set[str] = set()
@@ -225,7 +227,7 @@ class RemoteStorageLog(object):
 
         handler will be in the form listener(key, val: SyncValue)
         """
-        pass
+        self._change_handler = handler
 
     def set_should_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
@@ -353,6 +355,11 @@ class RemoteStorageLog(object):
                 raise ex  # Re-raise.
 
             restored_namespace[variable_name] = variable
+
+            self.log.debug(f'Deserialized variable "{variable_name}" from {self.storage_name} at key "{key}".'
+                           f'Passing SynchronizedValue to ChangeHandler now.')
+
+            self._change_handler(variable)
 
         time_elapsed: float = time.time() - start_time
         self.log.debug(f"Restored {len(self.variable_names_to_restore)} variable(s) from {self.storage_name} "

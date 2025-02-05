@@ -748,7 +748,7 @@ class Synchronizer:
             assert sync_log is not None
 
             st: float = time.time()
-            await sync_log.append(sync_val, raw = val)
+            await sync_log.append(sync_val)
             et: float = time.time()
             time_elapsed: float = et - st
 
