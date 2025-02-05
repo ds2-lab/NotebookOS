@@ -17,6 +17,27 @@ func NewFifo[T any](initialSize int) *Fifo[T] {
 	}
 }
 
+// NewFifoFromSlice creates a new Queue struct from the specified slice.
+func NewFifoFromSlice[T any](arr []T) *Fifo[T] {
+	// Create a slice for the new Fifo.
+	elements := make([]T, len(arr))
+
+	// Copy the elements from the given slice into the elements slice.
+	copy(elements, arr)
+
+	// Create and return the Fifo queue.
+	return &Fifo[T]{
+		elements: elements,
+	}
+}
+
+// ToSlice returns a copy of the target Fifo as a []T.
+func (q *Fifo[T]) ToSlice() []T {
+	slice := make([]T, q.Len())
+	copy(slice, q.elements)
+	return slice
+}
+
 // Enqueue adds the specified element to the queue.
 func (q *Fifo[T]) Enqueue(elem T) {
 	q.elements = append(q.elements, elem)

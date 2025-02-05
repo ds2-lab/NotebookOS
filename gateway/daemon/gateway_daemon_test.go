@@ -9,9 +9,11 @@ import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
+	"github.com/scusemua/distributed-notebook/common/mock_router"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -766,50 +768,53 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					})
 
 				currReplica := replicas[hostIndex]
-				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
-					mutexes[i].Lock()
-					defer mutexes[i].Unlock()
-					hostIdleGpus := idleGpus[hostIndex]
-					idle := hostIdleGpus.Load()
+				host.EXPECT().
+					PreCommitResources(currReplica.Container(), jupyterExecuteRequestId, gomock.Any()).
+					AnyTimes().
+					DoAndReturn(func(container scheduling.KernelContainer, executeId string, gpuDeviceIds []int) ([]int, error) {
+						mutexes[i].Lock()
+						defer mutexes[i].Unlock()
+						hostIdleGpus := idleGpus[hostIndex]
+						idle := hostIdleGpus.Load()
 
-					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. TransactionResources: %v.\n",
-						host.GetNodeName(), container.ReplicaId(), container.ResourceSpec())
+						fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. TransactionResources: %v.\n",
+							host.GetNodeName(), container.ReplicaId(), container.ResourceSpec())
 
-					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
-					Expect(currReplica.Container()).To(Equal(container))
+						Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
+						Expect(currReplica.Container()).To(Equal(container))
 
-					hostCommittedGpus := committedGpus[hostIndex]
-					committed := hostCommittedGpus.Load()
-					if committed+int64(container.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
+						hostCommittedGpus := committedGpus[hostIndex]
+						committed := hostCommittedGpus.Load()
+						if committed+int64(container.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
 
-						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
-							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
-						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
-							[]scheduling.ResourceStatus{scheduling.IdleResources})
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+								container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return nil, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.IdleResources})
 
-						//return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
-						//	transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
-					}
+							//return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+							//	transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+						}
 
-					if idle-int64(container.ResourceSpec().GPU()) < 0 {
-						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
-							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
-						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
-							[]scheduling.ResourceStatus{scheduling.IdleResources})
+						if idle-int64(container.ResourceSpec().GPU()) < 0 {
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+								container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return nil, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.IdleResources})
 
-						//return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
-						//	transaction.ErrNegativeResourceCount, idle)
-					}
+							//return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+							//	transaction.ErrNegativeResourceCount, idle)
+						}
 
-					hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
-					hostIdleGpus.Add(int64(-1 * container.ResourceSpec().GPU()))
-					hostCommittedMaps[i][container.KernelID()] = struct{}{}
+						hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
+						hostIdleGpus.Add(int64(-1 * container.ResourceSpec().GPU()))
+						hostCommittedMaps[i][container.KernelID()] = struct{}{}
 
-					fmt.Printf("[DEBUG] Precommitted %.0f GPUs on host %s for replica %d. Current committed GPUs: %d.\n",
-						container.ResourceSpec().GPU(), host.GetNodeName(), container.ReplicaId(), hostCommittedGpus.Load())
+						fmt.Printf("[DEBUG] Precommitted %.0f GPUs on host %s for replica %d. Current committed GPUs: %d.\n",
+							container.ResourceSpec().GPU(), host.GetNodeName(), container.ReplicaId(), hostCommittedGpus.Load())
 
-					return nil
-				})
+						return gpuDeviceIds, nil
+					})
 
 				host.EXPECT().ReserveResourcesForSpecificReplica(currReplica.KernelReplicaSpec(), false).AnyTimes().DoAndReturn(func(replicaSpec *proto.KernelReplicaSpec, usePending bool) (bool, error) {
 					mutexes[i].Lock()
@@ -968,7 +973,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					// Reserve resources for the target kernel if resources are not already reserved.
 					if !selectedReplica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
 						// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
-						err = selectedReplica.Host().PreCommitResources(selectedReplica.Container(), executionId)
+						_, err = selectedReplica.Host().PreCommitResources(selectedReplica.Container(), executionId, nil)
 						if err != nil {
 							fmt.Printf("[ERROR] Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v\n",
 								selectedReplica.ReplicaID(), kernel.ID(), executionId, err)
@@ -3108,8 +3113,32 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 
 		Context("Autoscaling", func() {
-			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
-			var options *domain.ClusterGatewayOptions
+			var (
+				mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+				options                               *domain.ClusterGatewayOptions
+				Hosts                                 []scheduling.UnitTestingHost
+				dockerCluster                         scheduling.Cluster
+				scheduler                             scheduling.Scheduler
+				placer                                scheduling.Placer
+				index                                 scheduling.IndexProvider
+			)
+
+			createHost := func(i int) scheduling.Host {
+				hostId := uuid.NewString()
+				hostName := fmt.Sprintf("TestHost%d", i)
+				hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+				host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, hostName, hostSpoofer)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+
+				err = clusterGateway.RegisterNewHost(host)
+				Expect(err).To(BeNil())
+
+				Hosts = append(Hosts, host)
+
+				return host
+			}
 
 			BeforeEach(func() {
 				abstractServer = &server.AbstractServer{
@@ -3130,8 +3159,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				NumHostsToCreate := 10
 				InitialConnectionTimeSeconds := 1
 				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
-
-				Hosts := make([]scheduling.UnitTestingHost, 0)
 
 				// Relatively quick, but long enough that we can see individual scale-outs.
 				MeanScaleInPerHostSec := 1.0
@@ -3161,15 +3188,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
-				dockerCluster := clusterGateway.cluster
-				index, ok := dockerCluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				dockerCluster = clusterGateway.cluster
+
+				var ok bool
+				index, ok = dockerCluster.GetIndex(scheduling.CategoryClusterIndex, "*")
 				Expect(ok).To(BeTrue())
 				Expect(index).ToNot(BeNil())
 
-				placer := dockerCluster.Placer()
+				placer = dockerCluster.Placer()
 				Expect(placer).ToNot(BeNil())
 
-				scheduler := dockerCluster.Scheduler()
+				scheduler = dockerCluster.Scheduler()
 				Expect(scheduler.Placer()).To(Equal(dockerCluster.Placer()))
 
 				Expect(dockerCluster.Len()).To(Equal(0))
@@ -3186,23 +3215,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				numDisabledHosts := 0
 
 				assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
-
-				createHost := func(i int) scheduling.Host {
-					hostId := uuid.NewString()
-					hostName := fmt.Sprintf("TestHost%d", i)
-					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
-					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, hostName, hostSpoofer)
-					Expect(err).To(BeNil())
-					Expect(host).ToNot(BeNil())
-					Expect(localGatewayClient).ToNot(BeNil())
-
-					err = clusterGateway.RegisterNewHost(host)
-					Expect(err).To(BeNil())
-
-					Hosts = append(Hosts, host)
-
-					return host
-				}
 
 				By("Creating all of the initial-size hosts")
 
@@ -3407,6 +3419,221 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}, time.Second*10, time.Millisecond*50).
 					Should(Equal(clusterSize - 1))
 			})
+
+			Context("Autoscaling Without Any Kernels Scheduled", func() {
+				createHosts := func(policyKey scheduling.PolicyKey, numHostsToCreate int, initialClusterSize int, initialConnectionTime time.Duration) {
+					options.SchedulingPolicy = policyKey.String()
+
+					clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
+						globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+						srv.SetClusterOptions(&options.ClusterDaemonOptions.SchedulerOptions)
+						srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+						srv.(*ClusterGatewayImpl).hostSpec = hostSpec
+					})
+					config.InitLogger(&clusterGateway.log, clusterGateway)
+
+					Expect(clusterGateway.metricsProvider).ToNot(BeNil())
+					Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+					Expect(clusterGateway.initialClusterSize).To(Equal(initialClusterSize))
+					Expect(clusterGateway.initialConnectionPeriod).To(Equal(initialConnectionTime))
+					Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+
+					dockerCluster = clusterGateway.cluster
+
+					var ok bool
+					index, ok = dockerCluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+					Expect(ok).To(BeTrue())
+					Expect(index).ToNot(BeNil())
+
+					placer = dockerCluster.Placer()
+					Expect(placer).ToNot(BeNil())
+
+					scheduler = dockerCluster.Scheduler()
+					Expect(scheduler.Placer()).To(Equal(dockerCluster.Placer()))
+					Expect(scheduler.PolicyKey()).To(Equal(policyKey))
+
+					Expect(dockerCluster.Len()).To(Equal(0))
+					Expect(index.Len()).To(Equal(0))
+					Expect(placer.NumHostsInIndex()).To(Equal(0))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, 0)
+
+					clusterSize := 0
+					disabledHosts := 0
+					for i := 0; i < numHostsToCreate; i++ {
+						host := createHost(i)
+
+						if i >= initialClusterSize {
+							disabledHosts += 1
+							Expect(host.Enabled()).To(BeFalse())
+							assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+						} else {
+							clusterSize += 1
+							Expect(host.Enabled()).To(BeTrue())
+							assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
+						}
+
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.NumDisabledHosts()).To(Equal(disabledHosts))
+						Expect(index.Len()).To(Equal(clusterSize))
+						Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+						Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					}
+				}
+
+				Context("Scaling Out -- Automatically Adding Hosts", func() {
+					MinimumNumNodes := 8
+					ScalingBufferSize := 8 // Large scaling buffer to promote scaling out.
+					InitialClusterSize := 8
+					NumHostsToCreate := 16 // Larger than InitialClusterSize so that there are some disabled hosts.
+					InitialConnectionTimeSeconds := 1
+					MaximumHostsToReleaseAtOnce := 2
+					MeanScaleInPerHostSec := 0.100   // Super quick.
+					MeanScaleOutPerHostSec := 0.0125 // Super quick.
+					ScalingIntervalSec := 0.175      // Very frequently.
+					InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+					BeforeEach(func() {
+						Hosts = make([]scheduling.UnitTestingHost, 0, NumHostsToCreate)
+
+						// Relatively quick, but long enough that we can see individual scale-outs.
+
+						options.ScalingIntervalSec = ScalingIntervalSec
+						options.InitialClusterSize = InitialClusterSize
+						options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+						options.MinimumNumNodes = MinimumNumNodes
+						options.ScalingBufferSize = ScalingBufferSize
+						options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
+						options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
+						options.MaximumHostsToReleaseAtOnce = MaximumHostsToReleaseAtOnce
+
+						mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+					})
+
+					It("Will automatically scale-out while using static scheduling", func() {
+						createHosts(scheduling.Static, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := InitialClusterSize
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+
+					It("Will NOT automatically scale-out while using reservation-based scheduling", func() {
+						createHosts(scheduling.Reservation, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := InitialClusterSize
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
+
+						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
+						time.Sleep(time.Second * 3)
+
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
+					})
+
+					It("Will NOT automatically scale-out while using FCFS batch scheduling", func() {
+						createHosts(scheduling.FcfsBatch, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := InitialClusterSize
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.FcfsBatch))
+
+						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
+						time.Sleep(time.Second * 3)
+
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
+					})
+				})
+
+				Context("Scaling In (Automatically Removing Hosts)", func() {
+					MinimumNumNodes := 3
+					ScalingBufferSize := 1
+					InitialClusterSize := 16
+					NumHostsToCreate := InitialClusterSize
+					InitialConnectionTimeSeconds := 1
+					MaximumHostsToReleaseAtOnce := 2
+					MeanScaleInPerHostSec := 0.100   // Super quick.
+					MeanScaleOutPerHostSec := 0.0125 // Super quick.
+					ScalingIntervalSec := 0.175      // Very frequently.
+					InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+					BeforeEach(func() {
+						Hosts = make([]scheduling.UnitTestingHost, 0, NumHostsToCreate)
+
+						// Relatively quick, but long enough that we can see individual scale-outs.
+
+						options.ScalingIntervalSec = ScalingIntervalSec
+						options.InitialClusterSize = InitialClusterSize
+						options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+						options.MinimumNumNodes = MinimumNumNodes
+						options.ScalingBufferSize = ScalingBufferSize
+						options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
+						options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
+						options.MaximumHostsToReleaseAtOnce = MaximumHostsToReleaseAtOnce
+
+						mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+					})
+
+					It("Will automatically scale-in while using static scheduling", func() {
+						createHosts(scheduling.Static, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := NumHostsToCreate
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+
+					It("Will automatically scale-in while using reservation-based scheduling", func() {
+						createHosts(scheduling.Reservation, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := NumHostsToCreate
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+
+					It("Will automatically scale-in while using FCFS batch scheduling", func() {
+						createHosts(scheduling.FcfsBatch, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := NumHostsToCreate
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.FcfsBatch))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+				})
+			})
 		})
 
 		Context("Scheduling Kernels", func() {
@@ -3481,8 +3708,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				numHosts := 3
 				hosts := make([]scheduling.Host, 0, numHosts)
+				routers := make([]*router.Router, 0, numHosts)
+				routerProviders := make([]*mock_router.MockProvider, 0, numHosts)
+				jupyterConnInfos := make([]*jupyter.ConnectionInfo, 0, numHosts)
+				shellForwarderSockets := make([]*messaging.Socket, 0, numHosts)
+
 				localGatewayClients := make([]*mock_proto.MockLocalGatewayClient, 0, numHosts)
 
+				defer func() {
+					for _, router := range routers {
+						_ = router.Close()
+					}
+				}()
+
+				port := 35000
 				for i := 0; i < numHosts; i++ {
 					hostId := uuid.NewString()
 					hostName := fmt.Sprintf("TestNode-%d", i)
@@ -3494,6 +3733,50 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					hosts = append(hosts, host)
 					localGatewayClients = append(localGatewayClients, localGatewayClient)
+
+					mockRouterProvider := mock_router.NewMockProvider(mockCtrl)
+					routerConnInfo := &jupyter.ConnectionInfo{
+						Transport:            "tcp",
+						Key:                  kernelKey,
+						SignatureScheme:      messaging.JupyterSignatureScheme,
+						IP:                   "127.0.0.1",
+						ControlPort:          port,
+						ShellPort:            port + 1,
+						StdinPort:            port + 2,
+						HBPort:               port + 3,
+						IOPubPort:            port + 4,
+						IOSubPort:            port + 5,
+						AckPort:              port + 6,
+						StartingResourcePort: 9000,
+						NumResourcePorts:     512,
+					}
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel() // Don't want to defer until the unit test returns, not the loop.
+
+					routerServer := router.New(ctx, fmt.Sprintf("Router-TestNode-%d", i),
+						routerConnInfo, mockRouterProvider, false,
+						fmt.Sprintf("LocalDaemon_%d", i), false, metrics.LocalDaemon,
+						true, nil)
+
+					go func() {
+						defer GinkgoRecover()
+						err = routerServer.Start()
+						Expect(err).To(BeNil())
+					}()
+
+					shellSocket := messaging.NewSocket(zmq4.NewRouter(ctx), port+7, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%d]", i))
+					err = shellSocket.Listen(fmt.Sprintf("tcp://:%d", shellSocket.Port))
+					Expect(err).To(BeNil())
+
+					fmt.Printf("\n\nSuccessfully started Router for TestNode-%d.\n", i)
+
+					routers = append(routers, routerServer)
+					routerProviders = append(routerProviders, mockRouterProvider)
+					jupyterConnInfos = append(jupyterConnInfos, routerConnInfo)
+					shellForwarderSockets = append(shellForwarderSockets, shellSocket)
+
+					port = port + 8
 				}
 
 				By("Registering hosts")
@@ -3524,18 +3807,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					time.Sleep(time.Millisecond * 10)
 
+					jupyterConnInfo := jupyterConnInfos[replicaId-1]
+
 					resp, err := clusterGateway.NotifyKernelRegistered(context.Background(), &proto.KernelRegistrationNotification{
 						ConnectionInfo: &proto.KernelConnectionInfo{
 							Ip:              "127.0.0.1",
 							Transport:       "tcp",
-							ControlPort:     int32(35000),
-							ShellPort:       int32(35001),
-							StdinPort:       int32(35002),
-							HbPort:          int32(35003),
-							IopubPort:       int32(35004),
-							IosubPort:       int32(35005),
-							SignatureScheme: messaging.JupyterSignatureScheme,
-							Key:             kernelKey,
+							ControlPort:     int32(jupyterConnInfo.ControlPort),
+							ShellPort:       int32(jupyterConnInfo.ShellPort),
+							StdinPort:       int32(jupyterConnInfo.StdinPort),
+							HbPort:          int32(jupyterConnInfo.HBPort),
+							IopubPort:       int32(jupyterConnInfo.IOPubPort),
+							IosubPort:       int32(jupyterConnInfo.IOSubPort),
+							SignatureScheme: jupyterConnInfo.SignatureScheme,
+							Key:             jupyterConnInfo.Key,
 						},
 						KernelId:           kernelId,
 						HostId:             host.GetID(),

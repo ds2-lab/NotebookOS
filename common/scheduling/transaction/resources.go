@@ -8,12 +8,9 @@ import (
 )
 
 type Resources struct {
+	initial   *types.DecimalSpec
+	working   *types.DecimalSpec
 	isMutable bool
-
-	// The initial state of the operation.
-	initial *types.DecimalSpec
-	// The current "working" state of the operation.
-	working *types.DecimalSpec
 }
 
 func NewResources(initial *types.DecimalSpec, isMutable bool) *Resources {

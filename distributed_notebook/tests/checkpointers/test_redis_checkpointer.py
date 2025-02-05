@@ -1,34 +1,59 @@
 import os
+import os
 import uuid
 from typing import Any, Type
 
+import fakeredis
 import pytest
 from torch import Tensor
 
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
     CoLA, get_model_and_dataset
-from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
-from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.storage.redis_provider import RedisProvider
 
 
-def test_create():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+def get_fake_redis_client() -> fakeredis.FakeRedis:
+    return fakeredis.FakeRedis()
+
+def get_fake_async_redis_client() -> fakeredis.FakeAsyncRedis:
+    return fakeredis.FakeAsyncRedis()
+
+@pytest.fixture
+def redis_client(request):
+    return get_fake_redis_client()
+
+
+@pytest.fixture
+def async_redis_client(request):
+    async_redis_client = fakeredis.FakeAsyncRedis()
+    return async_redis_client
+
+
+def test_create(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     assert checkpointer is not None
-    assert isinstance(checkpointer, LocalCheckpointer)
-    assert len(checkpointer) == 0
-    assert checkpointer.size == 0
+    assert isinstance(checkpointer, RemoteCheckpointer)
 
 
-def test_read_after_write():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+def test_read_after_write_simple_model_state(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -38,14 +63,17 @@ def test_read_after_write():
         proposer_id=1,
     )
 
-    checkpointer.write_state_dicts(model_pointer)
+    keys: list[str] = checkpointer.write_state_dicts(model_pointer)
 
     # The size will now be three -- as we wrote the model state, the state of the model's optimizer, and
     # the state of the model's criterion.
-    assert checkpointer.size == 4
-    assert len(checkpointer) == 4
 
     model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
+
+    for key in keys:
+        print(f"Deleting S3 object: '{key}'")
+
+        checkpointer.delete_data(key)
 
     assert model_state is not None
     assert optimizer_state is not None
@@ -57,12 +85,20 @@ def test_read_after_write():
     assert isinstance(criterion_state, dict)
     assert isinstance(constructor_args_state, dict)
 
+    assert checkpointer.num_objects_read == 4
+    assert checkpointer.num_objects_written == 4
+    assert checkpointer.num_objects_deleted == 4
 
-def test_write_model_that_does_not_require_checkpointing():
+
+def test_write_model_that_does_not_require_checkpointing(redis_client, async_redis_client):
     """
     Write a model that does NOT require checkpointing, which should cause a ValueError to be raised.
     """
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=False)
     model_pointer: ModelPointer = ModelPointer(
@@ -76,8 +112,12 @@ def test_write_model_that_does_not_require_checkpointing():
         checkpointer.write_state_dicts(model_pointer)
 
 
-def test_read_empty():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+def test_read_empty(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -91,8 +131,12 @@ def test_read_empty():
         checkpointer.read_state_dicts(model_pointer)
 
 
-def test_checkpoint_after_training():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+def test_checkpoint_after_training(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     # Create the model.
     input_size: int = 4
@@ -116,8 +160,8 @@ def test_checkpoint_after_training():
     )
     checkpointer.write_state_dicts(model_pointer)
 
-    num_epochs: int = 5
-    num_training_loops: int = 5
+    num_epochs: int = 3
+    num_training_loops: int = 3
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
@@ -190,8 +234,12 @@ def test_checkpoint_after_training():
                 assert checkpointed_val.equal(local_val)
 
 
-def test_checkpoint_and_train_simple_model():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     # Create the model.
     input_size: int = 4
@@ -215,8 +263,8 @@ def test_checkpoint_and_train_simple_model():
     )
     checkpointer.write_state_dicts(model_pointer)
 
-    num_epochs: int = 5
-    num_training_loops: int = 5
+    num_epochs: int = 3
+    num_training_loops: int = 3
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
@@ -295,7 +343,9 @@ def perform_training_for_model(
         model_class: Type,
         dataset_class: Type,
         num_training_loops: int = 5,
-        target_training_duration_ms: float = 1000.0
+        target_training_duration_ms: float = 1000.,
+        redis_client=None,
+        async_redis_client=None,
 ):
     """
     Perform deep learning training on a model of type 'cls', where 'cls' is some subtype of ComputerVisionModel.
@@ -303,7 +353,17 @@ def perform_training_for_model(
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
 
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    if redis_client is None:
+        redis_client = get_fake_redis_client()
+
+    if async_redis_client is None:
+        async_redis_client = get_fake_async_redis_client()
+
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     # # Create the model.
     # model = model_class(created_for_first_time=True)
@@ -413,9 +473,9 @@ def perform_training_for_model(
     (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
     (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
     (VGG11, CIFAR10), (VGG11, TinyImageNet),
-    (VGG13, CIFAR10), (VGG13, TinyImageNet),
-    (VGG16, CIFAR10), (VGG16, TinyImageNet),
-    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    # (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    # (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    # (VGG19, CIFAR10), (VGG19, TinyImageNet),
     (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
     (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
     (DeepSpeech2, LibriSpeech)

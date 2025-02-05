@@ -56,45 +56,29 @@ func (c *TemporaryKernelReplicaClient) ReplicaID() int32 {
 // DistributedKernelClient is a client of a Distributed Jupyter Kernel that is used by the Gateway daemon.
 // It wraps individual KernelReplicaClient instances -- one for each replica of the kernel.
 type DistributedKernelClient struct {
-	*server.BaseServer
-	scheduling.SessionManager
-	server *server.AbstractServer
-
-	id             string
-	status         jupyter.KernelStatus
-	busyStatus     *AggregateKernelStatus
-	lastBStatusMsg *messaging.JupyterMessage
-
-	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
-
-	spec              *proto.KernelSpec
-	replicas          map[int32]scheduling.KernelReplica
-	targetNumReplicas int32
-
-	persistentId string
-
-	numActiveAddOperations atomic.Int32 // Number of active migrations of the associated kernel's replicas.
-
-	nextNodeId atomic.Int32
-
-	// ExecutionManager is responsible for managing the user-submitted cell executions.
 	ExecutionManager scheduling.ExecutionManager
-
-	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
-	notificationCallback scheduling.NotificationCallback
-
-	session scheduling.UserSession
-
-	debugMode bool
-
-	log logger.Logger
-	mu  sync.RWMutex
-
-	// replicasMutex provides atomicity for operations that add or remove kernel replicas from the replicas slice.
-	replicasMutex sync.RWMutex
-
-	closing int32
-	cleaned chan struct{}
+	scheduling.SessionManager
+	log                          logger.Logger
+	session                      scheduling.UserSession
+	notificationCallback         scheduling.NotificationCallback
+	server                       *server.AbstractServer
+	lastBStatusMsg               *messaging.JupyterMessage
+	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
+	spec                         *proto.KernelSpec
+	replicas                     map[int32]scheduling.KernelReplica
+	cleaned                      chan struct{}
+	busyStatus                   *AggregateKernelStatus
+	*server.BaseServer
+	persistentId           string
+	id                     string
+	replicasMutex          sync.RWMutex
+	mu                     sync.RWMutex
+	nextNodeId             atomic.Int32
+	status                 jupyter.KernelStatus
+	numActiveAddOperations atomic.Int32
+	closing                int32
+	targetNumReplicas      int32
+	debugMode              bool
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
@@ -813,10 +797,14 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 		if responseReceivedSem != nil {
 			// responseReceivedSem.Done()
 			responseReceivedSem.Release(1)
+			c.log.Debug("Called Release(1) on semaphore for %s '%s' message '%s'.",
+				typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
 		}
 
 		if numResponsesSoFar != nil {
-			numResponsesSoFar.Add(1)
+			numResp := numResponsesSoFar.Add(1)
+			c.log.Debug("Received %d response(s) to %s '%s' message '%s' request so far.",
+				numResp, typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
 		}
 	}
 
@@ -1138,8 +1126,10 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	go func() {
 		// responseReceivedSem.Wait()                            // Wait til the WaitGroup reaches 0.
 		err := responseReceivedSem.Acquire(ctx, int64(numResponsesExpected))
-		if err != nil {
+		if err == nil {
 			allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
+		} else {
+			cancel()
 		}
 	}()
 

@@ -28,9 +28,9 @@ const (
 // chan interface{} used to notify the caller when the request has been submitted and a result has been returned.
 type enqueuedRequest[MessageType any] struct {
 	Msg           MessageType
+	Kernel        MessageRecipient
 	ResultChannel chan interface{}
 	MsgId         string
-	Kernel        MessageRecipient
 }
 
 // MessageRecipient is an interface that enables ExecuteRequestForwarder to work with both scheduling.Kernel
@@ -52,26 +52,13 @@ type ProcessMessageFunc[MessageType any] func(msg MessageType, kernel MessageRec
 
 // ExecuteRequestForwarder ensures that "execute_request" (and "yield_request") messages are sent one-at-a-time.
 type ExecuteRequestForwarder[MessageType any] struct {
-	mu  sync.Mutex
-	log logger.Logger
-
-	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
-	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedRequest[MessageType]]
-
-	// outgoingExecuteRequestQueueMutexes is a map of mutexes. Keys are kernel IDs. Values are the mutex for the
-	// associated kernel's outgoing "execute_request" message queue.
+	log                                logger.Logger
+	outgoingExecuteRequestQueue        hashmap.HashMap[string, chan *enqueuedRequest[MessageType]]
 	outgoingExecuteRequestQueueMutexes hashmap.HashMap[string, *sync.Mutex]
-
-	// executeRequestQueueStopChannels is a map from kernel ID to the channel used to tell the goroutine responsible
-	// for forwarding that kernel's "execute_request" messages to stop running (such as when we are stopping
-	// the kernel replica).
-	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
-
-	// notificationCallback is an optional callback used to submit notifications back to the frontend.
-	notificationCallback scheduling.NotificationCallback
-
-	// processCallback is an optional callback used to process messages before sending them.
-	processCallback ProcessMessageFunc[MessageType]
+	executeRequestQueueStopChannels    hashmap.HashMap[string, chan interface{}]
+	notificationCallback               scheduling.NotificationCallback
+	processCallback                    ProcessMessageFunc[MessageType]
+	mu                                 sync.Mutex
 }
 
 // NewExecuteRequestForwarder creates a new ExecuteRequestForwarder struct and returns a pointer to it.
@@ -130,6 +117,24 @@ func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, k
 	s.log.Debug("Enqueued \"execute_request\" message(s) with kernel \"%s\"", kernel.ID())
 
 	return resultChan
+}
+
+// UnregisterKernel is used to stop the goroutine that is forwarding messages to a particular kernel.
+//
+// UnregisterKernel will return true if the "stop" channel for the specified kernel is loaded and a notification
+// to stop is successfully sent over the channel.
+//
+// UnregisterKernel is non-blocking.
+func (s *ExecuteRequestForwarder[MessageType]) UnregisterKernel(kernelId string) bool {
+	stopChan, loaded := s.executeRequestQueueStopChannels.Load(kernelId)
+	if !loaded {
+		s.log.Warn("Unable to load \"stop channel\" for \"execute_request\" forwarder for kernel %s", kernelId)
+		return false
+	}
+
+	// Tell the goroutine to stop.
+	stopChan <- struct{}{}
+	return true
 }
 
 // RegisterKernel creates the necessary internal infrastructure to send "execute_request" messages to a kernel.

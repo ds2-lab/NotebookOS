@@ -210,9 +210,10 @@ type AllocationManager interface {
 	ContainerStartedRunningOnHost(replicaId int32, kernelId string, spec types.Spec) error
 	ReplicaEvicted(replicaId int32, kernelId string) error
 	HasSufficientIdleResourcesAvailable(spec types.Spec) bool
+	// GetGpuDeviceIdsAssignedToReplica returns the GPU device IDs assigned to the specified kernel replica.
 	GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error)
 	HasSufficientIdleResourcesAvailableWithError(spec types.Spec) (bool, error)
-	PreCommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string, resourceRequestArg types.Spec) ([]int, error)
+	PreCommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string, resourceRequestArg types.Spec, gpuDeviceIds []int) ([]int, error)
 
 	// CanServeContainerWithError returns nil if the target AllocationManager can serve the resource request.
 	//

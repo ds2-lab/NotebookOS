@@ -76,17 +76,9 @@ type ScaleOperationResult interface {
 }
 
 type BaseScaleOperationResult struct {
-	// PreviousNumNodes is the number of Host instances within the Cluster
-	// before the scale-in/scale-out operation was performed.
+	Err              error `json:"error"`
 	PreviousNumNodes int32 `json:"prev_num_nodes"`
-
-	// CurrentNumNodes is the number of Host instances within the Cluster
-	// after the scale-in/scale-out operation completed.
-	CurrentNumNodes int32 `json:"current_num_nodes"`
-
-	// The error (or errors that were joined together via errors.Join) that occurred while
-	// performing the ScaleOperation, if any such error(s) did occur.
-	Err error `json:"error"`
+	CurrentNumNodes  int32 `json:"current_num_nodes"`
 }
 
 // GetPreviousNumNodes returns the number of Host instances within the Cluster
@@ -120,12 +112,8 @@ func (s *BaseScaleOperationResult) String() string {
 // ScaleInOperationResult encapsulates the results of a scale-in operation.
 type ScaleInOperationResult struct {
 	*BaseScaleOperationResult
-
-	// NumNodesTerminated is the number of Host instances that were terminated.
-	NumNodesTerminated int32 `json:"num_nodes_terminated"`
-
-	// NodesTerminated contains the IDs of each of the Host instances that was terminated.
-	NodesTerminated []string `json:"nodes_terminated"`
+	NodesTerminated    []string `json:"nodes_terminated"`
+	NumNodesTerminated int32    `json:"num_nodes_terminated"`
 }
 
 func (s *ScaleInOperationResult) NumNodesAffected() int32 {
@@ -149,12 +137,8 @@ func (s *ScaleInOperationResult) String() string {
 // ScaleOutOperationResult encapsulates the results of a scale-in operation.
 type ScaleOutOperationResult struct {
 	*BaseScaleOperationResult
-
-	// NumNodesCreated is the number of Host instances that were created.
-	NumNodesCreated int32 `json:"num_nodes_created"`
-
-	// NodesCreated contains the IDs of each of the Host instances that was created.
-	NodesCreated []string `json:"nodes_created"`
+	NodesCreated    []string `json:"nodes_created"`
+	NumNodesCreated int32    `json:"num_nodes_created"`
 }
 
 func (s *ScaleOutOperationResult) NumNodesAffected() int32 {
@@ -205,43 +189,27 @@ func getScaleOperationType(initialScale int32, targetScale int32) ScaleOperation
 //
 // Instead, the associated business logic is implemented directly within the ClusterGateway.
 type ScaleOperation struct {
-	OperationId      string               `json:"request_id"`
-	InitialScale     int32                `json:"initial_scale"`
-	TargetScale      int32                `json:"target_scale"`
-	OperationType    ScaleOperationType   `json:"scale_operation_type"`
-	RegistrationTime time.Time            `json:"registration_time"`
-	StartTime        time.Time            `json:"start_time"`
-	EndTime          time.Time            `json:"end_time"`
-	Status           ScaleOperationStatus `json:"status"`
-	Result           ScaleOperationResult `json:"result"`
-
-	// Error is the error that caused ScaleOperation to enter the ScaleOperationErred state/status.
-	Error error `json:"error"`
-
-	// ExpectedNumAffectedNodes is the expected number of Host instances to be added/removed.
-	ExpectedNumAffectedNodes int `json:"expected_num_affected_nodes"`
-
-	// NodesAffected are the Host instances added/removed because of the ScaleOperation.
-	NodesAffected []string `json:"nodes_affected"`
-
-	NotificationChan  chan struct{}      `json:"-"`
-	CoreLogicDoneChan chan interface{}   `json:"-"`
-	Cluster           scheduling.Cluster `json:"-"`
-
-	// onScaleOperationFailedCallback is called when transition to an Erred state.
-	// It is called before signaling on the condition variable to wake up anybody waiting on us.
+	RegistrationTime               time.Time            `json:"registration_time"`
+	StartTime                      time.Time            `json:"start_time"`
+	EndTime                        time.Time            `json:"end_time"`
+	Result                         ScaleOperationResult `json:"result"`
+	log                            logger.Logger
+	Cluster                        scheduling.Cluster `json:"-"`
+	Error                          error              `json:"error"`
 	onScaleOperationFailedCallback OnScaleOperationFailedCallback
-
-	// cond exists so that goroutines can wait for the scale operation to complete.
-	cond   *sync.Cond
-	condMu sync.Mutex
-	mu     sync.Mutex
-
-	// This is what actually performs the scaling operation.
-	// It is supplied by the Cluster implementation.
-	executionFunc func()
-
-	log logger.Logger
+	NotificationChan               chan struct{}    `json:"-"`
+	CoreLogicDoneChan              chan interface{} `json:"-"`
+	executionFunc                  func()
+	cond                           *sync.Cond
+	Status                         ScaleOperationStatus `json:"status"`
+	OperationType                  ScaleOperationType   `json:"scale_operation_type"`
+	OperationId                    string               `json:"request_id"`
+	NodesAffected                  []string             `json:"nodes_affected"`
+	ExpectedNumAffectedNodes       int                  `json:"expected_num_affected_nodes"`
+	condMu                         sync.Mutex
+	mu                             sync.Mutex
+	TargetScale                    int32 `json:"target_scale"`
+	InitialScale                   int32 `json:"initial_scale"`
 }
 
 // NewScaleInOperationWithTargetHosts creates a new ScaleOperation struct and returns a pointer to it.
@@ -261,8 +229,8 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 	// Ensure that the caller isn't trying to scale-in by too many hosts. There needs to be at least `NUM_REPLICAS`
 	// hosts in the Cluster, where `NUM_REPLICAS` is the number of replicas of each Jupyter kernel.
 	targetScale := initialScale - int32(len(targetHosts))
-	if targetScale <= int32(cluster.NumReplicas()) {
-		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); Cluster's minimum scale is %d", ErrInvalidTargetScale, targetScale, initialScale, cluster.NumReplicas()).Error())
+	if targetScale < int32(cluster.NumReplicas()) {
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); Cluster's minimum scale is %d", ErrInvalidTargetScale, len(targetHosts), initialScale, cluster.NumReplicas()).Error())
 	}
 
 	// We're necessarily creating a scale-in operation here, so the target scale must be less than the initial scale.
@@ -304,7 +272,7 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 
 	scaleOperation.executionFunc = executionFunc
 	scaleOperation.log = config.GetLogger(
-		fmt.Sprintf("%s-%s", scaleOperation.OperationType, scaleOperation.OperationId))
+		fmt.Sprintf("%s-%s ", scaleOperation.OperationType, scaleOperation.OperationId))
 	return scaleOperation, nil
 }
 

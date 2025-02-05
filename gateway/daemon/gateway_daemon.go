@@ -186,178 +186,60 @@ type PrometheusMetricsProvider interface {
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type ClusterGatewayImpl struct {
-	mu sync.RWMutex
-
-	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
-	// as the request history.
-	DebugMode bool
-
-	id string
-	// createdAt is the time at which the ClusterGatewayImpl struct was created.
-	createdAt time.Time
-
-	// policyKey refers to the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
-	policyKey scheduling.PolicyKey
 	proto.UnimplementedClusterGatewayServer
 	proto.UnimplementedLocalGatewayServer
-	router *router.Router
-
-	// SchedulerOptions
-	connectionOptions *jupyter.ConnectionInfo
-	ClusterOptions    *scheduling.SchedulerOptions
-
-	DistributedClientProvider DistributedClientProvider
-
-	// cluster provisioning related members
-	listener net.Listener
-	cluster  scheduling.Cluster
-
-	// kernel members
-	transport        string
-	ip               string
-	kernels          hashmap.HashMap[string, scheduling.Kernel] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel] // Map from Kernel ID to client.DistributedKernelClient.
-	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
-
-	// numActiveKernels is the number of actively-running kernels.
-	numActiveKernels atomic.Int32
-
-	log logger.Logger
-
-	// lifetime
-	closed  int32
-	cleaned chan struct{}
-
-	started atomic.Bool
-
-	// ClusterStatistics encapsulates a number of statistics/metrics.
-	ClusterStatistics        *metrics.ClusterStatistics
-	clusterStatisticsMutex   sync.Mutex
-	lastFullStatisticsUpdate time.Time
-
-	// executionFailedCallback is the ClusterGatewayImpl's scheduling.ExecutionFailedCallback (i.e., recovery callback for panics).
-	// The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
-	// This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
-	// visually of the panic in the cluster dashboard).
-	executionFailedCallback scheduling.ExecutionFailedCallback
-
-	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
-	// kernels (or other resources) and could occur in-parallel (such as being triggered
-	// by multiple concurrent RPC requests).
-	addReplicaMutex sync.Mutex
-
-	// dockerNodeMutex is used to synchronize the operations involved with getting or modifying the
-	// number of Local Daemon Docker nodes/containers.
-	dockerNodeMutex sync.Mutex
-
-	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
-	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
-
-	// numResendAttempts is the number of times to try resending a message before giving up.
-	numResendAttempts int
-
-	// We configure a pool of available ports through Kubernetes.
-	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
-	// If a kernel stops, then its ports are returned to the pool for future reuse.
-	//availablePorts *utils.AvailablePorts
-
-	// The IOPub socket that all Jupyter clients subscribe to.
-	// io pub *messaging.Socket
-	smrPort int
-
-	// SubmitExecuteRequestsOneAtATime indicates whether the client.ExecuteRequestForwarder should be used to submit
-	// execute requests, which forces requests to be submitted one-at-a-time.
-	SubmitExecuteRequestsOneAtATime bool
-
-	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
-	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
-
-	// Map of kernels that are starting for the first time.
-	//
-	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
-	//
-	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
-	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
-	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
-
-	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
-	// to keep track of the notifications that we've received so we can discard duplicates.
-	kernelRegisteredNotifications *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
-
-	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
-	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
-
-	// Hostname of the RemoteStorage NameNode. The SyncLog's RemoteStorage client will connect to this.
-	remoteStorageEndpoint string
-
-	// Kubernetes client. This is shared with the associated internalCluster Gateway.
-	kubeClient scheduling.KubeClient
-
-	// Watches for new Pods/Containers.
-	//
-	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerEventHandler scheduling.ContainerWatcher
-
-	// remoteDockerEventAggregator listens for docker events that occur on remote nodes in Docker Swarm mode.
-	remoteDockerEventAggregator *RemoteDockerEventAggregator
-
-	// gRPC connection to the Dashboard.
-	clusterDashboard proto.ClusterDashboardClient
-
-	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
-	deploymentMode types.DeploymentMode
-
-	// Docker client.
-	dockerApiClient *dockerClient.Client
-
-	// The name of the Docker network that the container is running within. Only used in Docker mode.
-	dockerNetworkName string
-
-	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
-	// for the ZMQ messages that we're forwarding back and forth between the Jupyter Server and the Local Daemons.
-	//
-	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
-	MessageAcknowledgementsEnabled bool
-
-	// metricsProvider provides all metrics to the members of the scheduling package.
-	metricsProvider *metrics.ClusterMetricsProvider
-
-	// Indicates that a goroutine has been started to publish metrics to Prometheus.
-	servingPrometheus atomic.Int32
-
-	// prometheusInterval is how often we publish metrics to Prometheus.
-	prometheusInterval time.Duration
-
-	// hostSpec is the resource spec of Hosts in the Cluster
-	hostSpec *types.DecimalSpec
-
-	// RequestLog is used to track the status/progress of requests when in DebugMode.
-	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
-	//		 Update in forwardRequest and kernelReplicaResponseForwarder, rather than in here.
-	RequestLog *metrics.RequestLog
-
-	// The initial size of the cluster.
-	// If more than this many Local Daemons connect during the 'initial connection period',
-	// then the extra nodes will be disabled until a scale-out event occurs.
-	//
-	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
-	//
-	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
-	initialClusterSize int
-
-	// The initial connection period is the time immediately after the Cluster Gateway begins running during
-	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
-	// where N is the initial cluster size, then those extra daemons will be disabled.
-	//
-	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
-	initialConnectionPeriod time.Duration
-
-	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
-	inInitialConnectionPeriod atomic.Bool
-
-	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
-	// during the initial connection period.
+	createdAt                                     time.Time
+	lastFullStatisticsUpdate                      time.Time
+	kernels                                       hashmap.HashMap[string, scheduling.Kernel]
+	kubeClient                                    scheduling.KubeClient
+	containerEventHandler                         scheduling.ContainerWatcher
+	clusterDashboard                              proto.ClusterDashboardClient
+	waitGroups                                    hashmap.HashMap[string, *registrationWaitGroups]
+	log                                           logger.Logger
+	DistributedClientProvider                     DistributedClientProvider
+	listener                                      net.Listener
+	cluster                                       scheduling.Cluster
+	kernelSpecs                                   hashmap.HashMap[string, *proto.KernelSpec]
+	kernelIdToKernel                              hashmap.HashMap[string, scheduling.Kernel]
+	executionFailedCallback                       scheduling.ExecutionFailedCallback
+	kernelsStarting                               *hashmap.CornelkMap[string, chan struct{}]
+	RequestLog                                    *metrics.RequestLog
+	hostSpec                                      *types.DecimalSpec
+	ClusterOptions                                *scheduling.SchedulerOptions
+	metricsProvider                               *metrics.ClusterMetricsProvider
+	cleaned                                       chan struct{}
+	dockerApiClient                               *dockerClient.Client
+	ClusterStatistics                             *metrics.ClusterStatistics
+	remoteDockerEventAggregator                   *RemoteDockerEventAggregator
+	connectionOptions                             *jupyter.ConnectionInfo
+	kernelRegisteredNotifications                 *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
+	executeRequestForwarder                       *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
+	router                                        *router.Router
+	remoteStorageEndpoint                         string
+	transport                                     string
+	dockerNetworkName                             string
+	deploymentMode                                types.DeploymentMode
+	id                                            string
+	ip                                            string
+	policyKey                                     scheduling.PolicyKey
+	prometheusInterval                            time.Duration
 	numHostsDisabledDuringInitialConnectionPeriod int
+	initialConnectionPeriod                       time.Duration
+	initialClusterSize                            int
+	smrPort                                       int
+	numResendAttempts                             int
+	mu                                            sync.RWMutex
+	dockerNodeMutex                               sync.Mutex
+	addReplicaMutex                               sync.Mutex
+	clusterStatisticsMutex                        sync.Mutex
+	closed                                        int32
+	servingPrometheus                             atomic.Int32
+	numActiveKernels                              atomic.Int32
+	started                                       atomic.Bool
+	inInitialConnectionPeriod                     atomic.Bool
+	MessageAcknowledgementsEnabled                bool
+	SubmitExecuteRequestsOneAtATime               bool
+	DebugMode                                     bool
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
@@ -2757,6 +2639,11 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
 	}
 
+	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
+	if !stopped {
+		d.log.Warn("Failed to stop 'execute_request' forwarder for kernel \"%s\"...", in.Id)
+	}
+
 	return
 }
 
@@ -3490,23 +3377,75 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	return nil
 }
 
+// embedGpuDeviceIdsInExecuteRequestMetadata is used to embed the GPU device IDs in the metadata frame of the given
+// "execute_request" message targeting the specified scheduling.KernelReplica.
+//
+// Warning: this modifies the given messaging.JupyterMessage.
+func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *messaging.JupyterMessage, targetReplica scheduling.KernelReplica) error {
+	// Validate that the message is of the proper type.
+	if jMsg.JupyterMessageType() != messaging.ShellExecuteRequest {
+		return fmt.Errorf("%w: expected message of type \"%s\"; however, message \"%s\" targeting kernel \"%s\" is of type \"%s\"",
+			client.ErrInvalidMessage, messaging.ShellExecuteRequest, jMsg.JupyterMessageId(), targetReplica.ID(), jMsg.JupyterMessageType())
+	}
+
+	// Deserialize the message's metadata frame into a dictionary.
+	var metadataDict map[string]interface{}
+	if err := jMsg.JupyterFrames.DecodeMetadata(&metadataDict); err != nil {
+		d.log.Error("Failed to decode metadata frame of \"execute_request\" message \"%s\" targeting kernel \"%s\" with JSON: %v",
+			jMsg.JupyterMessageId(), targetReplica.ID(), err)
+		return err
+	}
+
+	// Get the GPU device IDs assigned to the target kernel replica.
+	gpuDeviceIds, err := targetReplica.Host().GetGpuDeviceIdsAssignedToReplica(targetReplica.ReplicaID(), targetReplica.ID())
+	if err != nil {
+		d.log.Error("Failed to retrieve GPU device IDs assigned to replica %d of kernel \"%s\" because: %v",
+			targetReplica.ReplicaID(), targetReplica.ID(), err)
+
+		return err
+	}
+
+	// Embed the GPU device IDs in the metadata dictionary, which we'll re-encode into the message's metadata frame.
+	metadataDict["gpu_device_ids"] = gpuDeviceIds
+
+	// Re-encode the metadata frame. It will have the number of idle GPUs available,
+	// as well as the reason that the request was yielded (if it was yielded).
+	err = jMsg.EncodeMetadata(metadataDict)
+	if err != nil {
+		d.log.Error("Failed to encode metadata frame because: %v", err)
+		d.notifyDashboardOfError("Failed to Encode Metadata Frame", err.Error())
+		panic(err)
+	}
+
+	// Regenerate the signature.
+	_, err = jMsg.JupyterFrames.Sign(targetReplica.ConnectionInfo().SignatureScheme, []byte(targetReplica.ConnectionInfo().Key))
+	if err != nil {
+		message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v",
+			jMsg.JupyterMessageType(), err)
+		d.notifyDashboardOfError("Failed to Sign JupyterFrames", message)
+		panic(err)
+	}
+
+	// Validate the updated message/frames.
+	verified := messaging.ValidateFrames([]byte(targetReplica.ConnectionInfo().Key),
+		targetReplica.ConnectionInfo().SignatureScheme, jMsg.JupyterFrames)
+	if !verified {
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'",
+			targetReplica.ConnectionInfo().SignatureScheme, targetReplica.ConnectionInfo().Key)
+		d.log.Error("This message will likely be rejected by the kernel:\n%v", jMsg.StringFormatted())
+	}
+
+	return nil
+}
+
 // forwardExecuteRequest forwards the given "execute_request" message to all eligible replicas of the
 // specified kernel and a converted "yield_request" to all ineligible replicas of the kernel.
-func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessage, kernel scheduling.Kernel,
+func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messaging.JupyterMessage, kernel scheduling.Kernel,
 	targetReplica scheduling.KernelReplica) error {
 
 	replicas := kernel.Replicas()
 
-	jMsg.AddDestFrameIfNecessary(kernel.ID())
-
-	// getMsgForTargetReplica returns the *messaging.JupyterMessage to be sent to the target replica.
-	getMsgForTargetReplica := func() *messaging.JupyterMessage {
-		if kernel.DebugMode() {
-			return jMsg.Clone()
-		}
-
-		return jMsg
-	}
+	originalJupyterMessage.AddDestFrameIfNecessary(kernel.ID())
 
 	jupyterMessages := make([]*messaging.JupyterMessage, kernel.Size())
 	for _, replica := range replicas {
@@ -3515,27 +3454,34 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			err            error
 		)
 
-		if replica.ReplicaID() != targetReplica.ReplicaID() {
-			// Convert the "execute_request" message to a "yield_request" message.
-			// The returned message is initially created as a clone of the target message.
-			jupyterMessage, err = jMsg.CreateAndReturnYieldRequestMessage()
-			if err != nil {
-				d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
-					jMsg.JupyterMessageId(), err)
-				d.log.Error("Original \"execute_request\" message that we failed to convert: %v", jMsg)
-				d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message", err.Error())
-				jMsg.IsFailedExecuteRequest = true
-
-				// We'll send an error message to the associated client here.
-				_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
-				return err
-			}
-
-			d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\"",
-				jMsg.JupyterMessageId(), replica.ReplicaID(), replica.ID())
-		} else {
-			jupyterMessage = getMsgForTargetReplica()
+		if replica.ReplicaID() == targetReplica.ReplicaID() {
+			jupyterMessage = originalJupyterMessage.Clone()
+			jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
+			continue
 		}
+
+		// Convert the "execute_request" message to a "yield_request" message.
+		// The returned message is initially created as a clone of the target message.
+		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage()
+		if err != nil {
+			d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
+				originalJupyterMessage.JupyterMessageId(), err)
+
+			d.log.Error("Original \"execute_request\" message that we failed to convert: %v", originalJupyterMessage)
+
+			d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
+				err.Error())
+
+			originalJupyterMessage.IsFailedExecuteRequest = true
+
+			// We'll send an error message to the associated client here.
+			_ = d.sendErrorResponse(kernel, originalJupyterMessage, err, messaging.ShellMessage)
+
+			return err
+		}
+
+		d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\"",
+			originalJupyterMessage.JupyterMessageId(), replica.ReplicaID(), replica.ID())
 
 		// We subtract 1 because replica IDs start at 1.
 		jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
@@ -3611,11 +3557,11 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 		d.clusterStatisticsMutex.Unlock()
 	}
 
-	targetReplica, err := d.processExecuteRequest(jMsg, kernel)
-	if err != nil {
+	targetReplica, processingError := d.processExecuteRequest(jMsg, kernel)
+	if processingError != nil {
 		// Send a response with the error as the content.
-		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
-		return err
+		_ = d.sendErrorResponse(kernel, jMsg, processingError, messaging.ShellMessage)
+		return processingError
 	}
 
 	if targetReplica != nil {
@@ -3788,7 +3734,7 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 			targetReplica.ReplicaID(), kernel.ID(), targetReplica.Host().GetNodeName())
 
 		// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
-		err = targetReplica.Host().PreCommitResources(targetReplica.Container(), msg.JupyterMessageId())
+		_, err = targetReplica.Host().PreCommitResources(targetReplica.Container(), msg.JupyterMessageId(), nil)
 		if err != nil {
 			d.log.Error("Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v",
 				targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)

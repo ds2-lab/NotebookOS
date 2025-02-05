@@ -77,7 +77,9 @@ func CreateJupyterMessageWithMetadata(messageType messaging.JupyterMessageType, 
 	return messaging.NewJupyterMessage(msg)
 }
 
-func CreateJupyterMessageWithContent(messageType messaging.JupyterMessageType, kernelId string, kernelKey string, content map[string]interface{}) *messaging.JupyterMessage {
+func CreateJupyterMessageWithContent(messageType messaging.JupyterMessageType, kernelId string, kernelKey string,
+	content map[string]interface{}, parentHeader *messaging.MessageHeader) *messaging.JupyterMessage {
+
 	header := &messaging.MessageHeader{
 		MsgID:    uuid.NewString(),
 		Username: kernelId,
@@ -101,6 +103,11 @@ func CreateJupyterMessageWithContent(messageType messaging.JupyterMessageType, k
 	jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecReqFrames)
 	err = jFrames.EncodeHeader(header)
 	Expect(err).To(BeNil())
+
+	if parentHeader != nil {
+		err = jFrames.EncodeParentHeader(parentHeader)
+		Expect(err).To(BeNil())
+	}
 
 	frames, _ := jFrames.Sign(SignatureScheme, []byte(kernelKey))
 	msg := &zmq4.Msg{

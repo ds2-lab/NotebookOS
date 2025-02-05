@@ -10,6 +10,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"strings"
@@ -20,74 +21,34 @@ import (
 
 // BaseCluster encapsulates the core state and logic required to operate a Cluster.
 type BaseCluster struct {
-	instance internalCluster
-
-	// DisabledHosts is a map from host ID to *entity.Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, scheduling.Host]
-
-	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
-	hosts hashmap.HashMap[string, scheduling.Host]
-	// hostMutex controls external access to the internal Host mapping.
-	hostMutex sync.RWMutex
-
-	// sessions is a map of Sessions.
-	sessions      hashmap.HashMap[string, scheduling.UserSession]
-	sessionsMutex sync.RWMutex
-
-	// indexes is a map from index key to IndexProvider containing all the indexes in the Cluster.
-	indexes hashmap.BaseHashMap[string, scheduling.IndexProvider]
-
-	// activeScaleOperation is a reference to the currently-active scale-out/scale-in operation.
-	// There may only be one scaling operation active at any given time.
-	// If activeScaleOperation is nil, then there is no active scale-out or scale-in operation.
-	activeScaleOperation *scheduler.ScaleOperation
-	scaleOperationCond   *sync.Cond
-
-	numFailedScaleInOps      int
-	numFailedScaleOutOps     int
-	numSuccessfulScaleInOps  int
-	numSuccessfulScaleOutOps int
-
-	// gpusPerHost is the number of GPUs available on each host.
-	gpusPerHost int
-
-	// scheduler is the scheduling.Scheduler for the Cluster.
-	scheduler scheduling.Scheduler
-
-	log logger.Logger
-
-	// minimumCapacity is the minimum number of nodes we must have available at any time.
-	// It must be at least equal to the number of replicas per kernel.
-	minimumCapacity int32
-
-	// maximumCapacity is the maximum number of nodes we may have available at any time.
-	// If this value is < 0, then it is unbounded.
-	// It must be at least equal to the number of replicas per kernel, and it cannot be smaller than the minimum capacity.
-	maximumCapacity int32
-
-	// metricsProvider provides access to Prometheus metrics (for publishing purposes).
-	metricsProvider scheduling.MetricsProvider
-
-	// scalingOpMutex controls access to the currently active scaling operation.
-	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
-	scalingOpMutex sync.Mutex
-
-	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
-	// scaling-in or scaling-out depending on the current load and whatnot.
-	validateCapacityInterval time.Duration
-
-	// statisticsUpdaterProvider is used to update metrics/statistics.
+	scheduler                 scheduling.Scheduler
+	DisabledHosts             hashmap.HashMap[string, scheduling.Host]
+	hosts                     hashmap.HashMap[string, scheduling.Host]
+	metricsProvider           scheduling.MetricsProvider
+	sessions                  hashmap.HashMap[string, scheduling.UserSession]
+	log                       logger.Logger
+	indexes                   hashmap.BaseHashMap[string, scheduling.IndexProvider]
+	instance                  internalCluster
+	activeScaleOperation      *scheduler.ScaleOperation
+	scaleOperationCond        *sync.Cond
+	opts                      *scheduling.SchedulerOptions
 	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
-
-	MeanScaleOutPerHost   time.Duration
-	StdDevScaleOutPerHost time.Duration
-
-	MeanScaleInPerHost   time.Duration
-	StdDevScaleInPerHost time.Duration
-
-	closed atomic.Bool
-
-	opts *scheduling.SchedulerOptions
+	gpusPerHost               int
+	MeanScaleInPerHost        time.Duration
+	numSuccessfulScaleOutOps  int
+	numFailedScaleOutOps      int
+	StdDevScaleInPerHost      time.Duration
+	numFailedScaleInOps       int
+	validateCapacityInterval  time.Duration
+	numSuccessfulScaleInOps   int
+	MeanScaleOutPerHost       time.Duration
+	StdDevScaleOutPerHost     time.Duration
+	sessionsMutex             sync.RWMutex
+	hostMutex                 sync.RWMutex
+	scalingOpMutex            sync.Mutex
+	maximumCapacity           int32
+	closed                    atomic.Bool
+	minimumCapacity           int32
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
@@ -803,8 +764,9 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
-	c.log.Debug("Scale-out operation %s from %d nodes to %d nodes succeeded.",
+	c.log.Debug(utils.LightGreenStyle.Render("Scale-out operation %s from %d nodes to %d nodes succeeded."),
 		scaleOp.OperationId, scaleOp.InitialScale, scaleOp.TargetScale)
+
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
@@ -929,7 +891,9 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
-	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
+	c.log.Debug(utils.LightGreenStyle.Render("Scale-in from %d nodes down to %d nodes succeeded."),
+		scaleOp.InitialScale, scaleOp.TargetScale)
+
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}

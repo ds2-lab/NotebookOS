@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"go.uber.org/atomic"
 )
 
 var (
@@ -44,16 +45,13 @@ func GetIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (schedul
 }
 
 type baseSchedulingPolicy struct {
-	scalingConfiguration         *scheduling.ScalingConfiguration
 	idleSessionReclamationPolicy scheduling.IdleSessionReclamationPolicy
-
-	scalingOutEnabled bool
-	supportsMigration bool
-
-	// GpusPerHost is the number of GPUs available on each host.
-	GpusPerHost int
-
-	log logger.Logger
+	log                          logger.Logger
+	scalingConfiguration         *scheduling.ScalingConfiguration
+	isValidatingCapacity         atomic.Int32
+	GpusPerHost                  int
+	scalingOutEnabled            bool
+	supportsMigration            bool
 }
 
 func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnabled bool, supportsMigration bool) (*baseSchedulingPolicy, error) {
@@ -78,6 +76,10 @@ func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnable
 	config.InitLogger(&basePolicy.log, basePolicy)
 
 	return basePolicy, nil
+}
+
+func (p *baseSchedulingPolicy) getLogger() logger.Logger {
+	return p.log
 }
 
 // SupportsMigration returns true if the Policy allows for the migration of one or more replicas of

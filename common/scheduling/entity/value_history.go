@@ -110,19 +110,11 @@ func (entry *ValueEntry[T]) Compare(other *ValueEntry[T]) int {
 // This maintains the history of the different values.
 // The type of the value can be anything.
 type ValueHistory[T any] struct {
-	// ValueName denotes the name of the metric or variable whose history is being tracked.
-	ValueName string `json:"value_name"`
-
-	// ValueType denotes the String name of the type of the target metric or variable.
-	ValueType string `json:"value_type"`
-
-	// This is a min-heap sorted by Timestamp of the values inserted into the history.
-	Entries ValueHeap[T] `json:"value_entries"`
-
-	// This is the most recent value added to the history.
-	LatestValue T `json:"latest_value"`
-
-	mu sync.Mutex
+	LatestValue T            `json:"latest_value"`
+	ValueName   string       `json:"value_name"`
+	ValueType   string       `json:"value_type"`
+	Entries     ValueHeap[T] `json:"value_entries"`
+	mu          sync.Mutex
 }
 
 func NewValueHistory[T any](name string, typeName string) *ValueHistory[T] {

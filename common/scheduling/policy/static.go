@@ -126,7 +126,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 		p.log.Debug("Attempting to reuse previous primary replica %d for new execution \"%s\" for kernel \"%s\"",
 			lastPrimaryReplica.ReplicaID(), executionId, kernel.ID())
 
-		allocationError := lastPrimaryReplica.Host().PreCommitResources(lastPrimaryReplica.Container(), executionId)
+		_, allocationError := lastPrimaryReplica.Host().PreCommitResources(lastPrimaryReplica.Container(), executionId, nil)
 		if allocationError == nil {
 			p.log.Debug(
 				utils.LightGreenStyle.Render(
@@ -159,7 +159,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 			candidateReplica.ResourceSpec(), candidateReplica.ReplicaID(), candidateReplica.ID(),
 			int(candidateReplica.Host().IdleGPUs()))
 		// Try to commit resources to the candidateReplica replica.
-		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
+		_, allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId, nil)
 		if allocationError != nil {
 			// Failed to commit resources. Continue.
 			p.log.Debug("Resource pre-commitment %s. Replica %d of kernel %s is not viable for execution \"%s\".",
@@ -193,7 +193,16 @@ func (p *StaticPolicy) SupportsDynamicResourceAdjustments() bool {
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (p *StaticPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	// Ensure we don't double-up on capacity validations. Only one at a time.
+	if !p.isValidatingCapacity.CompareAndSwap(0, 1) {
+		return
+	}
+
 	multiReplicaValidateCapacity(p, cluster, p.log)
+
+	if !p.isValidatingCapacity.CompareAndSwap(1, 0) {
+		panic("Failed to swap isValidatingCapacity 1 → 0 after finishing call to StaticPolicy::ValidateCapacity")
+	}
 }
 
 //////////////////////////////////////////

@@ -14,11 +14,11 @@ import (
 )
 
 type resourceContainer struct {
-	Id        int32
 	Idle      *types.DecimalSpec
 	Pending   *types.DecimalSpec
 	Committed *types.DecimalSpec
 	Spec      *types.DecimalSpec
+	Id        int32
 }
 
 func (rc *resourceContainer) getCommit() func(state scheduling.TransactionState) {

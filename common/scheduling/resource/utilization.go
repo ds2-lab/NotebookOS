@@ -5,28 +5,12 @@ import (
 )
 
 type Utilization struct {
-	// CpuUsage is the % CPU utilization.
-	// This value will be between 0 and 100.
-	CpuUtilization float64 `json:"cpu_utilization"`
-
-	// MemoryUsageMb is the amount of RAM used in megabytes, with a minimum value of 0.
-	MemoryUsageMb float64 `json:"memory_utilization_mb"`
-
-	// Vram usage is the amount of VRAM being used in gigabytes, with a minimum value of 0.
-	VramUsageGb float64 `json:"vram_utilization_gb"`
-
-	// AggregateGpuUtilization is the aggregate % GPU utilization across all GPUs.
-	// The minimum value of AggregateGpuUtilization is 0.
-	// The maximum value of AggregateGpuUtilization is NumGpus * 100.
-	AggregateGpuUtilization float64 `json:"aggregate_gpu_utilization"`
-
-	// IndividualGpuUtilizationValues is a []float64 containing the individual GPU utilization values for each GPU.
-	// The length of IndividualGpuUtilizationValues is equal to NumGpus.
-	// The maximum value of IndividualGpuUtilizationValues[i] for i in range 0 to NumGpus is 100.
 	IndividualGpuUtilizationValues []float64 `json:"individual_gpu_utilization_values"`
-
-	// The number of GPUs currently in-use.
-	NumGpus int `json:"num_gpus"`
+	CpuUtilization                 float64   `json:"cpu_utilization"`
+	MemoryUsageMb                  float64   `json:"memory_utilization_mb"`
+	VramUsageGb                    float64   `json:"vram_utilization_gb"`
+	AggregateGpuUtilization        float64   `json:"aggregate_gpu_utilization"`
+	NumGpus                        int       `json:"num_gpus"`
 }
 
 func NewUtilization(cpuUtil float64, memUsageMb float64, gpuUtils []float64, vramGb float64) *Utilization {

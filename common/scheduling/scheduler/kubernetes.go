@@ -22,12 +22,10 @@ const (
 )
 
 type KubernetesScheduler struct {
+	kubeClient scheduling.KubeClient
 	*BaseScheduler
-
-	kubeSchedulerServicePort int // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
-	// TODO: There is a gap between the Host interface and the Kubernetes nodes returned by Kube API.
-	kubeNodes  []v1.Node
-	kubeClient scheduling.KubeClient // Kubernetes client.
+	kubeNodes                []v1.Node
+	kubeSchedulerServicePort int
 }
 
 func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
@@ -70,7 +68,11 @@ func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
 func (s *KubernetesScheduler) HostRemoved(host scheduling.Host) {
-	heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	idleHostIndex := host.GetIdx(IdleHostMetadataKey)
+	if idleHostIndex >= 0 {
+		heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	}
+
 	s.log.Debug("Host %s (ID=%s) has been removed. Cluster size: %d. Length of idle hosts: %d",
 		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
 }

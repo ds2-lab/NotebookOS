@@ -96,181 +96,82 @@ type GRPCServerWrapper struct {
 // TODO: Synchronize resource status using replica network (e.g., control socket).
 // Synchronization message should load-balance between replicas mapped the same host.
 type LocalScheduler struct {
-	// SchedulerOptions
-	id       string
-	nodeName string
-
-	// finishedGatewayHandshake is set in setID when the Local Daemon completes to registration
-	// procedure with the cluster gateway for the first time.
-	finishedGatewayHandshake bool
-
-	tracer       opentracing.Tracer
-	consulClient *consul.Client
-
-	// The gRPC server used by the Local Daemon and Cluster Gateway.
-	grpcServer *GRPCServerWrapper
-	listener   net.Listener
-
-	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
-	executeRequestForwarder *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
-
-	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
-	// If its value is > 0, then it is. If its value is 0, then it is not.
-	connectingToGateway atomic.Int32
-
-	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
-	// as the request history.
-	DebugMode bool
-
-	virtualGpuPluginServer device.VirtualGpuPluginServer
-
-	schedulingPolicy scheduling.Policy
-
-	kernelsStopping hashmap.HashMap[string, chan struct{}]
-
 	proto.UnimplementedLocalGatewayServer
 	proto.UnimplementedKernelErrorReporterServer
-	router *router.Router
-
-	// SchedulerOptions
-	connectionOptions      *jupyter.ConnectionInfo
-	schedulerDaemonOptions domain.SchedulerDaemonOptions
-
-	// internalCluster client
-	provisioner                     proto.ClusterGatewayClient
-	provisionerClientConnectionGRPC *grpc.ClientConn
-
-	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
-	prometheusManager *metrics.LocalDaemonPrometheusManager
-	// Indicates that a goroutine has been started to publish metrics to Prometheus.
-	servingPrometheus atomic.Int32
-	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
-	// that it should start publishing metrics now.
-	prometheusStarted sync.WaitGroup
-	// prometheusInterval is how often we publish metrics to Prometheus.
-	prometheusInterval time.Duration
-	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
-	prometheusPort int
-
-	// electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before electing a leader
-	electionTimeoutSeconds int
-
-	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
-	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedExecOrYieldRequest]
-	// outgoingExecuteRequestQueueMutexes is a map of mutexes. Keys are kernel IDs. Values are the mutex for the
-	// associated kernel's outgoing "execute_request" message queue.
-	outgoingExecuteRequestQueueMutexes hashmap.HashMap[string, *sync.Mutex]
-	// executeRequestQueueStopChans is a map from kernel ID to the channel used to tell the goroutine responsible
-	// for forwarding that kernel's "execute_request" messages to stop running (such as when we are stopping
-	// the kernel replica).
-	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
-
-	smrPort int
-
-	// members
-	transport                    string
-	ip                           string
-	kernels                      hashmap.HashMap[string, scheduling.KernelReplica]
-	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
-
-	log logger.Logger
-
-	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
-	// performing checkpointing after a migration (read) and after executing code (write).
-	SimulateCheckpointingLatency bool
-
-	// The IOPub socket that the Gateway subscribes to.
-	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
-	// We wrap the messages in another message that just has a header that is the kernel ID.
-	// This enables the Gateway's SUB sockets to filter messages from each kernel.
-	// iopub *jupyter.Socket
-
-	// When deployed in Docker Swarm mode, the dockerEventObserver listens for "container-created"
-	// events from the node's Docker daemon socket.
-	//
-	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
-	dockerEventObserver *observer.EventObserver
-
-	// containerStartedNotificationManager keeps track of observer.ContainerStartedNotification structs
-	// associated with various kernels. Specifically, it maintains the most recent notification associated
-	// with a particular kernel.
-	//
-	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
+	tracer                              opentracing.Tracer
+	log                                 logger.Logger
+	kernelClientCreationChannels        hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
+	kernels                             hashmap.HashMap[string, scheduling.KernelReplica]
+	provisioner                         proto.ClusterGatewayClient
+	schedulingPolicy                    scheduling.Policy
+	kernelsStopping                     hashmap.HashMap[string, chan struct{}]
+	virtualGpuPluginServer              device.VirtualGpuPluginServer
+	listener                            net.Listener
+	kernelDebugPorts                    hashmap.HashMap[string, int]
+	closed                              chan struct{}
+	executeRequestForwarder             *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
+	connectionOptions                   *jupyter.ConnectionInfo
+	provisionerClientConnectionGRPC     *grpc.ClientConn
+	prometheusManager                   *metrics.LocalDaemonPrometheusManager
+	localDaemonOptions                  *domain.LocalDaemonOptions
 	containerStartedNotificationManager *notification_manager.ContainerStartedNotificationManager
-
-	// There's a simple TCP server that listens for kernel registration notifications on this port.
-	kernelRegistryPort int
-
-	// numResendAttempts is the number of times to try resending a message before giving up.
-	numResendAttempts int
-
-	// Manages resource allocations on behalf of the Local Daemon.
-	allocationManager *resource.AllocationManager
-
-	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
-	remoteStorageEndpoint string
-
-	// Type of remote storage, 'hdfs' or 'redis'
-	remoteStorage string
-
-	// Base directory in which the persistent store data is stored when running in docker mode.
-	dockerStorageBase string
-
-	// Kubernetes or Docker.
-	deploymentMode types.DeploymentMode
-
-	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
-	kernelDebugPorts hashmap.HashMap[string, int]
-
-	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
-	// for the ZMQ messages that we're forwarding back and forth between the Cluster Gateway and kernel replicas.
-	//
-	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
-	MessageAcknowledgementsEnabled bool
-
-	// If true, then the kernels will be executed within GDB.
-	runKernelsInGdb bool
-
-	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
-	kernelErrorReporterServerPort int
-
-	// localDaemonOptions is the options struct that the Local Daemon was created with.
-	localDaemonOptions *domain.LocalDaemonOptions
-
-	// simulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and
-	// real PyTorch code or not.
-	simulateTrainingUsingSleep bool
-
-	// bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy.
-	bindDebugpyPort bool
-
-	// If true, rename stopped kernel containers to save/persist them. Enables you to persist their state, logs, etc.
-	saveStoppedKernelContainers bool
-
-	// realGpusAvailable indicates whether there are real GPUs available that should be bound to kernel containers.
-	realGpusAvailable bool
-
-	// lifetime
-	closed  chan struct{}
-	cleaned chan struct{}
+	router                              *router.Router
+	dockerEventObserver                 *observer.EventObserver
+	consulClient                        *consul.Client
+	allocationManager                   *resource.AllocationManager
+	cleaned                             chan struct{}
+	grpcServer                          *GRPCServerWrapper
+	id                                  string
+	transport                           string
+	ip                                  string
+	nodeName                            string
+	dockerStorageBase                   string
+	remoteStorage                       string
+	remoteStorageEndpoint               string
+	S3Bucket                            string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	AwsRegion                           string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	RedisPassword                       string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	deploymentMode                      types.DeploymentMode
+	schedulerDaemonOptions              domain.SchedulerDaemonOptions
+	prometheusStarted                   sync.WaitGroup
+	smrPort                             int
+	numResendAttempts                   int
+	kernelRegistryPort                  int
+	electionTimeoutSeconds              int
+	prometheusPort                      int
+	RedisPort                           int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisDatabase                       int // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+	prometheusInterval                  time.Duration
+	kernelErrorReporterServerPort       int
+	connectingToGateway                 atomic.Int32
+	servingPrometheus                   atomic.Int32
+	runKernelsInGdb                     bool
+	MessageAcknowledgementsEnabled      bool
+	DebugMode                           bool
+	simulateTrainingUsingSleep          bool
+	bindDebugpyPort                     bool
+	saveStoppedKernelContainers         bool
+	realGpusAvailable                   bool
+	finishedGatewayHandshake            bool
+	SimulateCheckpointingLatency        bool
 }
 
 type KernelRegistrationPayload struct {
+	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
+	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
+	PersistentId       *string                 `json:"persistentId,omitempty"`
+	NodeName           string                  `json:"nodeName,omitempty"`
+	Key                string                  `json:"key"`
+	PodOrContainerName string                  `json:"podName,omitempty"`
 	Op                 string                  `json:"op"`
 	SignatureScheme    string                  `json:"signatureScheme"`
-	Key                string                  `json:"key"`
-	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
+	WorkloadId         string                  `json:"workload_id"`
 	ReplicaId          int32                   `json:"replicaId,omitempty"`
 	NumReplicas        int32                   `json:"numReplicas,omitempty"`
-	Join               bool                    `json:"join,omitempty"`
-	PersistentId       *string                 `json:"persistentId,omitempty"`
-	PodOrContainerName string                  `json:"podName,omitempty"`
-	NodeName           string                  `json:"nodeName,omitempty"`
 	Cpu                int32                   `json:"cpu,omitempty"`
 	Memory             int32                   `json:"memory,omitempty"`
 	Gpu                int32                   `json:"gpu,omitempty"`
-	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
-	WorkloadId         string                  `json:"workload_id"`
+	Join               bool                    `json:"join,omitempty"`
 }
 
 // KernelRegistrationClient represents an incoming connection from local distributed kernel.
@@ -285,40 +186,42 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	ip := os.Getenv("POD_IP")
 
 	daemon := &LocalScheduler{
-		connectionOptions:                  connectionOptions,
-		transport:                          "tcp",
-		ip:                                 ip,
-		id:                                 dockerNodeId,
-		nodeName:                           nodeName,
-		kernelsStopping:                    hashmap.NewCornelkMap[string, chan struct{}](128),
-		kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
-		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
-		kernelDebugPorts:                   hashmap.NewCornelkMap[string, int](256),
-		closed:                             make(chan struct{}),
-		cleaned:                            make(chan struct{}),
-		kernelRegistryPort:                 kernelRegistryPort,
-		kernelErrorReporterServerPort:      kernelErrorReporterServerPort,
-		localDaemonOptions:                 localDaemonOptions,
-		smrPort:                            localDaemonOptions.SMRPort,
-		virtualGpuPluginServer:             virtualGpuPluginServer,
-		deploymentMode:                     types.DeploymentMode(localDaemonOptions.DeploymentMode),
-		remoteStorageEndpoint:              localDaemonOptions.RemoteStorageEndpoint,
-		remoteStorage:                      localDaemonOptions.RemoteStorage,
-		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
-		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
-		prometheusInterval:                 time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
-		prometheusPort:                     localDaemonOptions.PrometheusPort,
-		numResendAttempts:                  localDaemonOptions.NumResendAttempts,
-		runKernelsInGdb:                    localDaemonOptions.RunKernelsInGdb,
-		outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecOrYieldRequest](128),
-		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
-		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
-		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
-		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
-		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
-		simulateTrainingUsingSleep:         localDaemonOptions.SimulateTrainingUsingSleep,
-		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
-		saveStoppedKernelContainers:        localDaemonOptions.SaveStoppedKernelContainers,
+		connectionOptions:              connectionOptions,
+		transport:                      "tcp",
+		ip:                             ip,
+		id:                             dockerNodeId,
+		nodeName:                       nodeName,
+		kernelsStopping:                hashmap.NewCornelkMap[string, chan struct{}](128),
+		kernels:                        hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
+		kernelClientCreationChannels:   hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
+		kernelDebugPorts:               hashmap.NewCornelkMap[string, int](256),
+		closed:                         make(chan struct{}),
+		cleaned:                        make(chan struct{}),
+		kernelRegistryPort:             kernelRegistryPort,
+		kernelErrorReporterServerPort:  kernelErrorReporterServerPort,
+		localDaemonOptions:             localDaemonOptions,
+		smrPort:                        localDaemonOptions.SMRPort,
+		virtualGpuPluginServer:         virtualGpuPluginServer,
+		deploymentMode:                 types.DeploymentMode(localDaemonOptions.DeploymentMode),
+		remoteStorageEndpoint:          localDaemonOptions.RemoteStorageEndpoint,
+		remoteStorage:                  localDaemonOptions.RemoteStorage,
+		dockerStorageBase:              localDaemonOptions.DockerStorageBase,
+		DebugMode:                      localDaemonOptions.CommonOptions.DebugMode,
+		prometheusInterval:             time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
+		prometheusPort:                 localDaemonOptions.PrometheusPort,
+		numResendAttempts:              localDaemonOptions.NumResendAttempts,
+		runKernelsInGdb:                localDaemonOptions.RunKernelsInGdb,
+		MessageAcknowledgementsEnabled: localDaemonOptions.MessageAcknowledgementsEnabled,
+		SimulateCheckpointingLatency:   localDaemonOptions.SimulateCheckpointingLatency,
+		electionTimeoutSeconds:         localDaemonOptions.ElectionTimeoutSeconds,
+		simulateTrainingUsingSleep:     localDaemonOptions.SimulateTrainingUsingSleep,
+		bindDebugpyPort:                localDaemonOptions.BindDebugPyPort,
+		saveStoppedKernelContainers:    localDaemonOptions.SaveStoppedKernelContainers,
+		S3Bucket:                       localDaemonOptions.S3Bucket,
+		AwsRegion:                      localDaemonOptions.AwsRegion,
+		RedisPassword:                  localDaemonOptions.RedisPassword,
+		RedisPort:                      localDaemonOptions.RedisPort,
+		RedisDatabase:                  localDaemonOptions.RedisDatabase,
 	}
 
 	for _, configFunc := range configs {
@@ -984,6 +887,11 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		BindGPUs:                             d.realGpusAvailable,
 		BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
 		AssignedGpuDeviceIds:                 kernelReplicaSpec.ResourceSpec().GpuDeviceIds,
+		S3Bucket:                             d.S3Bucket,
+		AwsRegion:                            d.AwsRegion,
+		RedisPassword:                        d.RedisPassword,
+		RedisPort:                            d.RedisPort,
+		RedisDatabase:                        d.RedisDatabase,
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1021,14 +929,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		return nil, nil
 	}
 
-	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
-	executeRequestStopChan := make(chan interface{}, 1)
-	executeRequestQueue := make(chan *enqueuedExecOrYieldRequest, DefaultExecuteRequestQueueSize)
-	d.outgoingExecuteRequestQueue.Store(kernelReplicaSpec.Kernel.Id, executeRequestQueue)
-	d.outgoingExecuteRequestQueueMutexes.Store(kernelReplicaSpec.Kernel.Id, &sync.Mutex{})
-	d.executeRequestQueueStopChannels.Store(kernelReplicaSpec.Kernel.Id, executeRequestStopChan)
-
-	go d.executeRequestForwarderLoop(executeRequestQueue, executeRequestStopChan, kernel)
+	d.registerKernelWithExecReqForwarder(kernel)
 
 	return kernel, kernelConnectionInfo
 }
@@ -1884,6 +1785,16 @@ func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.Con
 	return info, nil
 }
 
+func (d *LocalScheduler) registerKernelWithExecReqForwarder(kernel scheduling.KernelReplica) {
+	// Create a wrapper around the kernel's RequestWithHandler method.
+	forwarder := func(ctx context.Context, op string, typ messaging.MessageType, jupyterMessage *messaging.JupyterMessage,
+		handler scheduling.KernelReplicaMessageHandler, done func()) error {
+		return kernel.RequestWithHandler(ctx, op, typ, jupyterMessage, handler, done)
+	}
+
+	d.executeRequestForwarder.RegisterKernel(kernel, forwarder, d.kernelResponseForwarder)
+}
+
 // StartKernelReplica launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
@@ -1914,7 +1825,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, status.Error(codes.Internal, resourceError.Error())
 	}
 
-	// If we're performing first-come, first-serve (FCFS) batch scheduling, then we commit resources right away.
+	// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
 	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
 		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
 			in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
@@ -1948,6 +1859,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			BindGPUs:                             d.realGpusAvailable,
 			BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
+			S3Bucket:                             d.S3Bucket,
+			AwsRegion:                            d.AwsRegion,
+			RedisPassword:                        d.RedisPassword,
+			RedisPort:                            d.RedisPort,
+			RedisDatabase:                        d.RedisDatabase,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		// Note that we could pass d.prometheusManager directly in the call above.
@@ -2017,14 +1933,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, resourceError
 	}
 
-	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
-	executeRequestStopChan := make(chan interface{}, 1)
-	executeRequestQueue := make(chan *enqueuedExecOrYieldRequest, DefaultExecuteRequestQueueSize)
-	d.outgoingExecuteRequestQueue.Store(in.Kernel.Id, executeRequestQueue)
-	d.outgoingExecuteRequestQueueMutexes.Store(in.Kernel.Id, &sync.Mutex{})
-	d.executeRequestQueueStopChannels.Store(in.Kernel.Id, executeRequestStopChan)
-
-	go d.executeRequestForwarderLoop(executeRequestQueue, executeRequestStopChan, kernel)
+	d.registerKernelWithExecReqForwarder(kernel)
 
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
@@ -2108,13 +2017,9 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 		return nil, err
 	}
 
-	stopChan, loaded := d.executeRequestQueueStopChannels.Load(kernel.ID())
-	if !loaded {
-		d.log.Warn("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
-			kernel.ReplicaID(), kernel.ID())
-	} else {
-		// Tell the goroutine to stop.
-		stopChan <- struct{}{}
+	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
+	if !stopped {
+		d.log.Warn("Failed to stop 'execute_request' forwarder for kernel \"%s\"...", in.Id)
 	}
 
 	//_ = d.allocationManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
@@ -2337,9 +2242,12 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	// If not, we'll change the message's header to "yield_request".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest || msg.JupyterMessageType() == messaging.ShellYieldRequest {
-		resultChan := d.enqueueExecuteRequest(msg, kernel)
+		d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
+			msg.JupyterMessageId(), kernel.ID())
+		resultChan := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
 
 		// Wait for the result.
+		// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
 		res := <-resultChan
 
 		// Return the result as an error or nil if there was no error.
@@ -2378,170 +2286,6 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	}
 
 	return nil
-}
-
-// enqueueExecuteRequest enqueues a given messaging.JupyterMessage (which must be an "execute_request" message) for
-// submission to the target kernel. Messages are dequeued and submitted in a FCFS manner by a separate goroutine.
-//
-// The reason for this is that we need to process "execute_request" messages one-at-a-time to avoid resource allocation
-// issues, in which we try to allocate resources to the same kernel multiple times upon the submission of concurrent
-// "execute_request" messages, and/or to avoid starving other locally-running kernel replicas by keeping the same
-// resources allocated to the same kernel replicas all the time.
-//
-// This function returns a channel used to notify the caller when the message has been sent.
-//
-// Important note: if there are more concurrent execute_request messages sent than the capacity of the buffered
-// channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
-// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
-// a FCFS manner.)
-func (d *LocalScheduler) enqueueExecuteRequest(execOrYieldReq *messaging.JupyterMessage, kernel scheduling.KernelReplica) <-chan interface{} {
-	gid := goid.Get()
-	msgType := execOrYieldReq.JupyterMessageType()
-	if msgType != messaging.ShellExecuteRequest && msgType != messaging.ShellYieldRequest {
-		log.Fatalf("[gid=%d] Cannot enqueue Jupyter message of type \"%s\" in outgoing \"execute_request\" queue of kernel \"%s\".",
-			gid, msgType, kernel.ID())
-	}
-
-	mutex, loaded := d.outgoingExecuteRequestQueueMutexes.Load(kernel.ID())
-	if !loaded {
-		errorMessage := fmt.Sprintf("Could not find \"execute_request\" queue mutex for kernel \"%s\"", kernel.ID())
-		d.notifyClusterGatewayAndPanic(
-			"Could Not Find \"execute_request\" Queue Mutex", errorMessage, errorMessage)
-		return nil // We won't reach this line; we panic in the call to notifyClusterGatewayAndPanic.
-	}
-
-	// Begin transaction on the outgoing "execute_request" queue for the target kernel.
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	queue, loaded := d.outgoingExecuteRequestQueue.Load(kernel.ID())
-	if !loaded {
-		d.log.Warn("[gid=%d] No \"execute_request\" queue found for replica %d of kernel %s. Creating one now.",
-			gid, kernel.ReplicaID(), kernel.ID()) // Should already have been made when kernel replica was first created.
-		queue = make(chan *enqueuedExecOrYieldRequest, DefaultExecuteRequestQueueSize)
-		d.outgoingExecuteRequestQueue.Store(kernel.ID(), queue)
-	}
-
-	resultChan := make(chan interface{})
-
-	queueLength := float64(len(queue))
-	warningThreshold := 0.75 * float64(cap(queue))
-	if queueLength > warningThreshold {
-		// If the queue is quite full, then we'll print a warning.
-		// Once the queue is full, the order in which future requests are processed is no longer guaranteed.
-		// Specifically, the order in which new items are added to the queue is non-deterministic.
-		// (Once in the queue, requests will still be processed in a FCFS manner.)
-		d.log.Warn("[gid=%d] Enqueuing outbound \"%s\" %s targeting replica %d of kernel %s. Queue is almost full: %d/%d. IsTraining: %v.",
-			gid, execOrYieldReq.JupyterMessageType(), execOrYieldReq.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue), kernel.IsTraining())
-	} else {
-		d.log.Debug("[gid=%d] Enqueuing outbound \"%s\" %s targeting replica %d of kernel %s. Queue size: %d/%d. IsTraining: %v.",
-			gid, execOrYieldReq.JupyterMessageType(), execOrYieldReq.JupyterMessageId(), kernel.ReplicaID(), kernel.ID(), int(queueLength), cap(queue), kernel.IsTraining())
-	}
-
-	// This could conceivably block, which would be fine.
-	queue <- &enqueuedExecOrYieldRequest{
-		Msg:           execOrYieldReq,
-		ResultChannel: resultChan,
-		Kernel:        kernel,
-	}
-
-	return resultChan
-}
-
-// executeRequestForwarderLoop forwards Jupyter "execute_request" messages to a particular kernel replica
-// in a FCFS (first come, first served) manner.
-//
-// executeRequestForwarderLoop is meant to be called in its own goroutine.
-//
-// Important note: if there are more concurrent execute_request messages sent than the capacity of the buffered
-// channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
-// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
-// a FCFS manner.)
-func (d *LocalScheduler) executeRequestForwarderLoop(queue chan *enqueuedExecOrYieldRequest, stopChan chan interface{}, kernel scheduling.KernelReplica) {
-	gid := goid.Get()
-	d.log.Debug("[gid=%d] \"execute_request\" forwarder for replica %d of kernel %s has started running.",
-		gid, kernel.ReplicaID(), kernel.ID())
-	for {
-		select {
-		case enqueuedMessage := <-queue:
-			{
-				d.forwardExecuteRequest(enqueuedMessage, kernel, gid)
-			}
-		case <-stopChan:
-			{
-				d.log.Debug("[gid=%d] \"execute_request\" forwarder for kernel %s has been instructed to stop.",
-					gid, kernel.ID())
-				return
-			}
-		}
-	}
-}
-
-// forwardExecuteRequest forwards an "execute_request" (or "yield_request") message to the target kernel.
-//
-// forwardExecuteRequest is called by executeRequestForwarderLoop.
-func (d *LocalScheduler) forwardExecuteRequest(message *enqueuedExecOrYieldRequest, kernel scheduling.KernelReplica,
-	gid int64) {
-
-	// Sanity check.
-	// Ensure that the message is meant for the same kernel replica that this thread is responsible for.
-	if message.Kernel.ID() != kernel.ID() {
-		errorMessage := fmt.Sprintf("Found enqueued \"%s\" message with mismatched kernel ID. "+
-			"Enqueued message kernel ID: \"%s\". Expected kernel ID: \"%s\"",
-			message.Msg.JupyterMessageType(), message.Kernel.ID(), kernel.ID())
-
-		d.notifyClusterGatewayAndPanic(fmt.Sprintf("Enqueued \"%s\" with Mismatched Kernel ID",
-			message.Msg.JupyterMessageType()), errorMessage, errorMessage)
-
-		return // We'll panic before this line is executed.
-	}
-
-	// Sanity check.
-	// Ensure that the message is meant for the same kernel replica that this thread is responsible for.
-	if message.Kernel.ReplicaID() != kernel.ReplicaID() {
-		errorMessage := fmt.Sprintf("Found enqueued \"%s\" message targeting kernel \"%s\" with mismatched replica ID. "+
-			"Enqueued message replica ID: %d. Expected replica ID: %d", message.Msg.JupyterMessageType(),
-			kernel.ID(), message.Kernel.ReplicaID(), kernel.ReplicaID())
-
-		d.notifyClusterGatewayAndPanic("Enqueued \"%s\" with Mismatched Replica ID", errorMessage, errorMessage)
-
-		return // We'll panic before this line is executed.
-	}
-
-	d.log.Debug("[gid=%d] Dequeued shell \"%s\" message %s (JupyterID=%s) targeting kernel %s.",
-		gid, message.Msg.JupyterMessageType(), message.Msg.RequestId, message.Msg.JupyterMessageId(), message.Kernel.ID())
-
-	// Process the message.
-	processedMessage := d.processExecOrYieldRequest(message.Msg, message.Kernel) // , header, offset)
-	d.log.Debug("[gid=%d] Forwarding shell \"%s\" to replica %d of kernel %s: %s",
-		gid, message.Msg.JupyterMessageType(), message.Kernel.ReplicaID(), message.Kernel.ID(), processedMessage)
-
-	// Sanity check.
-	if message.Kernel.IsTraining() {
-		log.Fatalf(utils.RedStyle.Render("[gid=%d] Kernel %s is already training, even though we haven't sent the "+
-			"next \"execute_request\"/\"yield_execute\" request yet. Started training at: %v (i.e., %v ago)."),
-			gid, message.Kernel.ID(), message.Kernel.TrainingStartedAt(), time.Since(message.Kernel.TrainingStartedAt()))
-	}
-
-	// Send the message and post the result back to the caller via the channel included within
-	// the enqueued "execute_request" message.
-	ctx, cancel := context.WithCancel(context.Background())
-	err := message.Kernel.RequestWithHandler(
-		ctx, "Forwarding", messaging.ShellMessage, processedMessage, d.kernelResponseForwarder, func() {
-			d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. "+
-				"Cancelling (though request may have succeeded already).",
-				goid.Get(), processedMessage.JupyterMessageType(), message.Kernel.ReplicaID(), message.Kernel.ID())
-			cancel()
-		})
-
-	if err != nil {
-		// Send the error back to the caller.
-		message.ResultChannel <- err
-		return
-	}
-
-	// General notification that we're done, and there was no error.
-	message.ResultChannel <- struct{}{}
 }
 
 // processExecuteReply handles the logic of deallocating resources that have been committed to a kernel so that it could execute user-submitted code.
@@ -2651,7 +2395,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	kernelClient.ReceivedExecuteReply(msg, true)
 
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
+	//_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
 	if d.prometheusManager != nil {
 		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
@@ -2814,10 +2558,21 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("[gid=%d] Attempting to pre-commit the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		//gpuDeviceIds, resourceAllocationError := d.allocationManager.CommitResourcesToExistingContainer(
-		//	kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec(), true)
-		gpuDeviceIds, resourceAllocationError := d.allocationManager.PreCommitResourcesToExistingContainer(
-			kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec())
+
+		var (
+			gpuDeviceIds            []int
+			resourceAllocationError error
+		)
+
+		if val, loaded := metadataDict["gpu_device_ids"]; loaded {
+			gpuDeviceIds = val.([]int)
+
+			d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
+				msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
+		}
+
+		gpuDeviceIds, resourceAllocationError = d.allocationManager.PreCommitResourcesToExistingContainer(
+			kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec(), gpuDeviceIds)
 
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
@@ -3219,6 +2974,10 @@ func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelN
 // In general, this is done so that the errors can then be
 // pushed to the frontend UI to inform the user.
 func (d *LocalScheduler) notifyClusterGatewayOfError(ctx context.Context, notification *proto.Notification) {
+	if d.provisioner == nil {
+		return
+	}
+
 	_, err := d.provisioner.Notify(ctx, notification)
 
 	if err != nil {

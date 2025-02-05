@@ -52,83 +52,27 @@ type prometheusHandler interface {
 // BasePrometheusManager contains the common state and infrastructure required
 // by both the GatewayPrometheusManager and the DaemonPrometheusManager.
 type basePrometheusManager struct {
-	log logger.Logger
-
-	instance prometheusHandler
-
-	// serving indicates whether the manager has been started and is serving requests.
-	serving            bool
-	metricsInitialized bool
-	mu                 sync.Mutex
-	engine             *gin.Engine
-	httpServer         *http.Server
-	prometheusHandler  http.Handler
-	port               int
-	nodeId             string
-
-	// initializeInstanceMetrics is a field that is to be assigned by "child" structs in their "constructors".
-	// Specifically, this function is assigned by the 'instance' to initialize the instance's metrics.
-	initializeInstanceMetrics func() error
-
-	// NumActiveKernelReplicasGaugeVec is a Prometheus Gauge Vector for how many replicas are scheduled on
-	// a particular Local Daemon.
-	NumActiveKernelReplicasGaugeVec *prometheus.GaugeVec
-
-	// TotalNumKernelsCounterVec tracks the total number of kernels ever created. Kernels that have stopped
-	// running are still counted in this metric.
-	TotalNumKernelsCounterVec *prometheus.CounterVec
-
-	// NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
+	prometheusHandler                    http.Handler
+	instance                             prometheusHandler
+	log                                  logger.Logger
+	initializeInstanceMetrics            func() error
+	MessageSendLatencyMicrosecondsVec    *prometheus.HistogramVec
+	engine                               *gin.Engine
+	httpServer                           *http.Server
+	JupyterUniqueMessagesSent            *prometheus.CounterVec
+	JupyterMessagesSent                  *prometheus.CounterVec
+	NumSendsBeforeAckReceived            *prometheus.HistogramVec
+	AckLatencyMicrosecondsVec            *prometheus.HistogramVec
+	NumActiveKernelReplicasGaugeVec      *prometheus.GaugeVec
+	TotalNumKernelsCounterVec            *prometheus.CounterVec
 	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec
-
-	///////////////////////
-	// Messaging metrics //
-	///////////////////////
-
-	// NumFailedSendsCounterVec counts the number of messages that were never acknowledged by the target
-	// recipient, thus constituting a "failed send".
-	NumFailedSendsCounterVec *prometheus.CounterVec
-
-	// MessageLatencyMicrosecondsVec is the end-to-end latency, in microseconds, of messages forwarded by the Gateway or Local Daemon.
-	// The end-to-end latency is measured from the time the message is forwarded by the Gateway or Local Daemon to the
-	// time at which the Gateway receives the associated response.
-	//
-	// This metric requires the following labels:
-	//
-	// - "node_id": the ID of the node observing the latency.
-	//
-	// - "node_type": the "type" of the node observing the latency (i.e., "local_daemon" or "cluster_gateway").
-	//
-	// - "socket_type": the socket type of the message whose latency is being observed.
-	//
-	// - "jupyter_message_type": the Jupyter message type of the message whose latency is being observed.
-	MessageLatencyMicrosecondsVec *prometheus.HistogramVec
-
-	// MessageSendLatencyMicrosecondsVec is a histogram of the time taken to send a ZMQ message in microseconds.
-	MessageSendLatencyMicrosecondsVec *prometheus.HistogramVec
-
-	// AckLatencyMicrosecondsVec is a histogram of the amount of time that passes before an ACK is received.
-	AckLatencyMicrosecondsVec *prometheus.HistogramVec
-
-	// NumSendsBeforeAckReceived is a prometheus.HistogramVec tracking observations of the number of times a given
-	// message was sent before an ACK was received for that message.
-	//
-	// This metric requires the following labels:
-	//
-	// - "node_id": the ID of the node sending the message and receiving ACKs for the message.
-	//
-	// - "node_type": the "type" of the node sending the message and receiving ACKs for the message.
-	//
-	// - "socket_type": the socket type of the associated message.
-	//
-	// - "jupyter_message_type": the Jupyter message type of the associated message.
-	NumSendsBeforeAckReceived *prometheus.HistogramVec
-
-	// MessagesSent simply counts the number of Jupyter messages that are sent, including resubmissions.
-	JupyterMessagesSent *prometheus.CounterVec
-
-	// MessagesSent simply counts the number of Jupyter messages that are sent, NOT including resubmission
-	JupyterUniqueMessagesSent *prometheus.CounterVec
+	NumFailedSendsCounterVec             *prometheus.CounterVec
+	MessageLatencyMicrosecondsVec        *prometheus.HistogramVec
+	nodeId                               string
+	port                                 int
+	mu                                   sync.Mutex
+	serving                              bool
+	metricsInitialized                   bool
 }
 
 // newBasePrometheusManager creates a new basePrometheusManager and returns a pointer to it.

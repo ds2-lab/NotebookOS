@@ -158,6 +158,10 @@ type SchedulerMetricsManager interface {
 
 	// SetLastCapacityValidation is used to record that a capacity validation has occurred.
 	SetLastCapacityValidation(time.Time)
+
+	// NumCapacityValidation returns the number of times that the BaseScheduler has validated the scheduling.Cluster's
+	// host capacity (and potentially invoked the auto-scaling policy).
+	NumCapacityValidation() int64
 }
 
 // PolicyManager is an interface that exposes methods for reporting what policies the Scheduler is configured to use.

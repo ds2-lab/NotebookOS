@@ -13,7 +13,6 @@ from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 import debugpy
 
 from .checkpoint import Checkpoint
-from .checkpointing.remote_checkpointer import RemoteCheckpointer
 from .election import Election
 from .errors import (
     print_trace,
@@ -90,7 +89,6 @@ class RaftLog(object):
             set_execution_count_handler: Callable[[int], None] = None,
             loaded_serialized_state_callback: Callable[[dict[str, Any]], None] = None,
             election_timeout_seconds: float = 10,
-            remote_checkpointer: RemoteCheckpointer = None,
             deployment_mode: str = "LOCAL",
     ):
         self._snapshotCallback = None
@@ -141,6 +139,7 @@ class RaftLog(object):
         self._send_notification_func = send_notification_func
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
+        self._restore_namespace_time_seconds: float = 0.0
         self._fast_forward_execution_count_handler: Callable[[], None] = (
             fast_forward_execution_count_handler
         )
@@ -150,10 +149,6 @@ class RaftLog(object):
         self._loaded_serialized_state_callback: Callable[
             [dict[str, dict[str, Any]]], None
         ] = loaded_serialized_state_callback
-
-        if remote_checkpointer is None:
-            raise ValueError("the remote_checkpointer cannot be null")
-        self._remote_checkpointer: RemoteCheckpointer = remote_checkpointer
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
@@ -300,6 +295,7 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
+        self._restoration_time_seconds: float = 0.0
         if hasattr(self, "_log_node"):
             # This will just do nothing if there's no serialized state to be loaded.
             self._needs_to_catch_up: bool = self.load_and_apply_serialized_state()
@@ -309,6 +305,11 @@ class RaftLog(object):
         # If we do need to catch up, then we'll create the state necessary to do so now.
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
+        catchup_start_time: float = time.time()
+        def caught_up_callback(f: Any):
+            self._restore_namespace_time_seconds = time.time() - catchup_start_time
+            self.log.debug(f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds.")
+
         if self._needs_to_catch_up:
             # We pass the last election term, as we don't want to win the current election.
             # That is, if we pass self._leader_term_before_migration + 1 as the election term,
@@ -329,6 +330,7 @@ class RaftLog(object):
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_io_loop.set_debug(True)
             self._catchup_future = self._catchup_io_loop.create_future()
+            self._catchup_future.add_done_callback(caught_up_callback)
             self.log.debug(
                 f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value.timestamp}, and election term={self._catchup_value.election_term}."
             )
@@ -1657,6 +1659,19 @@ class RaftLog(object):
             sys.stdout.flush()
             raise ex
 
+    @property
+    def restore_namespace_time_seconds(self)->float:
+        """
+        Return the time spent restoring the user namespace.
+        """
+        return self._restore_namespace_time_seconds
+
+    def clear_restore_namespace_time_seconds(self):
+        """
+        Clear the 'restore_namespace_time_seconds' metric.
+        """
+        self._restore_namespace_time_seconds = 0
+
     def load_and_apply_serialized_state(self) -> bool:
         """
         Retrieve the serialized state read by the Go-level LogNode.
@@ -1679,9 +1694,9 @@ class RaftLog(object):
                 "LogNode is None while trying to retrieve and apply serialized state"
             )
 
-        serialized_state_bytes: bytes = (
-            self.retrieve_serialized_state_from_remote_storage()
-        )
+        start_time: float = time.time()
+        serialized_state_bytes: bytes = self.retrieve_serialized_state_from_remote_storage()
+        self._restoration_time_seconds = time.time() - start_time
 
         self.log.debug("Successfully converted Golang Slice_bytes to Python bytes.")
 
@@ -2505,13 +2520,18 @@ class RaftLog(object):
         assert wait == False
         return is_leading
 
-    def sync(self, term):
-        """Synchronization changes since specified execution counter."""
-        pass
+    @property
+    def restoration_time_seconds(self)->float:
+        """
+        Return the time spent on restoring previous state.
+        """
+        return self._restoration_time_seconds
 
-    def reset(self, term, logs: Tuple[SynchronizedValue]):
-        """Clear logs equal and before specified term and replaced with specified logs"""
-        pass
+    def clear_restoration_time(self):
+        """
+        Clear the 'restoration_time_seconds' metric.
+        """
+        self._restoration_time_seconds = 0.0
 
     def has_active_election(self) -> bool:
         """
@@ -2524,7 +2544,7 @@ class RaftLog(object):
 
         return self.current_election.is_active
 
-    async def catchup_with_peers(self):
+    async def catchup_with_peers(self)->None:
         """
         Propose a new value and wait for it to be commited to know that we're "caught up".
         """
@@ -2835,8 +2855,10 @@ class RaftLog(object):
 
         self.log.info("Successfully started RaftLog and LogNode.")
 
-    # Close the LogNode's RemoteStorage client.
     def close_remote_storage_client(self) -> None:
+        """
+        Close the LogNode's RemoteStorage client.
+        """
         # self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
