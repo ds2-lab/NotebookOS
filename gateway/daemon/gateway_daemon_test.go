@@ -3831,7 +3831,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//		Expect(err).To(BeNil())
 			//		Expect(resp).ToNot(BeNil())
 			//
-			//		notifyKernelRegisteredWg.Done()
+			//		notifyKernelRegisteredWg.SetDone()
 			//	}
 			//
 			//	for idx, localGatewayClient := range localGatewayClients {

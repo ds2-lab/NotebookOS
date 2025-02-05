@@ -462,7 +462,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 			}
 			return
 		case <-s.Ctx.Done():
-			s.Log.Debug("Context is Done. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
+			s.Log.Debug("Context is SetDone. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
 			if contd != nil {
 				contd <- false
 			}
@@ -553,7 +553,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					if contd != nil {
 						contd <- false
 					}
-					// s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
+					// s.Log.Debug("[gid=%d] SetDone handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 				// 3. If a new request is pending, compete with the new serve routing to serve the request.
@@ -562,7 +562,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					if contd != nil {
 						contd <- false
 					}
-					// s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
+					// s.Log.Debug("[gid=%d] SetDone handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 			} else if err != nil {
@@ -770,7 +770,7 @@ func (s *AbstractServer) Request(request messaging.Request, socket *messaging.So
 
 	// Apply a default timeout
 	// var cancel context.CancelFunc
-	// if ctx.Done() == nil {
+	// if ctx.SetDone() == nil {
 	// 	ctx, cancel = context.WithTimeout(ctx, s.RequestTimeout)
 	// }
 	ctx, cancel := request.ContextAndCancel()
@@ -788,10 +788,10 @@ func (s *AbstractServer) Request(request messaging.Request, socket *messaging.So
 		// The first goroutine to get here will clean the request, and this necessarily avoids the potential
 		// race in which we clean up the pending request after we've already started resubmitting it.
 		//
-		// If the goroutine waiting on <-ctx.Done() gets here first, then it's fine.
+		// If the goroutine waiting on <-ctx.SetDone() gets here first, then it's fine.
 		// If the goroutine executing the AbstractServer::SendRequest method gets here first,
 		// then the pending request will be claimed and cleaned-up, and we can safely begin
-		// to resubmit the pending request without fear that the <-ctx.Done() thread will
+		// to resubmit the pending request without fear that the <-ctx.SetDone() thread will
 		// attempt to clean up while we're resubmitting.
 		//
 		// This assumes that I know how closures in Golang work.

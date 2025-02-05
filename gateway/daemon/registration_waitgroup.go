@@ -55,7 +55,7 @@ func (wg *registrationWaitGroups) String() string {
 	return fmt.Sprintf("RegistrationWaitGroups[NumRegistered=%d, NumNotified=%d]", wg.numRegistered, wg.numNotified)
 }
 
-// Notify calls `Done()` on the "notified" sync.Semaphore.
+// Notify calls `SetDone()` on the "notified" sync.Semaphore.
 func (wg *registrationWaitGroups) Notify() {
 	wg.notified.Done()
 
@@ -64,7 +64,7 @@ func (wg *registrationWaitGroups) Notify() {
 	wg.numNotified += 1
 }
 
-// Register calls `Done()` on the "registered" sync.Semaphore.
+// Register calls `SetDone()` on the "registered" sync.Semaphore.
 func (wg *registrationWaitGroups) Register(replicaId int32) {
 	wg.registered.Done()
 

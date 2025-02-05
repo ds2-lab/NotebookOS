@@ -46,7 +46,7 @@ func main() {
 		for {
 			select {
 			case <-ctx.Done():
-				fmt.Printf("Done!\n")
+				fmt.Printf("SetDone!\n")
 				if err := ctx.Err(); err != nil {
 					panic(err)
 				}

@@ -242,7 +242,7 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 	ctx, cancel := context.WithCancel(context.Background())
 	err := requestHandler(
 		ctx, "Forwarding", messaging.ShellMessage, processedMessage, handler, func() {
-			s.log.Debug("Done() called for shell execute/yield message \"%s\" targeting kernel %s. "+
+			s.log.Debug("SetDone() called for shell execute/yield message \"%s\" targeting kernel %s. "+
 				"Cancelling (though request may have succeeded already).", message.MsgId, message.Kernel.ID())
 			cancel()
 		})

@@ -135,15 +135,26 @@ func newKernelDescheduleAttempt(kernel scheduling.Kernel) *kernelDescheduleAttem
 	}
 }
 
+// Wait blocks until the target kernelDescheduleAttempt is finished, or until the given context.Context is cancelled.
 func (a *kernelDescheduleAttempt) Wait(ctx context.Context) error {
 	return a.Semaphore.Acquire(ctx, 1)
 }
 
+// IsComplete returns true if the target kernelDescheduleAttempt has finished.
+//
+// Note that if IsComplete is true, that doesn't necessarily mean that the target kernelDescheduleAttempt finished
+// successfully. It may have encountered errors or timed-out on its own.
 func (a *kernelDescheduleAttempt) IsComplete() bool {
 	return a.Complete.Load()
 }
 
-func (a *kernelDescheduleAttempt) Done() {
+// SetDone records that the target kernelDescheduleAttempt has finished.
+//
+// SetDone used to be called Done so that it would match the sync.WaitGroup API, but then I switched
+// to using semaphore.Weighted to support timing-out, and I kept calling Done() as if it were returning
+// a bool indicating whether the target kernelDescheduleAttempt was finished or not (which is what
+// IsComplete is used for). So, I changed the name from Done to SetDone.
+func (a *kernelDescheduleAttempt) SetDone() {
 	a.Semaphore.Release(1)
 	a.Complete.Store(true)
 }
@@ -2375,7 +2386,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Issue the AddHost request now, so that the node can join when it starts up.
 	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaID, in.KernelIp)
 
-	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
+	d.log.Debug("SetDone handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
 	return response, nil
 }
@@ -2630,7 +2641,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	waitGroup.SetReplica(replicaId, kernelIp)
 
 	waitGroup.Register(replicaId)
-	d.log.Debug("Done registering Kernel for kernel %s, replica %d on host %s. Resource spec: %v",
+	d.log.Debug("SetDone registering Kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
 	d.log.Debug("Semaphore for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
@@ -3556,16 +3567,6 @@ func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel
 // It's possible that there is simply a large network I/O occurring or something like that, so the fact that the attempt
 // has not resolved is not necessarily indicative that something is wrong.
 func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, descheduleAttempt *kernelDescheduleAttempt) error {
-	// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
-	if descheduleAttempt.Done() {
-		// Delete the record of the descheduling attempt and return.
-		d.kernelsBeingDescheduled.Delete(kernel.ID())
-		return nil
-	}
-
-	d.log.Warn("Target kernel \"%s\" of \"execute_request\" \"%s\" is being descheduled as of %v ago.",
-		kernel.ID(), msg.JupyterMessageId(), time.Since(descheduleAttempt.StartedAt))
-
 	timeoutInterval := time.Second * 180
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
@@ -3575,9 +3576,10 @@ func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, 
 		d.log.Warn("Timed-out waiting for descheduling of kernel \"%s\" to complete after %v. Deschedule attempt has been in-progress for %v.",
 			kernel.ID(), timeoutInterval, time.Since(descheduleAttempt.StartedAt))
 
-		return nil, false, fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
-			ErrKernelNotReady, kernel.ID(), time.Since(descheduleAttempt.StartedAt))
+		return err
 	}
+
+	return nil
 }
 
 // ensureKernelReplicasAreScheduled ensures that the replicas of the specified scheduling.Kernel are already scheduled.
@@ -3596,11 +3598,20 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 
 	// Check if the kernel is being descheduled. If so, then we'll wait for a bit for it to finish being descheduled.
 	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
-		err := d.waitForDeschedulingToEnd(kernel, descheduleAttempt)
+		// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
+		if !descheduleAttempt.IsComplete() {
+			d.log.Debug("Target kernel \"%s\" of \"execute_request\" \"%s\" is being descheduled as of %v ago.",
+				kernel.ID(), msg.JupyterMessageId(), time.Since(descheduleAttempt.StartedAt))
 
-		if err != nil {
-			return nil, false, err
+			// Wait for the replicas to be descheduled (or until we time-out, in which case we return an error).
+			if err := d.waitForDeschedulingToEnd(kernel, descheduleAttempt); err != nil {
+				return nil, false, fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
+					ErrKernelNotReady, kernel.ID(), time.Since(descheduleAttempt.StartedAt))
+			}
 		}
+
+		// Delete the record of the descheduling attempt. It either already was complete, or we waited and it finished.
+		d.kernelsBeingDescheduled.Delete(kernel.ID())
 	}
 
 	// If the replica(s) are scheduled, then we have nothing to do.
@@ -4766,7 +4777,7 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 
 	// doRemoveReplicas removes the kernel's replicas and returns an error if one occurs.
 	doRemoveReplicas := func() error {
-		defer descheduleAttempt.Done()
+		defer descheduleAttempt.SetDone()
 
 		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false)
 	}

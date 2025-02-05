@@ -75,6 +75,8 @@ type DistributedKernelClient struct {
 	spec     *proto.KernelSpec
 	replicas map[int32]scheduling.KernelReplica
 
+	removingReplicas atomic.Int32
+
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
 
@@ -507,6 +509,78 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 	return nil
 }
 
+// unsafeRemoveReplica is like RemoveReplica but unsafeRemoveReplica does not acquire or release any locks.
+//
+// Important: unsafeRemoveReplica must be called with mu and replicasMutex already locked.
+func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
+
+	if c.replicas[r.ReplicaID()] != r {
+		// This is bad and should never happen.
+		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
+		return nil, scheduling.ErrReplicaNotFound
+	}
+
+	delete(c.replicas, r.ReplicaID())
+
+	var err error
+	if r.IsTraining() {
+		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
+			r.ReplicaID(), r.ID())
+		err = r.KernelStoppedTraining(reason)
+		if err != nil {
+			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
+				r.ReplicaID(), err)
+		}
+	}
+
+	container := r.Container()
+	err = container.ContainerStopped()
+	if err != nil {
+		c.log.Error("Failed to cleanly stop scheduling.Container %s-%d because: %v", r.ID(), r.ReplicaID(), err)
+	}
+
+	if err = c.session.RemoveReplica(container); err != nil {
+		c.log.Error("Failed to remove replica %d of kernel \"%s\" from associated UserSession: %v",
+			container.ReplicaId(), c.id, err)
+	}
+
+	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try
+	// to call Host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
+	//
+	// So, we'll explicitly try calling Host::ContainerRemoved now, but there's a good chance it'll fail (since there
+	// was already some sort of issue when we tried to call ContainerStopped).
+	if errors.As(err, &scheduling.ErrInvalidStateTransition) || errors.As(err, &scheduling.ErrNilHost) {
+		host := r.Container().Host()
+
+		c.log.Debug("Removing container for replica %d of kernel %s from host %s (ID=%s). Container spec: %v.",
+			r.ReplicaID(), c.ID(), host.GetNodeName(), host.GetID(), r.Container().ResourceSpec())
+		hostContainerRemovalError := host.ContainerRemoved(r.Container())
+		if hostContainerRemovalError != nil {
+			c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v",
+				r.ID(), r.ReplicaID(), host.GetID(), hostContainerRemovalError)
+
+			// If another error occurred, then we'll join the two together so that they get returned together.
+			err = errors.Join(err, hostContainerRemovalError)
+		}
+	}
+
+	host, stopReplicaError := c.stopReplicaLocked(r, remover, noop)
+	if stopReplicaError != nil {
+		return host, stopReplicaError
+	}
+
+	r.Container().SetHost(nil) // Set the Host to nil...
+
+	err = r.Close()
+	if err != nil {
+		c.log.Error("Failed to cleanly close replica %d of kernel \"%s\": %v",
+			r.ReplicaID(), c.id, err)
+	}
+
+	return host, err
+}
+
 // RemoveReplica removes a kernel peer from the kernel. Returns the Host that the scheduling.KernelReplica was
 // running on.
 func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
@@ -600,11 +674,28 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 
 // RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
 func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.replicasMutex.Lock()
+	defer c.replicasMutex.Unlock()
+
+	c.removingReplicas.Store(1)
+	defer c.removingReplicas.Store(0)
+
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 
 	removalErrors := make([]error, 0, len(c.replicas))
-	for _, replica := range c.replicas {
-		_, err := c.RemoveReplica(replica, remover, noop)
+
+	// Create a copy as we're going to modify c.replicas while we iterate.
+	replicas := make(map[int32]scheduling.KernelReplica)
+	for idx, replica := range c.replicas {
+		replicas[idx] = replica
+	}
+
+	// Iterate over the copy, removing replicas one-by-one.
+	for _, replica := range replicas {
+		_, err := c.unsafeRemoveReplica(replica, remover, noop)
 		if err != nil {
 			c.log.Error("Failed to remove replica %d of kernel \"%s\": %v", replica.ReplicaID(), c.id, err)
 
@@ -822,7 +913,7 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 
 	doneFunc := func() {
 		if responseReceivedSem != nil {
-			// responseReceivedSem.Done()
+			// responseReceivedSem.SetDone()
 			responseReceivedSem.Release(1)
 			c.log.Debug("Called Release(1) on semaphore for %s '%s' message '%s'.",
 				typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())

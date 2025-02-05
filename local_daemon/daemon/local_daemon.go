@@ -512,7 +512,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.nodeName = types.VirtualDockerNode // types.DockerNode
 	}
 
-	// The goroutine that publishes metrics to Prometheus waits for this Semaphore to be Done.
+	// The goroutine that publishes metrics to Prometheus waits for this Semaphore to be SetDone.
 	daemon.prometheusStarted.Add(1)
 
 	// We use this Semaphore to wait for the goroutine that publishes metrics to Prometheus to start.
@@ -681,7 +681,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 		d.prometheusManager.NumActiveKernelReplicasGauge.
 			Set(float64(d.kernels.Len()))
 
-		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
+		// We only call SetDone if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
 
 		// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
@@ -1700,7 +1700,7 @@ func (d *LocalScheduler) UpdateReplicaAddr(_ context.Context, req *proto.Replica
 		wg.Wait()
 
 		// Because of how requests are handled under the covers, the value of `requestReceived` will necessarily be 1 at this point
-		// if we received a response. This is because the handler is called BEFORE Done() is called on the 'requestWG'.
+		// if we received a response. This is because the handler is called BEFORE SetDone() is called on the 'requestWG'.
 		if atomic.LoadInt32(&requestReceived) == 0 {
 			d.log.Error("TIMED-OUT: 'Update-replica' request to replica %d of kernel %s did not complete in time.", replicaId, kernelId)
 			currentNumTries++
@@ -2390,7 +2390,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := kernel.RequestWithHandler(ctx, "Forwarding", messaging.ShellMessage, msg, d.kernelResponseForwarder, func() {
 		cancel()
-		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
+		d.log.Debug("SetDone() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
 			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
 	}); err != nil {
 		return err

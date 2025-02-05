@@ -114,7 +114,7 @@ func (w *EventObserver) monitor() {
 			if err := ctx.Err(); err != nil {
 				panic(err)
 			}
-			w.log.Debug("ctx.Done, but no error. Exiting now.")
+			w.log.Debug("ctx.SetDone, but no error. Exiting now.")
 			return
 		default:
 			var containerCreationEvent map[string]interface{}
