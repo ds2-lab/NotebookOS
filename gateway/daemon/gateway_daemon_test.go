@@ -765,7 +765,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					})
 
 				currReplica := replicas[hostIndex]
-				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
+				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId, gomock.Any()).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string, gpuDeviceIds []int) ([]int, error) {
 					mutexes[i].Lock()
 					defer mutexes[i].Unlock()
 					hostIdleGpus := idleGpus[hostIndex]
@@ -783,7 +783,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
 							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
-						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+						return nil, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
 							[]scheduling.ResourceStatus{scheduling.IdleResources})
 
 						//return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
@@ -793,7 +793,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					if idle-int64(container.ResourceSpec().GPU()) < 0 {
 						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
 							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
-						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+						return nil, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
 							[]scheduling.ResourceStatus{scheduling.IdleResources})
 
 						//return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
@@ -807,7 +807,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					fmt.Printf("[DEBUG] Precommitted %.0f GPUs on host %s for replica %d. Current committed GPUs: %d.\n",
 						container.ResourceSpec().GPU(), host.GetNodeName(), container.ReplicaId(), hostCommittedGpus.Load())
 
-					return nil
+					return gpuDeviceIds, nil
 				})
 
 				host.EXPECT().ReserveResourcesForSpecificReplica(currReplica.KernelReplicaSpec(), false).AnyTimes().DoAndReturn(func(replicaSpec *proto.KernelReplicaSpec, usePending bool) (bool, error) {
@@ -967,7 +967,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					// Reserve resources for the target kernel if resources are not already reserved.
 					if !selectedReplica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
 						// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
-						err = selectedReplica.Host().PreCommitResources(selectedReplica.Container(), executionId)
+						_, err = selectedReplica.Host().PreCommitResources(selectedReplica.Container(), executionId, nil)
 						if err != nil {
 							fmt.Printf("[ERROR] Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v\n",
 								selectedReplica.ReplicaID(), kernel.ID(), executionId, err)

@@ -3729,7 +3729,7 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 			targetReplica.ReplicaID(), kernel.ID(), targetReplica.Host().GetNodeName())
 
 		// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
-		_, err = targetReplica.Host().PreCommitResources(targetReplica.Container(), msg.JupyterMessageId())
+		_, err = targetReplica.Host().PreCommitResources(targetReplica.Container(), msg.JupyterMessageId(), nil)
 		if err != nil {
 			d.log.Error("Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v",
 				targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)

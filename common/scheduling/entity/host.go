@@ -915,7 +915,7 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 // the de-allocation request if it is outdated.
 //
 // PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
-func (h *Host) PreCommitResources(container scheduling.KernelContainer, executionId string) ([]int, error) {
+func (h *Host) PreCommitResources(container scheduling.KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error) {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -923,7 +923,7 @@ func (h *Host) PreCommitResources(container scheduling.KernelContainer, executio
 	replicaId := container.ReplicaId()
 
 	return h.allocationManager.PreCommitResourcesToExistingContainer(
-		replicaId, kernelId, executionId, container.ResourceSpec())
+		replicaId, kernelId, executionId, container.ResourceSpec(), gpuDeviceIds)
 }
 
 // GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.

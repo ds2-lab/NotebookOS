@@ -46,7 +46,7 @@ func defaultFindReadyReplicaSingleReplicaPolicy(policy schedulingPolicy, kernel 
 	}
 
 	// Attempt to pre-allocate resources to the kernel.
-	_, allocationError := replica.Host().PreCommitResources(replica.Container(), executionId)
+	_, allocationError := replica.Host().PreCommitResources(replica.Container(), executionId, nil)
 	if allocationError != nil {
 		// If migration is allowed by the scheduling policy that invoked this method,
 		// then we will NOT return an error.

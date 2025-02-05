@@ -127,7 +127,7 @@ type Host interface {
 	// the de-allocation request if it is outdated.
 	//
 	// PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
-	PreCommitResources(container KernelContainer, executionId string) ([]int, error)
+	PreCommitResources(container KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error)
 
 	// ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
 	//

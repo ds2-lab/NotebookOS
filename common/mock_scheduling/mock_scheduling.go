@@ -3045,18 +3045,18 @@ func (mr *MockHostMockRecorder) PlacedVRAM() *gomock.Call {
 }
 
 // PreCommitResources mocks base method.
-func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string) ([]int, error) {
+func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId)
+	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId, gpuDeviceIds)
 	ret0, _ := ret[0].([]int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PreCommitResources indicates an expected call of PreCommitResources.
-func (mr *MockHostMockRecorder) PreCommitResources(container, executionId any) *gomock.Call {
+func (mr *MockHostMockRecorder) PreCommitResources(container, executionId, gpuDeviceIds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container, executionId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container, executionId, gpuDeviceIds)
 }
 
 // PrepareToMigrate mocks base method.
@@ -4809,18 +4809,18 @@ func (mr *MockUnitTestingHostMockRecorder) PlacedVRAM() *gomock.Call {
 }
 
 // PreCommitResources mocks base method.
-func (m *MockUnitTestingHost) PreCommitResources(container scheduling.KernelContainer, executionId string) ([]int, error) {
+func (m *MockUnitTestingHost) PreCommitResources(container scheduling.KernelContainer, executionId string, gpuDeviceIds []int) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId)
+	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId, gpuDeviceIds)
 	ret0, _ := ret[0].([]int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PreCommitResources indicates an expected call of PreCommitResources.
-func (mr *MockUnitTestingHostMockRecorder) PreCommitResources(container, executionId any) *gomock.Call {
+func (mr *MockUnitTestingHostMockRecorder) PreCommitResources(container, executionId, gpuDeviceIds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockUnitTestingHost)(nil).PreCommitResources), container, executionId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockUnitTestingHost)(nil).PreCommitResources), container, executionId, gpuDeviceIds)
 }
 
 // PrepareToMigrate mocks base method.
