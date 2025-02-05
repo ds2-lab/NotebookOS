@@ -41,10 +41,10 @@ func verifyNotRunning(containerStatuses []corev1.ContainerStatus) bool {
 // If a Pod is running on this node but does not require any vGPUs, then it will not be included in this cache.
 type podCacheImpl struct {
 	kubeClient kubernetes.Interface
-	nodeName   string
 	informer   informersCore.PodInformer
-	stopChan   chan struct{}
 	log        logger.Logger
+	stopChan   chan struct{}
+	nodeName   string
 }
 
 func NewPodCache(nodeName string) PodCache {
