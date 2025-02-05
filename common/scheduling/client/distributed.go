@@ -953,7 +953,7 @@ func (c *DistributedKernelClient) ActiveTrainingStartedAt() time.Time {
 
 	for _, replica := range c.replicas {
 		if replica.IsTraining() {
-			return replica.ActiveTrainingStartedAt()
+			return replica.LastTrainingStartedAt()
 		}
 	}
 

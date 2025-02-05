@@ -263,7 +263,7 @@ type KernelReplica interface {
 	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
 	SendingExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool)
-	ActiveTrainingStartedAt() time.Time
+	LastTrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool

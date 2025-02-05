@@ -63,7 +63,7 @@ type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica scheduli
 //
 // Used by both the Gateway and Local Daemon components.
 type KernelReplicaClient struct {
-	activeTrainingStartedAt          time.Time // activeTrainingStartedAt is the time at which the kernel associated with this client began actively training.
+	lastTrainingStartedAt            time.Time // lastTrainingStartedAt is the time at which the kernel associated with this client last began actively training.
 	idleStartedAt                    time.Time // idleStartedAt is the time at which the kernel last began idling
 	lastTrainingTimePrometheusUpdate time.Time // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
 	scheduling.SessionManager
@@ -414,7 +414,7 @@ func (c *KernelReplicaClient) KernelStartedTraining(trainingStartedAt time.Time)
 	// unsafeKernelStoppedTraining will just return immediately without an error if isTraining is false.
 	if c.IsTraining() {
 		c.log.Warn("Replica %d of kernel %s is already training as of %v. Ending current training now. "+
-			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.activeTrainingStartedAt)
+			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.lastTrainingStartedAt)
 
 		// We already locked the kernel above, so we can call the unsafe method directly here.
 		err := c.unsafeKernelStoppedTraining("Need to start next training event, so current training event must be stopped first.")
@@ -427,7 +427,7 @@ func (c *KernelReplicaClient) KernelStartedTraining(trainingStartedAt time.Time)
 	c.trainingFinishedMu.Lock()
 	c.isTraining = true
 	c.trainingFinishedMu.Unlock()
-	c.activeTrainingStartedAt = trainingStartedAt
+	c.lastTrainingStartedAt = trainingStartedAt
 
 	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
@@ -584,12 +584,12 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 	}
 
 	c.log.Debug(utils.LightPurpleStyle.Render("Replica %d of kernel \"%s\" has STOPPED training after %v. Reason: %s"),
-		c.replicaId, c.id, time.Since(c.activeTrainingStartedAt), reason)
+		c.replicaId, c.id, time.Since(c.lastTrainingStartedAt), reason)
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumTrainingSessions -= 1
-			stats.CumulativeSessionTrainingTime += time.Since(c.activeTrainingStartedAt).Seconds()
+			stats.CumulativeSessionTrainingTime += time.Since(c.lastTrainingStartedAt).Seconds()
 
 			var metadata map[string]interface{}
 			if container != nil {
@@ -606,8 +606,8 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 				ReplicaId:           c.replicaId,
 				Timestamp:           now,
 				TimestampUnixMillis: now.UnixMilli(),
-				Duration:            time.Since(c.activeTrainingStartedAt),
-				DurationMillis:      time.Since(c.activeTrainingStartedAt).Milliseconds(),
+				Duration:            time.Since(c.lastTrainingStartedAt),
+				DurationMillis:      time.Since(c.lastTrainingStartedAt).Milliseconds(),
 				Metadata:            metadata,
 			})
 		})
@@ -624,10 +624,8 @@ func (c *KernelReplicaClient) KernelStoppedTraining(reason string) error {
 	return c.unsafeKernelStoppedTraining(reason)
 }
 
-// ActiveTrainingStartedAt returns the time at which the kernel associated with this client began actively training.
-func (c *KernelReplicaClient) ActiveTrainingStartedAt() time.Time {
-	return c.activeTrainingStartedAt
-}
+// LastTrainingStartedAt returns the time at which the kernel associated with this client last began actively training.
+func (c *KernelReplicaClient) LastTrainingStartedAt() time.Time { return c.lastTrainingStartedAt }
 
 // Recreate and return the kernel's control socket.
 // This reuses the handler on the existing/previous control socket.

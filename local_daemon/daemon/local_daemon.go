@@ -742,7 +742,7 @@ func (d *LocalScheduler) publishPrometheusMetrics(wg *sync.WaitGroup) {
 			// then we'll not add any of that training time.
 			d.kernels.Range(func(_ string, replicaClient scheduling.KernelReplica) (contd bool) {
 				if replicaClient.IsTraining() {
-					trainingTimeSeconds := time.Since(replicaClient.ActiveTrainingStartedAt()).Seconds()
+					trainingTimeSeconds := time.Since(replicaClient.LastTrainingStartedAt()).Seconds()
 
 					// If we've been training for at least one interval, then we're safe to just add another interval's
 					// worth of seconds to the Prometheus counter.
@@ -3162,7 +3162,7 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 		}
 
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
-		_ = kernel.KernelStartedTraining()
+		_ = kernel.KernelStartedTraining(time.UnixMilli(leadMessage.UnixMilliseconds))
 
 		// Don't return here -- we want this to be forwarded to the internalCluster Gateway.
 		// return commonTypes.ErrStopPropagation

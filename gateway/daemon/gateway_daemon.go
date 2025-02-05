@@ -4947,7 +4947,7 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	// Remove the replicas.
 	err := doRemoveReplicas()
 
-	// This will be nil if deschedule was successful,
+	// This will be nil if de-schedule was successful,
 	// or if the caller specified that we should use a separate goroutine for the replica removal.
 	if err != nil {
 		d.log.Error("Failed to remove one or more replicas of kernel \"%s\": %v", kernel.ID(), err)

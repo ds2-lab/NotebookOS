@@ -7269,20 +7269,6 @@ func (m *MockKernelReplica) EXPECT() *MockKernelReplicaMockRecorder {
 	return m.recorder
 }
 
-// ActiveTrainingStartedAt mocks base method.
-func (m *MockKernelReplica) ActiveTrainingStartedAt() time.Time {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ActiveTrainingStartedAt")
-	ret0, _ := ret[0].(time.Time)
-	return ret0
-}
-
-// ActiveTrainingStartedAt indicates an expected call of ActiveTrainingStartedAt.
-func (mr *MockKernelReplicaMockRecorder) ActiveTrainingStartedAt() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveTrainingStartedAt", reflect.TypeOf((*MockKernelReplica)(nil).ActiveTrainingStartedAt))
-}
-
 // AddIOHandler mocks base method.
 func (m *MockKernelReplica) AddIOHandler(topic string, handler scheduling.MessageBrokerHandler[scheduling.KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error {
 	m.ctrl.T.Helper()
@@ -7655,6 +7641,20 @@ func (m *MockKernelReplica) KernelStoppedTraining(reason string) error {
 func (mr *MockKernelReplicaMockRecorder) KernelStoppedTraining(reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelStoppedTraining", reflect.TypeOf((*MockKernelReplica)(nil).KernelStoppedTraining), reason)
+}
+
+// LastTrainingStartedAt mocks base method.
+func (m *MockKernelReplica) LastTrainingStartedAt() time.Time {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LastTrainingStartedAt")
+	ret0, _ := ret[0].(time.Time)
+	return ret0
+}
+
+// LastTrainingStartedAt indicates an expected call of LastTrainingStartedAt.
+func (mr *MockKernelReplicaMockRecorder) LastTrainingStartedAt() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastTrainingStartedAt", reflect.TypeOf((*MockKernelReplica)(nil).LastTrainingStartedAt))
 }
 
 // LastTrainingTimePrometheusUpdate mocks base method.
