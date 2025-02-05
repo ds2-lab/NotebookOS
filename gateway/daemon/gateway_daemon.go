@@ -2033,6 +2033,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create kernel \"%s\"", in.Id), err.Error())
 		}
 
+		// Record that the container creation attempt has completed with an error (i.e., it failed).
 		attempt.SetDone(err)
 
 		// The error should already be compatible with gRPC. But just in case it isn't...
@@ -2065,6 +2066,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	// Sanity check.
 	if kernel.Size() == 0 {
+		// Record that the container creation attempt has completed with an error (i.e., it failed).
 		attempt.SetDone(client.ErrFailureUnspecified)
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
@@ -2097,9 +2099,8 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		d.clusterStatisticsMutex.Unlock()
 	}
 
-	// Record that the container creation attempt has completed.
+	// Record that the container creation attempt has completed successfully.
 	attempt.SetDone(nil)
-
 	return nil
 }
 
