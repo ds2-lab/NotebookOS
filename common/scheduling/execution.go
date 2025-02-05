@@ -74,6 +74,11 @@ type ExecutionManager interface {
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
 
+	// TrainingEndedAt returns the time at which the last training ended.
+	//
+	// If the kernel is currently training, then TrainingEndedAt returns the time at which the previous training ended.
+	TrainingEndedAt() time.Time
+
 	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
 	//
 	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.

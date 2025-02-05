@@ -5,39 +5,50 @@ import (
 	"github.com/zhangjyr/hashmap"
 	"log"
 	"reflect"
+	"sync"
 )
 
-// SyncPool using sync.Pool
-type CornelkMap[K any, V any] struct {
+type ThreadsafeCornelkMap[K any, V any] struct {
 	hashmap   *hashmap.HashMap
 	stringKey bool
+
+	mu sync.RWMutex
 }
 
-func NewCornelkMap[K any, V any](size int) *CornelkMap[K, V] {
+func NewThreadsafeCornelkMap[K any, V any](size int) *ThreadsafeCornelkMap[K, V] {
 	var key K
-	return &CornelkMap[K, V]{
+	return &ThreadsafeCornelkMap[K, V]{
 		stringKey: reflect.TypeOf(key).Kind() == reflect.String,
 		hashmap:   hashmap.New((uintptr)(size)),
 	}
 }
 
-func (m *CornelkMap[K, V]) Delete(key K) {
+func (m *ThreadsafeCornelkMap[K, V]) Delete(key K) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.hashmap.Del(key)
 }
 
-func (m *CornelkMap[K, V]) Load(key K) (ret V, ok bool) {
+func (m *ThreadsafeCornelkMap[K, V]) Load(key K) (ret V, ok bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	v, ok := m.get(key)
 	if v != nil {
 		ret, ok = v.(V)
 		if !ok {
-			log.Panicf("CornelkMap.Load: type mismatch %v\n", v)
-			panic(fmt.Sprintf("CornelkMap.Load: type mismatch %v\n", v))
+			log.Panicf("ThreadsafeCornelkMap.Load: type mismatch %v\n", v)
+			panic(fmt.Sprintf("ThreadsafeCornelkMap.Load: type mismatch %v\n", v))
 		}
 	}
 	return ret, ok
 }
 
-func (m *CornelkMap[K, V]) LoadAndDelete(key K) (ret V, retExists bool) {
+func (m *ThreadsafeCornelkMap[K, V]) LoadAndDelete(key K) (ret V, retExists bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	v, retExists := m.get(key)
 	if !retExists {
 		return ret, retExists
@@ -61,7 +72,10 @@ func (m *CornelkMap[K, V]) LoadAndDelete(key K) (ret V, retExists bool) {
 	return ret, retExists
 }
 
-func (m *CornelkMap[K, V]) LoadOrStore(key K, value V) (ret V, loaded bool) {
+func (m *ThreadsafeCornelkMap[K, V]) LoadOrStore(key K, value V) (ret V, loaded bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	actual, loaded := m.hashmap.GetOrInsert(key, value)
 	if actual != nil {
 		ret = actual.(V)
@@ -69,7 +83,10 @@ func (m *CornelkMap[K, V]) LoadOrStore(key K, value V) (ret V, loaded bool) {
 	return ret, loaded
 }
 
-func (m *CornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (val V, swapped bool) {
+func (m *ThreadsafeCornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (val V, swapped bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.hashmap.Cas(key, oldVal, newVal) {
 		return newVal, true
 	} else {
@@ -77,7 +94,10 @@ func (m *CornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (val V, swa
 	}
 }
 
-func (m *CornelkMap[K, V]) Range(cb func(K, V) bool) {
+func (m *ThreadsafeCornelkMap[K, V]) Range(cb func(K, V) bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	next := true
 	for item := range m.hashmap.Iter() {
 		if next {
@@ -88,7 +108,10 @@ func (m *CornelkMap[K, V]) Range(cb func(K, V) bool) {
 	}
 }
 
-func (m *CornelkMap[K, V]) RangeSafe(cb func(K, V) bool) {
+func (m *ThreadsafeCornelkMap[K, V]) RangeSafe(cb func(K, V) bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	next := true
 	for item := range m.hashmap.Iter() {
 		if next {
@@ -99,15 +122,21 @@ func (m *CornelkMap[K, V]) RangeSafe(cb func(K, V) bool) {
 	}
 }
 
-func (m *CornelkMap[K, V]) Store(key K, val V) {
+func (m *ThreadsafeCornelkMap[K, V]) Store(key K, val V) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.hashmap.Set(key, val)
 }
 
-func (m *CornelkMap[K, V]) Len() int {
+func (m *ThreadsafeCornelkMap[K, V]) Len() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	return m.hashmap.Len()
 }
 
-func (m *CornelkMap[K, V]) get(key K) (interface{}, bool) {
+func (m *ThreadsafeCornelkMap[K, V]) get(key K) (interface{}, bool) {
 	if m.stringKey {
 		return m.hashmap.GetStringKey(m.assertString(key))
 	} else {
@@ -115,6 +144,6 @@ func (m *CornelkMap[K, V]) get(key K) (interface{}, bool) {
 	}
 }
 
-func (m *CornelkMap[K, V]) assertString(str interface{}) string {
+func (m *ThreadsafeCornelkMap[K, V]) assertString(str interface{}) string {
 	return str.(string)
 }

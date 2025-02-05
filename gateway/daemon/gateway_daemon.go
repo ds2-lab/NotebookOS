@@ -246,11 +246,11 @@ type ClusterGatewayImpl struct {
 	//
 	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
 	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
-	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
+	kernelsStarting *hashmap.ThreadsafeCornelkMap[string, chan struct{}]
 
 	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
 	// to keep track of the notifications that we've received so we can discard duplicates.
-	kernelRegisteredNotifications *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
+	kernelRegisteredNotifications *hashmap.ThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification]
 
 	// remoteDockerEventAggregator listens for docker events that occur on remote nodes in Docker Swarm mode.
 	remoteDockerEventAggregator *RemoteDockerEventAggregator
@@ -382,14 +382,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		transport:                       "tcp",
 		ip:                              opts.IP,
 		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
-		kernels:                         hashmap.NewCornelkMap[string, scheduling.Kernel](128),
-		kernelIdToKernel:                hashmap.NewCornelkMap[string, scheduling.Kernel](128),
-		kernelSpecs:                     hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
-		waitGroups:                      hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
-		kernelRegisteredNotifications:   hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
+		kernels:                         hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
+		kernelIdToKernel:                hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
+		kernelSpecs:                     hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
+		waitGroups:                      hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
+		kernelRegisteredNotifications:   hashmap.NewThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification](128),
 		cleaned:                         make(chan struct{}),
 		smrPort:                         clusterDaemonOptions.SMRPort,
-		kernelsStarting:                 hashmap.NewCornelkMap[string, chan struct{}](64),
+		kernelsStarting:                 hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 		remoteStorageEndpoint:           clusterDaemonOptions.RemoteStorageEndpoint,
 		dockerNetworkName:               clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:               clusterDaemonOptions.NumResendAttempts,
@@ -402,6 +402,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		IdleSessionReclamationEnabled:   clusterDaemonOptions.IdleSessionReclamationEnabled,
 		// Set the interval to a minimum value of 0 seconds, which disables idle session reclamation.
 		IdleSessionReclamationInterval: time.Second * time.Duration(math.Max(0, float64(clusterDaemonOptions.IdleSessionReclamationIntervalSec))),
+	}
+
+	// If the interval is set to 0, then we just disable idle session reclamation.
+	if clusterGateway.IdleSessionReclamationInterval == 0 {
+		clusterGateway.IdleSessionReclamationEnabled = false
 	}
 
 	for _, configFunc := range configs {
@@ -675,7 +680,86 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	clusterGateway.ClusterStatistics.CumulativeNumHostsProvisioned = clusterGateway.initialClusterSize
 	clusterGateway.gatherClusterStatistics()
 
+	if clusterGateway.IdleSessionReclamationEnabled {
+		go clusterGateway.idleSessionReclaimer()
+	}
+
 	return clusterGateway
+}
+
+func (d *ClusterGatewayImpl) idleSessionReclaimer() {
+	// Let the Idle Session Reclaimer goroutine have its own logger.
+	reclaimerLog := config.GetLogger("IdleSessionReclaimer ")
+
+	// Run every 1/60th of the reclamation interval, with the limit being once a second.
+	// So, if sessions are reclaimed after 30 minutes of being idle, then this goroutine
+	// runs every 30 seconds (1,800 seconds / 60 = 30 seconds).
+	frequency := d.IdleSessionReclamationInterval / 60
+	if frequency < time.Second {
+		frequency = time.Second
+	}
+
+	reclaimerLog.Debug("Idle Session Reclaimer initialized with frequency=%v and reclamation_interval=%v",
+		frequency, d.IdleSessionReclamationInterval)
+
+	// Keep running until the Cluster Gateway is stopped.
+	for atomic.LoadInt32(&d.closed) == 0 {
+		startTime := time.Now()
+
+		var kernelsToReclaim []scheduling.Kernel
+
+		d.kernels.Range(func(kernelId string, kernel scheduling.Kernel) (contd bool) {
+			timeElapsedSinceLastTrainingEnded := time.Since(kernel.TrainingEndedAt())
+			if timeElapsedSinceLastTrainingEnded > d.IdleSessionReclamationInterval {
+				reclaimerLog.Debug("Kernel \"%s\" last finished training %v ago. Kernel is eligible for idle reclamation.",
+					kernelId, timeElapsedSinceLastTrainingEnded)
+
+				if kernelsToReclaim == nil {
+					kernelsToReclaim = make([]scheduling.Kernel, 0, 1)
+				}
+
+				kernelsToReclaim = append(kernelsToReclaim, kernel)
+			}
+
+			return true
+		})
+
+		if len(kernelsToReclaim) > 0 {
+			reclaimerLog.Debug("Identified %d idle kernel(s) to reclaim.", len(kernelsToReclaim))
+
+			for _, kernel := range kernelsToReclaim {
+				reclamationStartTime := time.Now()
+				err := d.removeAllReplicasOfKernel(kernel)
+				if err != nil {
+					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
+				} else {
+					reclaimerLog.Debug("Successfully removed replicas of idle kernel \"%s\" in %v.",
+						kernel.ID(), time.Since(reclamationStartTime))
+				}
+			}
+		}
+
+		// Sleep until we're supposed to run again.
+		//
+		// If the amount of time we spent checking if the kernels are idle and reclaiming the idle kernels
+		// is greater than our frequency interval, then we will skip sleeping.
+		//
+		// Otherwise, we'll sleep for our frequencyInterval - timeElapsed.
+		//
+		// For example, if we're supposed to run every 5,000ms, and we spent 125ms on checking + reclaiming, then
+		// we'll sleep for 5,000ms - 125ms = 4,875ms.
+		//
+		// If, as another example, we spent 6,500ms checking + reclaiming, then we'll just skip the sleep and
+		// immediately check again.
+		//
+		// If we just check and find no idle kernels, then the loop will be very quick. If we have to reclaim any
+		// idle kernels, though, then it could take a lot longer. That's why we have this check.
+		timeElapsed := time.Since(startTime)
+		timeRemaining := frequency - timeElapsed
+		if timeRemaining > 0 {
+			time.Sleep(timeRemaining)
+		}
+	}
 }
 
 func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider DistributedClientProvider) {
@@ -3671,7 +3755,9 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 		return err
 	}
 
-	// Now we check if the replicas are scheduled. For static and dynamic, they will be, as well as with reservation.
+	// Now we check if the replicas are scheduled. For static and dynamic, they will be, as well as with reservation,
+	// unless idle session reclamation is enabled.
+	//
 	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
 	_, replicasAlreadyScheduled, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
 	if err != nil {

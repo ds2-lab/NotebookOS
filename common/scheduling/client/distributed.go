@@ -759,6 +759,13 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 	return c.RequestWithHandlerAndReplicas(ctx, "Forwarding", typ, jupyterMessages, handler, done, replicas...)
 }
 
+// TrainingEndedAt returns the time at which the last training ended.
+//
+// If the kernel is currently training, then TrainingEndedAt returns the time at which the previous training ended.
+func (c *DistributedKernelClient) TrainingEndedAt() time.Time {
+	return c.ExecutionManager.TrainingEndedAt()
+}
+
 // TrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
 // began actively training, if there is an actively-training replica.
 func (c *DistributedKernelClient) TrainingStartedAt() time.Time {

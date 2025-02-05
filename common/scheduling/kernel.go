@@ -150,6 +150,7 @@ type Kernel interface {
 	TemporaryKernelReplicaClient() KernelReplicaInfo
 
 	TrainingStartedAt() time.Time
+	TrainingEndedAt() time.Time
 	IsTraining() bool
 }
 

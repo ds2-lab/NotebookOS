@@ -86,6 +86,9 @@ type ExecutionManager struct {
 	// the State of the Execution.
 	allExecutions map[string]*Execution
 
+	// trainingEndedAt is the time at which the last training ended/stopped.
+	trainingEndedAt time.Time
+
 	// ExecutionIndices is a map from Execution ID (i.e., the "msg_id" of the associated "execute_request" [or
 	// "yield_request"] message) to the ExecutionIndex of that Execution.
 	//
@@ -540,6 +543,8 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// Store the execution in the "finished" map.
 	m.finishedExecutions[executeRequestId] = activeExecution
 
+	m.trainingEndedAt = time.Now()
+
 	if m.statisticsProvider != nil && m.statisticsProvider.PrometheusMetricsEnabled() {
 		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
 	}
@@ -644,6 +649,13 @@ func (m *ExecutionManager) TotalNumExecutionOperations() int {
 	defer m.mu.Unlock()
 
 	return len(m.allExecutions)
+}
+
+// TrainingEndedAt returns the time at which the last training ended.
+//
+// If the kernel is currently training, then TrainingEndedAt returns the time at which the previous training ended.
+func (m *ExecutionManager) TrainingEndedAt() time.Time {
+	return m.trainingEndedAt
 }
 
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
