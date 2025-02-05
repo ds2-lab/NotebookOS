@@ -199,9 +199,6 @@ type ScalingConfiguration struct {
 	// is very small, in which case it may or may not result in a scale-out.)
 	ScalingFactor float64
 
-	// MaximumHostsToReleaseAtOnce defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	MaximumHostsToReleaseAtOnce int32
-
 	// ScalingIntervalSec instructs us how often to call UpdateRatio in seconds.
 	// Auto-scaling occurs at the end of UpdateRatio.
 	// UpdateRatio updates the subscription ratio, which is used to determine the ratio of subscribed GPUs
@@ -212,6 +209,9 @@ type ScalingConfiguration struct {
 
 	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
 	ScalingLimit float64
+
+	// MaximumHostsToReleaseAtOnce defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	MaximumHostsToReleaseAtOnce int32
 
 	// ScalingBufferSize is how many extra hosts we provision so that we can quickly scale if needed.
 	ScalingBufferSize int32

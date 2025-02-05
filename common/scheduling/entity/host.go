@@ -62,71 +62,75 @@ type IndexUpdater interface {
 type containerWithPreCommittedResources struct {
 	scheduling.KernelContainer
 
+	PreCommittedResources *types.DecimalSpec
+
 	// ExecutionId is the "msg_id" of the Jupyter "execute_request" message that contained the
 	// user-submitted code associated with this pre-allocation.
-	ExecutionId           string
-	AllocationId          string
-	PreCommittedResources *types.DecimalSpec
+	ExecutionId  string
+	AllocationId string
 }
 
 type containerWithCommittedResources struct {
+	CommittedAt        time.Time
+	ResourcesCommitted types.Spec
 	AllocationId       string
 	KernelId           string
 	ReplicaId          int32
-	ResourcesCommitted types.Spec
-	CommittedAt        time.Time
 }
 
 type Host struct {
+
+	// Cached penalties
+	sip            cache.InlineCache // Scale-in penalty.
+	penaltyList    cache.InlineCache
+	CreatedAt      time.Time // CreatedAt is the time at which the Host was created.
+	LastRemoteSync time.Time // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	proto.LocalGatewayClient
 
 	log logger.Logger
 
-	schedulingMutex                sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
-	allocationManager              scheduling.AllocationManager         // allocationManager manages the resources of the Host.
-	meta                           hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	conn                           *grpc.ClientConn                     // conn is the gRPC connection to the Host.
-	Addr                           string                               // Addr is the Host's address.
-	NodeName                       string                               // NodeName is the Host's name (for printing/logging).
-	metricsProvider                scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
-	ID                             string                               // ID is the unique ID of this host.
-	seenSessions                   []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec                   *types.DecimalSpec                   // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
-	lastReschedule                 types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback                  scheduling.ErrorCallback             // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers              types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled                        bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling         atomic.Bool                          // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
-	isBeingConsideredForScheduling atomic.Int32                         // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
-	CreatedAt                      time.Time                            // CreatedAt is the time at which the Host was created.
-	LastRemoteSync                 time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-	isContainedWithinIndex         bool                                 // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	ProperlyInitialized            bool                                 // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
-	numReplicasPerKernel           int                                  // The number of replicas per kernel.
-	schedulerPoolType              scheduling.SchedulerPoolType
-	HeapIndexes                    map[types.HeapElementMetadataKey]int
-	heapIndexesMutex               sync.Mutex
-	indexUpdater                   IndexUpdater
-	numReplicasPerKernelDecimal    decimal.Decimal   // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
-	schedulingPolicy               scheduling.Policy // schedulingPolicy is the scheduling policy configured for the cluster.
+	allocationManager scheduling.AllocationManager         // allocationManager manages the resources of the Host.
+	meta              hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	metricsProvider   scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
+	indexUpdater      IndexUpdater
+	schedulingPolicy  scheduling.Policy // schedulingPolicy is the scheduling policy configured for the cluster.
 
-	// Cached penalties
-	sip             cache.InlineCache      // Scale-in penalty.
-	sipSession      scheduling.UserSession // Scale-in penalty session.
-	subscribedRatio decimal.Decimal
-	penaltyList     cache.InlineCache
-	penalties       []cachedPenalty
-	penaltyValidity bool
-
-	// trainingContainers are the actively-training kernel replicas.
-	trainingContainers []scheduling.KernelContainer
+	sipSession scheduling.UserSession // Scale-in penalty session.
 
 	// containers is a map from kernel ID to the container from that kernel scheduled on this Host.
 	containers hashmap.HashMap[string, scheduling.KernelContainer]
 
 	// SubscriptionQuerier is used to query the over-subscription factor given the host's
 	// subscription ratio and the Cluster's subscription ratio.
-	SubscriptionQuerier SubscriptionQuerier
+	SubscriptionQuerier         SubscriptionQuerier
+	conn                        *grpc.ClientConn         // conn is the gRPC connection to the Host.
+	resourceSpec                *types.DecimalSpec       // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
+	errorCallback               scheduling.ErrorCallback // errorCallback is a function to be called if a Host appears to be dead.
+	HeapIndexes                 map[types.HeapElementMetadataKey]int
+	Addr                        string          // Addr is the Host's address.
+	NodeName                    string          // NodeName is the Host's name (for printing/logging).
+	ID                          string          // ID is the unique ID of this host.
+	numReplicasPerKernelDecimal decimal.Decimal // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
+	subscribedRatio             decimal.Decimal
+	seenSessions                []string // seenSessions are the sessions that have been scheduled onto this host at least once.
+	penalties                   []cachedPenalty
+
+	// trainingContainers are the actively-training kernel replicas.
+	trainingContainers []scheduling.KernelContainer
+
+	lastReschedule       types.StatFloat64 // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	numReplicasPerKernel int               // The number of replicas per kernel.
+	schedulerPoolType    scheduling.SchedulerPoolType
+
+	schedulingMutex                sync.Mutex // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
+	heapIndexesMutex               sync.Mutex
+	pendingContainers              types.StatInt32 // pendingContainers is the number of Containers that are scheduled on the host.
+	excludedFromScheduling         atomic.Bool     // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling atomic.Int32    // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	enabled                        bool            // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	isContainedWithinIndex         bool            // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized            bool            // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
+	penaltyValidity                bool
 }
 
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.

@@ -27,10 +27,10 @@ func (k HeapElementMetadataKey) String() string {
 }
 
 type Heap struct {
-	Elements    []HeapElement
 	MetadataKey HeapElementMetadataKey
 
 	//log logger.Logger
+	Elements []HeapElement
 }
 
 func NewHeap(metadataKey HeapElementMetadataKey) *Heap {

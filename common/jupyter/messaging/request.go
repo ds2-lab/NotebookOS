@@ -272,6 +272,13 @@ type Request interface {
 
 // Encapsulates the state of a live, active request.
 type liveRequestState struct {
+
+	// beganSendingAt is the time at which the Sender began sending the Request for the first time.
+	beganSendingAt time.Time
+
+	// The irrecoverable error encountered by the request. This will be nil if no such error was encountered.
+	err error
+
 	requestState RequestState
 
 	// Flag indicating whether the request has been acknowledged.
@@ -285,12 +292,6 @@ type liveRequestState struct {
 	// If the request only timed out, then erred will be false.
 	erred bool
 
-	// The irrecoverable error encountered by the request. This will be nil if no such error was encountered.
-	err error
-
-	// beganSendingAt is the time at which the Sender began sending the Request for the first time.
-	beganSendingAt time.Time
-
 	// sendingHasStarted indicates whether the Sender has started sending the Request.
 	sendingHasStarted bool
 
@@ -299,8 +300,6 @@ type liveRequestState struct {
 }
 
 type BasicRequest struct {
-	*liveRequestState
-
 	log logger.Logger
 
 	// We keep a reference to the parent context that was passed to the RequestBuilder
@@ -308,45 +307,12 @@ type BasicRequest struct {
 	parentContext context.Context
 	ctx           context.Context
 
+	// The entity responsible for providing access to sockets in the request handler.
+	socketProvider JupyterServerInfo
+
+	*liveRequestState
+
 	cancel context.CancelFunc
-
-	// The MessageType of the request.
-	messageType MessageType
-
-	// True indicates that the request must be acknowledged by the recipient.
-	requiresAck bool
-
-	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
-	// recipient before either resubmitting the Request or returning an error.
-	//
-	// Default: 5 seconds.
-	ackTimeout time.Duration
-
-	// How long to wait for the request to complete successfully.
-	// Completion is a stronger requirement than simply being acknowledged.
-	timeout time.Duration
-
-	// This is flipped to true when a timeout is explicitly configured within the RequestBuilder.
-	// We use this to determine if we should recreate a context during resubmission via Context::WithTimeout or Context::WithCancel.
-	hasTimeout bool
-
-	// Should the call to Server::Request block when issuing this request?
-	// True if yes; otherwise, false.
-	isBlocking bool
-
-	// maxNumAttempts is the maximum number of attempts allowed before giving up on sending the request.
-	maxNumAttempts int
-
-	// currentAttemptNumber is the current send-attempt number.
-	currentAttemptNumber int
-
-	// String that uniquely identifies this set of request options.
-	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
-	requestId string
-
-	// Should the destination frame be automatically removed?
-	// If yes, then this should be true.
-	shouldDestFrameBeRemoved bool
 
 	// The actual payload.
 	payload *JupyterMessage
@@ -358,6 +324,13 @@ type BasicRequest struct {
 	// The handler that is called to process the response to this request.
 	messageHandler MessageHandler
 
+	// The connection info of the remote target of the request.
+	connectionInfo *jupyter.ConnectionInfo
+
+	// String that uniquely identifies this set of request options.
+	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
+	requestId string
+
 	// The ID associated with the source of the message.
 	// This will typically be a kernel ID.
 	sourceId string
@@ -366,14 +339,42 @@ type BasicRequest struct {
 	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
 	destinationId string
 
-	// The connection info of the remote target of the request.
-	connectionInfo *jupyter.ConnectionInfo
+	// The MessageType of the request.
+	messageType MessageType
 
-	// The entity responsible for providing access to sockets in the request handler.
-	socketProvider JupyterServerInfo
+	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	ackTimeout time.Duration
+
+	// How long to wait for the request to complete successfully.
+	// Completion is a stronger requirement than simply being acknowledged.
+	timeout time.Duration
+
+	// maxNumAttempts is the maximum number of attempts allowed before giving up on sending the request.
+	maxNumAttempts int
+
+	// currentAttemptNumber is the current send-attempt number.
+	currentAttemptNumber int
 
 	// Synchronizes access to the request's state.
 	stateMutex sync.Mutex
+
+	// True indicates that the request must be acknowledged by the recipient.
+	requiresAck bool
+
+	// This is flipped to true when a timeout is explicitly configured within the RequestBuilder.
+	// We use this to determine if we should recreate a context during resubmission via Context::WithTimeout or Context::WithCancel.
+	hasTimeout bool
+
+	// Should the call to Server::Request block when issuing this request?
+	// True if yes; otherwise, false.
+	isBlocking bool
+
+	// Should the destination frame be automatically removed?
+	// If yes, then this should be true.
+	shouldDestFrameBeRemoved bool
 }
 
 // SendStarting should be called when the Sender begins submitting the Request for the first time.

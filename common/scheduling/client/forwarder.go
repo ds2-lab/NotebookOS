@@ -28,9 +28,9 @@ const (
 // chan interface{} used to notify the caller when the request has been submitted and a result has been returned.
 type enqueuedRequest[MessageType any] struct {
 	Msg           MessageType
+	Kernel        MessageRecipient
 	ResultChannel chan interface{}
 	MsgId         string
-	Kernel        MessageRecipient
 }
 
 // MessageRecipient is an interface that enables ExecuteRequestForwarder to work with both scheduling.Kernel
@@ -52,7 +52,6 @@ type ProcessMessageFunc[MessageType any] func(msg MessageType, kernel MessageRec
 
 // ExecuteRequestForwarder ensures that "execute_request" (and "yield_request") messages are sent one-at-a-time.
 type ExecuteRequestForwarder[MessageType any] struct {
-	mu  sync.Mutex
 	log logger.Logger
 
 	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
@@ -72,6 +71,7 @@ type ExecuteRequestForwarder[MessageType any] struct {
 
 	// processCallback is an optional callback used to process messages before sending them.
 	processCallback ProcessMessageFunc[MessageType]
+	mu              sync.Mutex
 }
 
 // NewExecuteRequestForwarder creates a new ExecuteRequestForwarder struct and returns a pointer to it.

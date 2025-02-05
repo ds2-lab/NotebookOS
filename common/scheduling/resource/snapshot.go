@@ -13,16 +13,6 @@ import (
 
 // ManagerSnapshot encapsulates a JSON-compatible snapshot of the resource quantities of the AllocationManager.
 type ManagerSnapshot struct {
-	// SnapshotId uniquely identifies the ManagerSnapshot and defines a total order amongst all ManagerSnapshot
-	// structs originating from the same node. Each newly-created ManagerSnapshot is assigned an ID from a
-	// monotonically-increasing counter by the AllocationManager.
-	SnapshotId int32 `json:"snapshot_id" mapstructure:"snapshot_id"`
-
-	// NodeId is the ID of the node from which the snapshot originates.
-	NodeId string `json:"host_id" mapstructure:"host_id"`
-
-	// ManagerId is the unique ID of the AllocationManager struct from which the ManagerSnapshot was constructed.
-	ManagerId string `json:"manager_id" mapstructure:"manager_id"`
 
 	// Timestamp is the time at which the ManagerSnapshot was taken/created.
 	Timestamp time.Time `json:"timestamp" mapstructure:"timestamp"`
@@ -32,8 +22,18 @@ type ManagerSnapshot struct {
 	CommittedResources *ComputeResourceSnapshot `json:"committed_resources" mapstructure:"committed_resources"`
 	SpecResources      *ComputeResourceSnapshot `json:"spec_resources" mapstructure:"spec_resources"`
 
+	// NodeId is the ID of the node from which the snapshot originates.
+	NodeId string `json:"host_id" mapstructure:"host_id"`
+
+	// ManagerId is the unique ID of the AllocationManager struct from which the ManagerSnapshot was constructed.
+	ManagerId string `json:"manager_id" mapstructure:"manager_id"`
+
 	// Containers are the Containers presently running on the Host.
 	Containers []*proto.ReplicaInfo `json:"containers,omitempty" mapstructure:"containers,omitempty"`
+	// SnapshotId uniquely identifies the ManagerSnapshot and defines a total order amongst all ManagerSnapshot
+	// structs originating from the same node. Each newly-created ManagerSnapshot is assigned an ID from a
+	// monotonically-increasing counter by the AllocationManager.
+	SnapshotId int32 `json:"snapshot_id" mapstructure:"snapshot_id"`
 }
 
 // MetadataResourceWrapperSnapshot is a simpel wrapper around a ManagerSnapshot struct so that

@@ -29,15 +29,15 @@ func (n ClusterEventName) String() string {
 }
 
 type ClusterEvent struct {
+	Timestamp           time.Time              `json:"timestamp" csv:"timestamp"`
+	Metadata            map[string]interface{} `json:"metadata" csv:"-"`
 	Name                ClusterEventName       `json:"name" csv:"name"`
 	KernelId            string                 `json:"kernel_id" csv:"kernel_id"`
-	ReplicaId           int32                  `json:"replica_id" csv:"replica_id"`
-	Timestamp           time.Time              `json:"timestamp" csv:"timestamp"`
+	EventId             string                 `json:"event_id" csv:"event_id"`
 	Duration            time.Duration          `json:"duration" csv:"duration"`
 	DurationMillis      int64                  `json:"duration_millis" csv:"duration_millis"`
 	TimestampUnixMillis int64                  `json:"timestamp_unix_millis" csv:"timestamp_unix_millis"`
-	Metadata            map[string]interface{} `json:"metadata" csv:"-"`
-	EventId             string                 `json:"event_id" csv:"event_id"`
+	ReplicaId           int32                  `json:"replica_id" csv:"replica_id"`
 }
 
 /*
@@ -58,13 +58,16 @@ type ClusterStatistics struct {
 	// Hosts //
 	///////////
 
-	Hosts            int `json:"hosts" csv:"hosts"`
-	NumDisabledHosts int `json:"num_disabled_hosts" csv:"num_disabled_hosts"`
-	NumEmptyHosts    int `csv:"NumEmptyHosts" json:"NumEmptyHosts"` // The number of Hosts with 0 sessions/containers scheduled on them.
-
 	ClusterEvents []*ClusterEvent `json:"cluster_events" csv:"-"`
 
 	ExecuteRequestTraces []*proto.RequestTrace `json:"execute_request_traces" csv:"-"`
+
+	AggregateSessionLifetimesSec        []float64 `csv:"-" json:"AggregateSessionLifetimesSec"`
+	JupyterTrainingStartLatenciesMillis []float64 `json:"jupyter_training_start_latencies_millis" csv:"-"`
+
+	Hosts            int `json:"hosts" csv:"hosts"`
+	NumDisabledHosts int `json:"num_disabled_hosts" csv:"num_disabled_hosts"`
+	NumEmptyHosts    int `csv:"NumEmptyHosts" json:"NumEmptyHosts"` // The number of Hosts with 0 sessions/containers scheduled on them.
 
 	// The amount of time hosts have spent not idling throughout the entire simulation
 	CumulativeHostActiveTime float64 `csv:"CumulativeHostActiveTimeSec" json:"CumulativeHostActiveTimeSec"`
@@ -236,22 +239,7 @@ type ClusterStatistics struct {
 	// insufficient resources available on that replica's host).
 	NumTimesPreviousPrimaryReplicaUnavailable int64 `csv:"" json:""`
 
-	////////////////////////
-	// Dynamic Scheduling //
-	////////////////////////
-
-	Rescheduled       int32 `csv:"Rescheduled" json:"Rescheduled"`
-	Resched2Ready     int32 `csv:"Resched2Ready" json:"Resched2Ready"`
-	Migrated          int32 `csv:"Migrated" json:"Migrated"`
-	Preempted         int32 `csv:"Preempted" json:"Preempted"`
-	OnDemandContainer int   `csv:"OnDemandContainers" json:"OnDemandContainers"`
-	IdleHostsPerClass int32 `csv:"IdleHosts" json:"IdleHosts"`
-
-	//////////////
-	// Sessions //
-	//////////////
-
-	CompletedTrainings int32 `csv:"CompletedTrainings" json:"CompletedTrainings"`
+	OnDemandContainer int `csv:"OnDemandContainers" json:"OnDemandContainers"`
 	// The Len of Cluster::Sessions (which is of type *SessionManager).
 	// This includes all Sessions that have not been permanently stopped.
 	NumNonTerminatedSessions int `csv:"NumNonTerminatedSessions" json:"NumNonTerminatedSessions"`
@@ -275,11 +263,25 @@ type ClusterStatistics struct {
 	// The amount of time that Sessions have spent training throughout the entire simulation. This does NOT include replaying events.
 	CumulativeSessionTrainingTime float64 `csv:"CumulativeSessionTrainingTimeSec" json:"CumulativeSessionTrainingTimeSec"`
 	// The aggregate lifetime of all sessions created during the simulation (before being suspended).
-	AggregateSessionLifetimeSec  float64   `csv:"AggregateSessionLifetimeSec" json:"AggregateSessionLifetimeSec"`
-	AggregateSessionLifetimesSec []float64 `csv:"-" json:"AggregateSessionLifetimesSec"`
+	AggregateSessionLifetimeSec float64 `csv:"AggregateSessionLifetimeSec" json:"AggregateSessionLifetimeSec"`
 	// Delay between when client submits "execute_request" and when kernel begins executing.
-	JupyterTrainingStartLatencyMillis   float64   `json:"jupyter_training_start_latency_millis" csv:"jupyter_training_start_latency_millis"`
-	JupyterTrainingStartLatenciesMillis []float64 `json:"jupyter_training_start_latencies_millis" csv:"-"`
+	JupyterTrainingStartLatencyMillis float64 `json:"jupyter_training_start_latency_millis" csv:"jupyter_training_start_latency_millis"`
+
+	////////////////////////
+	// Dynamic Scheduling //
+	////////////////////////
+
+	Rescheduled       int32 `csv:"Rescheduled" json:"Rescheduled"`
+	Resched2Ready     int32 `csv:"Resched2Ready" json:"Resched2Ready"`
+	Migrated          int32 `csv:"Migrated" json:"Migrated"`
+	Preempted         int32 `csv:"Preempted" json:"Preempted"`
+	IdleHostsPerClass int32 `csv:"IdleHosts" json:"IdleHosts"`
+
+	//////////////
+	// Sessions //
+	//////////////
+
+	CompletedTrainings int32 `csv:"CompletedTrainings" json:"CompletedTrainings"`
 }
 
 func NewClusterStatistics() *ClusterStatistics {

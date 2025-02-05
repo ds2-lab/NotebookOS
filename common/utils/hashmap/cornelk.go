@@ -10,8 +10,8 @@ import (
 
 // SyncPool using sync.Pool
 type CornelkMap[K any, V any] struct {
-	stringKey bool
 	hashmap   *hashmap.HashMap
+	stringKey bool
 }
 
 func NewCornelkMap[K any, V any](size int) *CornelkMap[K, V] {

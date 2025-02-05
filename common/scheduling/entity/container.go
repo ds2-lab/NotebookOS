@@ -13,27 +13,28 @@ import (
 )
 
 type Container struct {
+	interactivePriority cache.InlineCache
+	trainingStartedAt   time.Time // The time at which the Container started training.
+	startedAt           time.Time // The time at which the Container was created.
 	scheduling.KernelReplica
 
 	log logger.Logger
 
-	session                    scheduling.UserSession    // The Session associated with the Container.
-	replicaId                  int32                     // The SMR node ID of the kernel replica running within the Container.
-	host                       scheduling.Host           // The Host on which the Container is currently scheduled.
-	id                         string                    // The kernel ID of the Container.
-	containerState             scheduling.ContainerState // The current state of the Container.
-	executions                 atomic.Int32              // The number of training events processed by the Container.
-	trainingStartedAt          time.Time                 // The time at which the Container started training.
-	startedAt                  time.Time                 // The time at which the Container was created.
-	addr                       string                    // The address of the Container.
-	numTrainingEventsProcessed int                       // numTrainingEventsProcessed is the number of training events processed by this Container.
+	session scheduling.UserSession // The Session associated with the Container.
+	host    scheduling.Host        // The Host on which the Container is currently scheduled.
 
 	spec *types.DecimalSpec
 	// lastSpec *types.DecimalSpec
 
-	interactivePriorityBase        float64
-	interactivePriority            cache.InlineCache
+	id                             string                    // The kernel ID of the Container.
+	containerState                 scheduling.ContainerState // The current state of the Container.
+	addr                           string                    // The address of the Container.
 	interactivePriorityExplanation string
+	numTrainingEventsProcessed     int // numTrainingEventsProcessed is the number of training events processed by this Container.
+
+	interactivePriorityBase float64
+	replicaId               int32        // The SMR node ID of the kernel replica running within the Container.
+	executions              atomic.Int32 // The number of training events processed by the Container.
 }
 
 type PlaceholderContainer struct {

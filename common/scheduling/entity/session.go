@@ -34,55 +34,58 @@ func NewMovingStatistic(window int64) *types.MovingStat {
 
 // sessionStateTransition encapsulates some data regarding state transitions.
 type sessionStateTransition struct {
+	Timestamp       time.Time               `json:"timestamp"`
 	PrevState       scheduling.SessionState `json:"prev_state"`
 	NewState        scheduling.SessionState `json:"new_state"`
-	Timestamp       time.Time               `json:"timestamp"`
 	TimeInPrevState time.Duration           `json:"time_in_prev_state"`
 }
 
 type Session struct {
+	preemptionPriority cache.InlineCache // Preemption Priority
+	trainingStart      time.Time         // Time at which the current training began.
+	idleStartTime      time.Time         // idleStartTime is the time at which the Distributed Kernel Client last began idling.
+	migrationStart     time.Time         // Time at which the migration began.
+	startedAt          time.Time         // Time at which the session began running.
+
+	ctx                       context.Context             // The Session's context.
+	trainingContainer         scheduling.KernelContainer  // The Container that is actively training.
+	resourceSpec              types.CloneableSpec         // The (current) resource requirements of the Session.
+	trainingTimeWithOverheads scheduling.SessionStatistic // Moving average of training times.
+	migrationTime             scheduling.SessionStatistic // Moving average of migration times.
+
+	log      logger.Logger
 	instance *Session
 
-	ctx                    context.Context                      // The Session's context.
-	id                     string                               // Session/kernel ID.
-	sessionState           scheduling.SessionState              // The current state of the Session.
-	trainingStart          time.Time                            // Time at which the current training began.
-	idleStartTime          time.Time                            // idleStartTime is the time at which the Distributed Kernel Client last began idling.
-	migrationStart         time.Time                            // Time at which the migration began.
-	containers             map[int32]scheduling.KernelContainer // The kernel replicas belonging to this Session.
-	trainingContainer      scheduling.KernelContainer           // The Container that is actively training.
-	resourceSpec           types.CloneableSpec                  // The (current) resource requirements of the Session.
-	stateTransitions       []*sessionStateTransition            // History of state transitions performed by the Session.
-	cumulativeTrainingTime time.Duration                        // cumulativeTrainingTime is the sum of time that this Session has spent training, excluding any associated overheads.
+	containers map[int32]scheduling.KernelContainer // The kernel replicas belonging to this Session.
 
 	////////////////////////
 	// Session Statistics //
 	////////////////////////
 
-	kernelSpec                     *proto.KernelSpec           // The kernel resourceSpec of the associated kernel.
-	startedAt                      time.Time                   // Time at which the session began running.
-	trainingTimeWithOverheads      scheduling.SessionStatistic // Moving average of training times.
-	migrationTime                  scheduling.SessionStatistic // Moving average of migration times.
-	interactivePriority            float64                     // Interactivity Priority
-	interactivePriorityExplanation string                      // Explanation of current Interactivity Priority value.
-	preemptionPriority             cache.InlineCache           // Preemption Priority
-	preemptionPriorityExplanation  string                      // Explanation of current  Preemption Priority value.
-	numTrainingEventsProcessed     int                         // numTrainingEventsProcessed is the number of training events processed by this Session.
+	kernelSpec *proto.KernelSpec // The kernel resourceSpec of the associated kernel.
 
 	interactivePriorityHistory *ValueHistory[float64]
 	preemptionPriorityHistory  *ValueHistory[float64]
 	trainingTimeHistory        *ValueHistory[time.Duration]
 	migrationTimeHistory       *ValueHistory[time.Duration]
 
-	mu sync.Mutex
+	id                             string                    // Session/kernel ID.
+	sessionState                   scheduling.SessionState   // The current state of the Session.
+	interactivePriorityExplanation string                    // Explanation of current Interactivity Priority value.
+	preemptionPriorityExplanation  string                    // Explanation of current  Preemption Priority value.
+	stateTransitions               []*sessionStateTransition // History of state transitions performed by the Session.
+	cumulativeTrainingTime         time.Duration             // cumulativeTrainingTime is the sum of time that this Session has spent training, excluding any associated overheads.
 
-	log logger.Logger
+	interactivePriority        float64 // Interactivity Priority
+	numTrainingEventsProcessed int     // numTrainingEventsProcessed is the number of training events processed by this Session.
+
+	mu sync.Mutex
 }
 
 type SessionBuilder struct {
 	ctx                           context.Context
-	id                            string
 	kernelSpec                    *proto.KernelSpec
+	id                            string
 	trainingTimeSampleWindowSize  int64
 	migrationTimeSampleWindowSize int64
 }

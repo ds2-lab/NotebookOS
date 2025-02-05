@@ -32,36 +32,8 @@ type RequestBuilder struct {
 
 	parentContext context.Context
 
-	///////////////
-	/// OPTIONAL //
-	///////////////
-
-	// Should the request require ACKs
-	requiresAck bool
-
-	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
-	// recipient before either resubmitting the Request or returning an error.
-	//
-	// Default: 5 seconds.
-	ackTimeout time.Duration
-
-	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
-	// Default: infinite.
-	timeout time.Duration
-
-	// Should the call to Server::Request block when issuing this request?
-	// Default: true
-	isBlocking bool
-
-	// The maximum number of attempts allowed before giving up on sending the request.
-	// This must be strictly greater than 0.
-	//
-	// Default: 3
-	maxNumAttempts int
-
-	// Should the destination frame be automatically removed?
-	// Default: true
-	shouldDestFrameBeRemoved bool
+	// The entity responsible for providing access to sockets in the request handler.
+	socketProvider JupyterServerInfo
 
 	//////////////
 	// REQUIRED //
@@ -77,11 +49,8 @@ type RequestBuilder struct {
 	// The handler that is called to process the response to this request.
 	handler MessageHandler
 
-	// The entity responsible for providing access to sockets in the request handler.
-	socketProvider JupyterServerInfo
-
-	// The MessageType of the request.
-	messageType MessageType
+	// The connection info of the remote target of the request.
+	connectionInfo *jupyter.ConnectionInfo
 
 	// The function to get the options.
 	// getOption WaitResponseOptionGetter
@@ -104,12 +73,43 @@ type RequestBuilder struct {
 	// This will typically be a kernel ID.
 	sourceId string
 
+	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	ackTimeout time.Duration
+
+	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
+	// Default: infinite.
+	timeout time.Duration
+
+	// The maximum number of attempts allowed before giving up on sending the request.
+	// This must be strictly greater than 0.
+	//
+	// Default: 3
+	maxNumAttempts int
+
+	// The MessageType of the request.
+	messageType MessageType
+
+	///////////////
+	/// OPTIONAL //
+	///////////////
+
+	// Should the request require ACKs
+	requiresAck bool
+
+	// Should the call to Server::Request block when issuing this request?
+	// Default: true
+	isBlocking bool
+
+	// Should the destination frame be automatically removed?
+	// Default: true
+	shouldDestFrameBeRemoved bool
+
 	// This is flipped to true when a timeout is explicitly configured.
 	// We use this to determine if we should create the context for the request via Context::WithTimeout or Context::WithCancel.
 	hasTimeout bool
-
-	// The connection info of the remote target of the request.
-	connectionInfo *jupyter.ConnectionInfo
 }
 
 // NewRequestBuilder creates a new RequestBuilder struct, passing in an optional parent context and the ID of the

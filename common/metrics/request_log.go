@@ -19,12 +19,12 @@ var (
 //
 // Each AbstractServer maintains its own RequestLog in DebugMode.
 type RequestLog struct {
-	// mu is the main mutex of the RequestLog.
-	mu  sync.Mutex
 	log logger.Logger
 
 	// EntriesByJupyterMsgId is a map from Jupyter Message ID to RequestLogEntry.
 	EntriesByJupyterMsgId hashmap.HashMap[string, *RequestLogEntryWrapper]
+	// mu is the main mutex of the RequestLog.
+	mu sync.Mutex
 }
 
 // NewRequestLog creates and initializes a new RequestLog struct and returns a pointer to it.
@@ -122,19 +122,19 @@ type RequestLogEntryWrapper struct {
 	RequestId          string
 	JupyterMessageId   string
 	JupyterMessageType string
-	MessageType        messaging.MessageType
 	KernelId           string
+	MessageType        messaging.MessageType
 }
 
 // RequestLogEntry is an entry for a single message in the RequestLog.
 type RequestLogEntry struct {
+	RequestTrace       *proto.RequestTrace
 	RequestId          string
 	JupyterMessageId   string
 	JupyterMessageType string
-	MessageType        messaging.MessageType
 	KernelId           string
 
-	RequestTrace *proto.RequestTrace
+	MessageType messaging.MessageType
 }
 
 // NewRequestLogEntry creates a new RequestLogEntry struct and returns a pointer to it.
