@@ -3796,7 +3796,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//
 			//	connInfoChannel := make(chan *proto.KernelConnectionInfo)
 			//
-			//	var notifyKernelRegisteredWg sync.WaitGroup
+			//	var notifyKernelRegisteredWg sync.Semaphore
 			//	notifyKernelRegisteredWg.Add(3)
 			//
 			//	callNotifyKernelRegistered := func(host scheduling.Host, replicaId int32) {

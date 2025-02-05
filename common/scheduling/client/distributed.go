@@ -1030,7 +1030,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// message, as we don't use the original message (in the case that the replicas send cloned versions).
 	// Thus, the original message is never going to be changed, so it's safe for each replica to proceed
 	// as soon as it clones the original message.
-	//var responseReceivedWg sync.WaitGroup
+	//var responseReceivedWg sync.Semaphore
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
 
@@ -1149,9 +1149,9 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	}
 	defer cancel()
 
-	// Spawn a goroutine to just send a notification when the sync.WaitGroup reaches 0.
+	// Spawn a goroutine to just send a notification when the sync.Semaphore reaches 0.
 	go func() {
-		// responseReceivedSem.Wait()                            // Wait til the WaitGroup reaches 0.
+		// responseReceivedSem.Wait()                            // Wait til the Semaphore reaches 0.
 		err := responseReceivedSem.Acquire(ctx, int64(numResponsesExpected))
 		if err == nil {
 			allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
@@ -1163,7 +1163,7 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	select {
 	case <-allResponsesReceivedNotificationChannel:
 		{
-			// The WaitGroup counter reached 0. Call done, and then return.
+			// The Semaphore counter reached 0. Call done, and then return.
 			c.log.Debug("Received all %d replies for %s \"%s\" message %s (JupyterID=\"%s\"). "+
 				"Calling 'done' callback now. Time elapsed: %v.", numResponsesExpected, typ.String(),
 				jMsg.JupyterParentMessageType(), jMsg.RequestId, jMsg.JupyterParentMessageId(), time.Since(st))

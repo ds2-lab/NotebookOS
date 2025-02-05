@@ -200,7 +200,7 @@ type LocalScheduler struct {
 
 	schedulerDaemonOptions domain.SchedulerDaemonOptions
 
-	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
+	// prometheusStarted is a sync.Semaphore used to signal to the metric-publishing goroutine
 	// that it should start publishing metrics now.
 	prometheusStarted sync.WaitGroup
 	RedisPort         int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
@@ -512,10 +512,10 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.nodeName = types.VirtualDockerNode // types.DockerNode
 	}
 
-	// The goroutine that publishes metrics to Prometheus waits for this WaitGroup to be Done.
+	// The goroutine that publishes metrics to Prometheus waits for this Semaphore to be Done.
 	daemon.prometheusStarted.Add(1)
 
-	// We use this WaitGroup to wait for the goroutine that publishes metrics to Prometheus to start.
+	// We use this Semaphore to wait for the goroutine that publishes metrics to Prometheus to start.
 	var goroutineStarted sync.WaitGroup
 	goroutineStarted.Add(1)
 	daemon.publishPrometheusMetrics(&goroutineStarted)

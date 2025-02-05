@@ -15,6 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
+	"golang.org/x/sync/semaphore"
 	"log"
 	"math"
 	"math/rand"
@@ -92,6 +93,8 @@ var (
 	ErrSessionNotFound         = status.Error(codes.InvalidArgument, "could not locate the requested scheduling.Session instance")
 	ErrContainerNotFound       = status.Error(codes.InvalidArgument, "could not locate the requested scheduling.Container instance")
 
+	ErrConcurrentRemoval = errors.New("cannot remove all replicas of specified kernel because a previous removal attempt is still in-progress")
+
 	ErrUnsupportedMsgTypeForArtificialResponse = errors.New("unsupported message type for artificial response")
 )
 
@@ -102,6 +105,47 @@ type DistributedClientProvider interface {
 		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 		executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
 		statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+}
+
+// kernelDescheduleAttempt encapsulates an attempt to deschedule (i.e., remove all replicas/containers of)
+// a particular scheduling.Kernel.
+type kernelDescheduleAttempt struct {
+	Semaphore *semaphore.Weighted
+	StartedAt time.Time
+	Complete  atomic.Bool
+	KernelId  string
+	Kernel    scheduling.Kernel
+}
+
+// newKernelDescheduleAttempt creates a new kernelDescheduleAttempt struct and returns a pointer to it.
+func newKernelDescheduleAttempt(kernel scheduling.Kernel) *kernelDescheduleAttempt {
+	weightedSemaphore := semaphore.NewWeighted(1)
+
+	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
+	err := weightedSemaphore.Acquire(context.Background(), 1)
+	if err != nil {
+		panic(err)
+	}
+
+	return &kernelDescheduleAttempt{
+		Semaphore: weightedSemaphore,
+		StartedAt: time.Now(),
+		KernelId:  kernel.ID(),
+		Kernel:    kernel,
+	}
+}
+
+func (a *kernelDescheduleAttempt) Wait(ctx context.Context) error {
+	return a.Semaphore.Acquire(ctx, 1)
+}
+
+func (a *kernelDescheduleAttempt) IsComplete() bool {
+	return a.Complete.Load()
+}
+
+func (a *kernelDescheduleAttempt) Done() {
+	a.Semaphore.Release(1)
+	a.Complete.Store(true)
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
@@ -200,13 +244,21 @@ type ClusterGatewayImpl struct {
 	listener net.Listener
 	cluster  scheduling.Cluster
 
-	kernels          hashmap.HashMap[string, scheduling.Kernel] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel] // Map from Kernel ID to client.DistributedKernelClient.
+	// kernels is a map from kernel and session IDs to kernels.
+	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
+	kernels hashmap.HashMap[string, scheduling.Kernel]
+
+	// kernelsBeingDescheduled is a map from kernel ID to kernels who are being de-scheduled.
+	// This map is used to prevent handling execute requests targeting kernels that are being de-scheduled.
+	kernelsBeingDescheduled hashmap.HashMap[string, *kernelDescheduleAttempt]
+
+	// kernelIdToKernel is a map from Kernel ID to client.DistributedKernelClient.
+	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
 	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
 
 	log logger.Logger
 
-	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
+	// waitGroups hashmap.HashMap[string, *sync.Semaphore]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
 	// Kubernetes client. This is shared with the associated internalCluster Gateway.
@@ -383,6 +435,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		ip:                              opts.IP,
 		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
 		kernels:                         hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
+		kernelsBeingDescheduled:         hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
 		kernelIdToKernel:                hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
 		kernelSpecs:                     hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
 		waitGroups:                      hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
@@ -687,9 +740,16 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	return clusterGateway
 }
 
+// idleSessionReclaimer runs a loop and searches for scheduling.Kernel instances that are idle.
 func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 	// Let the Idle Session Reclaimer goroutine have its own logger.
 	reclaimerLog := config.GetLogger("IdleSessionReclaimer ")
+
+	// Validate that we're supposed to run in the first place.
+	if !d.IdleSessionReclamationEnabled || d.IdleSessionReclamationInterval <= 0 {
+		reclaimerLog.Warn("Idle session reclamation is NOT enabled. Exiting.")
+		return
+	}
 
 	// Run every 1/60th of the reclamation interval, with the limit being once a second.
 	// So, if sessions are reclaimed after 30 minutes of being idle, then this goroutine
@@ -708,10 +768,23 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 
 		var kernelsToReclaim []scheduling.Kernel
 
+		// Keep track of which kernels we've seen, as there may be duplicates in the kernels map.
+		kernelsSeen := make(map[string]struct{})
+
 		d.kernels.Range(func(kernelId string, kernel scheduling.Kernel) (contd bool) {
+			// If we've already seen this kernel, then skip it.
+			// The kernels map may have duplicate values, such as when multiple sessions map to the same kernel.
+			if _, loaded := kernelsSeen[kernel.ID()]; loaded {
+				return true
+			}
+
+			// Record that we've now seen this kernel.
+			kernelsSeen[kernel.ID()] = struct{}{}
+
+			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
 			timeElapsedSinceLastTrainingEnded := time.Since(kernel.TrainingEndedAt())
 			if timeElapsedSinceLastTrainingEnded > d.IdleSessionReclamationInterval {
-				reclaimerLog.Debug("Kernel \"%s\" last finished training %v ago. Kernel is eligible for idle reclamation.",
+				reclaimerLog.Debug("Kernel \"%s\" last finished training %v ago and is eligible for reclamation.",
 					kernelId, timeElapsedSinceLastTrainingEnded)
 
 				if kernelsToReclaim == nil {
@@ -724,12 +797,14 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			return true
 		})
 
+		// If there is at least one idle kernel, then we'll start reclaiming.
 		if len(kernelsToReclaim) > 0 {
 			reclaimerLog.Debug("Identified %d idle kernel(s) to reclaim.", len(kernelsToReclaim))
 
+			// TODO: If this ends up being slow, then we can spawn helper goroutines to handle it.
 			for _, kernel := range kernelsToReclaim {
 				reclamationStartTime := time.Now()
-				err := d.removeAllReplicasOfKernel(kernel)
+				err := d.removeAllReplicasOfKernel(kernel, false)
 				if err != nil {
 					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
 				} else {
@@ -2432,7 +2507,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	waitGroup, loaded := d.waitGroups.Load(kernelId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing WaitGroup associated with kernel with ID %s", kernelId))
+		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", kernelId))
 	}
 
 	host, loaded := d.cluster.GetHost(hostId)
@@ -2557,7 +2632,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	waitGroup.Register(replicaId)
 	d.log.Debug("Done registering Kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
-	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
+	d.log.Debug("Semaphore for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
 
@@ -3468,6 +3543,43 @@ func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel
 	return resp, nil
 }
 
+// waitForDeschedulingToEnd is called while handling an "execute_request" if it is found that there is a "descheduling
+// attempt" in progress for the target scheduling.Kernel.
+//
+// waitForDeschedulingToEnd first checks if the attempt has finished. If so, then waitForDeschedulingToEnd will simply
+// delete the record of it and return.
+//
+// If the attempt is not finished, then waitForDeschedulingToEnd will wait for (as of the time of writing this
+// comment) 3 minutes. If after 3 minutes, the attempt has not completed, then waitForDeschedulingToEnd will return
+// an error.
+//
+// It's possible that there is simply a large network I/O occurring or something like that, so the fact that the attempt
+// has not resolved is not necessarily indicative that something is wrong.
+func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, descheduleAttempt *kernelDescheduleAttempt) error {
+	// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
+	if descheduleAttempt.Done() {
+		// Delete the record of the descheduling attempt and return.
+		d.kernelsBeingDescheduled.Delete(kernel.ID())
+		return nil
+	}
+
+	d.log.Warn("Target kernel \"%s\" of \"execute_request\" \"%s\" is being descheduled as of %v ago.",
+		kernel.ID(), msg.JupyterMessageId(), time.Since(descheduleAttempt.StartedAt))
+
+	timeoutInterval := time.Second * 180
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	defer cancel()
+
+	err := descheduleAttempt.Wait(ctx)
+	if err != nil {
+		d.log.Warn("Timed-out waiting for descheduling of kernel \"%s\" to complete after %v. Deschedule attempt has been in-progress for %v.",
+			kernel.ID(), timeoutInterval, time.Since(descheduleAttempt.StartedAt))
+
+		return nil, false, fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
+			ErrKernelNotReady, kernel.ID(), time.Since(descheduleAttempt.StartedAt))
+	}
+}
+
 // ensureKernelReplicasAreScheduled ensures that the replicas of the specified scheduling.Kernel are already scheduled.
 //
 // If they're not, then ensureKernelReplicasAreScheduled will either schedule the replicas, if the given msg is an
@@ -3481,6 +3593,15 @@ func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel
 func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.Kernel, msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, bool, error) {
 	d.log.Debug("Verifying that replicas of kernel %s are all scheduled before processing %s \"%s\" request \"%s\"",
 		kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
+
+	// Check if the kernel is being descheduled. If so, then we'll wait for a bit for it to finish being descheduled.
+	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
+		err := d.waitForDeschedulingToEnd(kernel, descheduleAttempt)
+
+		if err != nil {
+			return nil, false, err
+		}
+	}
 
 	// If the replica(s) are scheduled, then we have nothing to do.
 	if kernel.ReplicasAreScheduled() {
@@ -4590,11 +4711,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		kernel, loaded := d.kernels.Load(from.ID())
 
 		if loaded {
-			go func() {
-				// TODO: Could this cause problems where we are in the process of removing replicas
-				//	     when a new "execute_request" arrives?
-				_ = d.removeAllReplicasOfKernel(kernel)
-			}()
+			_ = d.removeAllReplicasOfKernel(kernel, true)
 		} else {
 			d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
 		}
@@ -4633,13 +4750,48 @@ func (d *ClusterGatewayImpl) kernelReplicaResponseForwarder(from scheduling.Kern
 // removeAllReplicasOfKernel is used to de-schedule the replicas of the given kernel without removing the kernel itself.
 //
 // This does not remove the kernel itself.
-func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel) error {
-	err := kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false)
+func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool) error {
+	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
+		d.log.Error("Instructed to remove all replicas of kernel \"%s\"; however, another attempt that began %v ago is still in progress...",
+			kernel.ID(), time.Since(descheduleAttempt.StartedAt))
+
+		return fmt.Errorf("%w: kernel \"%s\"", ErrConcurrentRemoval, kernel.ID())
+	}
+
+	descheduleAttempt := newKernelDescheduleAttempt(kernel)
+
+	// We use a wait group to keep track of whether we're in the process of de-scheduling a kernel's replicas.
+	// It will be cleaned up the next time an "execute_request" arrives.
+	d.kernelsBeingDescheduled.Store(kernel.ID(), descheduleAttempt)
+
+	// doRemoveReplicas removes the kernel's replicas and returns an error if one occurs.
+	doRemoveReplicas := func() error {
+		defer descheduleAttempt.Done()
+
+		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false)
+	}
+
+	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.
+	if inSeparateGoroutine {
+		go func() {
+			// Remove the replicas.
+			_ = doRemoveReplicas()
+		}()
+
+		return nil
+	}
+
+	// Remove the replicas.
+	err := doRemoveReplicas()
+
+	// This will be nil if deschedule was successful,
+	// or if the caller specified that we should use a separate goroutine for the replica removal.
 	if err != nil {
 		d.log.Error("Failed to remove one or more replicas of kernel \"%s\": %v", kernel.ID(), err)
 
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Remove One or More Replicas of Kernel \"%s\"",
 			kernel.ID()), err.Error())
+
 		return err
 	}
 
