@@ -16,6 +16,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
 	"log"
+	"math"
 	"math/rand"
 	"net"
 	"os"
@@ -312,6 +313,13 @@ type ClusterGatewayImpl struct {
 	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
 	initialConnectionPeriod time.Duration
 
+	// IdleSessionReclamationInterval is the interval of real-life clock time that must elapse before a Session
+	// is considered idle and is eligible for reclamation of IdleSessionReclamationEnabled is set to true.
+	//
+	// If IdleSessionReclamationInterval is set to 0, then idle session reclamation is disabled, regardless of the
+	// value of the IdleSessionReclamationEnabled flag.
+	IdleSessionReclamationInterval time.Duration
+
 	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
 	// during the initial connection period.
 	numHostsDisabledDuringInitialConnectionPeriod int
@@ -338,6 +346,15 @@ type ClusterGatewayImpl struct {
 
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
+
+	// IdleSessionReclamationEnabled if a flag that, when true, instructs the system to consider sessions to be idle
+	// and eligible for "reclamation" after IdleSessionReclamationInterval elapses. When a session is reclaimed, its
+	// kernel replica containers are de-scheduled. They will have to be rescheduled if the client submits execute
+	// requests again in the future.
+	//
+	// If IdleSessionReclamationInterval is set to 0, then idle session reclamation is disabled, regardless of the
+	// value of the IdleSessionReclamationEnabled flag.
+	IdleSessionReclamationEnabled bool
 
 	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
 	inInitialConnectionPeriod atomic.Bool
@@ -382,7 +399,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		prometheusInterval:              time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 		ClusterStatistics:               metrics.NewClusterStatistics(),
 		SubmitExecuteRequestsOneAtATime: clusterDaemonOptions.SubmitExecuteRequestsOneAtATime,
-		//availablePorts:                 utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		IdleSessionReclamationEnabled:   clusterDaemonOptions.IdleSessionReclamationEnabled,
+		// Set the interval to a minimum value of 0 seconds, which disables idle session reclamation.
+		IdleSessionReclamationInterval: time.Second * time.Duration(math.Max(0, float64(clusterDaemonOptions.IdleSessionReclamationIntervalSec))),
 	}
 
 	for _, configFunc := range configs {
