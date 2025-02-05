@@ -1367,6 +1367,10 @@ func (h *Host) GetCreatedAt() time.Time {
 	return h.CreatedAt
 }
 
+func (h *Host) GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error) {
+	return h.allocationManager.GetGpuDeviceIdsAssignedToReplica(replicaId, kernelId)
+}
+
 // UnitTestingHost is a wrapper around Host that exposes some additional methods that allow for the direct
 // manipulation of the Host's resources. This is useful for unit testing and not much else.
 type UnitTestingHost struct {

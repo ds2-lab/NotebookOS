@@ -3372,23 +3372,75 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	return nil
 }
 
+// embedGpuDeviceIdsInExecuteRequestMetadata is used to embed the GPU device IDs in the metadata frame of the given
+// "execute_request" message targeting the specified scheduling.KernelReplica.
+//
+// Warning: this modifies the given messaging.JupyterMessage.
+func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *messaging.JupyterMessage, targetReplica scheduling.KernelReplica) error {
+	// Validate that the message is of the proper type.
+	if jMsg.JupyterMessageType() != messaging.ShellExecuteRequest {
+		return fmt.Errorf("%w: expected message of type \"%s\"; however, message \"%s\" targeting kernel \"%s\" is of type \"%s\"",
+			client.ErrInvalidMessage, messaging.ShellExecuteRequest, jMsg.JupyterMessageId(), targetReplica.ID(), jMsg.JupyterMessageType())
+	}
+
+	// Deserialize the message's metadata frame into a dictionary.
+	var metadataDict map[string]interface{}
+	if err := jMsg.JupyterFrames.DecodeMetadata(&metadataDict); err != nil {
+		d.log.Error("Failed to decode metadata frame of \"execute_request\" message \"%s\" targeting kernel \"%s\" with JSON: %v",
+			jMsg.JupyterMessageId(), targetReplica.ID(), err)
+		return err
+	}
+
+	// Get the GPU device IDs assigned to the target kernel replica.
+	gpuDeviceIds, err := targetReplica.Host().GetGpuDeviceIdsAssignedToReplica(targetReplica.ReplicaID(), targetReplica.ID())
+	if err != nil {
+		d.log.Error("Failed to retrieve GPU device IDs assigned to replica %d of kernel \"%s\" because: %v",
+			targetReplica.ReplicaID(), targetReplica.ID(), err)
+
+		return err
+	}
+
+	// Embed the GPU device IDs in the metadata dictionary, which we'll re-encode into the message's metadata frame.
+	metadataDict["gpu_device_ids"] = gpuDeviceIds
+
+	// Re-encode the metadata frame. It will have the number of idle GPUs available,
+	// as well as the reason that the request was yielded (if it was yielded).
+	err = jMsg.EncodeMetadata(metadataDict)
+	if err != nil {
+		d.log.Error("Failed to encode metadata frame because: %v", err)
+		d.notifyDashboardOfError("Failed to Encode Metadata Frame", err.Error())
+		panic(err)
+	}
+
+	// Regenerate the signature.
+	_, err = jMsg.JupyterFrames.Sign(targetReplica.ConnectionInfo().SignatureScheme, []byte(targetReplica.ConnectionInfo().Key))
+	if err != nil {
+		message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v",
+			jMsg.JupyterMessageType(), err)
+		d.notifyDashboardOfError("Failed to Sign JupyterFrames", message)
+		panic(err)
+	}
+
+	// Validate the updated message/frames.
+	verified := messaging.ValidateFrames([]byte(targetReplica.ConnectionInfo().Key),
+		targetReplica.ConnectionInfo().SignatureScheme, jMsg.JupyterFrames)
+	if !verified {
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'",
+			targetReplica.ConnectionInfo().SignatureScheme, targetReplica.ConnectionInfo().Key)
+		d.log.Error("This message will likely be rejected by the kernel:\n%v", jMsg.StringFormatted())
+	}
+
+	return nil
+}
+
 // forwardExecuteRequest forwards the given "execute_request" message to all eligible replicas of the
 // specified kernel and a converted "yield_request" to all ineligible replicas of the kernel.
-func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessage, kernel scheduling.Kernel,
+func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messaging.JupyterMessage, kernel scheduling.Kernel,
 	targetReplica scheduling.KernelReplica) error {
 
 	replicas := kernel.Replicas()
 
-	jMsg.AddDestFrameIfNecessary(kernel.ID())
-
-	// getMsgForTargetReplica returns the *messaging.JupyterMessage to be sent to the target replica.
-	getMsgForTargetReplica := func() *messaging.JupyterMessage {
-		if kernel.DebugMode() {
-			return jMsg.Clone()
-		}
-
-		return jMsg
-	}
+	originalJupyterMessage.AddDestFrameIfNecessary(kernel.ID())
 
 	jupyterMessages := make([]*messaging.JupyterMessage, kernel.Size())
 	for _, replica := range replicas {
@@ -3397,27 +3449,34 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			err            error
 		)
 
-		if replica.ReplicaID() != targetReplica.ReplicaID() {
-			// Convert the "execute_request" message to a "yield_request" message.
-			// The returned message is initially created as a clone of the target message.
-			jupyterMessage, err = jMsg.CreateAndReturnYieldRequestMessage()
-			if err != nil {
-				d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
-					jMsg.JupyterMessageId(), err)
-				d.log.Error("Original \"execute_request\" message that we failed to convert: %v", jMsg)
-				d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message", err.Error())
-				jMsg.IsFailedExecuteRequest = true
-
-				// We'll send an error message to the associated client here.
-				_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
-				return err
-			}
-
-			d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\"",
-				jMsg.JupyterMessageId(), replica.ReplicaID(), replica.ID())
-		} else {
-			jupyterMessage = getMsgForTargetReplica()
+		if replica.ReplicaID() == targetReplica.ReplicaID() {
+			jupyterMessage = originalJupyterMessage.Clone()
+			jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
+			continue
 		}
+
+		// Convert the "execute_request" message to a "yield_request" message.
+		// The returned message is initially created as a clone of the target message.
+		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage()
+		if err != nil {
+			d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
+				originalJupyterMessage.JupyterMessageId(), err)
+
+			d.log.Error("Original \"execute_request\" message that we failed to convert: %v", originalJupyterMessage)
+
+			d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
+				err.Error())
+
+			originalJupyterMessage.IsFailedExecuteRequest = true
+
+			// We'll send an error message to the associated client here.
+			_ = d.sendErrorResponse(kernel, originalJupyterMessage, err, messaging.ShellMessage)
+
+			return err
+		}
+
+		d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\"",
+			originalJupyterMessage.JupyterMessageId(), replica.ReplicaID(), replica.ID())
 
 		// We subtract 1 because replica IDs start at 1.
 		jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
@@ -3493,11 +3552,11 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 		d.clusterStatisticsMutex.Unlock()
 	}
 
-	targetReplica, err := d.processExecuteRequest(jMsg, kernel)
-	if err != nil {
+	targetReplica, processingError := d.processExecuteRequest(jMsg, kernel)
+	if processingError != nil {
 		// Send a response with the error as the content.
-		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
-		return err
+		_ = d.sendErrorResponse(kernel, jMsg, processingError, messaging.ShellMessage)
+		return processingError
 	}
 
 	if targetReplica != nil {

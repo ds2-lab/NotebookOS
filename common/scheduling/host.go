@@ -46,7 +46,8 @@ type Host interface {
 	SchedulerPoolType() SchedulerPoolType
 	GetResourceSpec() types.Spec
 	IsProperlyInitialized() bool
-
+	// GetGpuDeviceIdsAssignedToReplica returns the GPU device IDs assigned to the specified kernel replica.
+	GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error)
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(types.HeapElementMetadataKey, int)
 	GetIdx(types.HeapElementMetadataKey) int
