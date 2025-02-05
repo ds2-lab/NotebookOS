@@ -2,31 +2,30 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/test_utils"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"golang.org/x/net/context"
-	"sync"
-
-	"github.com/Scusemua/go-utils/config"
-	"github.com/go-zeromq/zmq4"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/local_daemon/device"
 	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"github.com/scusemua/distributed-notebook/local_daemon/mock_device"
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -180,18 +179,31 @@ var _ = Describe("Local Daemon Tests", func() {
 		Expect(schedulingPolicy).ToNot(BeNil())
 
 		schedulerDaemon = &LocalScheduler{
-			id:                                 hostId,
-			transport:                          "tcp",
-			kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
-			closed:                             make(chan struct{}),
-			cleaned:                            make(chan struct{}),
-			allocationManager:                  resourceManager,
-			virtualGpuPluginServer:             vgpuPluginServer,
-			schedulingPolicy:                   schedulingPolicy,
-			outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecOrYieldRequest](128),
-			outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
-			executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
+			id:                     hostId,
+			transport:              "tcp",
+			kernels:                hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
+			closed:                 make(chan struct{}),
+			cleaned:                make(chan struct{}),
+			allocationManager:      resourceManager,
+			virtualGpuPluginServer: vgpuPluginServer,
+			schedulingPolicy:       schedulingPolicy,
 		}
+
+		notifyCallback := func(title string, content string, notificationType messaging.NotificationType) {
+			schedulerDaemon.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            title,
+				Message:          content,
+				NotificationType: int32(notificationType),
+				Panicked:         false,
+			})
+		}
+
+		schedulerDaemon.executeRequestForwarder = client.NewExecuteRequestForwarder[*messaging.JupyterMessage](
+			notifyCallback, func(msg *messaging.JupyterMessage, kernel client.MessageRecipient) *messaging.JupyterMessage {
+				return schedulerDaemon.processExecOrYieldRequest(msg, kernel.(scheduling.KernelReplica))
+			})
+
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 	})
 
