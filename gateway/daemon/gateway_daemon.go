@@ -835,8 +835,8 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			if idleIntervalElapsedSinceLastTrainingSubmitted && idleIntervalElapsedSinceLastTrainingBegan && idleIntervalElapsedSinceLastTrainingEnded {
 				reclaimerLog.Debug("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
 					"and last finished training %v ago, so kernel \"%s\" is now eligible for idle reclamation.",
-					kernelId, idleIntervalElapsedSinceLastTrainingSubmitted,
-					idleIntervalElapsedSinceLastTrainingBegan, timeElapsedSinceLastTrainingEnded)
+					kernelId, timeElapsedSinceLastTrainingSubmitted,
+					timeElapsedSinceLastTrainingBegan, timeElapsedSinceLastTrainingEnded)
 
 				if kernelsToReclaim == nil {
 					kernelsToReclaim = make([]scheduling.Kernel, 0, 1)
