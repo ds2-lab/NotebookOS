@@ -31,9 +31,10 @@ const (
 
 type wrappedServer struct {
 	*AbstractServer
-	id        string
-	shellPort int
 	sync.Mutex
+
+	shellPort int
+	id        string
 }
 
 func (s *wrappedServer) ID() string {

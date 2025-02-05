@@ -44,9 +44,20 @@ var (
 // scheduling.KernelContainer is scheduled on the scheduling.Host whose resources are managed by the
 // AllocationManager associated with the scheduledKernels.
 type scheduledKernels struct {
+	mu sync.Mutex
+
+	// NodeId is the unique identifier of the node on which the scheduledContainers exists.
+	NodeId string
+
+	// Kernels is a map from kernel ID to a kernelContainers struct which keeps track of the
+	// scheduling.KernelContainer instances running on the associated scheduling.Host.
+	//
+	// The existence of an entry for a particular kernel ID in the Kernels map does NOT indicate that
+	// there is at least one scheduling.KernelContainer for that scheduling.Kernel. It does indicate that
+	// there was at least one scheduling.KernelContainer for that scheduling.Kernel running on the associated
+	// scheduling.Host at some point in time; however, there may no longer be any scheduling.KernelContainer for
+	// that scheduling.Kernel running on the associated scheduling.Host anymore.
 	Kernels map[string]int32
-	NodeId  string
-	mu      sync.Mutex
 }
 
 // GetScheduledReplica returns the replica ID of the scheduling.KernelReplica that is scheduled for the
@@ -193,27 +204,108 @@ func newScheduledKernels(nodeId string) *scheduledKernels {
 // For an overview of the scheduling-related terminology used in the API of this struct, please refer to the
 // documentation of the scheduling.AllocationManager interface.
 type AllocationManager struct {
-	log                        logger.Logger
-	schedulingPolicy           scheduling.Policy
-	kernelAllocationMap        hashmap.HashMap[string, scheduling.Allocation]
+	mu sync.Mutex
+
+	// GetId is the unique identifier of the AllocationManager. This is distinct from the NodeId.
+	Id string
+
+	NodeName string
+
+	// NodeId is the unique identifier of the node on which the AllocationManager exists.
+	// This field is not populated immediately, as the LocalDaemon does not have an ID
+	// when it is first created. Instead, the Cluster Gateway assigns an ID to the
+	// LocalDaemon via the SetID gRPC call. The NodeId field of the AllocationManager
+	// is assigned a value during the execution of the SetID RPC.
+	NodeId string
+
+	log logger.Logger // Logger.
+
+	scheduledKernels *scheduledKernels
+
+	// resourceSnapshotCounter is an atomic, thread-safe counter used to associate a monotonically-increasing
+	// identifier with each newly-created ComputeResourceSnapshot and *proto.NodeResourcesSnapshot struct.
+	//
+	// That is, the *proto.NodeResourcesSnapshot structs created by the AllocationManager's ProtoResourcesSnapshot
+	// method and the *ManagerSnapshot structs created by the AllocationManager's ResourcesSnapshot method share
+	// the same "source" for their SnapshotId fields.
+	//
+	// Thus, the total ordering provided by the monotonically-increasing counter actually applies to all
+	// *ManagerSnapshot structs and all *ManagerSnapshot structs originating from the same node.
+	resourceSnapshotCounter atomic.Int32
+
+	// allocationKernelReplicaMap is a map from "<KernelID>-<ReplicaID>" -> scheduling.Allocation.
+	// That is, allocationKernelReplicaMap is a mapping in which keys are strings of the form
+	// "<KernelID>-<ReplicaID>" and values are scheduling.Allocation.
+	//
+	// allocationIdMap contains Allocation structs of both types (CommittedAllocation and PendingAllocation).
 	allocationKernelReplicaMap hashmap.HashMap[string, scheduling.Allocation]
-	resourceManager            *Manager
-	scheduledKernels           *scheduledKernels
-	updateSubscriptionRatio    func() decimal.Decimal
-	updateIndex                func(replicaId int32, kernelId string) error
-	metricsManager             *metrics.LocalDaemonPrometheusManager
-	availableGpuDevices        *queue.Fifo[int]
-	NodeId                     string
-	NodeName                   string
-	Id                         string
-	mu                         sync.Mutex
-	numPendingAllocations      atomic.Int32
-	numFailedPreCommitments    atomic.Int32
-	numFailedReservations      atomic.Int32
-	numReservations            atomic.Int32
-	numPreCommitments          atomic.Int32
-	numCommittedAllocations    atomic.Int32
-	resourceSnapshotCounter    atomic.Int32
+
+	// kernelAllocationMap is a map from Kernel ID to the allocation associated with any replica of that kernel.
+	kernelAllocationMap hashmap.HashMap[string, scheduling.Allocation]
+
+	// resourceManager encapsulates the state of all HostResources (idle, pending, committed, and spec) managed
+	// by this AllocationManager.
+	resourceManager *Manager
+
+	// numPendingAllocations is the number of active Allocation instances of type scheduling.PendingAllocation.
+	//
+	// Allocation instances of type scheduling.PendingAllocation are created under scheduling policies that only
+	// (exclusively) bind or commit resources to containers while the replicas within those containers are actively
+	// executing user-submitted code.
+	numPendingAllocations atomic.Int32
+
+	// numCommittedAllocations is the number of active Allocation instances of type scheduling.CommittedAllocation.
+	//
+	// Allocation instances of type scheduling.CommittedAllocation are created when resources are exclusively bound or
+	// committed to a scheduling.KernelContainer. When this occurs depends upon the scheduling policy. Under scheduling
+	// policies for which the "container lifetime" is set to scheduling.SingleTrainingEvent, resources are bound to the
+	// scheduling.KernelContainer for the entire duration of the scheduling.KernelContainer's lifetime. This is because
+	// the scheduling.KernelContainer is created and exists only to execute a single code submission before terminating.
+	//
+	// Alternatively, under scheduling policies for which the "container lifetime" is set to scheduling.LongRunning, the
+	// scheduling.KernelContainer persists beyond the scope of any single code execution. In this case, resources are
+	// only exclusively bound or committed to a scheduling.KernelContainer immediately before it begins executing
+	// user-submitted code, and they are released from the scheduling.KernelContainer once the execution completes.
+	numCommittedAllocations atomic.Int32
+
+	// numPreCommitments maintains a counter of the number of "pre-committed" allocations, which are a subset of the
+	// allocations of type scheduling.CommittedAllocation. Resource pre-commitment occurs during the submission and
+	// forwarding of a messaging.ShellExecuteRequest message (i.e., an "execute_request") message to the
+	// scheduling.KernelReplica instances associated with a scheduling.Kernel. The resources are preemptively bound or
+	// committed exclusively to one or more scheduling.KernelReplica instances in anticipation of those instances
+	// beginning to train. (It is necessary for the resources to be available in order for the training to begin.)
+	//
+	// If the scheduling.KernelReplica is not selected as the "primary replica", as can be the case in multi-replica
+	// scheduling policies, then the pre-committed resources will be released. Alternatively, if a
+	// scheduling.KernelReplica with pre-committed resources is designated as the "primary replica" and begins
+	// executing user-submitted code, then the "pre-committed" resources will be semantically updated to simply
+	// being "committed". Since "pre-committed" resources are counted as a subset of "committed" resources, there will
+	// be no change in the "committed" resource count of the AllocationManager or associated scheduling.Host.
+	numPreCommitments atomic.Int32
+
+	// numReservations maintains a counter of the number of resource allocations that are made prior to a
+	// scheduling.KernelReplica actually beginning to run on a particular scheduling.Host. The resources are set aside
+	// for the scheduling.KernelReplica ahead of time, so that they are definitely available when the
+	// scheduling.KernelReplica is placed onto the scheduling.Host and begins running.
+	numReservations atomic.Int32
+
+	// numFailedReservations is the number of times we attempted to reserve resources and failed to do so.
+	numFailedReservations atomic.Int32
+
+	// numFailedPreCommitments is the number of times we attempted to pre-commit resources and failed to do so.
+	numFailedPreCommitments atomic.Int32
+
+	// schedulingPolicy is the configured scheduling.Policy in use by the cluster.
+	schedulingPolicy scheduling.Policy
+
+	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
+	availableGpuDevices *queue.Fifo[int]
+
+	metricsManager *metrics.LocalDaemonPrometheusManager
+
+	updateIndex func(replicaId int32, kernelId string) error
+
+	updateSubscriptionRatio func() decimal.Decimal
 }
 
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.

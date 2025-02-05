@@ -28,14 +28,32 @@ var (
 //
 // Each CoordinatedParticipant is typically associated with a specific replica of a kernel.
 type CoordinatedParticipant struct {
-	initialState    scheduling.TransactionState
-	log             logger.Logger
-	commit          scheduling.CommitTransactionResult
-	tx              *Transaction
-	operation       scheduling.TransactionOperation
+	// id is the SMR node ID of the kernel replica represented by the CoordinatedParticipant
+	id int32
+
+	// commit defines how the committed state should be used/applied if the transaction succeeds for the CoordinatedParticipant.
+	commit scheduling.CommitTransactionResult
+
+	// tx defines the operations that should be applied to the CoordinatedParticipant's resources during the transaction.
+	tx *Transaction
+
+	// Operation is the operation that is executed by the CoordinatedParticipant during the CoordinatedTransaction.
+	operation scheduling.TransactionOperation
+
+	// getInitialState obtains the initial state for the CoordinatedTransaction.
+	// getInitialState is called after the mu is acquired.
 	getInitialState scheduling.GetInitialStateForTransaction
-	mu              *sync.Mutex
-	id              int32
+
+	initialState scheduling.TransactionState
+
+	// mu is the CoordinatedParticipant's mutex. The CoordinatedTransaction will acquire the mutexes of all
+	// the CoordinatedParticipant structs that are involved at the very beginning of the transaction.
+	//
+	// It is the caller's responsibility to unlock the mu once the transaction has finished.
+	// The CoordinatedTransaction will not unlock the mu.
+	mu *sync.Mutex
+
+	log logger.Logger
 }
 
 // tryLock attempts to acquire the CoordinatedParticipant's mu (a sync.Mutex).
@@ -102,22 +120,52 @@ func (p *CoordinatedParticipant) run(wg *sync.WaitGroup) {
 //
 // The CoordinatedTransaction will either succeed for all replicas or fail for all replicas.
 type CoordinatedTransaction struct {
-	failureReason           error
-	log                     logger.Logger
-	participants            map[int32]*CoordinatedParticipant
-	doneGroup               *sync.WaitGroup
-	initGroup               *sync.WaitGroup
-	id                      string
-	kernelId                string
-	numTryRunCalls          int
+	mu sync.Mutex
+
+	id string
+
+	kernelId string
+
+	log logger.Logger
+
+	// participants is a map from node/participant ID to the associated CoordinatedParticipant struct.
+	participants map[int32]*CoordinatedParticipant
+
+	// expectedNumParticipants is the number of participants that are expected to register.
+	// Once expectedNumParticipants participants register, the transaction will automatically start.
 	expectedNumParticipants int
-	mu                      sync.Mutex
-	started                 atomic.Bool
-	shouldAbort             atomic.Bool
-	aborted                 atomic.Bool
+
+	// complete indicates whether the CoordinatedTransaction has finished (either successfully or not)
+	complete atomic.Bool
+
+	// succeeded indicates whether the CoordinatedTransaction completed successfully
+	succeeded atomic.Bool
+
+	// started indicates whether the CoordinatedTransaction has been started
+	started atomic.Bool
+
+	// shouldAbort is true when the CoordinatedTransaction runs, it will automatically fail no matter what
+	shouldAbort atomic.Bool
+
+	// aborted is set to true if the CoordinatedTransaction was (successfully) aborted
+	aborted atomic.Bool
+
+	// participantsInitialized records that the CoordinatedParticipant instances have been initialized.
 	participantsInitialized atomic.Bool
-	succeeded               atomic.Bool
-	complete                atomic.Bool
+
+	// numTryRunCalls keeps track of the number of times that TryRun has been called.
+	// TryRun cannot actually execute until it is called by all potential drivers of a CoordinatedTransaction.
+	numTryRunCalls int
+
+	// failureReason will hold the error returned by the first participant to fail.
+	// It will be nil if the CoordinatedTransaction has not been started or if the CoordinatedTransaction succeeded.
+	failureReason error
+
+	initGroup *sync.WaitGroup
+
+	// doneGroup is used to track how many of the CoordinatedParticipants have finished running their own
+	// personal transactions.
+	doneGroup *sync.WaitGroup
 }
 
 func NewCoordinatedTransaction(numParticipants int, kernelId string) *CoordinatedTransaction {

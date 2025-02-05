@@ -14,14 +14,19 @@ import (
 // HostResources is a struct used by the AllocationManager to track its total idle, pending, committed, and spec HostResources
 // of each type (CPU, GPU, and Memory).
 type HostResources struct {
-	maximum        *types.DecimalSpec
-	resourceStatus scheduling.ResourceStatus
-	millicpus      decimal.Decimal
-	gpus           decimal.Decimal
-	memoryMB       decimal.Decimal
-	vramGB         decimal.Decimal
-	sync.Mutex
+	sync.Mutex // Enables atomic access to each individual field.
+
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this HostResources struct.
 	lastAppliedSnapshotId int32
+
+	resourceStatus scheduling.ResourceStatus // resourceStatus is the ResourceStatus represented/encoded by this struct.
+	millicpus      decimal.Decimal           // millicpus is CPU in 1/1000th of CPU core.
+	gpus           decimal.Decimal           // gpus is the number of GPUs.
+	memoryMB       decimal.Decimal           // memoryMB is the amount of memory in MB.
+	vramGB         decimal.Decimal           // vram is the amount of GPU memory in GB.
+
+	// maximum provides a maximum of each ResourceKind of resource so we can clamp from above as well.
+	maximum *types.DecimalSpec
 }
 
 func NewHostResources(spec *types.DecimalSpec, maximum *types.DecimalSpec, status scheduling.ResourceStatus) *HostResources {

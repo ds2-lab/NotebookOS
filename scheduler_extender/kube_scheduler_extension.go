@@ -34,11 +34,14 @@ var (
 )
 
 type schedulerExtensionImpl struct {
-	log                logger.Logger
+	// gateway domain.ClusterGateway
+	log logger.Logger
+
 	engine             *gin.Engine
-	clusterGatewayAddr string
-	filterAddr         string
-	port               int
+	port               int    // Port that we should listen on.
+	clusterGatewayAddr string // Address of the HTTP kubernetes scheduler service exposed by the Cluster Gateway.
+
+	filterAddr string // Endpoint to forward/proxy filter requests to.
 }
 
 func NewSchedulerExtension(opts *Options /* gateway domain.ClusterGateway */) SchedulerExtension {

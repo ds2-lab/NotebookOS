@@ -8,11 +8,14 @@ import (
 )
 
 type State struct {
+	ParticipantId int32
+
 	idleResources      *Resources
 	pendingResources   *Resources
 	committedResources *Resources
 	specResources      *Resources
-	ParticipantId      int32
+
+	//log logger.Logger
 }
 
 func NewState(idleResources *Resources, pendingResources *Resources, committedResources *Resources, specResources *Resources) *State {
