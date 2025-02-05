@@ -6,14 +6,22 @@ import (
 )
 
 type registrationWaitGroups struct {
-	replicas                          map[int32]string
+	// Decremented each time a kernel registers.
+	registered    sync.WaitGroup
+	numRegistered int
+
 	onReplicaRegisteredCallbacks      []func(replicaId int32)
-	registered                        sync.WaitGroup
-	notified                          sync.WaitGroup
-	numRegistered                     int
-	numNotified                       int
 	onReplicaRegisteredCallbacksMutex sync.Mutex
-	replicasMutex                     sync.Mutex
+
+	// Decremented each time we've notified a kernel of its ID.
+	notified    sync.WaitGroup
+	numNotified int
+
+	// The SMR node replicas in order according to their registration IDs.
+	replicas map[int32]string
+
+	// Synchronizes access to the `replicas` slice.
+	replicasMutex sync.Mutex
 }
 
 // Create and return a pointer to a new registrationWaitGroups struct.

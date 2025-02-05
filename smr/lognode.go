@@ -110,13 +110,14 @@ func finalize() {
 }
 
 type LogNodeConfig struct {
+	ElectionTick  int
+	HeartbeatTick int
+	Debug         bool
+
 	onChange       StateValueCallback
 	onRestore      StatesValueCallback
 	shouldSnapshot ShouldLogNodeCallback
 	getSnapshot    WriteCallback
-	ElectionTick   int
-	HeartbeatTick  int
-	Debug          bool
 }
 
 func NewConfig() *LogNodeConfig {
@@ -164,50 +165,68 @@ func (conf *LogNodeConfig) String() string {
 }
 
 type commit struct {
-	applyDoneC chan<- struct{}
 	data       [][]byte
+	applyDoneC chan<- struct{}
 }
 
 // LogNode is a SyncLog backed by raft
 type LogNode struct {
-	storageProvider                 storage.Provider
-	snapshotter                     LogSnapshotter
-	node                            raft.Node
-	proposalRegistry                hashmap.BaseHashMap[string, smrContext]
-	proposeC                        chan *proposalContext
-	errorC                          chan error
-	atom                            zap.AtomicLevel
-	sugaredLogger                   *zap.SugaredLogger
-	peers                           map[int]string
-	logger                          *zap.Logger
-	snapshotterReady                chan LogSnapshotter
-	confChangeC                     chan *confChangeContext
-	wal                             *wal.WAL
-	raftStorage                     *raft.MemoryStorage
-	commitC                         chan *commit
-	config                          *LogNodeConfig
-	httpDoneChannel                 chan struct{}
-	httpStopChannel                 chan struct{}
-	transport                       *rafthttp.Transport
-	stopChannel                     chan struct{}
-	deploymentMode                  string
-	dataDir                         string
-	snapdir                         string
-	waldir                          string
-	serializedStateBytes            []byte
-	confState                       raftpb.ConfState
-	deniedChanges                   uint64
-	snapCount                       uint64
-	proposalPadding                 int
-	numChanges                      uint64
-	appliedIndex                    uint64
-	snapshotIndex                   uint64
-	id                              int
-	httpDebugPort                   int
-	remoteStorageReadTime           time.Duration
-	started                         bool
+	proposeC    chan *proposalContext   // proposed serialized messages
+	confChangeC chan *confChangeContext // proposed cluster config changes
+	commitC     chan *commit
+	errorC      chan error // errors from raft session
+
+	deploymentMode string
+
+	storageProvider storage.Provider
+
+	remoteStorageReadTime time.Duration // remoteStorageReadTime is the amount of time spent reading data from remote storage.
+
+	id    int            // Client ID for raft session
+	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1. Each address should be prefixed by "http://"
+	join  bool           // Node is joining an existing cluster
+
+	waldir                          string // Path to WAL directory
+	snapdir                         string // Path to snapshot directory
+	dataDir                         string // The raft data directory. Note: the base path of store_path is the persistent ID.
 	shouldLoadDataFromRemoteStorage bool
-	join                            bool
+
+	confState        raftpb.ConfState
+	snapshotIndex    uint64
+	appliedIndex     uint64
+	numChanges       uint64
+	deniedChanges    uint64
+	proposalPadding  int
+	proposalRegistry hashmap.BaseHashMap[string, smrContext]
+
+	// raft backing for the commit/error channel
+	node        raft.Node
+	raftStorage *raft.MemoryStorage
+	wal         *wal.WAL
+
+	snapshotter      LogSnapshotter
+	snapshotterReady chan LogSnapshotter // signals when snapshotter is ready
+
+	snapCount       uint64
+	transport       *rafthttp.Transport
+	started         bool
+	stopChannel     chan struct{} // signals proposal channel closed
+	httpStopChannel chan struct{} // signals http server to shut down
+	httpDoneChannel chan struct{} // signals http server shutdown complete
+
+	// Bridges
+	config *LogNodeConfig
+
+	// This field will be populated by ReadDataDirectoryFromRemoteStorage method
+	// if there is a serialized state file to be read.
+	serializedStateBytes []byte
+
+	logger        *zap.Logger
+	sugaredLogger *zap.SugaredLogger
+
+	httpDebugPort int // Http debug server
+
+	atom zap.AtomicLevel
 }
 
 var defaultSnapshotCount uint64 = 10000
@@ -469,8 +488,8 @@ func (node *LogNode) NumChanges() int {
 }
 
 type startError struct {
-	Error         error
 	ErrorOccurred bool
+	Error         error
 }
 
 func (node *LogNode) Start(config *LogNodeConfig) bool {

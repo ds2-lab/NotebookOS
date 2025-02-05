@@ -21,11 +21,15 @@ import (
 
 type DistributedCluster struct {
 	proto.UnimplementedDistributedClusterServer
+
+	gatewayDaemon *ClusterGatewayImpl
+
 	clusterDashboard proto.ClusterDashboardClient
-	listener         net.Listener
-	log              logger.Logger
-	gatewayDaemon    *ClusterGatewayImpl
-	closed           int32
+
+	listener net.Listener
+	closed   int32
+
+	log logger.Logger
 }
 
 func NewDistributedCluster(gatewayDaemon *ClusterGatewayImpl) *DistributedCluster {

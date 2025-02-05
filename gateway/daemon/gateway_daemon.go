@@ -186,62 +186,178 @@ type PrometheusMetricsProvider interface {
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type ClusterGatewayImpl struct {
+	mu sync.RWMutex
+
+	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
+	// as the request history.
+	DebugMode bool
+
+	id string
+	// createdAt is the time at which the ClusterGatewayImpl struct was created.
+	createdAt time.Time
+
+	// policyKey refers to the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
+	policyKey scheduling.PolicyKey
 	proto.UnimplementedClusterGatewayServer
 	proto.UnimplementedLocalGatewayServer
-	createdAt                                     time.Time
-	lastFullStatisticsUpdate                      time.Time
-	kernels                                       hashmap.HashMap[string, scheduling.Kernel]
-	kubeClient                                    scheduling.KubeClient
-	containerEventHandler                         scheduling.ContainerWatcher
-	clusterDashboard                              proto.ClusterDashboardClient
-	waitGroups                                    hashmap.HashMap[string, *registrationWaitGroups]
-	log                                           logger.Logger
-	DistributedClientProvider                     DistributedClientProvider
-	listener                                      net.Listener
-	cluster                                       scheduling.Cluster
-	kernelSpecs                                   hashmap.HashMap[string, *proto.KernelSpec]
-	kernelIdToKernel                              hashmap.HashMap[string, scheduling.Kernel]
-	executionFailedCallback                       scheduling.ExecutionFailedCallback
-	kernelsStarting                               *hashmap.CornelkMap[string, chan struct{}]
-	RequestLog                                    *metrics.RequestLog
-	hostSpec                                      *types.DecimalSpec
-	ClusterOptions                                *scheduling.SchedulerOptions
-	metricsProvider                               *metrics.ClusterMetricsProvider
-	cleaned                                       chan struct{}
-	dockerApiClient                               *dockerClient.Client
-	ClusterStatistics                             *metrics.ClusterStatistics
-	remoteDockerEventAggregator                   *RemoteDockerEventAggregator
-	connectionOptions                             *jupyter.ConnectionInfo
-	kernelRegisteredNotifications                 *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
-	executeRequestForwarder                       *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
-	router                                        *router.Router
-	remoteStorageEndpoint                         string
-	transport                                     string
-	dockerNetworkName                             string
-	deploymentMode                                types.DeploymentMode
-	id                                            string
-	ip                                            string
-	policyKey                                     scheduling.PolicyKey
-	prometheusInterval                            time.Duration
+	router *router.Router
+
+	// SchedulerOptions
+	connectionOptions *jupyter.ConnectionInfo
+	ClusterOptions    *scheduling.SchedulerOptions
+
+	DistributedClientProvider DistributedClientProvider
+
+	// cluster provisioning related members
+	listener net.Listener
+	cluster  scheduling.Cluster
+
+	// kernel members
+	transport        string
+	ip               string
+	kernels          hashmap.HashMap[string, scheduling.Kernel] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
+	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel] // Map from Kernel ID to client.DistributedKernelClient.
+	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
+
+	// numActiveKernels is the number of actively-running kernels.
+	numActiveKernels atomic.Int32
+
+	log logger.Logger
+
+	// lifetime
+	closed  int32
+	cleaned chan struct{}
+
+	started atomic.Bool
+
+	// ClusterStatistics encapsulates a number of statistics/metrics.
+	ClusterStatistics        *metrics.ClusterStatistics
+	clusterStatisticsMutex   sync.Mutex
+	lastFullStatisticsUpdate time.Time
+
+	// executionFailedCallback is the ClusterGatewayImpl's scheduling.ExecutionFailedCallback (i.e., recovery callback for panics).
+	// The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
+	// This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
+	// visually of the panic in the cluster dashboard).
+	executionFailedCallback scheduling.ExecutionFailedCallback
+
+	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
+	// kernels (or other resources) and could occur in-parallel (such as being triggered
+	// by multiple concurrent RPC requests).
+	addReplicaMutex sync.Mutex
+
+	// dockerNodeMutex is used to synchronize the operations involved with getting or modifying the
+	// number of Local Daemon Docker nodes/containers.
+	dockerNodeMutex sync.Mutex
+
+	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
+	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
+
+	// numResendAttempts is the number of times to try resending a message before giving up.
+	numResendAttempts int
+
+	// We configure a pool of available ports through Kubernetes.
+	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
+	// If a kernel stops, then its ports are returned to the pool for future reuse.
+	//availablePorts *utils.AvailablePorts
+
+	// The IOPub socket that all Jupyter clients subscribe to.
+	// io pub *messaging.Socket
+	smrPort int
+
+	// SubmitExecuteRequestsOneAtATime indicates whether the client.ExecuteRequestForwarder should be used to submit
+	// execute requests, which forces requests to be submitted one-at-a-time.
+	SubmitExecuteRequestsOneAtATime bool
+
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
+
+	// Map of kernels that are starting for the first time.
+	//
+	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
+	//
+	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
+	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
+	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
+
+	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
+	// to keep track of the notifications that we've received so we can discard duplicates.
+	kernelRegisteredNotifications *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
+
+	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
+	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
+
+	// Hostname of the RemoteStorage NameNode. The SyncLog's RemoteStorage client will connect to this.
+	remoteStorageEndpoint string
+
+	// Kubernetes client. This is shared with the associated internalCluster Gateway.
+	kubeClient scheduling.KubeClient
+
+	// Watches for new Pods/Containers.
+	//
+	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
+	containerEventHandler scheduling.ContainerWatcher
+
+	// remoteDockerEventAggregator listens for docker events that occur on remote nodes in Docker Swarm mode.
+	remoteDockerEventAggregator *RemoteDockerEventAggregator
+
+	// gRPC connection to the Dashboard.
+	clusterDashboard proto.ClusterDashboardClient
+
+	// Run via Docker on a single system rather than using the Kubernetes-based deployment.
+	deploymentMode types.DeploymentMode
+
+	// Docker client.
+	dockerApiClient *dockerClient.Client
+
+	// The name of the Docker network that the container is running within. Only used in Docker mode.
+	dockerNetworkName string
+
+	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
+	// for the ZMQ messages that we're forwarding back and forth between the Jupyter Server and the Local Daemons.
+	//
+	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
+	MessageAcknowledgementsEnabled bool
+
+	// metricsProvider provides all metrics to the members of the scheduling package.
+	metricsProvider *metrics.ClusterMetricsProvider
+
+	// Indicates that a goroutine has been started to publish metrics to Prometheus.
+	servingPrometheus atomic.Int32
+
+	// prometheusInterval is how often we publish metrics to Prometheus.
+	prometheusInterval time.Duration
+
+	// hostSpec is the resource spec of Hosts in the Cluster
+	hostSpec *types.DecimalSpec
+
+	// RequestLog is used to track the status/progress of requests when in DebugMode.
+	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
+	//		 Update in forwardRequest and kernelReplicaResponseForwarder, rather than in here.
+	RequestLog *metrics.RequestLog
+
+	// The initial size of the cluster.
+	// If more than this many Local Daemons connect during the 'initial connection period',
+	// then the extra nodes will be disabled until a scale-out event occurs.
+	//
+	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialClusterSize int
+
+	// The initial connection period is the time immediately after the Cluster Gateway begins running during
+	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
+	// where N is the initial cluster size, then those extra daemons will be disabled.
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialConnectionPeriod time.Duration
+
+	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
+	inInitialConnectionPeriod atomic.Bool
+
+	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
+	// during the initial connection period.
 	numHostsDisabledDuringInitialConnectionPeriod int
-	initialConnectionPeriod                       time.Duration
-	IdleSessionReclamationInterval                time.Duration
-	initialClusterSize                            int
-	smrPort                                       int
-	numResendAttempts                             int
-	mu                                            sync.RWMutex
-	dockerNodeMutex                               sync.Mutex
-	addReplicaMutex                               sync.Mutex
-	clusterStatisticsMutex                        sync.Mutex
-	closed                                        int32
-	servingPrometheus                             atomic.Int32
-	numActiveKernels                              atomic.Int32
-	started                                       atomic.Bool
-	inInitialConnectionPeriod                     atomic.Bool
-	MessageAcknowledgementsEnabled                bool
-	SubmitExecuteRequestsOneAtATime               bool
-	DebugMode                                     bool
-	IdleSessionReclamationEnabled                 bool
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
