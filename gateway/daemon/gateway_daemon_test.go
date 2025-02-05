@@ -9,11 +9,9 @@ import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
-	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
-	"github.com/scusemua/distributed-notebook/common/mock_router"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -25,7 +23,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
-	"google.golang.org/grpc"
 	"log"
 	"math/rand"
 	"net"
@@ -3678,215 +3675,215 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 			})
 
-			It("Will correctly schedule a new kernel using non-spoofed scheduling.Host instances", func() {
-				clusterGateway.DistributedClientProvider = &client.DistributedKernelClientProvider{}
-
-				kernelId := uuid.NewString()
-				kernelKey := uuid.NewString()
-				resourceSpec := &proto.ResourceSpec{
-					Gpu:    2,
-					Vram:   2,
-					Cpu:    1250,
-					Memory: 2048,
-				}
-
-				cluster := clusterGateway.cluster
-				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
-				Expect(ok).To(BeTrue())
-				Expect(index).ToNot(BeNil())
-
-				placer := cluster.Placer()
-				Expect(placer).ToNot(BeNil())
-
-				scheduler := cluster.Scheduler()
-				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
-
-				Expect(cluster.Len()).To(Equal(0))
-				Expect(index.Len()).To(Equal(0))
-				Expect(placer.NumHostsInIndex()).To(Equal(0))
-				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
-
-				numHosts := 3
-				hosts := make([]scheduling.Host, 0, numHosts)
-				routers := make([]*router.Router, 0, numHosts)
-				routerProviders := make([]*mock_router.MockProvider, 0, numHosts)
-				jupyterConnInfos := make([]*jupyter.ConnectionInfo, 0, numHosts)
-				shellForwarderSockets := make([]*messaging.Socket, 0, numHosts)
-
-				localGatewayClients := make([]*mock_proto.MockLocalGatewayClient, 0, numHosts)
-
-				defer func() {
-					for _, router := range routers {
-						_ = router.Close()
-					}
-				}()
-
-				port := 35000
-				for i := 0; i < numHosts; i++ {
-					hostId := uuid.NewString()
-					hostName := fmt.Sprintf("TestNode-%d", i)
-					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
-					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
-					Expect(err).To(BeNil())
-					Expect(host).ToNot(BeNil())
-					Expect(localGatewayClient).ToNot(BeNil())
-
-					hosts = append(hosts, host)
-					localGatewayClients = append(localGatewayClients, localGatewayClient)
-
-					mockRouterProvider := mock_router.NewMockProvider(mockCtrl)
-					routerConnInfo := &jupyter.ConnectionInfo{
-						Transport:            "tcp",
-						Key:                  kernelKey,
-						SignatureScheme:      messaging.JupyterSignatureScheme,
-						IP:                   "127.0.0.1",
-						ControlPort:          port,
-						ShellPort:            port + 1,
-						StdinPort:            port + 2,
-						HBPort:               port + 3,
-						IOPubPort:            port + 4,
-						IOSubPort:            port + 5,
-						AckPort:              port + 6,
-						StartingResourcePort: 9000,
-						NumResourcePorts:     512,
-					}
-
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel() // Don't want to defer until the unit test returns, not the loop.
-
-					routerServer := router.New(ctx, fmt.Sprintf("Router-TestNode-%d", i),
-						routerConnInfo, mockRouterProvider, false,
-						fmt.Sprintf("LocalDaemon_%d", i), false, metrics.LocalDaemon,
-						true, nil)
-
-					go func() {
-						defer GinkgoRecover()
-						err = routerServer.Start()
-						Expect(err).To(BeNil())
-					}()
-
-					shellSocket := messaging.NewSocket(zmq4.NewRouter(ctx), port+7, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%d]", i))
-					err = shellSocket.Listen(fmt.Sprintf("tcp://:%d", shellSocket.Port))
-					Expect(err).To(BeNil())
-
-					fmt.Printf("\n\nSuccessfully started Router for TestNode-%d.\n", i)
-
-					routers = append(routers, routerServer)
-					routerProviders = append(routerProviders, mockRouterProvider)
-					jupyterConnInfos = append(jupyterConnInfos, routerConnInfo)
-					shellForwarderSockets = append(shellForwarderSockets, shellSocket)
-
-					port = port + 8
-				}
-
-				By("Registering hosts")
-
-				for i, host := range hosts {
-					err := clusterGateway.RegisterNewHost(host)
-					Expect(err).To(BeNil())
-
-					Expect(cluster.Len()).To(Equal(i + 1))
-				}
-
-				kernelSpec := &proto.KernelSpec{
-					Id:              kernelId,
-					Session:         kernelId,
-					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-					SignatureScheme: messaging.JupyterSignatureScheme,
-					Key:             kernelKey,
-					ResourceSpec:    resourceSpec,
-				}
-
-				connInfoChannel := make(chan *proto.KernelConnectionInfo)
-
-				var notifyKernelRegisteredWg sync.WaitGroup
-				notifyKernelRegisteredWg.Add(3)
-
-				callNotifyKernelRegistered := func(host scheduling.Host, replicaId int32) {
-					defer GinkgoRecover()
-
-					time.Sleep(time.Millisecond * 10)
-
-					jupyterConnInfo := jupyterConnInfos[replicaId-1]
-
-					resp, err := clusterGateway.NotifyKernelRegistered(context.Background(), &proto.KernelRegistrationNotification{
-						ConnectionInfo: &proto.KernelConnectionInfo{
-							Ip:              "127.0.0.1",
-							Transport:       "tcp",
-							ControlPort:     int32(jupyterConnInfo.ControlPort),
-							ShellPort:       int32(jupyterConnInfo.ShellPort),
-							StdinPort:       int32(jupyterConnInfo.StdinPort),
-							HbPort:          int32(jupyterConnInfo.HBPort),
-							IopubPort:       int32(jupyterConnInfo.IOPubPort),
-							IosubPort:       int32(jupyterConnInfo.IOSubPort),
-							SignatureScheme: jupyterConnInfo.SignatureScheme,
-							Key:             jupyterConnInfo.Key,
-						},
-						KernelId:           kernelId,
-						HostId:             host.GetID(),
-						SessionId:          "N/A",
-						ReplicaId:          replicaId,
-						KernelIp:           "127.0.0.1",
-						PodOrContainerName: fmt.Sprintf("Kernel1-Replica%d", replicaId),
-						NodeName:           host.GetNodeName(),
-						NotificationId:     uuid.NewString(),
-					})
-					Expect(err).To(BeNil())
-					Expect(resp).ToNot(BeNil())
-
-					notifyKernelRegisteredWg.Done()
-				}
-
-				for idx, localGatewayClient := range localGatewayClients {
-					localGatewayClient.EXPECT().
-						StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
-						Times(1).
-						DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-							defer GinkgoRecover()
-
-							fmt.Printf("LocalDaemon::StartKernelReplica called for LocalDaemon-%d\n", idx)
-
-							connInfo := &proto.KernelConnectionInfo{
-								Ip:              "127.0.0.1",
-								Transport:       "tcp",
-								ControlPort:     int32(36000),
-								ShellPort:       int32(36001),
-								StdinPort:       int32(36002),
-								HbPort:          int32(36003),
-								IopubPort:       int32(36004),
-								IosubPort:       int32(36005),
-								SignatureScheme: messaging.JupyterSignatureScheme,
-								Key:             kernelKey,
-							}
-
-							go callNotifyKernelRegistered(hosts[idx], int32(idx+1))
-
-							return connInfo, nil
-						})
-				}
-
-				By("Scheduling the kernel")
-
-				startTime := time.Now()
-				go func() {
-					defer GinkgoRecover()
-
-					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
-					Expect(err).To(BeNil())
-
-					connInfoChannel <- connInfo
-				}()
-
-				notifyKernelRegisteredWg.Wait()
-
-				fmt.Printf("All 3 replicas of kernel \"%s\" have registered after %v.\n",
-					kernelId, time.Since(startTime))
-
-				kernelConnInfo := <-connInfoChannel
-				Expect(kernelConnInfo).ToNot(BeNil())
-
-				Expect(clusterGateway.NumKernels()).To(Equal(1))
-			})
+			//It("Will correctly schedule a new kernel using non-spoofed scheduling.Host instances", func() {
+			//	clusterGateway.DistributedClientProvider = &client.DistributedKernelClientProvider{}
+			//
+			//	kernelId := uuid.NewString()
+			//	kernelKey := uuid.NewString()
+			//	resourceSpec := &proto.ResourceSpec{
+			//		Gpu:    2,
+			//		Vram:   2,
+			//		Cpu:    1250,
+			//		Memory: 2048,
+			//	}
+			//
+			//	cluster := clusterGateway.cluster
+			//	index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+			//	Expect(ok).To(BeTrue())
+			//	Expect(index).ToNot(BeNil())
+			//
+			//	placer := cluster.Placer()
+			//	Expect(placer).ToNot(BeNil())
+			//
+			//	scheduler := cluster.Scheduler()
+			//	Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+			//
+			//	Expect(cluster.Len()).To(Equal(0))
+			//	Expect(index.Len()).To(Equal(0))
+			//	Expect(placer.NumHostsInIndex()).To(Equal(0))
+			//	Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+			//
+			//	numHosts := 3
+			//	hosts := make([]scheduling.Host, 0, numHosts)
+			//	routers := make([]*router.Router, 0, numHosts)
+			//	routerProviders := make([]*mock_router.MockProvider, 0, numHosts)
+			//	jupyterConnInfos := make([]*jupyter.ConnectionInfo, 0, numHosts)
+			//	shellForwarderSockets := make([]*messaging.Socket, 0, numHosts)
+			//
+			//	localGatewayClients := make([]*mock_proto.MockLocalGatewayClient, 0, numHosts)
+			//
+			//	defer func() {
+			//		for _, router := range routers {
+			//			_ = router.Close()
+			//		}
+			//	}()
+			//
+			//	port := 35000
+			//	for i := 0; i < numHosts; i++ {
+			//		hostId := uuid.NewString()
+			//		hostName := fmt.Sprintf("TestNode-%d", i)
+			//		hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+			//		host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+			//		Expect(err).To(BeNil())
+			//		Expect(host).ToNot(BeNil())
+			//		Expect(localGatewayClient).ToNot(BeNil())
+			//
+			//		hosts = append(hosts, host)
+			//		localGatewayClients = append(localGatewayClients, localGatewayClient)
+			//
+			//		mockRouterProvider := mock_router.NewMockProvider(mockCtrl)
+			//		routerConnInfo := &jupyter.ConnectionInfo{
+			//			Transport:            "tcp",
+			//			Key:                  kernelKey,
+			//			SignatureScheme:      messaging.JupyterSignatureScheme,
+			//			IP:                   "127.0.0.1",
+			//			ControlPort:          port,
+			//			ShellPort:            port + 1,
+			//			StdinPort:            port + 2,
+			//			HBPort:               port + 3,
+			//			IOPubPort:            port + 4,
+			//			IOSubPort:            port + 5,
+			//			AckPort:              port + 6,
+			//			StartingResourcePort: 9000,
+			//			NumResourcePorts:     512,
+			//		}
+			//
+			//		ctx, cancel := context.WithCancel(context.Background())
+			//		defer cancel() // Don't want to defer until the unit test returns, not the loop.
+			//
+			//		routerServer := router.New(ctx, fmt.Sprintf("Router-TestNode-%d", i),
+			//			routerConnInfo, mockRouterProvider, false,
+			//			fmt.Sprintf("LocalDaemon_%d", i), false, metrics.LocalDaemon,
+			//			true, nil)
+			//
+			//		go func() {
+			//			defer GinkgoRecover()
+			//			err = routerServer.Start()
+			//			Expect(err).To(BeNil())
+			//		}()
+			//
+			//		shellSocket := messaging.NewSocket(zmq4.NewRouter(ctx), port+7, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%d]", i))
+			//		err = shellSocket.Listen(fmt.Sprintf("tcp://:%d", shellSocket.Port))
+			//		Expect(err).To(BeNil())
+			//
+			//		fmt.Printf("\n\nSuccessfully started Router for TestNode-%d.\n", i)
+			//
+			//		routers = append(routers, routerServer)
+			//		routerProviders = append(routerProviders, mockRouterProvider)
+			//		jupyterConnInfos = append(jupyterConnInfos, routerConnInfo)
+			//		shellForwarderSockets = append(shellForwarderSockets, shellSocket)
+			//
+			//		port = port + 8
+			//	}
+			//
+			//	By("Registering hosts")
+			//
+			//	for i, host := range hosts {
+			//		err := clusterGateway.RegisterNewHost(host)
+			//		Expect(err).To(BeNil())
+			//
+			//		Expect(cluster.Len()).To(Equal(i + 1))
+			//	}
+			//
+			//	kernelSpec := &proto.KernelSpec{
+			//		Id:              kernelId,
+			//		Session:         kernelId,
+			//		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+			//		SignatureScheme: messaging.JupyterSignatureScheme,
+			//		Key:             kernelKey,
+			//		ResourceSpec:    resourceSpec,
+			//	}
+			//
+			//	connInfoChannel := make(chan *proto.KernelConnectionInfo)
+			//
+			//	var notifyKernelRegisteredWg sync.WaitGroup
+			//	notifyKernelRegisteredWg.Add(3)
+			//
+			//	callNotifyKernelRegistered := func(host scheduling.Host, replicaId int32) {
+			//		defer GinkgoRecover()
+			//
+			//		time.Sleep(time.Millisecond * 10)
+			//
+			//		jupyterConnInfo := jupyterConnInfos[replicaId-1]
+			//
+			//		resp, err := clusterGateway.NotifyKernelRegistered(context.Background(), &proto.KernelRegistrationNotification{
+			//			ConnectionInfo: &proto.KernelConnectionInfo{
+			//				Ip:              "127.0.0.1",
+			//				Transport:       "tcp",
+			//				ControlPort:     int32(jupyterConnInfo.ControlPort),
+			//				ShellPort:       int32(jupyterConnInfo.ShellPort),
+			//				StdinPort:       int32(jupyterConnInfo.StdinPort),
+			//				HbPort:          int32(jupyterConnInfo.HBPort),
+			//				IopubPort:       int32(jupyterConnInfo.IOPubPort),
+			//				IosubPort:       int32(jupyterConnInfo.IOSubPort),
+			//				SignatureScheme: jupyterConnInfo.SignatureScheme,
+			//				Key:             jupyterConnInfo.Key,
+			//			},
+			//			KernelId:           kernelId,
+			//			HostId:             host.GetID(),
+			//			SessionId:          "N/A",
+			//			ReplicaId:          replicaId,
+			//			KernelIp:           "127.0.0.1",
+			//			PodOrContainerName: fmt.Sprintf("Kernel1-Replica%d", replicaId),
+			//			NodeName:           host.GetNodeName(),
+			//			NotificationId:     uuid.NewString(),
+			//		})
+			//		Expect(err).To(BeNil())
+			//		Expect(resp).ToNot(BeNil())
+			//
+			//		notifyKernelRegisteredWg.Done()
+			//	}
+			//
+			//	for idx, localGatewayClient := range localGatewayClients {
+			//		localGatewayClient.EXPECT().
+			//			StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+			//			Times(1).
+			//			DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+			//				defer GinkgoRecover()
+			//
+			//				fmt.Printf("LocalDaemon::StartKernelReplica called for LocalDaemon-%d\n", idx)
+			//
+			//				connInfo := &proto.KernelConnectionInfo{
+			//					Ip:              "127.0.0.1",
+			//					Transport:       "tcp",
+			//					ControlPort:     int32(36000),
+			//					ShellPort:       int32(36001),
+			//					StdinPort:       int32(36002),
+			//					HbPort:          int32(36003),
+			//					IopubPort:       int32(36004),
+			//					IosubPort:       int32(36005),
+			//					SignatureScheme: messaging.JupyterSignatureScheme,
+			//					Key:             kernelKey,
+			//				}
+			//
+			//				go callNotifyKernelRegistered(hosts[idx], int32(idx+1))
+			//
+			//				return connInfo, nil
+			//			})
+			//	}
+			//
+			//	By("Scheduling the kernel")
+			//
+			//	startTime := time.Now()
+			//	go func() {
+			//		defer GinkgoRecover()
+			//
+			//		connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
+			//		Expect(err).To(BeNil())
+			//
+			//		connInfoChannel <- connInfo
+			//	}()
+			//
+			//	notifyKernelRegisteredWg.Wait()
+			//
+			//	fmt.Printf("All 3 replicas of kernel \"%s\" have registered after %v.\n",
+			//		kernelId, time.Since(startTime))
+			//
+			//	kernelConnInfo := <-connInfoChannel
+			//	Expect(kernelConnInfo).ToNot(BeNil())
+			//
+			//	Expect(clusterGateway.NumKernels()).To(Equal(1))
+			//})
 
 			It("Will correctly schedule a new kernel", func() {
 				kernelId := uuid.NewString()

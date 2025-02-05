@@ -63,50 +63,71 @@ type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica scheduli
 //
 // Used by both the Gateway and Local Daemon components.
 type KernelReplicaClient struct {
-	trainingStartedAt                time.Time
-	lastTrainingTimePrometheusUpdate time.Time
-	idleStartedAt                    time.Time
-	pendingExecuteRequestIds         hashmap.HashMap[string, *messaging.JupyterMessage]
-	log                              logger.Logger
-	host                             scheduling.Host
-	messagingMetricsProvider         server.MessagingMetricsProvider
-	receivedExecuteRequestReplies    hashmap.HashMap[string, *messaging.JupyterMessage]
-	container                        scheduling.KernelContainer
-	scheduling.SessionManager
-	shell                                                 *messaging.Socket
-	iobroker                                              *MessageBroker[scheduling.KernelReplica, *messaging.JupyterMessage, *messaging.JupyterFrames]
-	smrNodeAddedCallback                                  SMRNodeUpdatedNotificationCallback
-	iopub                                                 *messaging.Socket
-	connectionRevalidationFailedCallback                  ConnectionRevalidationFailedCallback
-	trainingFinishedCond                                  *sync.Cond
-	pendingExecuteRequestCond                             *sync.Cond
-	statisticsUpdaterProvider                             func(func(statistics *metrics.ClusterStatistics))
-	lastBStatusMsg                                        *messaging.JupyterMessage
-	smrNodeReadyCallback                                  SMRNodeReadyNotificationCallback
-	spec                                                  *proto.KernelSpec
-	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback
 	*server.BaseServer
-	replicaSpec                   *proto.KernelReplicaSpec
-	client                        *server.AbstractServer
-	nodeName                      string
-	busyStatus                    string
-	workloadId                    string
-	id                            string
-	persistentId                  string
-	hostId                        string
-	PodOrContainerName            string
-	numResendAttempts             int
-	mu                            sync.Mutex
-	trainingFinishedMu            sync.Mutex
-	pendingExecuteRequestIdsMutex sync.Mutex
-	status                        jupyter.KernelStatus
-	replicaId                     int32
-	workloadIdSet                 bool
-	isGatewayClient               bool
-	submitRequestsOneAtATime      bool
-	isTraining                    bool
-	yieldNextExecutionRequest     bool
-	ready                         bool
+	scheduling.SessionManager
+	client *server.AbstractServer
+
+	// destMutex                 sync.Mutex
+	id                               string
+	replicaId                        int32
+	persistentId                     string
+	spec                             *proto.KernelSpec
+	replicaSpec                      *proto.KernelReplicaSpec
+	status                           jupyter.KernelStatus
+	busyStatus                       string
+	lastBStatusMsg                   *messaging.JupyterMessage
+	iobroker                         *MessageBroker[scheduling.KernelReplica, *messaging.JupyterMessage, *messaging.JupyterFrames]
+	shell                            *messaging.Socket                                  // Listener.
+	iopub                            *messaging.Socket                                  // Listener.
+	numResendAttempts                int                                                // Number of times to try resending a message before giving up.
+	PodOrContainerName               string                                             // Name of the Pod or Container housing the associated distributed kernel replica container.
+	nodeName                         string                                             // Name of the node that the Pod or Container is running on.
+	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest        bool                                               // If true, then we will yield the next 'execute_request'.
+	host                             scheduling.Host                                    // The host that the kernel replica is running on.
+	hostId                           string                                             // The ID of the scheduling.Host that this KernelReplicaClient is running on. This field exists because we don't actually use scheduling.Host structs on Local Daemons.
+	workloadId                       string                                             // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
+	workloadIdSet                    bool                                               // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
+	trainingStartedAt                time.Time                                          // trainingStartedAt is the time at which the kernel associated with this client began actively training.
+	idleStartedAt                    time.Time                                          // idleStartedAt is the time at which the kernel last began idling
+	lastTrainingTimePrometheusUpdate time.Time                                          // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
+	isTraining                       bool                                               // isTraining indicates whether the kernel replica associated with this client is actively training.
+	pendingExecuteRequestIds         hashmap.HashMap[string, *messaging.JupyterMessage] // pendingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
+	receivedExecuteRequestReplies    hashmap.HashMap[string, *messaging.JupyterMessage] // receivedExecuteRequestReplies is a map from Jupyter message ID (of execute_request messages) to the responses.
+	pendingExecuteRequestIdsMutex    sync.Mutex                                         // pendingExecuteRequestIdsMutex ensures atomic access to pendingExecuteRequestIds.
+	pendingExecuteRequestCond        *sync.Cond                                         // Used to notify goroutines when the number of outstanding/pending "execute_request" messages reaches 0.
+	trainingFinishedCond             *sync.Cond                                         // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
+	trainingFinishedMu               sync.Mutex                                         // Goes with the trainingFinishedCond field.
+	submitRequestsOneAtATime         bool
+
+	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
+
+	// If we successfully reconnect to a kernel and then fail to send the message again, then we call this.
+	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback
+
+	smrNodeReadyCallback SMRNodeReadyNotificationCallback
+	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
+
+	// If true, then this client exists on the internalCluster Gateway.
+	// If false, then this client exists on the Local Daemon.
+	//
+	// To be clear, this indicates whether this client struct exists within the memory of the internalCluster Gateway.
+	// This is NOT referring to whether the remote client (i.e., the client that this KernelClient is connected to) is on the cluster gateway or local daemon.
+	isGatewayClient bool
+
+	// The Container associated with this KernelReplicaClient.
+	container scheduling.KernelContainer
+
+	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
+	messagingMetricsProvider server.MessagingMetricsProvider
+
+	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
+	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
+	// we pass to the statisticsUpdaterProvider.
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
+
+	log logger.Logger
+	mu  sync.Mutex
 }
 
 // NewKernelReplicaClient creates a new KernelReplicaClient.

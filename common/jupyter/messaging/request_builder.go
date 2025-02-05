@@ -28,24 +28,88 @@ var (
 )
 
 type RequestBuilder struct {
-	parentContext            context.Context
-	log                      logger.Logger
-	socketProvider           JupyterServerInfo
-	handler                  MessageHandler
-	connectionInfo           *jupyter.ConnectionInfo
-	payload                  *JupyterMessage
-	doneCallback             MessageDone
-	sourceId                 string
-	destinationId            string
-	requestId                string
-	timeout                  time.Duration
-	messageType              MessageType
-	maxNumAttempts           int
-	ackTimeout               time.Duration
+	log logger.Logger
+
+	parentContext context.Context
+
+	///////////////
+	/// OPTIONAL //
+	///////////////
+
+	// Should the request require ACKs
+	requiresAck bool
+
+	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	ackTimeout time.Duration
+
+	// How long to wait for the request to complete successfully. Completion is a stronger requirement than simply being ACK'd.
+	// Default: infinite.
+	timeout time.Duration
+
+	// Should the call to Server::Request block when issuing this request?
+	// Default: true
+	isBlocking bool
+
+	// The maximum number of attempts allowed before giving up on sending the request.
+	// This must be strictly greater than 0.
+	//
+	// Default: 3
+	maxNumAttempts int
+
+	// Should the destination frame be automatically removed?
+	// Default: true
 	shouldDestFrameBeRemoved bool
-	isBlocking               bool
-	hasTimeout               bool
-	requiresAck              bool
+
+	//////////////
+	// REQUIRED //
+	//////////////
+
+	// The actual payload.
+	payload *JupyterMessage
+
+	// This callback is executed when the response is received and the request is handled.
+	// TODO: Might be better to turn this into more of a "clean-up"? Or something?
+	doneCallback MessageDone
+
+	// The handler that is called to process the response to this request.
+	handler MessageHandler
+
+	// The entity responsible for providing access to sockets in the request handler.
+	socketProvider JupyterServerInfo
+
+	// The MessageType of the request.
+	messageType MessageType
+
+	// The function to get the options.
+	// getOption WaitResponseOptionGetter
+
+	/////////////////////////////////////////////////////////////////////////////////////////
+	// AUTOMATIC                                                                           //
+	// These are automatically populated during the population of the required parameters. //
+	// They are not optional, but they do not require explicit configuration themselves.   //
+	/////////////////////////////////////////////////////////////////////////////////////////
+
+	// String that uniquely identifies this set of request options.
+	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
+	requestId string
+
+	// DestID extracted from the request payload.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	destinationId string
+
+	// The ID associated with the source of the message.
+	// This will typically be a kernel ID.
+	sourceId string
+
+	// This is flipped to true when a timeout is explicitly configured.
+	// We use this to determine if we should create the context for the request via Context::WithTimeout or Context::WithCancel.
+	hasTimeout bool
+
+	// The connection info of the remote target of the request.
+	connectionInfo *jupyter.ConnectionInfo
 }
 
 // NewRequestBuilder creates a new RequestBuilder struct, passing in an optional parent context and the ID of the

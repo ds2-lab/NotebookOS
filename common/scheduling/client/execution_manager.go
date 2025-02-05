@@ -37,26 +37,139 @@ func validateReply(msg *messaging.JupyterMessage) error {
 
 // ExecutionManager manages the Execution instances associated with a DistributedKernelClient / scheduling.Kernel.
 type ExecutionManager struct {
-	lastPrimaryReplica           scheduling.KernelReplica
-	statisticsProvider           scheduling.StatisticsProvider
-	Kernel                       scheduling.Kernel
-	log                          logger.Logger
-	executionIndices             map[string]int32
+	log logger.Logger
+	mu  sync.Mutex
+
+	// Kernel is the kernel associated with the ExecutionManager.
+	Kernel scheduling.Kernel
+
+	// NumReplicas is how many replicas the Kernel has.
+	NumReplicas int
+
+	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
+	// code execution. It will be nil if no code executions have occurred.
+	lastPrimaryReplica scheduling.KernelReplica
+
+	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// activeExecutions contains only code submissions that have not yet completed.
+	// There should typically just be one entry in the activeExecutions map at a time,
+	// but because messages can be weirdly delayed and reordered, there may be multiple.
+	activeExecutions map[string]*Execution
+
+	// failedExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// failedExecutions contains only code submissions that have failed and are in the
+	// process of being migrated and resubmitted.
+	failedExecutions map[string]*Execution
+
+	// finishedExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// finishedExecutions contains only Execution structs that represent code submissions
+	// that completed successfully, without error.
+	finishedExecutions map[string]*Execution
+
+	// erredExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// erredExecutions contains only Execution structs that represent code submissions
+	// that failed to complete successfully and were abandoned.
+	erredExecutions map[string]*Execution
+
+	// allExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// allExecutions contains an entry for every single Execution, regardless of
+	// the State of the Execution.
+	allExecutions map[string]*Execution
+
+	// ExecutionIndices is a map from Execution ID (i.e., the "msg_id" of the associated "execute_request" [or
+	// "yield_request"] message) to the ExecutionIndex of that Execution.
+	//
+	// An Execution's ExecutionIndex uniquely identifies the Execution and enables a total ordering between
+	// all Execution structs.
+	executionIndices map[string]int32
+
+	// executionIndicesToExecutions is a mapping from ExecutionIndex to *Execution.
 	executionIndicesToExecutions map[int32]*Execution
-	failedExecutions             map[string]*Execution
-	finishedExecutions           map[string]*Execution
-	erredExecutions              map[string]*Execution
-	allExecutions                map[string]*Execution
-	executionLatencyCallback     scheduling.ExecutionLatencyCallback
-	activeExecutions             map[string]*Execution
-	executionFailedCallback      scheduling.ExecutionFailedCallback
-	notificationCallback         scheduling.NotificationCallback
-	NumReplicas                  int
-	mu                           sync.Mutex
-	activeExecutionIndex         int32
-	completedExecutionIndex      int32
-	submittedExecutionIndex      int32
-	nextExecutionIndex           atomic.Int32
+
+	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
+	nextExecutionIndex atomic.Int32
+
+	// submittedExecutionIndex is used to decide if a KernelReplicaClient should actually transition into training upon
+	// receiving a "smr_lead_task" message, or if it should essentially just ignore the message.
+	//
+	// "smr_lead_task" messages are submitted as soon as training begins as an IOPub message by the kernel; however,
+	// it's possible for the "execute_reply" -- which is sent when training ends -- to be received BEFORE the
+	// "smr_lead_task", as they're sent on separate channels and thus their order is not guaranteed.
+	//
+	// If an "execute_reply" message is received before the kernel has started to train, then we just assume that we
+	// missed the "smr_lead_task" -- it could have been dropped or delayed, we don't know. If we later receive the
+	// (apparently delayed) "smr_lead_task" message, then we just ignore it.
+	//
+	// And we know to ignore it by comparing the execution indices.
+	//
+	// submittedExecutionIndex is specifically the execution index of the most up-to-date training for which we received
+	// the "smr_lead_task" message. By up to date, we mean that the training occurred most recently in terms of what
+	// the client is doing/submitting.
+	//
+	// completedExecutionIndex, a related field, is the execution index of the most up-to-date training for which
+	// we received an "execute_reply". By up to date, we mean that the training occurred most recently in terms of what
+	//	// the client is doing/submitting.
+	submittedExecutionIndex int32
+
+	// activeExecutionIndex works together with the activeExecutionIndex and completedExecutionIndex fields to achieve
+	// the goals outlined in the documentation of the submittedExecutionIndex field.
+	// See the submittedExecutionIndex field for more info.
+	//
+	// activeExecutionIndex is the execution index of the most up-to-date training for which we received a
+	// "smr_lead_task". By up to date, we mean that the training occurred most recently in terms of what the client is
+	// doing/submitting.
+	//
+	// completedExecutionIndex, a related field, is the execution index of the most up-to-date training for which
+	// we received an "execute_reply". By up to date, we mean that the training occurred most recently in terms of what
+	// the client is doing/submitting.
+	//
+	// submittedExecutionIndex, a related field, is specifically the execution index of the most up-to-date training for
+	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
+	// in terms of what the client is doing/submitting.
+	activeExecutionIndex int32
+
+	// completedExecutionIndex works together with the submittedExecutionIndex and activeExecutionIndex fields to
+	// achieve the goals outlined in the documentation of the submittedExecutionIndex field.
+	// See the submittedExecutionIndex field for more info.
+	//
+	// completedExecutionIndex is the execution index of the most up-to-date training for which we received an
+	// "execute_reply". By up to date, we mean that the training occurred most recently in terms of what the client is
+	// doing/submitting.
+	//
+	// submittedExecutionIndex, a related field, is specifically the execution index of the most up-to-date training for
+	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
+	// in terms of what the client is doing/submitting.
+	completedExecutionIndex int32
+
+	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
+	notificationCallback scheduling.NotificationCallback
+
+	// executionFailedCallback is a callback for when execution fails (such as all replicas proposing 'YIELD').
+	executionFailedCallback scheduling.ExecutionFailedCallback
+
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each scheduling.Kernel and
+	// subsequently the scheduling.Kernel's ExecutionManager.
+	//
+	// When a scheduling.Kernel receives a notification that a kernel has started execution user-submitted code,
+	// the scheduling.Kernel will check if its ActiveExecution struct has the original "sent-at" timestamp
+	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+	// so that a relevant Prometheus metric can be updated.
+	executionLatencyCallback scheduling.ExecutionLatencyCallback
+
+	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
+	// for updating Prometheus metrics.
+	statisticsProvider scheduling.StatisticsProvider
 }
 
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given Kernel.

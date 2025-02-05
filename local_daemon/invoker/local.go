@@ -33,16 +33,19 @@ const (
 // throttle stop
 // Kernel replica is not supported so far. Add if needed.
 type LocalInvoker struct {
-	closedAt      time.Time
-	createdAt     time.Time
-	log           logger.Logger
+	SMRPort int
+
 	cmd           *exec.Cmd
 	spec          *proto.KernelReplicaSpec
+	closedAt      time.Time
 	closed        chan struct{}
-	statusChanged StatucChangedHandler
-	SMRPort       int
 	status        jupyter.KernelStatus
-	created       bool
+	statusChanged StatucChangedHandler
+
+	created   bool
+	createdAt time.Time
+
+	log logger.Logger
 }
 
 func NewLocalInvoker() *LocalInvoker {

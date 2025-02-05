@@ -16,14 +16,30 @@ import (
 // AbstractPlacer implements basic place/reclaim functionality.
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
-	metricsProvider         scheduling.MetricsProvider
-	log                     logger.Logger
-	instance                internalPlacer
-	schedulingPolicy        scheduling.Policy
-	kernelResourceReserver  kernelResourceReserver
+	mu               sync.Mutex
+	metricsProvider  scheduling.MetricsProvider
+	log              logger.Logger
+	numReplicas      int
+	instance         internalPlacer
+	schedulingPolicy scheduling.Policy
+
+	// kernelResourceReserver is used by placers to reserve resources on candidate hosts for arbitrary/unspecified
+	// replicas of a particular kernel.
+	//
+	// kernelResourceReserver returns true (and nil) if resources were reserved.
+	//
+	// If resources could not be reserved, then false is returned, along with an error explaining why
+	// the resources could not be reserved.
+	kernelResourceReserver kernelResourceReserver
+
+	// replicaResourceReserver is used by placers to reserve resources on candidate hosts for specified replicas of a
+	// particular kernel.
+	//
+	// replicaResourceReserver returns true (and nil) if resources were reserved.
+	//
+	// If resources could not be reserved, then false is returned, along with an error explaining why
+	// the resources could not be reserved.
 	replicaResourceReserver replicaResourceReserver
-	numReplicas             int
-	mu                      sync.Mutex
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.

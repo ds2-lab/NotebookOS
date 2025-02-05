@@ -85,9 +85,11 @@ type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
 	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
-	DockerStorageBase           string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
-	DirectServer                bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	RunKernelsInGdb             bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+
+	// If the scheduler serves jupyter notebook directly, set this to true.
+	DirectServer      bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	DockerStorageBase string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
+	RunKernelsInGdb   bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".
