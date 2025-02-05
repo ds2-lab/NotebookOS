@@ -6746,10 +6746,10 @@ func (mr *MockKernelMockRecorder) NumActiveMigrationOperations() *gomock.Call {
 }
 
 // NumCompletedTrainings mocks base method.
-func (m *MockKernel) NumCompletedTrainings() int32 {
+func (m *MockKernel) NumCompletedTrainings() int {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NumCompletedTrainings")
-	ret0, _ := ret[0].(int32)
+	ret0, _ := ret[0].(int)
 	return ret0
 }
 
@@ -9494,10 +9494,10 @@ func (mr *MockExecutionManagerMockRecorder) NumActiveExecutionOperations() *gomo
 }
 
 // NumCompletedTrainings mocks base method.
-func (m *MockExecutionManager) NumCompletedTrainings() int32 {
+func (m *MockExecutionManager) NumCompletedTrainings() int {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NumCompletedTrainings")
-	ret0, _ := ret[0].(int32)
+	ret0, _ := ret[0].(int)
 	return ret0
 }
 

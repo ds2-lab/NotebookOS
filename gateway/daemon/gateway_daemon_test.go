@@ -21,6 +21,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
 	"log"
@@ -622,9 +623,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockScheduler.EXPECT().PolicyKey().Return(scheduling.Static).AnyTimes()
 
 			clusterGateway = &ClusterGatewayImpl{
-				cluster:           cluster,
-				RequestLog:        metrics.NewRequestLog(),
-				ClusterStatistics: metrics.NewClusterStatistics(),
+				cluster:                       cluster,
+				id:                            uuid.New().String(),
+				createdAt:                     time.Now(),
+				transport:                     "tcp",
+				RequestLog:                    metrics.NewRequestLog(),
+				ClusterStatistics:             metrics.NewClusterStatistics(),
+				kernelsBeingDescheduled:       hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
+				kernelIdToKernel:              hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
+				kernelSpecs:                   hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
+				waitGroups:                    hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
+				kernelRegisteredNotifications: hashmap.NewThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification](128),
+				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
 			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
@@ -1444,8 +1454,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			clusterGateway = &ClusterGatewayImpl{
-				cluster:    cluster,
-				RequestLog: metrics.NewRequestLog(),
+				cluster:                       cluster,
+				id:                            uuid.New().String(),
+				createdAt:                     time.Now(),
+				transport:                     "tcp",
+				RequestLog:                    metrics.NewRequestLog(),
+				kernelsBeingDescheduled:       hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
+				kernelIdToKernel:              hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
+				kernelSpecs:                   hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
+				waitGroups:                    hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
+				kernelRegisteredNotifications: hashmap.NewThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification](128),
+				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
 			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
