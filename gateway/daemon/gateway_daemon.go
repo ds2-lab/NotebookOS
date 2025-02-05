@@ -2639,6 +2639,11 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
 	}
 
+	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
+	if !stopped {
+		d.log.Warn("Failed to stop 'execute_request' forwarder for kernel \"%s\"...", in.Id)
+	}
+
 	return
 }
 
