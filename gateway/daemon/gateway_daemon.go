@@ -225,6 +225,7 @@ type ClusterGatewayImpl struct {
 	prometheusInterval                            time.Duration
 	numHostsDisabledDuringInitialConnectionPeriod int
 	initialConnectionPeriod                       time.Duration
+	IdleSessionReclamationInterval                time.Duration
 	initialClusterSize                            int
 	smrPort                                       int
 	numResendAttempts                             int
@@ -240,6 +241,7 @@ type ClusterGatewayImpl struct {
 	MessageAcknowledgementsEnabled                bool
 	SubmitExecuteRequestsOneAtATime               bool
 	DebugMode                                     bool
+	IdleSessionReclamationEnabled                 bool
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
