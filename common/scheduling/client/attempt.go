@@ -71,7 +71,7 @@ func newCreateReplicaContainersAttempt(kernel kernel) *CreateReplicaContainersAt
 	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
 
 	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
-	err := weightedSemaphore.Acquire(context.Background(), 999999)
+	err := weightedSemaphore.Acquire(context.Background(), maxSemaphoreWeight)
 	if err != nil {
 		panic(err)
 	}
