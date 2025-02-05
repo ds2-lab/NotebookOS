@@ -1895,6 +1895,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernel.EXPECT().GetSession().Return(mockedSession).AnyTimes()
 
+			mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
+			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+			mockedKernel.EXPECT().
+				BeginSchedulingReplicaContainers().
+				Times(1).
+				DoAndReturn(func() (bool, scheduling.CreateReplicaContainersAttempt) {
+					return true, mockCreateReplicaContainersAttempt
+				})
+
+			mockedKernel.EXPECT().ReplicasAreScheduled().Times(1).Return(false)
+
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
