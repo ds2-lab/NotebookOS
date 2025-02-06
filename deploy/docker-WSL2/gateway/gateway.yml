@@ -33,9 +33,7 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-scheduling-policy: fcfs-batch
-# scheduling-policy: fcfs-batch
-# subscribed-ratio-update-interval: 1
+scheduling-policy: static
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.10
 scaling-interval: 15
@@ -72,3 +70,6 @@ num_resource_ports: 4096
 use_real_gpus: false
 assign_kernel_debug_ports: false
 submit_execute_requests_one_at_a_time: true
+idle_session_reclamation_enabled: true
+idle_session_reclamation_interval_sec: 30
+pretty_print_options: true

@@ -19,22 +19,66 @@ func getKey(replicaId int32, kernelId string) string {
 // Allocation encapsulates an allocation of HostResources to a kernel replica.
 // Each Allocation encapsulates an allocation of GPU, CPU, and Memory HostResources.
 type Allocation struct {
-	Timestamp                time.Time       `json:"timestamp"`
-	Millicpus                decimal.Decimal `json:"cpus"`
-	ExecutionId              string
-	VramGB                   decimal.Decimal `json:"vram"`
-	AllocationId             string          `json:"ID"`
-	MemoryMB                 decimal.Decimal `json:"memory"`
-	cachedAllocationKey      string
-	AllocationType           scheduling.AllocationType `json:"allocation_type"`
-	GPUs                     decimal.Decimal           `json:"gpus"`
-	KernelId                 string                    `json:"kernel_id"`
-	HostId                   string
-	HostName                 string
-	GpuDeviceIds             []int `json:"gpu_device_ids"`
-	ReplicaId                int32 `json:"replica_id"`
-	IsPreCommittedAllocation bool  `json:"is_pre_committed"`
-	IsReservationAllocation  bool  `json:"is_reservation"`
+
+	// Timestamp is the time at which the HostResources were allocated to the replica.
+	Timestamp time.Time `json:"timestamp"`
+
+	// AllocationId is the unique ID of the allocation.
+	AllocationId string `json:"ID"`
+
+	// GPUs is the number of GPUs in the Allocation.
+	GPUs decimal.Decimal `json:"gpus"`
+
+	// VramGB is the amount of VRAM (i.e., GPU memory) in GB.
+	VramGB decimal.Decimal `json:"vram"`
+
+	// Millicpus is the number of Millicpus in the Allocation, represented as 1/1000th cores.
+	// That is, 1000 Millicpus is equal to 1 vCPU.
+	Millicpus decimal.Decimal `json:"cpus"`
+
+	// MemoryMB is the amount of RAM in the Allocation in megabytes.
+	MemoryMB decimal.Decimal `json:"memory"`
+
+	// KernelId is the ID of the kernel whose replica was allocated GPUs.
+	KernelId string `json:"kernel_id"`
+
+	// ExecutionId is the Jupyter message ID ("msg_id" from the header) of the associated "execute_request" message.
+	ExecutionId string
+
+	// HostId is the ID of the host on which this Allocation exists/is made.
+	HostId string
+
+	HostName string
+
+	// AllocationType indicates whether the Allocation is "pending" or "committed".
+	//
+	// "Pending" indicates that the HostResources are not "actually" allocated to the associated kernel replica.
+	// The kernel replica is merely scheduled locally, but it has not bound to these HostResources.
+	//
+	// "Committed" indicates that an Allocation has been committed to the associated kernel replica.
+	// That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
+	// associated kernel replica. These HostResources are not available for use by other kernel replicas.
+	AllocationType scheduling.AllocationType `json:"allocation_type"`
+
+	// cachedAllocationKey is the cached return value of getKey(Allocation.ReplicaId, Allocation.KernelId).
+	cachedAllocationKey string
+
+	// GPUDeviceIDs refers to the specific GPU devices that are being allocated.
+	GpuDeviceIds []int `json:"gpu_device_ids"`
+
+	// ReplicaId is the SMR node ID of the replica to which the GPUs were allocated.
+	ReplicaId int32 `json:"replica_id"`
+
+	// IsPreCommittedAllocation indicates whether the HostResources were commited in anticipation of a code execution occurring,
+	// or if they are committed to a kernel that is actively training.
+	IsPreCommittedAllocation bool `json:"is_pre_committed"`
+
+	// IsReservationAllocation indicates whether the HostResources were allocated (as either pending or committed, depending
+	// upon the configured scheduling policy) in anticipation of a scheduling.KernelContainer being placed onto the
+	// scheduling.Host. If true, then that means that the associated scheduling.KernelContainer has not yet started
+	// running on the scheduling.Host (or that the notification that the scheduling.KernelContainer has started
+	// running has not yet been received).
+	IsReservationAllocation bool `json:"is_reservation"`
 }
 
 func (a *Allocation) GetHostId() string {
@@ -274,20 +318,20 @@ func (a *Allocation) SetExecutionId(executionId string) {
 // AllocationBuilder is a utility struct whose purpose is to facilitate the creation of a
 // new Allocation struct.
 type AllocationBuilder struct {
-	kernelId        string
+	allocationId    string
 	gpus            decimal.Decimal
 	vramGb          decimal.Decimal
 	millicpus       decimal.Decimal
 	memoryMb        decimal.Decimal
-	allocationType  scheduling.AllocationType
-	executionId     string
 	hostId          string
 	hostName        string
-	allocationId    string
+	kernelId        string
+	executionId     string
+	allocationType  scheduling.AllocationType
 	gpuDeviceIds    []int
 	replicaId       int32
-	isPreCommitment bool
 	isReservation   bool
+	isPreCommitment bool
 }
 
 // NewResourceAllocationBuilder creates a new AllocationBuilder and returns a pointer to it.

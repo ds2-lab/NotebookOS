@@ -61,9 +61,13 @@ type IndexUpdater interface {
 // "execute_request" message that contained the user-submitted code associated with this pre-allocation.
 type containerWithPreCommittedResources struct {
 	scheduling.KernelContainer
+
 	PreCommittedResources *types.DecimalSpec
-	ExecutionId           string
-	AllocationId          string
+
+	// ExecutionId is the "msg_id" of the Jupyter "execute_request" message that contained the
+	// user-submitted code associated with this pre-allocation.
+	ExecutionId  string
+	AllocationId string
 }
 
 type containerWithCommittedResources struct {
@@ -75,44 +79,58 @@ type containerWithCommittedResources struct {
 }
 
 type Host struct {
-	sip               cache.InlineCache
-	penaltyList       cache.InlineCache
-	CreatedAt         time.Time
-	LastRemoteSync    time.Time
-	meta              hashmap.HashMap[string, interface{}]
-	schedulingPolicy  scheduling.Policy
-	containers        hashmap.HashMap[string, scheduling.KernelContainer]
-	allocationManager scheduling.AllocationManager
-	metricsProvider   scheduling.MetricsProvider
+
+	// Cached penalties
+	sip            cache.InlineCache // Scale-in penalty.
+	penaltyList    cache.InlineCache
+	CreatedAt      time.Time // CreatedAt is the time at which the Host was created.
+	LastRemoteSync time.Time // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	proto.LocalGatewayClient
-	sipSession                     scheduling.UserSession
-	log                            logger.Logger
-	SubscriptionQuerier            SubscriptionQuerier
-	indexUpdater                   IndexUpdater
-	conn                           *grpc.ClientConn
-	errorCallback                  scheduling.ErrorCallback
-	HeapIndexes                    map[types.HeapElementMetadataKey]int
-	resourceSpec                   *types.DecimalSpec
-	ID                             string
-	subscribedRatio                decimal.Decimal
-	Addr                           string
-	NodeName                       string
-	numReplicasPerKernelDecimal    decimal.Decimal
-	trainingContainers             []scheduling.KernelContainer
-	seenSessions                   []string
-	penalties                      []cachedPenalty
-	schedulerPoolType              scheduling.SchedulerPoolType
-	numReplicasPerKernel           int
-	lastReschedule                 types.StatFloat64
+
+	log logger.Logger
+
+	allocationManager scheduling.AllocationManager         // allocationManager manages the resources of the Host.
+	meta              hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	metricsProvider   scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
+	indexUpdater      IndexUpdater
+	schedulingPolicy  scheduling.Policy // schedulingPolicy is the scheduling policy configured for the cluster.
+
+	sipSession scheduling.UserSession // Scale-in penalty session.
+
+	// containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	containers hashmap.HashMap[string, scheduling.KernelContainer]
+
+	// SubscriptionQuerier is used to query the over-subscription factor given the host's
+	// subscription ratio and the Cluster's subscription ratio.
+	SubscriptionQuerier         SubscriptionQuerier
+	conn                        *grpc.ClientConn         // conn is the gRPC connection to the Host.
+	resourceSpec                *types.DecimalSpec       // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
+	errorCallback               scheduling.ErrorCallback // errorCallback is a function to be called if a Host appears to be dead.
+	HeapIndexes                 map[types.HeapElementMetadataKey]int
+	Addr                        string          // Addr is the Host's address.
+	NodeName                    string          // NodeName is the Host's name (for printing/logging).
+	ID                          string          // ID is the unique ID of this host.
+	numReplicasPerKernelDecimal decimal.Decimal // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
+	subscribedRatio             decimal.Decimal
+	seenSessions                []string // seenSessions are the sessions that have been scheduled onto this host at least once.
+	penalties                   []cachedPenalty
+
+	// trainingContainers are the actively-training kernel replicas.
+	trainingContainers []scheduling.KernelContainer
+
+	lastReschedule       types.StatFloat64 // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	numReplicasPerKernel int               // The number of replicas per kernel.
+	schedulerPoolType    scheduling.SchedulerPoolType
+
+	schedulingMutex                sync.Mutex // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
 	heapIndexesMutex               sync.Mutex
-	schedulingMutex                sync.Mutex
-	excludedFromScheduling         atomic.Bool
-	pendingContainers              types.StatInt32
-	isBeingConsideredForScheduling atomic.Int32
-	enabled                        bool
+	pendingContainers              types.StatInt32 // pendingContainers is the number of Containers that are scheduled on the host.
+	excludedFromScheduling         atomic.Bool     // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling atomic.Int32    // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	enabled                        bool            // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	isContainedWithinIndex         bool            // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized            bool            // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 	penaltyValidity                bool
-	isContainedWithinIndex         bool
-	ProperlyInitialized            bool
 }
 
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
@@ -906,8 +924,8 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 // The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
 // pre-release resources when we shouldn't have.
 //
-// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
-// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+// For example, let's say we submit EXECUTION_1 to a kernel. We received the main execute_reply from the leader,
+// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the kernel.
 // EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
 // we may release the pre-committed resources for EXECUTION_2.
 //
@@ -938,8 +956,8 @@ func (h *Host) GetResourceCountsAsString() string {
 // The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
 // pre-release resources when we shouldn't have.
 //
-// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
-// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+// For example, let's say we submit EXECUTION_1 to a kernel. We received the main execute_reply from the leader,
+// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the kernel.
 // EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
 // we may release the pre-committed resources for EXECUTION_2.
 //

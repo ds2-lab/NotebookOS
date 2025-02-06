@@ -2,31 +2,30 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/test_utils"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"golang.org/x/net/context"
-	"sync"
-
-	"github.com/Scusemua/go-utils/config"
-	"github.com/go-zeromq/zmq4"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/local_daemon/device"
 	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"github.com/scusemua/distributed-notebook/local_daemon/mock_device"
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -180,18 +179,31 @@ var _ = Describe("Local Daemon Tests", func() {
 		Expect(schedulingPolicy).ToNot(BeNil())
 
 		schedulerDaemon = &LocalScheduler{
-			id:                                 hostId,
-			transport:                          "tcp",
-			kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
-			closed:                             make(chan struct{}),
-			cleaned:                            make(chan struct{}),
-			allocationManager:                  resourceManager,
-			virtualGpuPluginServer:             vgpuPluginServer,
-			schedulingPolicy:                   schedulingPolicy,
-			outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecOrYieldRequest](128),
-			outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
-			executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
+			id:                     hostId,
+			transport:              "tcp",
+			kernels:                hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
+			closed:                 make(chan struct{}),
+			cleaned:                make(chan struct{}),
+			allocationManager:      resourceManager,
+			virtualGpuPluginServer: vgpuPluginServer,
+			schedulingPolicy:       schedulingPolicy,
 		}
+
+		notifyCallback := func(title string, content string, notificationType messaging.NotificationType) {
+			schedulerDaemon.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            title,
+				Message:          content,
+				NotificationType: int32(notificationType),
+				Panicked:         false,
+			})
+		}
+
+		schedulerDaemon.executeRequestForwarder = client.NewExecuteRequestForwarder[*messaging.JupyterMessage](
+			notifyCallback, func(msg *messaging.JupyterMessage, kernel client.MessageRecipient) *messaging.JupyterMessage {
+				return schedulerDaemon.processExecOrYieldRequest(msg, kernel.(scheduling.KernelReplica))
+			})
+
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 	})
 
@@ -498,7 +510,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -513,7 +525,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(processedMessageHeader.MsgType.String()).To(Equal(messaging.ShellExecuteRequest))
 
-			By("Creating a pending allocation for Kernel 2")
+			By("Creating a pending allocation for kernel 2")
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
 			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
@@ -606,7 +618,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -651,7 +663,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(allocation.IsCommitted()).To(BeTrue())
 			Expect(allocation.IsReservation()).To(BeFalse())
 
-			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+			kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 			leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -731,7 +743,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -985,7 +997,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(allocation.IsCommitted()).To(BeTrue())
 			Expect(allocation.IsReservation()).To(BeFalse())
 
-			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+			kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 			leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -1101,7 +1113,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
-			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 			var metadata map[string]interface{}
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -1148,7 +1160,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
-			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+			kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 			leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -1271,7 +1283,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 		Context("Adjusting resource specs", func() {
 			updateKernelResourceSpec := func(kernelReplica *mock_scheduling.MockKernelReplica, newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
-				GinkgoWriter.Printf("Updating resource spec of Kernel 1 Replica 1 from %v to %v.\n", kernelReplica.ResourceSpec(), newSpec)
+				GinkgoWriter.Printf("Updating resource spec of kernel 1 Replica 1 from %v to %v.\n", kernelReplica.ResourceSpec(), newSpec)
 
 				Expect(tx).To(BeNil())
 
@@ -1282,7 +1294,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				currentSpec.GPUs = decimal.NewFromFloat(newSpec.GPU())
 				currentSpec.VRam = decimal.NewFromFloat(newSpec.VRAM())
 
-				GinkgoWriter.Printf("Kernel 1 Replica 1 resource spec post-modification: %v\n", kernelReplica.ResourceSpec())
+				GinkgoWriter.Printf("kernel 1 Replica 1 resource spec post-modification: %v\n", kernelReplica.ResourceSpec())
 
 				return nil
 			}
@@ -1403,7 +1415,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				validateCommittedReserved(kernel1Replica1)
 
-				By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+				By("Embedding the idle GPUs in the metadata of the message for kernel 1")
 				var metadata map[string]interface{}
 				err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 				GinkgoWriter.Printf("metadata: %v\n", metadata)
@@ -1420,7 +1432,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
-				kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+				kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 				leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 				err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -1489,7 +1501,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 					By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
-					kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+					kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 					leadTaskMsg = test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 					err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)

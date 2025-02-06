@@ -46,12 +46,17 @@ func GetIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (schedul
 
 type baseSchedulingPolicy struct {
 	idleSessionReclamationPolicy scheduling.IdleSessionReclamationPolicy
-	log                          logger.Logger
-	scalingConfiguration         *scheduling.ScalingConfiguration
-	isValidatingCapacity         atomic.Int32
-	GpusPerHost                  int
-	scalingOutEnabled            bool
-	supportsMigration            bool
+
+	log                  logger.Logger
+	scalingConfiguration *scheduling.ScalingConfiguration
+
+	isValidatingCapacity atomic.Int32
+
+	// GpusPerHost is the number of GPUs available on each host.
+	GpusPerHost int
+
+	scalingOutEnabled bool
+	supportsMigration bool
 }
 
 func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnabled bool, supportsMigration bool) (*baseSchedulingPolicy, error) {

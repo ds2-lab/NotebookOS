@@ -105,7 +105,7 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 
 func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalizer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
 	if done == nil {
-		panic("The provided sync.WaitGroup cannot be nil.")
+		panic("The provided sync.Semaphore cannot be nil.")
 	}
 
 	tracer, consulClient := CreateConsulAndTracer(options)
@@ -185,6 +185,12 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "gRPC Server", distributedCluster)
 		if err := registrar.Serve(lis); err != nil {
+
+			// If we're in local mode, then we're running unit tests, so we'll just... return.
+			if options.LocalMode {
+				return
+			}
+
 			log.Fatalf("Error on serving jupyter connections: %v", err)
 		}
 	}()
@@ -193,6 +199,13 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "Provisioner Server", distributedCluster)
 		if err := provisioner.Serve(lisHost); err != nil {
+
+			// If we're in local mode, then we're running unit tests, so we'll just... return.
+			if options.LocalMode {
+				globalLogger.Warn(utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), err)
+				return
+			}
+
 			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), err)
 			panic(err)
 		}
@@ -203,6 +216,12 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 		defer finalize(true, "Distributed internalCluster Server", distributedCluster)
 		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
 			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), err)
+
+			// If we're in local mode, then we're running unit tests, so we'll just... return.
+			if options.LocalMode {
+				return
+			}
+
 			panic(err)
 		}
 	}()
@@ -212,6 +231,12 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 		defer finalize(true, "internalCluster Gateway Daemon", distributedCluster)
 		if err := srv.Start(); err != nil {
 			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), err)
+
+			// If we're in local mode, then we're running unit tests, so we'll just... return.
+			if options.LocalMode {
+				return
+			}
+
 			panic(err)
 		}
 	}()

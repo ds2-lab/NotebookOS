@@ -8,7 +8,10 @@ import (
 )
 
 type Resources struct {
-	initial   *types.DecimalSpec
+
+	// The initial state of the operation.
+	initial *types.DecimalSpec
+	// The current "working" state of the operation.
 	working   *types.DecimalSpec
 	isMutable bool
 }

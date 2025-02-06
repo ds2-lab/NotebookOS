@@ -38,7 +38,7 @@ type KubeClient interface {
 	// Important: RegisterChannel() should be called FIRST, before this function is called.
 	//
 	// Parameters:
-	// - KernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
+	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale-out.
 	// - podStartedChannel (chan string): Used to notify waiting goroutines that the Pod has started.
 	ScaleOutCloneSet(string) error
 
@@ -48,7 +48,7 @@ type KubeClient interface {
 	// The error will be nil on success.
 	//
 	// Parameters:
-	// - KernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
+	// - kernelId (string): The ID of the kernel associated with the CloneSet that we'd like to scale in
 	// - oldPodName (string): The name of the Pod that we'd like to delete during the scale-in operation.
 	// - podStoppedChannel (chan struct{}): Used to notify waiting goroutines that the Pod has stopped.
 	ScaleInCloneSet(string, string, chan struct{}) error

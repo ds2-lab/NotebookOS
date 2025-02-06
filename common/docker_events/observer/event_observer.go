@@ -35,6 +35,7 @@ type EventConsumer interface {
 //
 // This is only used for Docker Compose clusters.
 type EventObserver struct {
+	log            logger.Logger
 	eventConsumers map[string]EventConsumer
 
 	// Docker Swarm / Docker Compose project name.
@@ -43,8 +44,6 @@ type EventObserver struct {
 	networkName string
 
 	mu sync.Mutex
-
-	log logger.Logger
 }
 
 func NewEventObserver(projectName string, networkName string) *EventObserver {
@@ -115,7 +114,7 @@ func (w *EventObserver) monitor() {
 			if err := ctx.Err(); err != nil {
 				panic(err)
 			}
-			w.log.Debug("ctx.Done, but no error. Exiting now.")
+			w.log.Debug("ctx.SetDone, but no error. Exiting now.")
 			return
 		default:
 			var containerCreationEvent map[string]interface{}

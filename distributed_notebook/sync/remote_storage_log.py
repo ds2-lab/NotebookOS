@@ -452,5 +452,7 @@ class RemoteStorageLog(object):
     ):
         """
         Write the contents of the etcd-Raft data directory to RemoteStorage.
+
+        This is not relevant for RemoteStorageLog.
         """
         pass

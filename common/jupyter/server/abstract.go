@@ -53,32 +53,100 @@ type WaitResponseOptionGetter func(key string) interface{}
 
 // AbstractServer implements the basic socket serving useful for a Jupyter server. Embed this struct in your server implementation.
 type AbstractServer struct {
-	StatisticsAndMetricsProvider   MessagingMetricsProvider
-	Ctx                            context.Context
-	Log                            logger.Logger
-	discardACKs                    hashmap.BaseHashMap[string, struct{}]
-	ackChannels                    hashmap.BaseHashMap[string, chan struct{}]
-	acksReceived                   hashmap.BaseHashMap[string, bool]
-	Meta                           *jupyter.ConnectionInfo
-	CancelCtx                      func()
-	Sockets                        *messaging.JupyterSocket
-	nodeType                       metrics.NodeType
-	localIpAdderss                 string
-	Name                           string
-	ComponentId                    string
-	RetrySleepInterval             time.Duration
-	MaxSleepInterval               time.Duration
-	RequestTimeout                 time.Duration
-	NumSends                       atomic.Int32
-	numAcksReceived                atomic.Int32
-	NumUniqueSends                 atomic.Int32
-	ShouldAckMessages              bool
+
+	// StatisticsAndMetricsProvider is an interface that enables the recording of metrics observed by the AbstractServer.
+	// This should be assigned a value in the init function passed as a parameter in the "constructor" of the AbstractServer.
+	StatisticsAndMetricsProvider MessagingMetricsProvider
+
+	// ctx of this server and a func to cancel it.
+	Ctx context.Context
+
+	// logger
+	Log logger.Logger
+
+	// Map from Request ID to a boolean indicating whether the ACK has been received.
+	// So, a value of false means that the request has not yet been received, whereas a value of true means that it has.
+	acksReceived hashmap.BaseHashMap[string, bool]
+
+	// ackChannels is a mapping from request ID to the channel on which the ACK delivery notification for that
+	// message is to be sent.
+	ackChannels hashmap.BaseHashMap[string, chan struct{}]
+
+	// discardACKs is a map from Request ID to struct{}{} (basically just a set) of messages whose ACKs we
+	// explicitly don't need.
+	discardACKs hashmap.BaseHashMap[string, struct{}]
+
+	Meta *jupyter.ConnectionInfo
+
+	CancelCtx func()
+
+	// ZMQ sockets
+	Sockets *messaging.JupyterSocket
+
+	// The ID of the node/component on which the server resides.
+	ComponentId string
+
+	// localIpAdderss is the local IPv4, for debugging purposes.
+	localIpAdderss string
+
+	// Name is the unique name of the server, mostly for debugging.
+	Name string
+
+	// The node type of THIS server.
+	nodeType metrics.NodeType
+
+	// The base interval for sleeping in between request resubmission attempts when a particular request is not ACK'd successfully.
+	RetrySleepInterval time.Duration
+
+	// The maximum for the sleep interval between non-ACK'd requests that are retried.
+	MaxSleepInterval time.Duration
+
+	// How long to wait for a request's response before giving up and cancelling the request.
+	RequestTimeout time.Duration
+
+	// numAcksReceived keeps track of the total number of ACKs we've received.
+	// Primarily used in unit tests.
+	numAcksReceived atomic.Int32
+
+	// NumSends is the number of times we've sent a message, including resubmissions.
+	NumSends atomic.Int32
+	// NumUniqueSends is the number of times we've sent a message, excluding resubmissions.
+	NumUniqueSends atomic.Int32
+
+	// DebugMode is a config parameter. When enabled, the server will embed metrics.RequestTrace structs
+	// in the first "buffer" frame of Jupyter ZMQ messages.
+	DebugMode bool
+
+	// PrependId is used when sending ACKs. Basically, if this server uses Router sockets, then we need to prepend the ID to the messages.
+	// Some servers use Dealer sockets, which don't need to prepend the ID.
+	PrependId bool
+
+	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
+	// for the ZMQ messages that we're forwarding back and forth between the server components.
+	//
+	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
-	PrependId                      bool
-	DebugMode                      bool
-	UseJitter                      bool
-	ReconnectOnAckFailure          bool
-	PanicOnFirstFailedSend         bool
+
+	// MessageQueueCapacity is the amount that the message queue (which is a chan) is buffered
+	//MessageQueueCapacity int
+
+	// If true, then will ACK messages upon receiving them (for CONTROL and SHELL sockets only).
+	ShouldAckMessages bool
+
+	// If true, then we'll attempt to reconnect to the remote if we fail to receive an ACK from the remote
+	// after `MaxNumRetries` attempts. Some servers dial while others listen; hence, we have this flag to
+	// configure whether we should attempt to re-dial the remote or not.
+	ReconnectOnAckFailure bool
+
+	// If true, use jitter when generating sleep intervals for retransmitted ACKs.
+	UseJitter bool
+
+	// PanicOnFirstFailedSend is a flag which directs the AbstractServer to panic the first time a message
+	// is not acknowledged within its configured timeout interval.
+	//
+	// Normally, the message will simply be resubmitted. If PanicOnFirstFailedSend is true, then the server will
+	// instead panic, rather than resend the message.
+	PanicOnFirstFailedSend bool
 }
 
 func New(ctx context.Context, info *jupyter.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
@@ -394,7 +462,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 			}
 			return
 		case <-s.Ctx.Done():
-			s.Log.Debug("Context is Done. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
+			s.Log.Debug("Context is done. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
 			if contd != nil {
 				contd <- false
 			}
@@ -485,7 +553,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					if contd != nil {
 						contd <- false
 					}
-					// s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
+					// s.Log.Debug("[gid=%d] SetDone handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 				// 3. If a new request is pending, compete with the new serve routing to serve the request.
@@ -494,7 +562,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					if contd != nil {
 						contd <- false
 					}
-					// s.Log.Debug("[gid=%d] Done handling %s messages: %v.", goroutineId, socket.Type.String(), err)
+					// s.Log.Debug("[gid=%d] SetDone handling %s messages: %v.", goroutineId, socket.Type.String(), err)
 					return
 				}
 			} else if err != nil {
@@ -525,7 +593,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *messaging.Jupyter
 		keySet             bool
 	)
 
-	// If we're a server in a Kernel or DistributedKernelClient, then the Meta field should be non-nil
+	// If we're a server in a kernel or DistributedKernelClient, then the Meta field should be non-nil
 	// and will have the connection info. So, we can get the signature scheme and key from there.
 	if s.Meta != nil {
 		signatureScheme = s.Meta.SignatureScheme
@@ -702,7 +770,7 @@ func (s *AbstractServer) Request(request messaging.Request, socket *messaging.So
 
 	// Apply a default timeout
 	// var cancel context.CancelFunc
-	// if ctx.Done() == nil {
+	// if ctx.SetDone() == nil {
 	// 	ctx, cancel = context.WithTimeout(ctx, s.RequestTimeout)
 	// }
 	ctx, cancel := request.ContextAndCancel()
@@ -720,10 +788,10 @@ func (s *AbstractServer) Request(request messaging.Request, socket *messaging.So
 		// The first goroutine to get here will clean the request, and this necessarily avoids the potential
 		// race in which we clean up the pending request after we've already started resubmitting it.
 		//
-		// If the goroutine waiting on <-ctx.Done() gets here first, then it's fine.
+		// If the goroutine waiting on <-ctx.SetDone() gets here first, then it's fine.
 		// If the goroutine executing the AbstractServer::SendRequest method gets here first,
 		// then the pending request will be claimed and cleaned-up, and we can safely begin
-		// to resubmit the pending request without fear that the <-ctx.Done() thread will
+		// to resubmit the pending request without fear that the <-ctx.SetDone() thread will
 		// attempt to clean up while we're resubmitting.
 		//
 		// This assumes that I know how closures in Golang work.
@@ -1276,7 +1344,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 				// Unexpected response without request ID, fallback to default handler.
 				handler = defaultHandler
 			} else {
-				// s.Log.Debug(utils.BlueStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
+				// s.Log.Debug(utils.CyanStyle.Render("Received response with ID=%s on socket %s"), rspId, socket.Name)
 				// matchReqId = rspId
 
 				// Automatically remove destination kernel ID frame.

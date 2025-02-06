@@ -272,40 +272,109 @@ type Request interface {
 
 // Encapsulates the state of a live, active request.
 type liveRequestState struct {
-	beganSendingAt         time.Time
-	err                    error
-	requestState           RequestState
-	hasBeenAcknowledged    bool
-	timedOut               bool
-	erred                  bool
-	sendingHasStarted      bool
+
+	// beganSendingAt is the time at which the Sender began sending the Request for the first time.
+	beganSendingAt time.Time
+
+	// The irrecoverable error encountered by the request. This will be nil if no such error was encountered.
+	err error
+
+	requestState RequestState
+
+	// Flag indicating whether the request has been acknowledged.
+	// This allows us to recover this information if the request enters the RequestTimedOut state.
+	hasBeenAcknowledged bool
+
+	// Flag indicating whether the request timed out at least once.
+	timedOut bool
+
+	// Flag indicating whether the request encountered some irrecoverable error while being sent (other than timing out).
+	// If the request only timed out, then erred will be false.
+	erred bool
+
+	// sendingHasStarted indicates whether the Sender has started sending the Request.
+	sendingHasStarted bool
+
+	// Flag indicating whether the request was explicitly cancelled by the client.
 	wasExplicitlyCancelled bool
 }
 
 type BasicRequest struct {
+	log logger.Logger
+
+	// We keep a reference to the parent context that was passed to the RequestBuilder
+	// so that we can create a new child context if we're resubmitted.
+	parentContext context.Context
+	ctx           context.Context
+
+	// The entity responsible for providing access to sockets in the request handler.
 	socketProvider JupyterServerInfo
-	log            logger.Logger
-	parentContext  context.Context
-	ctx            context.Context
-	cancel         context.CancelFunc
+
 	*liveRequestState
-	connectionInfo           *jupyter.ConnectionInfo
-	messageHandler           MessageHandler
-	doneCallback             MessageDone
-	payload                  *JupyterMessage
-	requestId                string
-	destinationId            string
-	sourceId                 string
-	messageType              MessageType
-	currentAttemptNumber     int
-	maxNumAttempts           int
-	timeout                  time.Duration
-	ackTimeout               time.Duration
-	stateMutex               sync.Mutex
+
+	cancel context.CancelFunc
+
+	// The actual payload.
+	payload *JupyterMessage
+
+	// This callback is executed when the response is received and the request is handled.
+	// TODO: Might be better to turn this into more of a "clean-up"? Or something?
+	doneCallback MessageDone
+
+	// The handler that is called to process the response to this request.
+	messageHandler MessageHandler
+
+	// The connection info of the remote target of the request.
+	connectionInfo *jupyter.ConnectionInfo
+
+	// String that uniquely identifies this set of request options.
+	// This is not configurable; it is auto-generated when the request is built via RequestBuilder::BuildRequest.
+	requestId string
+
+	// The ID associated with the source of the message.
+	// This will typically be a kernel ID.
+	sourceId string
+
+	// DestID extracted from the request payload.
+	// It is extracted from the request payload when the request is built via RequestBuilder::BuildRequest.
+	destinationId string
+
+	// The MessageType of the request.
+	messageType MessageType
+
+	// ackTimeout is the amount of time that the Sender should wait for the Request to be acknowledged by the
+	// recipient before either resubmitting the Request or returning an error.
+	//
+	// Default: 5 seconds.
+	ackTimeout time.Duration
+
+	// How long to wait for the request to complete successfully.
+	// Completion is a stronger requirement than simply being acknowledged.
+	timeout time.Duration
+
+	// maxNumAttempts is the maximum number of attempts allowed before giving up on sending the request.
+	maxNumAttempts int
+
+	// currentAttemptNumber is the current send-attempt number.
+	currentAttemptNumber int
+
+	// Synchronizes access to the request's state.
+	stateMutex sync.Mutex
+
+	// True indicates that the request must be acknowledged by the recipient.
+	requiresAck bool
+
+	// This is flipped to true when a timeout is explicitly configured within the RequestBuilder.
+	// We use this to determine if we should recreate a context during resubmission via Context::WithTimeout or Context::WithCancel.
+	hasTimeout bool
+
+	// Should the call to Server::Request block when issuing this request?
+	// True if yes; otherwise, false.
+	isBlocking bool
+
+	// Should the destination frame be automatically removed?
+	// If yes, then this should be true.
 	shouldDestFrameBeRemoved bool
-	isBlocking               bool
-	hasTimeout               bool
-	requiresAck              bool
 }
 
 // SendStarting should be called when the Sender begins submitting the Request for the first time.

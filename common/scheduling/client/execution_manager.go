@@ -37,29 +37,152 @@ func validateReply(msg *messaging.JupyterMessage) error {
 
 // ExecutionManager manages the Execution instances associated with a DistributedKernelClient / scheduling.Kernel.
 type ExecutionManager struct {
-	lastPrimaryReplica           scheduling.KernelReplica
-	statisticsProvider           scheduling.StatisticsProvider
-	Kernel                       scheduling.Kernel
-	log                          logger.Logger
-	executionIndices             map[string]int32
+	log logger.Logger
+
+	// Kernel is the kernel associated with the ExecutionManager.
+	Kernel scheduling.Kernel
+
+	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
+	// code execution. It will be nil if no code executions have occurred.
+	lastPrimaryReplica scheduling.KernelReplica
+
+	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
+	// for updating Prometheus metrics.
+	statisticsProvider scheduling.StatisticsProvider
+
+	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// activeExecutions contains only code submissions that have not yet completed.
+	// There should typically just be one entry in the activeExecutions map at a time,
+	// but because messages can be weirdly delayed and reordered, there may be multiple.
+	activeExecutions map[string]*Execution
+
+	// failedExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// failedExecutions contains only code submissions that have failed and are in the
+	// process of being migrated and resubmitted.
+	failedExecutions map[string]*Execution
+
+	// finishedExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// finishedExecutions contains only Execution structs that represent code submissions
+	// that completed successfully, without error.
+	finishedExecutions map[string]*Execution
+
+	// erredExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// erredExecutions contains only Execution structs that represent code submissions
+	// that failed to complete successfully and were abandoned.
+	erredExecutions map[string]*Execution
+
+	// allExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// allExecutions contains an entry for every single Execution, regardless of
+	// the State of the Execution.
+	allExecutions map[string]*Execution
+
+	// lastTrainingEndedAt is the time at which the last completed training ended/stopped.
+	lastTrainingEndedAt time.Time
+
+	// lastTrainingStartedAt is the time at which the last training that entered the 'active' state did so.
+	lastTrainingStartedAt time.Time
+
+	// lastTrainingSubmittedAt is the time at which the last training to be submitted to a kernel was submitted.
+	lastTrainingSubmittedAt time.Time
+
+	// ExecutionIndices is a map from Execution ID (i.e., the "msg_id" of the associated "execute_request" [or
+	// "yield_request"] message) to the ExecutionIndex of that Execution.
+	//
+	// An Execution's ExecutionIndex uniquely identifies the Execution and enables a total ordering between
+	// all Execution structs.
+	executionIndices map[string]int32
+
+	// executionIndicesToExecutions is a mapping from ExecutionIndex to *Execution.
 	executionIndicesToExecutions map[int32]*Execution
-	failedExecutions             map[string]*Execution
-	finishedExecutions           map[string]*Execution
-	erredExecutions              map[string]*Execution
-	allExecutions                map[string]*Execution
-	executionLatencyCallback     scheduling.ExecutionLatencyCallback
-	activeExecutions             map[string]*Execution
-	executionFailedCallback      scheduling.ExecutionFailedCallback
-	notificationCallback         scheduling.NotificationCallback
-	NumReplicas                  int
-	mu                           sync.Mutex
-	activeExecutionIndex         int32
-	completedExecutionIndex      int32
-	submittedExecutionIndex      int32
-	nextExecutionIndex           atomic.Int32
+
+	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
+	notificationCallback scheduling.NotificationCallback
+
+	// executionFailedCallback is a callback for when execution fails (such as all replicas proposing 'YIELD').
+	executionFailedCallback scheduling.ExecutionFailedCallback
+
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each scheduling.Kernel and
+	// subsequently the scheduling.Kernel's ExecutionManager.
+	//
+	// When a scheduling.Kernel receives a notification that a kernel has started execution user-submitted code,
+	// the scheduling.Kernel will check if its ActiveExecution struct has the original "sent-at" timestamp
+	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+	// so that a relevant Prometheus metric can be updated.
+	executionLatencyCallback scheduling.ExecutionLatencyCallback
+
+	// NumReplicas is how many replicas the Kernel has.
+	NumReplicas int
+
+	mu sync.Mutex
+
+	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
+	nextExecutionIndex atomic.Int32
+
+	// submittedExecutionIndex is used to decide if a KernelReplicaClient should actually transition into training upon
+	// receiving a "smr_lead_task" message, or if it should essentially just ignore the message.
+	//
+	// "smr_lead_task" messages are submitted as soon as training begins as an IOPub message by the kernel; however,
+	// it's possible for the "execute_reply" -- which is sent when training ends -- to be received BEFORE the
+	// "smr_lead_task", as they're sent on separate channels and thus their order is not guaranteed.
+	//
+	// If an "execute_reply" message is received before the kernel has started to train, then we just assume that we
+	// missed the "smr_lead_task" -- it could have been dropped or delayed, we don't know. If we later receive the
+	// (apparently delayed) "smr_lead_task" message, then we just ignore it.
+	//
+	// And we know to ignore it by comparing the execution indices.
+	//
+	// submittedExecutionIndex is specifically the execution index of the most up-to-date training for which we received
+	// the "smr_lead_task" message. By up to date, we mean that the training occurred most recently in terms of what
+	// the client is doing/submitting.
+	//
+	// completedExecutionIndex, a related field, is the execution index of the most up-to-date training for which
+	// we received an "execute_reply". By up to date, we mean that the training occurred most recently in terms of what
+	//	// the client is doing/submitting.
+	submittedExecutionIndex int32
+
+	// activeExecutionIndex works together with the activeExecutionIndex and completedExecutionIndex fields to achieve
+	// the goals outlined in the documentation of the submittedExecutionIndex field.
+	// See the submittedExecutionIndex field for more info.
+	//
+	// activeExecutionIndex is the execution index of the most up-to-date training for which we received a
+	// "smr_lead_task". By up to date, we mean that the training occurred most recently in terms of what the client is
+	// doing/submitting.
+	//
+	// completedExecutionIndex, a related field, is the execution index of the most up-to-date training for which
+	// we received an "execute_reply". By up to date, we mean that the training occurred most recently in terms of what
+	// the client is doing/submitting.
+	//
+	// submittedExecutionIndex, a related field, is specifically the execution index of the most up-to-date training for
+	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
+	// in terms of what the client is doing/submitting.
+	activeExecutionIndex int32
+
+	// completedExecutionIndex works together with the submittedExecutionIndex and activeExecutionIndex fields to
+	// achieve the goals outlined in the documentation of the submittedExecutionIndex field.
+	// See the submittedExecutionIndex field for more info.
+	//
+	// completedExecutionIndex is the execution index of the most up-to-date training for which we received an
+	// "execute_reply". By up to date, we mean that the training occurred most recently in terms of what the client is
+	// doing/submitting.
+	//
+	// submittedExecutionIndex, a related field, is specifically the execution index of the most up-to-date training for
+	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
+	// in terms of what the client is doing/submitting.
+	completedExecutionIndex int32
 }
 
-// NewExecutionManager creates a new ExecutionManager struct to be associated with the given Kernel.
+// NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
 func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCallback scheduling.ExecutionFailedCallback,
@@ -142,6 +265,7 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 	}
 
 	m.submittedExecutionIndex = executionIndex
+	m.lastTrainingSubmittedAt = time.Now()
 
 	return nil
 }
@@ -442,6 +566,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
+		m.lastTrainingEndedAt = time.Now()
 	} else {
 		m.log.Warn("Received \"execute_reply\" for execution \"%s\" with index=%d; however, latest submitted execution has index=%d.",
 			executeRequestId, activeExecution.ExecutionIndex, m.submittedExecutionIndex)
@@ -455,7 +580,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	}
 
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
-		m.log.Debug("\"execute_reply\" with index %d does not match last-known active index %d...",
+		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)
 	}
 
@@ -501,6 +626,27 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	return activeExecution, nil
 }
 
+// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
+// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
+// the time at which the active training was submitted to the kernel.
+func (m *ExecutionManager) LastTrainingSubmittedAt() time.Time {
+	return m.lastTrainingSubmittedAt
+}
+
+// LastTrainingStartedAt returns the time at which the last training to occur began. If there is an active
+// training when LastTrainingStartedAt is called, then LastTrainingStartedAt will return the time at which
+// the active training began.
+func (m *ExecutionManager) LastTrainingStartedAt() time.Time {
+	return m.lastTrainingStartedAt
+}
+
+// LastTrainingEndedAt returns the time at which the last completed training ended.
+//
+// If the kernel is currently training, then TrainingEndedAt returns the time at which the previous training ended.
+func (m *ExecutionManager) LastTrainingEndedAt() time.Time {
+	return m.lastTrainingEndedAt
+}
+
 // GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
 // or nil if no such Execution exists.
 //
@@ -530,6 +676,21 @@ func (m *ExecutionManager) TotalNumExecutionOperations() int {
 	defer m.mu.Unlock()
 
 	return len(m.allExecutions)
+}
+
+// NumCompletedTrainings returns the number of training events that have been completed successfully.
+func (m *ExecutionManager) NumCompletedTrainings() int {
+	return len(m.finishedExecutions)
+}
+
+// ReplicaRemoved is used to notify the ExecutionManager that a particular KernelReplica has been removed.
+// This allows the ExecutionManager to set the LastPrimaryReplica field to nil if the removed KernelReplica
+// is the LastPrimaryReplica.
+func (m *ExecutionManager) ReplicaRemoved(replica scheduling.KernelReplica) {
+	if m.lastPrimaryReplica == replica {
+		m.log.Debug("The previous primary replica of kernel \"%s\" has been removed.", m.Kernel.ID())
+		m.lastPrimaryReplica = nil
+	}
 }
 
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
@@ -605,12 +766,16 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		return nil
 	}
 
+	// This is the most up-to-date training event to begin training, so we'll record the timestamp in
+	// the 'lastTrainingStartedAt' field.
+	m.lastTrainingStartedAt = time.UnixMilli(leadMessage.UnixMilliseconds)
+
 	// Record that the kernel has started training.
-	if err = replica.KernelStartedTraining(); err != nil {
+	if err = replica.KernelStartedTraining(time.UnixMilli(leadMessage.UnixMilliseconds)); err != nil {
 		m.log.Error("Failed to start training for kernel replica %s-%d: %v", m.Kernel.ID(),
 			replica.ReplicaID(), err)
 
-		m.sendNotification(fmt.Sprintf("Failed to Start Training for Kernel \"%s\"",
+		m.sendNotification(fmt.Sprintf("Failed to Start Training for kernel \"%s\"",
 			m.Kernel.ID()), err.Error(), messaging.ErrorNotification, true)
 
 		return err
@@ -636,7 +801,7 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 		activeExecution.ActiveReplica.ReplicaID(), requestId, replica.ReplicaID())
 
 	m.sendNotification(
-		fmt.Sprintf("Inconsistent Primary Replicas for Completed Code Execution \"%s\" of Kernel \"%s\"",
+		fmt.Sprintf("Inconsistent Primary Replicas for Completed Code Execution \"%s\" of kernel \"%s\"",
 			requestId, m.Kernel.ID()),
 		fmt.Sprintf("Received 'execute_reply' from primary replica %d for execution \"%s\", "+
 			"but we previously recorded that replica %d was the primary replica for this execution...",

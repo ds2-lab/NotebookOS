@@ -22,10 +22,13 @@ const (
 )
 
 type KubernetesScheduler struct {
-	kubeClient scheduling.KubeClient
+	kubeClient scheduling.KubeClient // Kubernetes client.
 	*BaseScheduler
-	kubeNodes                []v1.Node
-	kubeSchedulerServicePort int
+
+	// TODO: There is a gap between the Host interface and the Kubernetes nodes returned by Kube API.
+	kubeNodes []v1.Node
+
+	kubeSchedulerServicePort int // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
 }
 
 func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
@@ -137,7 +140,7 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 // kernel onto Host instances.
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
-// TransactionResources to create the new Kernel replicas.
+// TransactionResources to create the new kernel replicas.
 func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	if len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")

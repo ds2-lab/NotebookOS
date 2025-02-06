@@ -16,10 +16,10 @@ import (
 type SchedulingPolicy interface {
 	scheduling.Policy
 
-	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+	// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 	SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error)
 
-	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+	// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 	// pre-designated as the leader of a code execution.
 	//
 	// If the returned KernelReplica is nil and the returned error is nil, then that indicates

@@ -33,24 +33,32 @@ type MessageDataDirectory struct {
 }
 
 func (m MessageDataDirectory) String() string {
-	return fmt.Sprintf("MessageDataDirectory[KernelId=%s,Status=%v,DataDirectory=%s,HostId=%d]", m.KernelId, m.Status, m.DataDirectory, m.NodeID)
+	return fmt.Sprintf("MessageDataDirectory[kernelId=%s,Status=%v,DataDirectory=%s,HostId=%d]", m.KernelId, m.Status, m.DataDirectory, m.NodeID)
 }
 
 type MessageSMRNodeUpdated struct {
 	MessageSMRReady
-	MessageSMRAddOrUpdateReplicaRequest
 	KernelId string `json:"kernel_id"`
-	Success  bool   `json:"success"`
+	MessageSMRAddOrUpdateReplicaRequest
+	Success bool `json:"success"`
 }
 
 func (m MessageSMRNodeUpdated) String() string {
-	return fmt.Sprintf("MessageSMRNodeUpdated[KernelId=%s,Success=%v,PersistentID=%s,HostId=%d,Address=%s]", m.KernelId, m.Success, m.PersistentID, m.NodeID, m.Address)
+	return fmt.Sprintf("MessageSMRNodeUpdated[kernelId=%s,Success=%v,PersistentID=%s,HostId=%d,Address=%s]", m.KernelId, m.Success, m.PersistentID, m.NodeID, m.Address)
 }
 
 type MessageSMRLeadTask struct {
+
+	// ExecuteRequestMsgId is the Jupyter msg_id (from the header) of the "execute_request"
+	// message that was used to submit the code execution request.
 	ExecuteRequestMsgId string `json:"execute_request_msg_id"`
-	UnixMilliseconds    int64  `json:"msg_created_at_unix_milliseconds"`
-	GPURequired         bool   `json:"gpu"`
+
+	// UnixMilliseconds is the Unix epoch time in milliseconds at which the "smr_lead_task" notification
+	// message was created (and thus approximates when it was sent and when the kernel began executing
+	// the user's code).
+	UnixMilliseconds int64 `json:"msg_created_at_unix_milliseconds"`
+
+	GPURequired bool `json:"gpu"`
 }
 
 type MessageSMRLeadAfterYield struct {

@@ -62,3 +62,5 @@ starting_resource_port: 9007
 num_resource_ports: 4096
 assign_kernel_debug_ports: false
 submit_execute_requests_one_at_a_time: true
+idle_session_reclamation_enabled: true
+idle_session_reclamation_interval_sec: 1800

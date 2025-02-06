@@ -14,21 +14,27 @@ import (
 
 type Container struct {
 	interactivePriority cache.InlineCache
-	trainingStartedAt   time.Time
-	startedAt           time.Time
-	host                scheduling.Host
+	trainingStartedAt   time.Time // The time at which the Container started training.
+	startedAt           time.Time // The time at which the Container was created.
 	scheduling.KernelReplica
-	session                        scheduling.UserSession
-	log                            logger.Logger
-	spec                           *types.DecimalSpec
-	id                             string
-	containerState                 scheduling.ContainerState
-	addr                           string
+
+	log logger.Logger
+
+	session scheduling.UserSession // The Session associated with the Container.
+	host    scheduling.Host        // The Host on which the Container is currently scheduled.
+
+	spec *types.DecimalSpec
+	// lastSpec *types.DecimalSpec
+
+	id                             string                    // The kernel ID of the Container.
+	containerState                 scheduling.ContainerState // The current state of the Container.
+	addr                           string                    // The address of the Container.
 	interactivePriorityExplanation string
-	numTrainingEventsProcessed     int
-	interactivePriorityBase        float64
-	executions                     atomic.Int32
-	replicaId                      int32
+	numTrainingEventsProcessed     int // numTrainingEventsProcessed is the number of training events processed by this Container.
+
+	interactivePriorityBase float64
+	replicaId               int32        // The SMR node ID of the kernel replica running within the Container.
+	executions              atomic.Int32 // The number of training events processed by the Container.
 }
 
 type PlaceholderContainer struct {
@@ -125,7 +131,7 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,StartedAt=%v,ResourceSpec=%v,Host=%v]",
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,startedAt=%v,ResourceSpec=%v,Host=%v]",
 		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 

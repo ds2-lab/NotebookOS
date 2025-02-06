@@ -13,18 +13,19 @@ import (
 )
 
 type resourceManagerImpl struct {
-	sync.Mutex
 	log logger.Logger
 
-	resource         string
 	devices          Devices
 	allocatedDevices *orderedmap.OrderedMap[string, *Device]
 	freeDevices      *orderedmap.OrderedMap[string, *Device]
+
+	resource string
 
 	// The index of the largest device.
 	// The device with this index could be removed if the admin adjusts the number of devices that are available,
 	// in which case there would be no device that actually had this index.
 	largestDeviceIndex int
+	sync.Mutex
 }
 
 var (

@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"errors"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -39,6 +41,8 @@ type ClusterMetricsProvider struct {
 
 	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics))
 	prometheusMetricsEnabled   bool
+
+	log logger.Logger
 }
 
 func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNodeProvider,
@@ -52,7 +56,10 @@ func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNode
 		decrementResourceCountsForRemovedHostCallback: decrResHost,
 	}
 
+	config.InitLogger(&provider.log, provider)
+
 	if port > 0 {
+		provider.log.Debug("Creating GatewayPrometheusManager with port=%d.", port)
 		provider.gatewayPrometheusManager = NewGatewayPrometheusManager(port, localDaemonNodeProvider, updateClusterStatsCallback)
 		provider.prometheusMetricsEnabled = true
 	}

@@ -110,6 +110,16 @@ type Policy interface {
 	// ContainerLifetime returns the ContainerLifetime of KernelContainer instances created under the target Policy.
 	ContainerLifetime() ContainerLifetime
 
+	// ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being
+	// placed back into the warm KernelContainer pool, or if it should simply be terminated.
+	//
+	// ReuseWarmContainers is used in conjunction with ContainerLifetime to determine what to do with the container of a
+	// Kernel when the Policy specifies the ContainerLifetime as SingleTrainingEvent. Specifically, for policies like
+	// FCFS Batch Scheduling, the warm KernelContainer will simply be destroyed.
+	//
+	// But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
+	ReuseWarmContainers() bool
+
 	// PostExecutionStatePolicy returns the PostExecutionStatePolicy of the target scheduling Policy.
 	//
 	// A PostExecutionStatePolicy defines the behavior of a kernel after completing an execution of user code with
@@ -187,15 +197,40 @@ type ResourceScalingPolicy interface {
 
 // ScalingConfiguration encapsulates the various parameters related to auto-scaling.
 type ScalingConfiguration struct {
-	GpusPerHost                 int
-	ScalingFactor               float64
-	ScalingIntervalSec          float64
-	ScalingInterval             time.Duration
-	ScalingLimit                float64
+	// GpusPerHost is the number of virtual GPUs per host.
+	GpusPerHost int
+
+	// ScalingFactor defines how many hosts the cluster will provision based on busy TransactionResources.
+	// Specifically, a proposed auto-scale-out is computed as:
+	//
+	// (<Current GPU Load> * <Scaling Factor>) / <GPUs Per Host>
+	//
+	// This yields a proposed number of hosts (scaled-out from the current number, in theory, unless the scale factor
+	// is very small, in which case it may or may not result in a scale-out.)
+	ScalingFactor float64
+
+	// ScalingIntervalSec instructs us how often to call UpdateRatio in seconds.
+	// Auto-scaling occurs at the end of UpdateRatio.
+	// UpdateRatio updates the subscription ratio, which is used to determine the ratio of subscribed GPUs
+	// to how many are actually being used (by actively-training kernel replicas).
+	// We use that information to inform if we should scale in or out.
+	ScalingIntervalSec float64
+	ScalingInterval    time.Duration
+
+	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
+	ScalingLimit float64
+
+	// MaximumHostsToReleaseAtOnce defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
 	MaximumHostsToReleaseAtOnce int32
-	ScalingBufferSize           int32
-	MinimumCapacity             int32
-	MaximumCapacity             int32
+
+	// ScalingBufferSize is how many extra hosts we provision so that we can quickly scale if needed.
+	ScalingBufferSize int32
+
+	// MinimumCapacity is the minimum number of nodes we must have available at any time.
+	MinimumCapacity int32
+
+	// MaximumCapacity is the maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	MaximumCapacity int32
 }
 
 // NewScalingConfiguration creates a new ScalingConfiguration struct, populating its field with the corresponding

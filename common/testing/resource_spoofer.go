@@ -16,12 +16,12 @@ import (
 // ResourceSpoofer is used to provide spoofed resources to be used by mock_proto.MockLocalGatewayClient
 // instances when spoofing calls to proto.LocalGatewayClient.ResourcesSnapshot.
 type ResourceSpoofer struct {
-	SnapshotId atomic.Int32
+	HostSpec   types.Spec
+	Manager    *resource.Manager
 	HostId     string
 	NodeName   string
 	ManagerId  string
-	HostSpec   types.Spec
-	Manager    *resource.Manager
+	SnapshotId atomic.Int32
 }
 
 func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *ResourceSpoofer {

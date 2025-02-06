@@ -51,11 +51,12 @@ type MessageHandler func(JupyterServerInfo, MessageType, *JupyterMessage) error
 type MessageDone func()
 
 type MessageHandlerWrapper struct {
-	Start   time.Time
+	Start   time.Time // The time at which the handler was created/returned
 	request Request
-	handle  MessageHandler
-	done    MessageDone
-	once    int32
+
+	handle MessageHandler
+	done   MessageDone
+	once   int32
 }
 
 func GetMessageHandlerWrapper(request Request) *MessageHandlerWrapper {
@@ -95,17 +96,18 @@ func (m *MessageHandlerWrapper) Release() {
 
 type Socket struct {
 	zmq4.Socket
-	PendingReq       hashmap.HashMap[string, *MessageHandlerWrapper]
-	Handler          MessageHandler
-	StopServingChan  chan struct{}
-	Name             string
-	RemoteName       string
-	Port             int
-	Type             MessageType
-	MessagesSent     int
-	mu               sync.Mutex
-	Serving          int32
-	IsGolangFrontend bool
+	PendingReq      hashmap.HashMap[string, *MessageHandlerWrapper] // Requests that have been sent on this socket, for which we're waiting for responses.
+	Handler         MessageHandler                                  // The handler for responses. TODO: Is this actually used?
+	StopServingChan chan struct{}                                   // Used to tell a goroutine serving this socket to stop (such as if we're recreating+reconnecting due to no ACKs)
+	Name            string                                          // Mostly used for debugging.
+	RemoteName      string                                          // Mostly used for debugging.
+	Port            int                                             // The port that the socket is bound to/listening on.
+	Type            MessageType                                     // The type of Socket that this is (e.g., shell, stdin, control, heartbeat, or io pub/sub).
+	MessagesSent    int                                             // Number of messages sent via this Socket.
+	//MessagesReceived int                                             // Number of messages received via this Socket.
+	mu               sync.Mutex // Synchronizes access to the underlying ZMQ socket, only for sends.
+	Serving          int32      // Indicates whether we have a goroutine monitoring for messages + handling those messages. Must be read/updated atomically.
+	IsGolangFrontend bool       // If true, then this Socket is connected to a Golang Jupyter frontend.
 }
 
 // NewSocket creates a new Socket, without specifying the message handler.

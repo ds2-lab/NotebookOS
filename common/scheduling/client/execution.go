@@ -20,27 +20,71 @@ import (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type Execution struct {
-	OriginallySentAt        time.Time
-	CreatedAt               time.Time
-	Replies                 hashmap.HashMap[int32, *messaging.JupyterMessage]
-	NextAttempt             scheduling.Execution
-	PreviousAttempt         scheduling.Execution
-	ActiveReplica           scheduling.KernelReplica
-	JupyterMessage          *messaging.JupyterMessage
-	Proposals               map[int32]scheduling.Proposal
-	State                   State
-	WorkloadId              string
+
+	// CreatedAt is the time at which this Execution was created.
+	CreatedAt time.Time
+
+	// OriginallySentAt is the time at which the "execute_request" message associated with this Execution
+	// was actually sent by the Jupyter client. We can only recover this if the client is an instance of our
+	// Go-implemented Jupyter client, as those clients embed the unix milliseconds at which the message was
+	// created and subsequently sent within the metadata field of the message.
+	OriginallySentAt time.Time
+
+	// NextAttempt is the Execution attempt that occurred after this one.
+	NextAttempt scheduling.Execution
+
+	// PreviousAttempt is the Execution attempt that preceded this one, if this is not the first attempt.
+	PreviousAttempt scheduling.Execution
+
+	// Replies is a map of the responses from each replica. Note that replies are only saved if debug mode is enabled.
+	Replies hashmap.HashMap[int32, *messaging.JupyterMessage]
+
+	// ActiveReplica is the kernel connected to the replica of the kernel that is actually
+	// executing the user-submitted code.
+	ActiveReplica scheduling.KernelReplica
+
+	// Proposals is a map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	Proposals map[int32]scheduling.Proposal
+
+	// JupyterMessage is the original 'execute_request' message.
+	JupyterMessage *messaging.JupyterMessage
+
+	// ExecuteRequestMessageId is the  Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
 	ExecuteRequestMessageId string
-	KernelId                string
-	SessionId               string
-	NumReplicas             int
-	AttemptNumber           int
-	NumYieldProposals       int
-	NumLeadProposals        int
-	replyMutex              sync.Mutex
-	ExecutionIndex          int32
+
+	// SessionId is the ID of the Jupyter session that initiated the request.
+	SessionId string
+
+	// KernelId is the ID of the associated kernel.
+	KernelId string
+
+	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
+	// was a Golang Jupyter client.
+	WorkloadId string
+
+	State State
+
+	// AttemptNumber begins at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	AttemptNumber int
+
+	// NumReplicas is the number of replicas that the kernel had with the execution request was originally received.
+	NumReplicas int
+
+	// NumLeadProposals is the number of 'LEAD' Proposals issued.
+	NumLeadProposals int
+
+	// NumYieldProposals is the number of 'YIELD' Proposals issued.
+	NumYieldProposals int
+
+	// replyMutex ensures atomicity of the RegisterReply method.
+	replyMutex sync.Mutex
+
+	// ExecutionIndex uniquely identifies this Execution and enables a total ordering between all Execution structs.
+	ExecutionIndex int32
+
 	originallySentAtDecoded bool
-	workloadIdSet           bool
+
+	workloadIdSet bool
 }
 
 func NewExecution(kernelId string, attemptId int, numReplicas int, executionIndex int32, msg *messaging.JupyterMessage) *Execution {
@@ -184,7 +228,7 @@ func (e *Execution) SetExecuted() {
 }
 
 func (e *Execution) String() string {
-	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,TransactionState=%s,Attempt=%d,NumReplicas=%d,"+
+	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,kernel=%s,Session=%s,TransactionState=%s,Attempt=%d,NumReplicas=%d,"+
 		"NumLeadProposals=%d,NumYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,"+
 		"CreatedAtTimestamp=%v]",
 		e.ExecuteRequestMessageId, e.KernelId, e.SessionId, e.State.String(), e.AttemptNumber, e.NumReplicas,

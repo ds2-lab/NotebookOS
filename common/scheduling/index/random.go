@@ -25,12 +25,12 @@ const (
 type RandomClusterIndex struct {
 	log logger.Logger
 	*CallbackManager
-	perm        []int
-	hosts       []scheduling.Host
+	perm        []int             // The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
+	hosts       []scheduling.Host // The Host instances contained within the RandomClusterIndex.
 	mu          sync.Mutex
-	freeStart   int32
-	seekStart   int32
-	numShuffles atomic.Int32
+	freeStart   int32        // The first freed index.
+	seekStart   int32        // The start index of the seek.
+	numShuffles atomic.Int32 // The number of times the index has been shuffled to a new random permutation.
 	len         int32
 }
 

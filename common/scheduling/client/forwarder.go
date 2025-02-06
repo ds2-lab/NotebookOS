@@ -42,8 +42,8 @@ type MessageRecipient interface {
 	// IsTraining returns true if the target MessageRecipient is actively training.
 	IsTraining() bool
 
-	// TrainingStartedAt returns the time at which the target MessageRecipient last began training.
-	TrainingStartedAt() time.Time
+	// LastTrainingStartedAt returns the time at which the target MessageRecipient last began training.
+	LastTrainingStartedAt() time.Time
 }
 
 type RequestHandler[MessageType any] func(ctx context.Context, _ string, typ messaging.MessageType, msg MessageType, handler scheduling.KernelReplicaMessageHandler, done func()) error
@@ -52,13 +52,26 @@ type ProcessMessageFunc[MessageType any] func(msg MessageType, kernel MessageRec
 
 // ExecuteRequestForwarder ensures that "execute_request" (and "yield_request") messages are sent one-at-a-time.
 type ExecuteRequestForwarder[MessageType any] struct {
-	log                                logger.Logger
-	outgoingExecuteRequestQueue        hashmap.HashMap[string, chan *enqueuedRequest[MessageType]]
+	log logger.Logger
+
+	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
+	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedRequest[MessageType]]
+
+	// outgoingExecuteRequestQueueMutexes is a map of mutexes. Keys are kernel IDs. Values are the mutex for the
+	// associated kernel's outgoing "execute_request" message queue.
 	outgoingExecuteRequestQueueMutexes hashmap.HashMap[string, *sync.Mutex]
-	executeRequestQueueStopChannels    hashmap.HashMap[string, chan interface{}]
-	notificationCallback               scheduling.NotificationCallback
-	processCallback                    ProcessMessageFunc[MessageType]
-	mu                                 sync.Mutex
+
+	// executeRequestQueueStopChannels is a map from kernel ID to the channel used to tell the goroutine responsible
+	// for forwarding that kernel's "execute_request" messages to stop running (such as when we are stopping
+	// the kernel replica).
+	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
+
+	// notificationCallback is an optional callback used to submit notifications back to the frontend.
+	notificationCallback scheduling.NotificationCallback
+
+	// processCallback is an optional callback used to process messages before sending them.
+	processCallback ProcessMessageFunc[MessageType]
+	mu              sync.Mutex
 }
 
 // NewExecuteRequestForwarder creates a new ExecuteRequestForwarder struct and returns a pointer to it.
@@ -198,7 +211,7 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 			"Enqueued message kernel ID: \"%s\". Expected kernel ID: \"%s\"", message.MsgId, message.Kernel.ID(), kernel.ID())
 
 		if s.notificationCallback != nil {
-			s.notificationCallback("Enqueued Message with Mismatched Kernel ID", errorMessage, messaging.ErrorNotification)
+			s.notificationCallback("Enqueued Message with Mismatched kernel ID", errorMessage, messaging.ErrorNotification)
 		}
 
 		s.log.Error(errorMessage)
@@ -219,9 +232,9 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 
 	// Sanity check.
 	if message.Kernel.IsTraining() {
-		log.Fatalf(utils.RedStyle.Render("Kernel %s is already training, even though we haven't sent the "+
+		log.Fatalf(utils.RedStyle.Render("kernel %s is already training, even though we haven't sent the "+
 			"next \"execute_request\"/\"yield_execute\" request yet. Started training at: %v (i.e., %v ago)."),
-			message.Kernel.ID(), message.Kernel.TrainingStartedAt(), time.Since(message.Kernel.TrainingStartedAt()))
+			message.Kernel.ID(), message.Kernel.LastTrainingStartedAt(), time.Since(message.Kernel.LastTrainingStartedAt()))
 	}
 
 	// Send the message and post the result back to the caller via the channel included within
@@ -229,7 +242,7 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 	ctx, cancel := context.WithCancel(context.Background())
 	err := requestHandler(
 		ctx, "Forwarding", messaging.ShellMessage, processedMessage, handler, func() {
-			s.log.Debug("Done() called for shell execute/yield message \"%s\" targeting kernel %s. "+
+			s.log.Debug("SetDone() called for shell execute/yield message \"%s\" targeting kernel %s. "+
 				"Cancelling (though request may have succeeded already).", message.MsgId, message.Kernel.ID())
 			cancel()
 		})

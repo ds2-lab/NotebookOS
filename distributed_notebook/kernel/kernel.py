@@ -3778,6 +3778,25 @@ class DistributedKernel(IPythonKernel):
 
             return gen_error_response(e), False
 
+        # If the SyncLog is not an instance of RaftLog, then we don't have to worry about writing and copying
+        # the SyncLog's data directory to remote storage. We can just return now.
+        if not isinstance(self.synclog, RaftLog):
+            try:
+                self.synclog.close_remote_storage_client()
+            except Exception as e:
+                self.log.error(
+                    "Failed to close the RemoteStorage client within the LogNode."
+                )
+                tb: list[str] = traceback.format_exception(e)
+                for frame in tb:
+                    self.log.error(frame)
+
+            return {
+                "status": "ok",
+                "id": self.smr_node_id,
+                "kernel_id": self.kernel_id,
+            }, True  # "data_directory": waldir_path,
+
         # Step 2: copy the data directory to RemoteStorage
         try:
             write_start: float = time.time()
@@ -3788,6 +3807,8 @@ class DistributedKernel(IPythonKernel):
                 f"Remote storages ({len(self.remote_storages)}): {self.remote_storages}."
             )
 
+            # Per the Raft documentation, now that we've stopped the SyncLog/RaftLog,
+            # we can write its data to intermediate storage.
             waldir_path: str = await self.synclog.write_data_dir_to_remote_storage(
                 last_resource_request=self.current_resource_request,
                 remote_storage_definitions=self.remote_storages,
@@ -4805,7 +4826,7 @@ class DistributedKernel(IPythonKernel):
                     num_replicas=self.num_replicas,
                     remote_storage_hostname=self.remote_storage_hostname,
                     remote_storage=self.remote_storage,
-                    should_read_data=self.should_read_data_from_remote_storage,
+                    load_data_from_remote_storage=self.should_read_data_from_remote_storage,
                     peer_addresses=peer_addresses,
                     peer_ids=ids,
                     join=self.smr_join,

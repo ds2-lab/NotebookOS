@@ -16,11 +16,27 @@ import (
 // AbstractPlacer implements basic place/reclaim functionality.
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
-	metricsProvider         scheduling.MetricsProvider
-	log                     logger.Logger
-	instance                internalPlacer
-	schedulingPolicy        scheduling.Policy
-	kernelResourceReserver  kernelResourceReserver
+	metricsProvider  scheduling.MetricsProvider
+	log              logger.Logger
+	instance         internalPlacer
+	schedulingPolicy scheduling.Policy
+
+	// kernelResourceReserver is used by placers to reserve resources on candidate hosts for arbitrary/unspecified
+	// replicas of a particular kernel.
+	//
+	// kernelResourceReserver returns true (and nil) if resources were reserved.
+	//
+	// If resources could not be reserved, then false is returned, along with an error explaining why
+	// the resources could not be reserved.
+	kernelResourceReserver kernelResourceReserver
+
+	// replicaResourceReserver is used by placers to reserve resources on candidate hosts for specified replicas of a
+	// particular kernel.
+	//
+	// replicaResourceReserver returns true (and nil) if resources were reserved.
+	//
+	// If resources could not be reserved, then false is returned, along with an error explaining why
+	// the resources could not be reserved.
 	replicaResourceReserver replicaResourceReserver
 	numReplicas             int
 	mu                      sync.Mutex
@@ -180,7 +196,7 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 }
 
 // ReserveResourcesForReplica is used to instruct the scheduling.Placer to explicitly reserve resources for a
-// particular KernelReplica of a particular Kernel.
+// particular KernelReplica of a particular kernel.
 //
 // The primary use case for ReserveResourcesForReplica is when a specific scheduling.KernelReplica is specified to
 // serve as the primary replica within the metadata of an "execute_request" message. This may occur because the user
@@ -293,7 +309,8 @@ func (placer *AbstractPlacer) Reclaim(host scheduling.Host, sess scheduling.User
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// We'll wait up to 5 minutes for the operation to complete, in case there is some significant I/O required.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	placer.log.Debug("Calling StopKernel on kernel %s running on host %s (ID=%v).",

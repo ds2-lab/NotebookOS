@@ -78,7 +78,7 @@ func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) 
 	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticIndex), nil
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if !p.SupportsMigration() {
 		panic("StaticPolicy is supposed to support migration, yet apparently it doesn't?")
@@ -90,7 +90,7 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 	return kernel.GetReplicaByID(targetReplicaId)
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates
@@ -181,6 +181,18 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 		kernel.ID(), kernel.ResourceSpec().String())
 
 	return nil, nil // Migration is permitted, so we never return an error.
+}
+
+// ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being
+// placed back into the warm KernelContainer pool, or if it should simply be terminated.
+//
+// ReuseWarmContainers is used in conjunction with ContainerLifetime to determine what to do with the container of a
+// Kernel when the Policy specifies the ContainerLifetime as SingleTrainingEvent. Specifically, for policies like
+// FCFS Batch Scheduling, the warm KernelContainer will simply be destroyed.
+//
+// But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
+func (p *StaticPolicy) ReuseWarmContainers() bool {
+	return false
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the

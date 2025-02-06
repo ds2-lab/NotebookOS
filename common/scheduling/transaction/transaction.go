@@ -9,9 +9,12 @@ import (
 )
 
 type Transaction struct {
-	state     scheduling.TransactionState
+	state scheduling.TransactionState
+	//initialState scheduling.TransactionState
+
 	operation scheduling.TransactionOperation
 	mu        sync.Mutex
+
 	complete  atomic.Bool
 	succeeded atomic.Bool
 }

@@ -88,7 +88,11 @@ func main() {
 
 	ValidateOptions()
 
-	logger.Info("Starting local daemon (scheduler daemon) with options: %v", options)
+	logger.Info("Starting Local Scheduler with the following options:\n%s\n", options.String())
+
+	if options.PrettyPrintOptions {
+		logger.Info("Local Scheduler Options pretty-printed:\n%s\n", options.PrettyString(2))
+	}
 
 	if options.SchedulerDaemonOptions.CommonOptions.DebugMode {
 		go createAndStartDebugHttpServer()

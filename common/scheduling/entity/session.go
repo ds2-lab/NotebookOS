@@ -41,33 +41,45 @@ type sessionStateTransition struct {
 }
 
 type Session struct {
-	preemptionPriority             cache.InlineCache
-	migrationStart                 time.Time
-	idleStartTime                  time.Time
-	trainingStart                  time.Time
-	startedAt                      time.Time
-	log                            logger.Logger
-	trainingTimeWithOverheads      scheduling.SessionStatistic
-	migrationTime                  scheduling.SessionStatistic
-	ctx                            context.Context
-	trainingContainer              scheduling.KernelContainer
-	resourceSpec                   types.CloneableSpec
-	instance                       *Session
-	kernelSpec                     *proto.KernelSpec
-	migrationTimeHistory           *ValueHistory[time.Duration]
-	trainingTimeHistory            *ValueHistory[time.Duration]
-	containers                     map[int32]scheduling.KernelContainer
-	preemptionPriorityHistory      *ValueHistory[float64]
-	interactivePriorityHistory     *ValueHistory[float64]
-	sessionState                   scheduling.SessionState
-	preemptionPriorityExplanation  string
-	interactivePriorityExplanation string
-	id                             string
-	stateTransitions               []*sessionStateTransition
-	numTrainingEventsProcessed     int
-	interactivePriority            float64
-	cumulativeTrainingTime         time.Duration
-	mu                             sync.Mutex
+	preemptionPriority cache.InlineCache // Preemption Priority
+	trainingStart      time.Time         // Time at which the current training began.
+	idleStartTime      time.Time         // idleStartTime is the time at which the Distributed kernel Client last began idling.
+	migrationStart     time.Time         // Time at which the migration began.
+	startedAt          time.Time         // Time at which the session began running.
+
+	ctx                       context.Context             // The Session's context.
+	trainingContainer         scheduling.KernelContainer  // The Container that is actively training.
+	resourceSpec              types.CloneableSpec         // The (current) resource requirements of the Session.
+	trainingTimeWithOverheads scheduling.SessionStatistic // Moving average of training times.
+	migrationTime             scheduling.SessionStatistic // Moving average of migration times.
+
+	log      logger.Logger
+	instance *Session
+
+	containers map[int32]scheduling.KernelContainer // The kernel replicas belonging to this Session.
+
+	////////////////////////
+	// Session Statistics //
+	////////////////////////
+
+	kernelSpec *proto.KernelSpec // The kernel resourceSpec of the associated kernel.
+
+	interactivePriorityHistory *ValueHistory[float64]
+	preemptionPriorityHistory  *ValueHistory[float64]
+	trainingTimeHistory        *ValueHistory[time.Duration]
+	migrationTimeHistory       *ValueHistory[time.Duration]
+
+	id                             string                    // Session/kernel ID.
+	sessionState                   scheduling.SessionState   // The current state of the Session.
+	interactivePriorityExplanation string                    // Explanation of current Interactivity Priority value.
+	preemptionPriorityExplanation  string                    // Explanation of current  Preemption Priority value.
+	stateTransitions               []*sessionStateTransition // History of state transitions performed by the Session.
+	cumulativeTrainingTime         time.Duration             // cumulativeTrainingTime is the sum of time that this Session has spent training, excluding any associated overheads.
+
+	interactivePriority        float64 // Interactivity Priority
+	numTrainingEventsProcessed int     // numTrainingEventsProcessed is the number of training events processed by this Session.
+
+	mu sync.Mutex
 }
 
 type SessionBuilder struct {
@@ -320,17 +332,17 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 	return promise.Resolved(s.instance)
 }
 
-// SessionStartedTraining should be called when one of the Session's Kernel replicas begins training.
+// SessionStartedTraining should be called when one of the Session's kernel replicas begins training.
 //
 // Note: this method is thread-safe.
 //
 // In the Local Daemon, this won't be called, as the Local Daemon does not track ComputeResource in this way.
 //
-// In the Cluster Gateway, this is called in the SessionStartedTraining method of the Kernel.
-// The Kernel's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
+// In the Cluster Gateway, this is called in the SessionStartedTraining method of the kernel.
+// The kernel's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
 // of DistributedKernelClient.
 //
-// DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
+// DistributedKernelClient::handleSmrLeadTaskMessage --> kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
 func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) promise.Promise {
 	if container == nil {
 		s.log.Error("Specified container for training is nil. Cannot start training.")
@@ -391,9 +403,9 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 	return promise.Resolved(s.instance)
 }
 
-// SessionStoppedTraining should be called when the actively-training Kernel replica of the Session stops training.
+// SessionStoppedTraining should be called when the actively-training kernel replica of the Session stops training.
 //
-// This should be called by the Kernel's KernelStoppedTraining method.
+// This should be called by the kernel's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
 func (s *Session) SessionStoppedTraining(reason string) promise.Promise {

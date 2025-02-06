@@ -33,18 +33,20 @@ func (t Type) String() string {
 //
 // Provider validates that all required arguments are non-nil before creating the scheduling.Cluster.
 type Provider struct {
-	HostSpec                  types.Spec
-	Placer                    scheduling.Placer
-	HostMapper                scheduler.HostMapper
-	KernelProvider            scheduler.KernelProvider
-	ClusterMetricsProvider    scheduling.MetricsProvider
-	NotificationBroker        scheduler.NotificationBroker
-	SchedulingPolicy          internalSchedulingPolicy
-	KubeClient                scheduling.KubeClient
+	HostSpec               types.Spec                   // Required.
+	Placer                 scheduling.Placer            // Required.
+	HostMapper             scheduler.HostMapper         // Required.
+	KernelProvider         scheduler.KernelProvider     // Required.
+	ClusterMetricsProvider scheduling.MetricsProvider   // Optional.
+	NotificationBroker     scheduler.NotificationBroker // Optional.
+	SchedulingPolicy       internalSchedulingPolicy     // Optional, will be extracted from Options if not specified.
+	KubeClient             scheduling.KubeClient        // Required for Kubernetes clusters. Ignored for others.
+
 	log                       logger.Logger
-	Options                   *scheduling.SchedulerOptions
-	StatisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
-	ClusterType               Type
+	Options                   *scheduling.SchedulerOptions                      // Required.
+	StatisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)) // Optional.
+
+	ClusterType Type // Required.
 }
 
 func NewBuilder(clusterType Type) *Provider {

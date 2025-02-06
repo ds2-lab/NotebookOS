@@ -29,7 +29,9 @@ var (
 	LightBlueStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3cc5ff"))
 	BlueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0c00cc"))
+			Foreground(lipgloss.Color("#2a63e8"))
+	CyanStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FFFF"))
 	LightPurpleStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#d864ff"))
 	PurpleStyle = lipgloss.NewStyle().

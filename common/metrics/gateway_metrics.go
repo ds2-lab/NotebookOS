@@ -51,7 +51,7 @@ type GatewayPrometheusManager struct {
 	ScaleInLatencyMillisecondsHistogram prometheus.Histogram
 
 	///////////////////////////////////////
-	// Kernel Replica Scheduling Metrics //
+	// kernel Replica Scheduling Metrics //
 	///////////////////////////////////////
 
 	// KernelCreationLatencyHistogram records the latency of creating a new kernel from the perspective of
@@ -83,7 +83,7 @@ type GatewayPrometheusManager struct {
 	NumDisabledHostsGauge prometheus.Gauge
 
 	//////////////////////////////
-	// Kernel Migration Metrics //
+	// kernel Migration Metrics //
 	//////////////////////////////
 
 	// NumSuccessfulMigrations keeps track of the number of times we successfully migrated a kernel from
@@ -237,7 +237,7 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 	}
 
 	if err := prometheus.Register(m.KernelMigrationLatencyHistogram); err != nil {
-		m.log.Error("Failed to register 'Kernel Migration Latency Histogram' metric because: %v", err)
+		m.log.Error("Failed to register 'kernel Migration Latency Histogram' metric because: %v", err)
 		return err
 	}
 
@@ -257,7 +257,7 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 	}
 
 	if err := prometheus.Register(m.KernelCreationLatencyHistogram); err != nil {
-		m.log.Error("Failed to register 'Kernel Creation Latency Histogram' metric because: %v", err)
+		m.log.Error("Failed to register 'kernel Creation Latency Histogram' metric because: %v", err)
 		return err
 	}
 

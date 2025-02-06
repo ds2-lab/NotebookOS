@@ -86,41 +86,23 @@ var (
 
 type DockerInvoker struct {
 	LocalInvoker
-	containerCreatedAt                   time.Time
-	containerMetricsProvider             ContainerMetricsProvider
-	connInfo                             *jupyter.ConnectionInfo
-	opts                                 *DockerInvokerOptions
-	invokerCmd                           string
-	hostMountDir                         string
-	containerName                        string
-	kernelId                             string
-	dockerNetworkName                    string
-	DeploymentMode                       types.DeploymentMode
-	WorkloadId                           string
-	id                                   string
-	tempBase                             string
-	remoteStorageEndpoint                string
-	remoteStorage                        string
-	dockerStorageBase                    string
-	targetMountDir                       string
-	AssignedGpuDeviceIds                 []int32
-	prometheusMetricsPort                int
-	KernelDebugPort                      int
-	electionTimeoutSeconds               int
-	smrPort                              int
-	closing                              int32
-	containerCreated                     bool
-	simulateWriteAfterExec               bool
-	simulateWriteAfterExecOnCriticalPath bool
-	SimulateTrainingUsingSleep           bool
-	BindGPUs                             bool
-	RunKernelsInGdb                      bool
-	BindAllGpus                          bool
-	BindDebugpyPort                      bool
-	SaveStoppedKernelContainers          bool
-	simulateCheckpointingLatency         bool
-	SmrEnabled                           bool
-	IsInDockerSwarm                      bool
+	containerCreatedAt       time.Time                // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
+	containerMetricsProvider ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
+	connInfo                 *jupyter.ConnectionInfo
+	opts                     *DockerInvokerOptions
+	tempBase                 string
+	hostMountDir             string
+	targetMountDir           string
+	invokerCmd               string               // Command used to create the Docker container.
+	containerName            string               // Name of the launched container; this is the empty string before the container is launched.
+	kernelId                 string               // The ID of the target kernel.
+	dockerNetworkName        string               // The name of the Docker network that the Local Daemon container is running within.
+	id                       string               // Uniquely identifies this Invoker instance.
+	remoteStorageEndpoint    string               // Endpoint of the remote storage.
+	remoteStorage            string               // Type of remote storage, either 'hdfs' or 'redis'
+	dockerStorageBase        string               // Base directory in which the persistent store data is stored.
+	DeploymentMode           types.DeploymentMode // DeploymentMode is the deployment mode of the cluster
+	WorkloadId               string
 
 	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
 	S3Bucket string
@@ -131,40 +113,114 @@ type DockerInvoker struct {
 	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
 	RedisPassword string
 
+	AssignedGpuDeviceIds   []int32 // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	smrPort                int     // Port used by the SMR cluster.
+	KernelDebugPort        int     // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	electionTimeoutSeconds int     // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
+	prometheusMetricsPort  int     // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
+
 	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
 	RedisPort int
 
 	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
-	RedisDatabase int
+	RedisDatabase                        int
+	closing                              int32 // Indicates whether the container is closing/shutting down.
+	containerCreated                     bool  // containerCreated is a bool indicating whether kernel the container has been created.
+	simulateCheckpointingLatency         bool  // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
+	RunKernelsInGdb                      bool  // If true, then the kernels will be run in GDB.
+	simulateWriteAfterExec               bool  // Simulate network write after executing code?
+	simulateWriteAfterExecOnCriticalPath bool  // Should the simulated network write after executing code be on the critical path?
+	SimulateTrainingUsingSleep           bool  // SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	BindGPUs                             bool  // BindGPUs indicates whether we should bind GPUs to the container or not. We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
+	BindAllGpus                          bool  // BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	BindDebugpyPort                      bool  // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	SaveStoppedKernelContainers          bool  // If true, then do not fully remove stopped kernel containers.
+	SmrEnabled                           bool
+
+	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
+	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
+	//
+	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
+	// that they are scheduled onto our node.
+	IsInDockerSwarm bool
 }
 
 // DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
 // to properly configure the kernel replica containers.
 type DockerInvokerOptions struct {
-	WorkloadId                           string
-	RemoteStorage                        string
-	DockerStorageBase                    string
-	RemoteStorageEndpoint                string
-	AssignedGpuDeviceIds                 []int32
-	KernelDebugPort                      int
-	PrometheusMetricsPort                int
-	ElectionTimeoutSeconds               int
-	RunKernelsInGdb                      bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+	// RemoteStorageEndpoint is the endpoint of the remote storage.
+	RemoteStorageEndpoint string
+
+	// RemoteStorage is the type of remote storage, either 'hdfs' or 'redis'
+	RemoteStorage string
+
+	// DockerStorageBase is the base directory in which the persistent store data is stored when running in docker mode.
+	DockerStorageBase string
+
+	WorkloadId string
+
+	S3Bucket      string
+	AwsRegion     string
+	RedisPassword string
+
+	// AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that
+	// the DockerInvoker will be invoking.
+	AssignedGpuDeviceIds []int32
+
+	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	KernelDebugPort int
+
+	// PrometheusMetricsPort is the port that the container should serve prometheus metrics on.
+	PrometheusMetricsPort int
+
+	// ElectionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before
+	// deciding on a leader
+	ElectionTimeoutSeconds int
+
+	RedisPort     int
+	RedisDatabase int
+
+	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
+	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+
+	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
+	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
+	//
+	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
+	// that they are scheduled onto our node.
+	IsInDockerSwarm bool
+
+	// SimulateWriteAfterExecOnCriticalPath is a flag indicating whether the kernel should perform a simulated network
+	// write after executing code.
+	SimulateWriteAfterExec bool
+
+	// SimulateWriteAfterExecOnCriticalPath is a flag indicating whether the simulated network write after executing
+	// code should be on the critical path.
 	SimulateWriteAfterExecOnCriticalPath bool
-	SimulateCheckpointingLatency         bool
-	SmrEnabled                           bool
-	SimulateWriteAfterExec               bool
-	BindAllGpus                          bool
-	IsInDockerSwarm                      bool
-	SimulateTrainingUsingSleep           bool
-	BindDebugpyPort                      bool
-	SaveStoppedKernelContainers          bool
-	BindGPUs                             bool
-	S3Bucket                             string
-	AwsRegion                            string
-	RedisPassword                        string
-	RedisPort                            int
-	RedisDatabase                        int
+
+	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
+	// performing checkpointing after a migration (read) and after executing code (write).
+	SimulateCheckpointingLatency bool
+
+	SmrEnabled bool
+
+	// BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it
+	// (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true,
+	// then this option is ultimately ignored.
+	BindAllGpus bool
+
+	// SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	SimulateTrainingUsingSleep bool
+
+	// BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	BindDebugpyPort bool
+
+	// If true, then do not fully remove stopped kernel containers.
+	SaveStoppedKernelContainers bool
+
+	// BindGPUs indicates whether we should bind GPUs to the container or not.
+	// We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
+	BindGPUs bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
@@ -349,7 +405,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		}
 	}
 
-	ivk.log.Debug("[DockerInvoker] Kernel Name: \"%s\". Port: %d.\n", kernelName, port)
+	ivk.log.Debug("[DockerInvoker] kernel Name: \"%s\". Port: %d.\n", kernelName, port)
 
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionInfo(spec.Kernel)

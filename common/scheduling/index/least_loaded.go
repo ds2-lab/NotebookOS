@@ -23,7 +23,7 @@ const (
 type LeastLoadedIndex struct {
 	log logger.Logger
 	*CallbackManager
-	hosts *types.Heap
+	hosts *types.Heap // The Host instances contained within the LeastLoadedIndex.
 	mu    sync.Mutex
 }
 

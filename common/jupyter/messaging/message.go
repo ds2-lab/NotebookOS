@@ -283,7 +283,7 @@ func CopyRequestTraceFromBuffersToMetadata(msg *JupyterMessage, signatureScheme 
 
 	// Resign and re-verify the message.
 	if signatureScheme == "" {
-		logger.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", JupyterSignatureScheme)
+		logger.Warn("kernel %s's signature scheme is blank. Defaulting to \"%s\"", JupyterSignatureScheme)
 		signatureScheme = JupyterSignatureScheme
 	}
 
@@ -439,36 +439,62 @@ type ElectionVoteProposalMetadata struct {
 // replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 type ElectionMetadata struct {
 	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals" mapstructure:"proposals"`
-	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals" mapstructure:"discarded_proposals"`
 	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals" mapstructure:"vote_proposals"`
+	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals" mapstructure:"discarded_proposals"`
 	CompletionReason          string                                  `json:"completion_reason" mapstructure:"completion_reason"`
 	MissingProposals          []int                                   `json:"missing_proposals" mapstructure:"missing_proposals"`
-	NumDiscardedProposals     int                                     `json:"num_discarded_proposals" mapstructure:"num_discarded_proposals"`
-	WinnerID                  int                                     `json:"winner_id" mapstructure:"winner_id"`
 	TermNumber                int                                     `json:"term_number" mapstructure:"term_number"`
+	ElectionState             int                                     `json:"election_state" mapstructure:"election_state"`
+	ElectionStateString       int                                     `json:"election_state_string" mapstructure:"election_state_string"`
+	WinnerID                  int                                     `json:"winner_id" mapstructure:"winner_id"`
+	NumDiscardedProposals     int                                     `json:"num_discarded_proposals" mapstructure:"num_discarded_proposals"`
 	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals" mapstructure:"num_discarded_vote_proposals"`
 	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received" mapstructure:"num_lead_proposals_received"`
 	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received" mapstructure:"num_yield_proposals_received"`
 	NumRestarts               int                                     `json:"num_restarts" mapstructure:"num_restarts"`
 	CurrentAttemptNumber      int                                     `json:"current_attempt_number" mapstructure:"current_attempt_number"`
-	ElectionStateString       int                                     `json:"election_state_string" mapstructure:"election_state_string"`
-	ElectionState             int                                     `json:"election_state" mapstructure:"election_state"`
 	WinnerSelected            bool                                    `json:"winner_selected" mapstructure:"winner_selected"`
 }
 
 // ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
 // of an "execute_request" message.
 type ExecuteRequestMetadata struct {
+
+	// ResourceWrapperSnapshot is a snapshot of the resources available on the Local Daemon.
 	ResourceWrapperSnapshot types.ArbitraryResourceSnapshot `json:"resource_snapshot" mapstructure:"resource_snapshot,omitempty"`
-	TargetReplicaId         *int32                          `json:"target_replica" mapstructure:"target_replica,omitempty"`
-	WorkloadId              *string                         `json:"workload_id" mapstructure:"workload_id,omitempty"`
-	KernelId                *string                         `json:"kernel_id" mapstrcture:"kernel_id,omitempty"`
-	ResourceRequest         *types.Float64Spec              `json:"resource_request" mapstructure:"resource_request,omitempty"`
-	SentAtUnixTimestamp     *float64                        `json:"send_timestamp_unix_milli,omitempty" mapstructure:"send_timestamp_unix_milli,omitempty"`
-	ElectionMetadata        *ElectionMetadata               `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
-	RemoteStorageDefinition *proto.RemoteStorageDefinition  `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
-	OtherMetadata           map[string]interface{}          `mapstructure:",remain"`
-	GpuDeviceIds            []int                           `json:"gpu_device_ids" mapstructure:"gpu_device_ids"`
+
+	// TargetReplicaId is the SMR node ID of the replica of the kernel associated with this message (or more accurately,
+	// the kernel associated with the message in which this ExecuteRequestMetadata is contained) that should lead
+	// the execution of the code included in the "execute_request".
+	TargetReplicaId *int32 `json:"target_replica" mapstructure:"target_replica,omitempty"`
+
+	// WorkloadId is the identifier of the workload in which this code execution is taking place.
+	// Workloads are a construct of the workload orchestrator/cluster dashboard.
+	WorkloadId *string `json:"workload_id" mapstructure:"workload_id,omitempty"`
+
+	KernelId *string `json:"kernel_id" mapstrcture:"kernel_id,omitempty"`
+
+	// ResourceRequest is an updated types.Spec for the kernel targeted by the containing "execute_request".
+	ResourceRequest *types.Float64Spec `json:"resource_request" mapstructure:"resource_request,omitempty"`
+
+	// SentAtUnixTimestamp is the Unix epoch time (milliseconds) at which the "execute_request" message
+	// was originally sent by the Jupyter client.
+	SentAtUnixTimestamp *float64 `json:"send_timestamp_unix_milli,omitempty" mapstructure:"send_timestamp_unix_milli,omitempty"`
+
+	// ElectionMetadata is metadata from the Python Election that took place to determine which
+	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
+	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
+
+	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
+	// checkpointing its state.
+	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
+
+	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
+	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
+	OtherMetadata map[string]interface{} `mapstructure:",remain"`
+
+	// GpuDeviceIds are the GPU device IDs allocated to the replica.
+	GpuDeviceIds []int `json:"gpu_device_ids" mapstructure:"gpu_device_ids"`
 }
 
 func (m *ExecuteRequestMetadata) String() string {
@@ -483,24 +509,49 @@ func (m *ExecuteRequestMetadata) String() string {
 // JupyterMessage is a wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.
 // We encode the message ID and message type for convenience.
 type JupyterMessage struct {
-	header                 *MessageHeader
-	JupyterFrames          *JupyterFrames
-	metadata               map[string]interface{}
-	parentHeader           *MessageHeader
-	msg                    *zmq4.Msg
-	RequestTraceUpdated    *proto.RequestTraceUpdated
-	RequestTrace           *proto.RequestTrace
-	DestinationId          string
-	RequestId              string
-	signatureScheme        string
-	key                    string
-	ReplicaId              int32
-	signatureSchemeSet     bool
-	keySet                 bool
+	// msg is the *zmq4.msg struct that is wrapped by the JupyterMessage.
+	msg *zmq4.Msg
+
+	// JupyterFrames is a wrapper around the [][]byte from the *zmq4.msg field.
+	// JupyterFrames provides a bunch of helper/utility methods for manipulating the [][]byte.
+	JupyterFrames *JupyterFrames
+
+	RequestTraceUpdated *proto.RequestTraceUpdated
+	RequestTrace        *proto.RequestTrace
+
+	header       *MessageHeader
+	parentHeader *MessageHeader
+	metadata     map[string]interface{}
+
+	RequestId     string
+	DestinationId string
+
+	// signatureScheme is the signature scheme of the associated kernel.
+	// This has to be populated manually.
+	signatureScheme string
+
+	// Key is the key of the associated kernel.
+	// This has to be populated manually.
+	key string
+
+	// ReplicaId is the replica of the kernel that received the message.
+	// This should be assigned a value in the forwarder function defined in the DistributedKernelClient's
+	// RequestWithHandlerAndReplicas method.
+	ReplicaId int32
+	// Indicates whether the signatureScheme field has been set.
+	signatureSchemeSet bool
+
+	// Indicates whether the key field has been set.
+	keySet bool
+
+	// IsFailedExecuteRequest is a flag indicating whether this JupyterMessage contains a failed "execute_request"
+	// (or really, a failed "execute_reply" or "yield_reply"), in which there was an error while executing the "all
+	// replicas yielded" handler.
 	IsFailedExecuteRequest bool
-	parentHeaderDecoded    bool
-	headerDecoded          bool
-	metadataDecoded        bool
+
+	parentHeaderDecoded bool
+	headerDecoded       bool
+	metadataDecoded     bool
 }
 
 // NewJupyterMessage creates and returns a new JupyterMessage from a ZMQ4 message.

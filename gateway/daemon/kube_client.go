@@ -62,28 +62,28 @@ var (
 )
 
 type BasicKubeClient struct {
-	gatewayDaemon          ClusterGateway
+	gatewayDaemon          ClusterGateway // Associated Gateway daemon.
 	log                    logger.Logger
-	podWatcherStopChan     chan struct{}
-	dynamicClient          *dynamic.DynamicClient
-	kubeClientset          *kubernetes.Clientset
-	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}]
-	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string]
-	remoteStorageEndpoint  string
-	schedulingPolicy       string
-	kubeNamespace          string
-	configDir              string
-	notebookImageTag       string
-	notebookImageName      string
-	localDaemonServiceName string
-	nodeLocalMountPoint    string
-	ipythonConfigPath      string
-	remoteStorage          string
-	smrPort                int
-	localDaemonServicePort int
-	mutex                  sync.Mutex
-	checkpointingEnabled   bool
-	useStatefulSet         bool
+	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
+	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
+	podWatcherStopChan     chan struct{}                              // Used to tell the Pod Watcher to stop.
+	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
+	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
+	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
+	ipythonConfigPath      string                                     // Where the IPython config is located.
+	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
+	localDaemonServiceName string                                     // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
+	kubeNamespace          string                                     // Kubernetes namespace that all of these components reside in.
+	remoteStorageEndpoint  string                                     // Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
+	remoteStorage          string                                     // The type of remote storage we're using (hdfs or redis).
+	schedulingPolicy       string                                     // Scheduling policy.
+	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
+	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
+	localDaemonServicePort int                                        // Port that local daemon service will be routing traffic to.
+	smrPort                int                                        // Port used for the SMR protocol.
+	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
+	useStatefulSet         bool                                       // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
+	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the newKernels should perform checkpointing after a migration and after executing code.
 }
 
 func NewKubeClient(gatewayDaemon ClusterGateway, clusterDaemonOptions *domain.ClusterDaemonOptions) *BasicKubeClient {
@@ -408,7 +408,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
 func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
-	c.log.Debug("Creating Kubernetes resources for Kernel %s [Session: %s].", kernel.Id, kernel.Session)
+	c.log.Debug("Creating Kubernetes resources for kernel %s [Session: %s].", kernel.Id, kernel.Session)
 
 	// Prepare the *jupyter.ConnectionInfo.
 	connectionInfo, err := c.prepareConnectionFileContents(kernel)
@@ -418,7 +418,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	}
 	c.log.Debug("Prepared connection info: %v\n", connectionInfo)
 	for i := 0; i < len(kernel.Argv); i++ {
-		c.log.Debug("spec.Kernel.Argv[%d]: %v", i, kernel.Argv[i])
+		c.log.Debug("spec.kernel.Argv[%d]: %v", i, kernel.Argv[i])
 	}
 
 	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
@@ -473,7 +473,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	return connectionInfo, nil
 }
 
-// Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
+// Return the migration operation associated with the given kernel ID and SMR Node ID of the new replica.
 // func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
 // 	return c.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
 // }
