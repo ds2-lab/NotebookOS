@@ -1997,23 +1997,27 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
-	// We always create a pending resource allocation (i.e., for any scheduling policy).
-	resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	if resourceError != nil {
-		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-		return nil, status.Error(codes.Internal, resourceError.Error())
-	}
-
-	// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
-	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
-			in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
-
+	// We only commit resources if the container is not a pre-warmed container.
+	// We commit resources for pre-warmed containers at the time that they are used/promoted.
+	if !in.PrewarmContainer {
+		// We always create a pending resource allocation (i.e., for any scheduling policy).
+		resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
 		if resourceError != nil {
-			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
+			d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
 				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
 			return nil, status.Error(codes.Internal, resourceError.Error())
+		}
+
+		// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
+		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+			_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
+				in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
+
+			if resourceError != nil {
+				d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
+					in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+				return nil, status.Error(codes.Internal, resourceError.Error())
+			}
 		}
 	}
 

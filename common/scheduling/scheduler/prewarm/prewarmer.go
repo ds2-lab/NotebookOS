@@ -3,8 +3,35 @@ package prewarm
 import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"golang.org/x/net/context"
+	"time"
 )
+
+// DivideWork divides the work of creating n containers between m workers.
+//
+// DivideWork returns an array of length m, where arr[i] is the number of containers that should be created
+// by worker i.
+func DivideWork(n, m int) []int {
+	result := make([]int, m)
+
+	// Calculate the base work for each worker.
+	base := n / m
+	remainder := n % m
+
+	// Distribute the work of creating n containers amongst the m workers.
+	for i := 0; i < m; i++ {
+		result[i] = base
+
+		// Distribute the remainder evenly amongst the workers.
+		if i < remainder {
+			result[i]++
+		}
+	}
+
+	return result
+}
 
 type ContainerPrewarmer struct {
 	// PrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
@@ -53,11 +80,54 @@ func (p *ContainerPrewarmer) OnKernelStopped() {
 }
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
+func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.KernelConnectionInfo, error) {
+	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
+	defer cancel()
+
+	return host.StartKernelReplica(ctx, nil)
+}
+
+// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 func (p *ContainerPrewarmer) ProvisionContainer(host scheduling.Host) error {
+	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
+
+	resp, err := p.provisionContainer(host)
+
+	if err != nil {
+		p.log.Error("Failed to provision pre-warmed container on host %s because: %v", host.GetNodeName(), err)
+		return err
+	}
+
+	p.registerPrewarmedContainer(resp, host)
+	return nil
+}
+
+// registerPrewarmedContainer registers a pre-warmed container that was successfully created on the specified Host.
+func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelConnectionInfo, host scheduling.Host) {
+	p.log.Debug("Registering pre-warmed container created on host %s.", host.GetNodeName())
+
 	panic("Not implemented.")
 }
 
-// ProvisionContainers is used to provision n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
+// provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
+func (p *ContainerPrewarmer) provisionContainers(host scheduling.Host, n int) error {
+	for i := 0; i < n; i++ {
+		err := p.ProvisionContainer(host)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	p.log.Debug("Successfully provisioned %d pre-warmed container(s) on host %s.", n, host.GetNodeName())
+	return nil
+}
+
+// ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
+// the specified scheduling.Host. The work of provisioning the n containers is distributed amongst several goroutines,
+// the number of which depends upon the size of n.
 func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) error {
 	// If we're not supposed to provision any containers, then return immediately.
 	if n == 0 {
@@ -73,7 +143,7 @@ func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) er
 	// If we're just supposed to provision a single container, then do so.
 	if n == 1 {
 		p.log.Debug("Instructed to prewarm a single container on host %s.", host.GetNodeName())
-		return p.ProvisionContainer(host)
+
 	}
 
 	p.log.Debug("Instructed to prewarm a %d containers on host %s.", n, host.GetNodeName())
@@ -88,10 +158,19 @@ func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) er
 		nWorkers = 1
 	}
 
-	containersToCreate := make([]int, 0, nWorkers)
-	containersPerWorker := n / nWorkers
+	work := DivideWork(n, nWorkers)
 
-	host.StartKernelReplica()
+	for i := 0; i < nWorkers; i++ {
+		go func() {
+			err := p.provisionContainers(host, work[i])
+			if err != nil {
+				// TODO: Do something...
+			}
+		}()
+	}
+
+	// TODO: Return something meaningful.
+	return nil
 }
 
 func (p *ContainerPrewarmer) Start() {
