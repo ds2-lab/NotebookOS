@@ -2007,7 +2007,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		// We'll just wait for the attempt to conclude.
 		// If the scheduling is successful, then this will eventually return nil.
 		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
-		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago.",
+		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
 			kernel.ID(), attempt.TimeElapsed())
 		return attempt.Wait(ctx)
 	}
