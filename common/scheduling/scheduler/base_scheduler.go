@@ -519,8 +519,8 @@ func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, rep
 }
 
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
-	return s.instance.DeployKernelReplicas(ctx, in, blacklistedHosts)
+func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
+	return s.instance.DeployKernelReplicas(ctx, kernel, blacklistedHosts)
 }
 
 // RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
