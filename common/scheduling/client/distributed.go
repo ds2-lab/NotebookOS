@@ -636,7 +636,14 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 		// Collect the status of all replicas.
 		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), messaging.MessageKernelStatusStarting, c.pubIOMessage)
 
+		// TODO: This won't work unless we update the kernel status code.
 		// The kernel is now running. It's no longer idle-reclaimed.
+		c.isIdleReclaimed.Store(false)
+	}
+
+	// TODO: Temporary. Better to actually have kernel's statuses reflect this.
+	// If we are idle reclaimed and now all our replicas are running, then set the flag to false.
+	if c.isIdleReclaimed.Load() && int32(len(c.replicas)) == c.targetNumReplicas {
 		c.isIdleReclaimed.Store(false)
 	}
 
