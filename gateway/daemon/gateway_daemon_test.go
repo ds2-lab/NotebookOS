@@ -25,6 +25,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/daemon"
 	domain2 "github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
@@ -4656,20 +4657,40 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	Context("End-to-End Tests", func() {
 		var (
-			clusterGatewayOptions = domain.ClusterGatewayOptions{}
-			localDaemon1Options   = domain2.LocalDaemonOptions{}
-			localDaemon2Options   = domain2.LocalDaemonOptions{}
-			localDaemon3Options   = domain2.LocalDaemonOptions{}
-			sig                   = make(chan os.Signal, 1)
-			done                  sync.WaitGroup
+			clusterGatewayOptions        = domain.ClusterGatewayOptions{}
+			localDaemon1Options          = domain2.LocalDaemonOptions{}
+			localDaemon2Options          = domain2.LocalDaemonOptions{}
+			localDaemon3Options          = domain2.LocalDaemonOptions{}
+			localDaemon1                 *daemon.LocalScheduler
+			localDaemon2                 *daemon.LocalScheduler
+			localDaemon3                 *daemon.LocalScheduler
+			clusterGatewaySig            = make(chan os.Signal, 1)
+			clusterGatewayDone           sync.WaitGroup
+			localDaemon1Sig              = make(chan os.Signal, 1)
+			localDaemon1Done             sync.WaitGroup
+			localDaemon2Sig              = make(chan os.Signal, 1)
+			localDaemon2Done             sync.WaitGroup
+			localDaemon3Sig              = make(chan os.Signal, 1)
+			localDaemon3Done             sync.WaitGroup
+			closeLocalDaemon1Connections func()
+			closeLocalDaemon2Connections func()
+			closeLocalDaemon3Connections func()
 		)
 
-		finalize := func(fix bool, identity string, distributedCluster *DistributedCluster) {
-			if !fix {
-				return
-			}
+		clusterGatewayFinalize := func(fix bool, identity string, distributedCluster *DistributedCluster) {
+			log.Printf("[WARNING] Cluster Gateway's finalizer called with fix=%v and identity=\"%s\"\n", fix, identity)
+		}
 
-			log.Printf("[WARNING] Finalize called with fix=%v and identity=\"%s\"\n", fix, identity)
+		localDaemon1Finalize := func(fix bool) {
+			log.Printf("[WARNING] Local Daemon 1's finalizer called with fix=%v\n", fix)
+		}
+
+		localDaemon2Finalize := func(fix bool) {
+			log.Printf("[WARNING] Local Daemon 2's finalizer called with fix=%v\n", fix)
+		}
+
+		localDaemon3Finalize := func(fix bool) {
+			log.Printf("[WARNING] Local Daemon 3's finalizer called with fix=%v\n", fix)
 		}
 
 		Context("Scheduling Kernels", func() {
@@ -4692,8 +4713,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					err = json.Unmarshal([]byte(localDaemon3ConfigJson), &localDaemon3Options)
 					Expect(err).To(BeNil())
 
-					clusterGateway, _ = CreateAndStartClusterGatewayComponents(&clusterGatewayOptions, &done, finalize, sig)
+					clusterGateway, _ = CreateAndStartClusterGatewayComponents(&clusterGatewayOptions, &clusterGatewayDone, clusterGatewayFinalize, clusterGatewaySig)
 					Expect(clusterGateway).ToNot(BeNil())
+
+					localDaemon1, closeLocalDaemon1Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon1Options, &localDaemon1Done, localDaemon1Finalize, localDaemon1Sig)
+					Expect(localDaemon1).ToNot(BeNil())
+					Expect(closeLocalDaemon1Connections).ToNot(BeNil())
+
+					localDaemon2, closeLocalDaemon2Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon2Options, &localDaemon2Done, localDaemon2Finalize, localDaemon2Sig)
+					Expect(localDaemon2).ToNot(BeNil())
+					Expect(closeLocalDaemon2Connections).ToNot(BeNil())
+
+					localDaemon3, closeLocalDaemon3Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon3Options, &localDaemon3Done, localDaemon3Finalize, localDaemon3Sig)
+					Expect(localDaemon3).ToNot(BeNil())
+					Expect(closeLocalDaemon3Connections).ToNot(BeNil())
 				})
 
 				It("Will correctly schedule a single kernel", func() {

@@ -73,7 +73,7 @@ class RaftLog(object):
             base_path: str = "/store",
             remote_storage_hostname: str = "172.17.0.1:9000",
             remote_storage: str = "hdfs",
-            should_read_data: bool = False,
+            load_data_from_remote_storage: bool = False,
             peer_addresses: Optional[Iterable[str]] = None,
             peer_ids: Optional[Iterable[int]] = None,
             num_replicas: int = 3,
@@ -164,7 +164,7 @@ class RaftLog(object):
         self.log.info("persistent store path: %s" % self._persistent_store_path)
         self.log.info('remote storage hostname: "%s"' % remote_storage_hostname)
         self.log.info('remote_storage: "%s"', remote_storage)
-        self.log.info('should read data from RemoteStorage: "%s"' % should_read_data)
+        self.log.info('should read data from RemoteStorage: "%s"' % load_data_from_remote_storage)
         self.log.info("peer addresses: %s" % peer_addresses)
         self.log.info("peer smr node IDs: %s" % peer_ids)
         self.log.info("join: %s" % join)
@@ -179,7 +179,7 @@ class RaftLog(object):
                 node_id=node_id,
                 remote_storage_hostname=remote_storage_hostname,
                 remote_storage=remote_storage,
-                should_read_data=should_read_data,
+                should_read_data=load_data_from_remote_storage,
                 peer_addrs=peer_addresses,
                 peer_ids=peer_ids,
                 join=join,

@@ -4805,7 +4805,7 @@ class DistributedKernel(IPythonKernel):
                     num_replicas=self.num_replicas,
                     remote_storage_hostname=self.remote_storage_hostname,
                     remote_storage=self.remote_storage,
-                    should_read_data=self.should_read_data_from_remote_storage,
+                    load_data_from_remote_storage=self.should_read_data_from_remote_storage,
                     peer_addresses=peer_addresses,
                     peer_ids=ids,
                     join=self.smr_join,

@@ -2372,13 +2372,19 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 	}
 }
 
-// Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.
+// handleMigratedReplicaRegistered is called by NotifyKernelRegistered to handle the registration of a
+// scheduling.KernelReplica that was created during a migration operation. as opposed to the scheduling.KernelReplica
 //
-// IMPORTANT: This must be called with the main mutex held. Otherwise, there are race conditions with the
-// addReplicaNewPodOrContainerNotifications field.
-//
-// IMPORTANT: This will release the main mutex before returning.
-func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegistrationNotification, kernel scheduling.Kernel, waitGroup *registrationWaitGroups) (*proto.KernelRegistrationNotificationResponse, error) {
+// The alternative(s) to the scenarios described above is/are when the scheduling.KernelReplica that is registering is
+// being created for the first time or as an on-demand replica to serve a single training event when using scheduling
+// policies that are configured to use this approach. In either of these alternative scenarios, the registration of the
+// scheduling.KernelReplica is handled by the handleStandardKernelReplicaRegistration function.
+func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelRegistrationNotification, kernel scheduling.Kernel) (*proto.KernelRegistrationNotificationResponse, error) {
+	waitGroup, loaded := d.waitGroups.Load(in.KernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", in.KernelId))
+	}
+
 	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
 	// the old AddReplicaOperation struct...
 	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
@@ -2595,29 +2601,22 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Info("Received kernel registration notification for replica %d of kernel %s from host %s (ID=%s).",
 		in.ReplicaId, in.KernelId, in.NodeName, in.HostId)
 
-	connectionInfo := in.ConnectionInfo
-	sessionId := in.SessionId
 	kernelId := in.KernelId
-	hostId := in.HostId
-	kernelIp := in.KernelIp
-	kernelPodOrContainerName := in.PodOrContainerName
-	nodeName := in.NodeName
-	replicaId := in.ReplicaId
 
-	d.log.Info("Connection info: %v", connectionInfo)
-	d.log.Info("Session ID: %v", sessionId)
+	d.log.Info("Connection info: %v", in.ConnectionInfo)
+	d.log.Info("Session ID: %v", in.SessionId)
 	d.log.Info("kernel ID: %v", kernelId)
-	d.log.Info("Replica ID: %v", replicaId)
-	d.log.Info("kernel IP: %v", kernelIp)
+	d.log.Info("Replica ID: %v", in.ReplicaId)
+	d.log.Info("kernel IP: %v", in.KernelIp)
 
 	if d.KubernetesMode() {
-		d.log.Info("Pod name: %v", kernelPodOrContainerName)
+		d.log.Info("Pod name: %v", in.PodOrContainerName)
 	} else {
-		d.log.Info("Container name: %v", kernelPodOrContainerName)
+		d.log.Info("Container name: %v", in.PodOrContainerName)
 	}
 
-	d.log.Info("Node ID: %v", hostId)
-	d.log.Info("Node Name: %v", nodeName)
+	d.log.Info("Node ID: %v", in.HostId)
+	d.log.Info("Node Name: %v", in.NodeName)
 	d.log.Info("Notification ID: %v", in.NotificationId)
 
 	d.clusterStatisticsMutex.Lock()
@@ -2649,38 +2648,55 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
 	}
 
-	kernelSpec, loaded := d.kernelSpecs.Load(kernelId)
-	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing kernel spec for kernel with ID %s", kernelId))
-	}
-
-	waitGroup, loaded := d.waitGroups.Load(kernelId)
-	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", kernelId))
-	}
-
-	host, loaded := d.cluster.GetHost(hostId)
-	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
-	}
-
 	numActiveMigrationOperations := kernel.NumActiveMigrationOperations()
 	if numActiveMigrationOperations >= 1 {
 		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. "+
 			"Assuming currently-registering replica is for an add-replica operation.",
 			numActiveMigrationOperations, kernel.ID())
 
-		// Must be holding the main mutex before calling handleAddedReplicaRegistration.
+		// Must be holding the main mutex before calling handleMigratedReplicaRegistered.
 		// It will release the lock.
-		result, err := d.handleAddedReplicaRegistration(in, kernel, waitGroup)
+		result, err := d.handleMigratedReplicaRegistered(in, kernel)
 
 		if _, ok := status.FromError(err); !ok {
 			err = status.Error(codes.Internal, err.Error())
 		}
 
 		return result, err
-	} else {
-		d.log.Debug("There are 0 active add-replica operations targeting kernel %s.", kernel.ID())
+	}
+
+	return d.handleStandardKernelReplicaRegistration(ctx, kernel, in)
+}
+
+// handleStandardKernelReplicaRegistration is called to handle the registration of a scheduling.KernelReplica that is
+// either being created for the very first time or as an on-demand replica to handle a single training event.
+//
+// The alternative to the scenarios described above is when the scheduling.KernelReplica that is registering was
+// created by/during a migration operation, in which case the registration is handled by the
+// handleMigratedReplicaRegistered function.
+func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context.Context, kernel scheduling.Kernel,
+	in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+
+	// Load the 'registrationWaitGroup' struct created for this kernel's creation.
+	waitGroup, loaded := d.waitGroups.Load(in.KernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", in.KernelId))
+	}
+
+	connectionInfo := in.ConnectionInfo
+	kernelId := in.KernelId
+	hostId := in.HostId
+	kernelIp := in.KernelIp
+	replicaId := in.ReplicaId
+
+	kernelSpec, loaded := d.kernelSpecs.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing kernel spec for kernel with ID %s", kernelId))
+	}
+
+	host, loaded := d.cluster.GetHost(hostId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
 	}
 
 	// If this is the first replica we're registering, then its ID should be 1.
@@ -2698,6 +2714,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		WorkloadId:  kernelSpec.WorkloadId,
 	}
 
+	nodeName := in.NodeName
+
 	if nodeName == "" || nodeName == types.DockerNode {
 		if !d.DockerMode() {
 			log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid node name.\n"),
@@ -2713,7 +2731,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
 		jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
-		d.numResendAttempts, kernelPodOrContainerName, nodeName, nil,
+		d.numResendAttempts, in.PodOrContainerName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.metricsProvider, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics,
@@ -2792,7 +2810,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		PersistentId:                    &persistentId,
 		ResourceSpec:                    kernelSpec.ResourceSpec,
 		SmrPort:                         int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
-		ShouldReadDataFromRemoteStorage: false,
+		ShouldReadDataFromRemoteStorage: d.shouldKernelReplicaReadStateFromRemoteStorage(kernel),
 		// DataDirectory: nil,
 	}
 
@@ -2800,6 +2818,34 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	waitGroup.Notify()
 	return response, nil
+}
+
+// shouldKernelReplicaReadStateFromRemoteStorage is called by NotifyKernelRegistered and is used to determine whether
+// the scheduling.KernelReplica that is registering should read/restore state from remote storage or not.
+//
+// The basis for this decision depends on several factors.
+//
+// First of all, if the scheduling policy uses short-lived containers that are created on-demand for each training
+// event, then they should always restore state from intermediate storage.
+//
+// Next, for policies that use long-lived containers (regardless of the number of replicas), the kernel should restore
+// state if the kernel replicas are being recreated following an idle kernel/session reclamation.
+func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel) bool {
+	policy := d.Scheduler().Policy()
+
+	// If the scheduling policy uses short-lived containers that are created on-demand for each training event,
+	// then they should always restore state from intermediate storage.
+	if policy.ContainerLifetime() == scheduling.SingleTrainingEvent {
+		return true
+	}
+
+	// For policies that use long-lived containers (regardless of the number of replicas), the kernel should restore
+	// state if the kernel replicas are being recreated following an idle kernel/session reclamation.
+	if kernel.IsIdleReclaimed() {
+		return true
+	}
+
+	return false
 }
 
 // PingGateway is a no-op for testing connectivity.
