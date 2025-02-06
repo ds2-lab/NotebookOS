@@ -249,10 +249,13 @@ func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, sche
 		return false, nil
 	}
 
-	statusChanged := c.setStatus(jupyter.KernelStatusIdleReclaimed, jupyter.KernelStatusInitializing)
-	if !statusChanged {
-		c.log.Error("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
-			jupyter.KernelStatusIdleReclaimed.String(), jupyter.KernelStatusInitializing.String(), c.status.String())
+	// If we're currently in the state of being idle-reclaimed, then let's attempt to change our status.
+	if c.isIdleReclaimed.Load() {
+		statusChanged := c.setStatus(jupyter.KernelStatusIdleReclaimed, jupyter.KernelStatusInitializing)
+		if !statusChanged {
+			c.log.Error("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+				jupyter.KernelStatusIdleReclaimed.String(), jupyter.KernelStatusInitializing.String(), c.status.String())
+		}
 	}
 
 	c.log.Debug("Beginning attempt to schedule %d replica container(s).", c.targetNumReplicas)
