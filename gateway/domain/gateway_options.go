@@ -105,7 +105,7 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 
 // IsLocalMode returns true if the deployment mode is specified as "local".
 func (o *ClusterDaemonOptions) IsLocalMode() bool {
-	return o.DeploymentMode == string(types.LocalMode)
+	return o.LocalMode
 }
 
 // IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".

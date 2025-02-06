@@ -139,8 +139,8 @@ func getNameAndIdOfDockerContainerNonJson() (string, string, error) {
 	hostnameEnv := os.Getenv("HOSTNAME")
 
 	if len(hostnameEnv) == 0 {
-		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
-		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		globalLogger.Warn("Could not retrieve valid value from HOSTNAME environment variable.")
+		globalLogger.Warn("Returning default value for NodeName: \"%s\"", types.DockerNode)
 		return types.DockerNode, "", errHostnameUnavailable
 	}
 
@@ -163,8 +163,8 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 	hostnameEnv := os.Getenv("HOSTNAME")
 
 	if len(hostnameEnv) == 0 {
-		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
-		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		globalLogger.Warn("Could not retrieve valid value from HOSTNAME environment variable.")
+		globalLogger.Warn("Returning default value for NodeName: \"%s\"", types.DockerNode)
 		return types.DockerNode, "", errHostnameUnavailable
 	}
 

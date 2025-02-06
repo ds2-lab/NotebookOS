@@ -99,7 +99,7 @@ func (o SchedulerDaemonOptions) IsKubernetesMode() bool {
 
 // IsLocalMode returns true if the deployment mode is specified as "local".
 func (o SchedulerDaemonOptions) IsLocalMode() bool {
-	return o.DeploymentMode == string(types.LocalMode)
+	return o.LocalMode
 }
 
 // IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
