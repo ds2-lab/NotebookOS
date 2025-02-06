@@ -303,7 +303,7 @@ type ClusterGatewayImpl struct {
 
 	log logger.Logger
 
-	// waitGroups hashmap.HashMap[string, *sync.Semaphore]
+	// waitGroups hashmap.HashMap[string, *sync.primarSemaphore]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
 	// Kubernetes client. This is shared with the associated internalCluster Gateway.
@@ -816,12 +816,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			kernelsSeen[kernel.ID()] = struct{}{}
 
 			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
-			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning {
-				return true
-			}
-
-			// If the kernel has never trained before, then it is ineligible for idle reclamation.
-			if kernel.NumCompletedTrainings() == 0 {
+			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() {
 				return true
 			}
 
@@ -837,28 +832,33 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			timeElapsedSinceContainersCreated := time.Since(kernel.ReplicaContainersStartedAt())
 
 			// May want to use this to dynamically adjust the interval required for a kernel to be considered idle.
-			multiplier := time.Duration(1)
+			multiplier := 1.0
+
+			// If the kernel has never trained before, then we increase the interval by a factor of 1.5.
+			if kernel.NumCompletedTrainings() == 0 {
+				multiplier = 1.5
+			}
 
 			// Compute how long it has been since the kernel last submitted a training event, last began training,
 			// and last completed training. If the idle interval has elapsed for all of these times, then the
 			// session is eligible for idle reclamation.
 
-			if timeElapsedSinceLastTrainingSubmitted < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceLastTrainingSubmitted < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
 
-			if timeElapsedSinceLastTrainingBegan < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceLastTrainingBegan < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
 
-			if timeElapsedSinceLastTrainingEnded < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceLastTrainingEnded < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
 
-			if timeElapsedSinceContainersCreated < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceContainersCreated < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
@@ -2382,7 +2382,7 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelRegistrationNotification, kernel scheduling.Kernel) (*proto.KernelRegistrationNotificationResponse, error) {
 	waitGroup, loaded := d.waitGroups.Load(in.KernelId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", in.KernelId))
+		panic(fmt.Sprintf("Expected to find existing primarSemaphore associated with kernel with ID %s", in.KernelId))
 	}
 
 	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
@@ -2682,7 +2682,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	// Load the 'registrationWaitGroup' struct created for this kernel's creation.
 	waitGroup, loaded := d.waitGroups.Load(in.KernelId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", in.KernelId))
+		panic(fmt.Sprintf("Expected to find existing primarSemaphore associated with kernel with ID %s", in.KernelId))
 	}
 
 	connectionInfo := in.ConnectionInfo
@@ -2801,7 +2801,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	waitGroup.Register(replicaId)
 	d.log.Debug("SetDone registering kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
-	d.log.Debug("Semaphore for kernel \"%s\": %s", kernelId, waitGroup.String())
+	d.log.Debug("primarSemaphore for kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
 

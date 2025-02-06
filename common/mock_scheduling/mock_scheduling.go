@@ -6841,6 +6841,18 @@ func (mr *MockKernelMockRecorder) PersistentID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PersistentID", reflect.TypeOf((*MockKernel)(nil).PersistentID))
 }
 
+// PlacementBeganSchedulingReplicaContainers mocks base method.
+func (m *MockKernel) PlacementBeganSchedulingReplicaContainers() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "PlacementBeganSchedulingReplicaContainers")
+}
+
+// PlacementBeganSchedulingReplicaContainers indicates an expected call of PlacementBeganSchedulingReplicaContainers.
+func (mr *MockKernelMockRecorder) PlacementBeganSchedulingReplicaContainers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacementBeganSchedulingReplicaContainers", reflect.TypeOf((*MockKernel)(nil).PlacementBeganSchedulingReplicaContainers))
+}
+
 // PodOrContainerName mocks base method.
 func (m *MockKernel) PodOrContainerName(id int32) (string, error) {
 	m.ctrl.T.Helper()

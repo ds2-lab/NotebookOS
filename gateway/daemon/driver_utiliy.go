@@ -105,7 +105,7 @@ func GetGrpcOptions(identity string, tracer opentracing.Tracer, distributedClust
 
 func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOptions, done *sync.WaitGroup, finalize GatewayFinalizer, sig chan os.Signal) (*ClusterGatewayImpl, *DistributedCluster) {
 	if done == nil {
-		panic("The provided sync.Semaphore cannot be nil.")
+		panic("The provided sync.primarSemaphore cannot be nil.")
 	}
 
 	tracer, consulClient := CreateConsulAndTracer(options)
