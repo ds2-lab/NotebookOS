@@ -6,6 +6,8 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"golang.org/x/net/context"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -112,32 +114,38 @@ func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelCo
 }
 
 // provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
-func (p *ContainerPrewarmer) provisionContainers(host scheduling.Host, n int) error {
+//
+// provisionContainers returns the number of pre-warmed scheduling.KernelContainer instances created.
+func (p *ContainerPrewarmer) provisionContainers(host scheduling.Host, n int) (int, error) {
 	for i := 0; i < n; i++ {
 		err := p.ProvisionContainer(host)
 
 		if err != nil {
-			return err
+			return i, err
 		}
 	}
 
 	p.log.Debug("Successfully provisioned %d pre-warmed container(s) on host %s.", n, host.GetNodeName())
-	return nil
+	return n, nil
 }
 
 // ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
 // the specified scheduling.Host. The work of provisioning the n containers is distributed amongst several goroutines,
 // the number of which depends upon the size of n.
-func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) error {
+//
+// ProvisionContainers returns the number of scheduling.KernelContainer instances that were successfully pre-warmed.
+//
+// ProvisionContainers will panic if the given scheduling.Host is nil.
+func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) int32 {
 	// If we're not supposed to provision any containers, then return immediately.
 	if n == 0 {
 		p.log.Warn("Instructed to prewarm 0 containers on host %s...", host.GetNodeName())
-		return nil
+		return 0
 	}
 
 	// If the target host is nil, then return an error.
 	if host == nil {
-		return scheduling.ErrNilHost
+		panic(scheduling.ErrNilHost)
 	}
 
 	// If we're just supposed to provision a single container, then do so.
@@ -158,38 +166,55 @@ func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) er
 		nWorkers = 1
 	}
 
+	var wg sync.WaitGroup
+	numCreated := atomic.Int32{}
 	work := DivideWork(n, nWorkers)
 
 	for i := 0; i < nWorkers; i++ {
+		wg.Add(1)
+
 		go func() {
-			err := p.provisionContainers(host, work[i])
-			if err != nil {
-				// TODO: Do something...
-			}
+			defer wg.Done()
+
+			created, _ := p.provisionContainers(host, work[i])
+
+			numCreated.Add(int32(created))
 		}()
 	}
 
-	// TODO: Return something meaningful.
-	return nil
+	wg.Wait()
+
+	return numCreated.Load()
 }
 
-func (p *ContainerPrewarmer) Start() error {
+// ProvisionInitialPrewarmContainers provisions the configured number of initial pre-warmed containers on each host.
+//
+// ProvisionInitialPrewarmContainers returns the number of pre-warmed containers that were created as well as the
+// maximum number that were supposed to be created (if no errors were to occur).
+func (p *ContainerPrewarmer) ProvisionInitialPrewarmContainers() (created int32, target int32) {
 	// If we're not supposed to create any pre-warmed containers upon starting, then just return immediately.
 	if p.initialNumPerHost == 0 {
-		return nil
+		return 0, 0
 	}
 
+	var wg sync.WaitGroup
+	target = 0
+	created = 0
+
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
+		wg.Add(1)
+		atomic.AddInt32(&target, int32(p.initialNumPerHost))
+
 		go func() {
-			err := p.ProvisionContainers(host, p.initialNumPerHost)
-			if err != nil {
-				// TODO: Do something meaningful.
-			}
+			defer wg.Done()
+			numCreated := p.ProvisionContainers(host, p.initialNumPerHost)
+			atomic.AddInt32(&created, numCreated)
 		}()
 
 		return true
 	})
 
-	// TODO: Return something meaningful.
-	return nil
+	wg.Wait()
+
+	return atomic.LoadInt32(&created), atomic.LoadInt32(&target)
 }
