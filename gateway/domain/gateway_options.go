@@ -93,10 +93,10 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 		o.PrometheusInterval = DefaultPrometheusIntervalSeconds
 	}
 
-	if o.PrometheusPort <= 0 {
-		log.Printf("[WARNING] Using default Prometheus port: %d.\n", DefaultPrometheusPort)
-		o.PrometheusPort = DefaultPrometheusPort
-	}
+	//if o.PrometheusPort <= 0 {
+	//	log.Printf("[WARNING] Using default Prometheus port: %d.\n", DefaultPrometheusPort)
+	//	o.PrometheusPort = DefaultPrometheusPort
+	//}
 
 	if len(o.RemoteStorageEndpoint) == 0 {
 		panic("remote storage endpoint is empty.")

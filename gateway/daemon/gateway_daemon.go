@@ -536,7 +536,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.log.Warn("PrometheusPort is set to a negative number. Skipping initialization of Prometheus-related components.")
 	}
 
-	if !clusterDaemonOptions.CommonOptions.DisablePrometheusMetricsPublishing {
+	if !clusterDaemonOptions.DisablePrometheusMetricsPublishing && clusterDaemonOptions.PrometheusPort > 0 {
 		clusterGateway.log.Debug("Initializing \"Prometheus Metrics Publisher\" goroutine now.")
 		clusterGateway.publishPrometheusMetrics()
 	} else {

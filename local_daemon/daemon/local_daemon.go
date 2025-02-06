@@ -146,6 +146,9 @@ type LocalScheduler struct {
 	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
 	prometheusManager *metrics.LocalDaemonPrometheusManager
 
+	// prometheusEnabled indicates whether prometheus metrics -- and the goroutine that publishes metrics -- is enabled.
+	prometheusEnabled bool
+
 	// The IOPub socket that the Gateway subscribes to.
 	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
 	// We wrap the messages in another message that just has a header that is the kernel ID.
@@ -333,6 +336,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		RedisPassword:                  localDaemonOptions.RedisPassword,
 		RedisPort:                      localDaemonOptions.RedisPort,
 		RedisDatabase:                  localDaemonOptions.RedisDatabase,
+		prometheusEnabled:              localDaemonOptions.PrometheusPort > 0,
 	}
 
 	for _, configFunc := range configs {
@@ -403,10 +407,10 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.prometheusInterval = DefaultPrometheusInterval
 	}
 
-	if daemon.prometheusPort <= 0 {
-		daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
-		daemon.prometheusPort = DefaultPrometheusPort
-	}
+	//if daemon.prometheusPort <= 0 {
+	//	daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
+	//	daemon.prometheusPort = DefaultPrometheusPort
+	//}
 
 	if daemon.ip == "" {
 		ip, err := utils.GetIP()
@@ -512,14 +516,16 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.nodeName = types.VirtualDockerNode // types.DockerNode
 	}
 
-	// The goroutine that publishes metrics to Prometheus waits for this Semaphore to be SetDone.
-	daemon.prometheusStarted.Add(1)
+	if daemon.prometheusEnabled && !localDaemonOptions.DisablePrometheusMetricsPublishing {
+		// The goroutine that publishes metrics to Prometheus waits for this Semaphore to be SetDone.
+		daemon.prometheusStarted.Add(1)
 
-	// We use this Semaphore to wait for the goroutine that publishes metrics to Prometheus to start.
-	var goroutineStarted sync.WaitGroup
-	goroutineStarted.Add(1)
-	daemon.publishPrometheusMetrics(&goroutineStarted)
-	goroutineStarted.Wait() // Wait for goroutine to start.
+		// We use this Semaphore to wait for the goroutine that publishes metrics to Prometheus to start.
+		var goroutineStarted sync.WaitGroup
+		goroutineStarted.Add(1)
+		daemon.publishPrometheusMetrics(&goroutineStarted)
+		goroutineStarted.Wait() // Wait for goroutine to start.
+	}
 
 	return daemon
 }
@@ -633,61 +639,74 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 	d.allocationManager.NodeId = d.id
 	d.finishedGatewayHandshake = true
 
-	if d.prometheusManager != nil {
-		// We'll just restart the Local Daemon's Prometheus ExecutionManager.
-		_ = d.prometheusManager.Stop()
-		if err := d.prometheusManager.Start(); err != nil {
-			d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-	} else {
-		d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, d.id)
-		err := d.prometheusManager.Start()
-		if err != nil {
-			d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
-			return in, status.Error(codes.Internal, err.Error())
-		}
-
-		// Publish GPU resource metrics.
-		d.prometheusManager.IdleGpuGauge.
-			Set(d.allocationManager.IdleGPUs().InexactFloat64())
-		d.prometheusManager.PendingGpuGauge.
-			Set(d.allocationManager.PendingGPUs().InexactFloat64())
-		d.prometheusManager.CommittedGpuGauge.
-			Set(d.allocationManager.CommittedGPUs().InexactFloat64())
-		d.prometheusManager.SpecGpuGauge.
-			Set(d.allocationManager.SpecGPUs().InexactFloat64())
-
-		// Publish CPU resource metrics.
-		d.prometheusManager.IdleCpuGauge.
-			Set(d.allocationManager.IdleCPUs().InexactFloat64())
-		d.prometheusManager.PendingCpuGauge.
-			Set(d.allocationManager.PendingCPUs().InexactFloat64())
-		d.prometheusManager.CommittedCpuGauge.
-			Set(d.allocationManager.CommittedCPUs().InexactFloat64())
-		d.prometheusManager.SpecCpuGauge.
-			Set(d.allocationManager.SpecCPUs().InexactFloat64())
-
-		// Publish memory resource metrics.
-		d.prometheusManager.IdleMemoryGauge.
-			Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
-		d.prometheusManager.PendingMemoryGauge.
-			Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
-		d.prometheusManager.CommittedMemoryGauge.
-			Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
-		d.prometheusManager.SpecMemoryGauge.
-			Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
-
-		d.prometheusManager.NumActiveKernelReplicasGauge.
-			Set(float64(d.kernels.Len()))
-
-		// We only call SetDone if we're creating the LocalDaemonPrometheusManager for the first time.
-		d.prometheusStarted.Done()
-
-		// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
-		d.allocationManager.RegisterMetricsManager(d.prometheusManager)
-		d.router.AssignPrometheusManager(d.prometheusManager)
+	// If prometheus is disabled, then just return.
+	if !d.prometheusEnabled {
+		return in, nil
 	}
+
+	// If we've never been initialized before, which will usually be the case, then call initPromMetrics.
+	if d.prometheusManager == nil {
+		return d.initPromMetrics(in)
+	}
+
+	// We'll just restart the Local Daemon's Prometheus ExecutionManager.
+	_ = d.prometheusManager.Stop()
+	if err := d.prometheusManager.Start(); err != nil {
+		d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return in, nil
+}
+
+// initPromMetrics initializes prometheus metrics.
+func (d *LocalScheduler) initPromMetrics(in *proto.HostId) (*proto.HostId, error) {
+	d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, d.id)
+	err := d.prometheusManager.Start()
+	if err != nil {
+		d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
+		return in, status.Error(codes.Internal, err.Error())
+	}
+
+	// Publish GPU resource metrics.
+	d.prometheusManager.IdleGpuGauge.
+		Set(d.allocationManager.IdleGPUs().InexactFloat64())
+	d.prometheusManager.PendingGpuGauge.
+		Set(d.allocationManager.PendingGPUs().InexactFloat64())
+	d.prometheusManager.CommittedGpuGauge.
+		Set(d.allocationManager.CommittedGPUs().InexactFloat64())
+	d.prometheusManager.SpecGpuGauge.
+		Set(d.allocationManager.SpecGPUs().InexactFloat64())
+
+	// Publish CPU resource metrics.
+	d.prometheusManager.IdleCpuGauge.
+		Set(d.allocationManager.IdleCPUs().InexactFloat64())
+	d.prometheusManager.PendingCpuGauge.
+		Set(d.allocationManager.PendingCPUs().InexactFloat64())
+	d.prometheusManager.CommittedCpuGauge.
+		Set(d.allocationManager.CommittedCPUs().InexactFloat64())
+	d.prometheusManager.SpecCpuGauge.
+		Set(d.allocationManager.SpecCPUs().InexactFloat64())
+
+	// Publish memory resource metrics.
+	d.prometheusManager.IdleMemoryGauge.
+		Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
+	d.prometheusManager.PendingMemoryGauge.
+		Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
+	d.prometheusManager.CommittedMemoryGauge.
+		Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
+	d.prometheusManager.SpecMemoryGauge.
+		Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
+
+	d.prometheusManager.NumActiveKernelReplicasGauge.
+		Set(float64(d.kernels.Len()))
+
+	// We only call SetDone if we're creating the LocalDaemonPrometheusManager for the first time.
+	d.prometheusStarted.Done()
+
+	// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
+	d.allocationManager.RegisterMetricsManager(d.prometheusManager)
+	d.router.AssignPrometheusManager(d.prometheusManager)
 
 	return in, nil
 }
