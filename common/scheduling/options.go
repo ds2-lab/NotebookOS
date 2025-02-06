@@ -52,6 +52,8 @@ var (
 		MeanScaleInPerHostSec:         10,
 		StdDevScaleInPerHostSec:       1,
 		AssignKernelDebugPorts:        false,
+		PrewarmingEnabled:             true,
+		MaxPrewarmContainers:          -1,
 	}
 
 	DefaultFcfsSchedulerOptions = &SchedulerOptions{
@@ -97,6 +99,8 @@ var (
 		MeanScaleInPerHostSec:         10,
 		StdDevScaleInPerHostSec:       1,
 		AssignKernelDebugPorts:        false,
+		PrewarmingEnabled:             false,
+		MaxPrewarmContainers:          -1,
 	}
 )
 
@@ -131,6 +135,9 @@ type SchedulerOptions struct {
 	MillicpusPerHost int     `name:"millicpus_per_host" json:"millicpus_per_host" yaml:"millicpus_per_host" description:"Amount of allocatable CPU available on each Host, in millicpus (1 millicpu = 1/1000 vCPU)."`
 	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each Host, in megabytes."`
 	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each Host, in gigabytes."`
+
+	PrewarmingEnabled    bool `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
+	MaxPrewarmContainers int  `name:"max_prewarm_containers" json:"max_prewarm_containers" yaml:"max_prewarm_containers"`
 
 	PredictiveAutoscalingEnabled bool `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the Cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
 
