@@ -173,13 +173,23 @@ func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) er
 	return nil
 }
 
-func (p *ContainerPrewarmer) Start() {
+func (p *ContainerPrewarmer) Start() error {
 	// If we're not supposed to create any pre-warmed containers upon starting, then just return immediately.
 	if p.initialNumPerHost == 0 {
-		return
+		return nil
 	}
 
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
+		go func() {
+			err := p.ProvisionContainers(host, p.initialNumPerHost)
+			if err != nil {
+				// TODO: Do something meaningful.
+			}
+		}()
+
 		return true
 	})
+
+	// TODO: Return something meaningful.
+	return nil
 }
