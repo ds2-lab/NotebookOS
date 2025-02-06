@@ -3779,7 +3779,7 @@ class DistributedKernel(IPythonKernel):
             return gen_error_response(e), False
 
         # If the SyncLog is not an instance of RaftLog, then we don't have to worry about writing and copying
-        # the SyncLog's data directory to remote storage. We can just return now. 
+        # the SyncLog's data directory to remote storage. We can just return now.
         if not isinstance(self.synclog, RaftLog):
             try:
                 self.synclog.close_remote_storage_client()

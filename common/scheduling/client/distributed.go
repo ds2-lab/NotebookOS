@@ -907,6 +907,10 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 
+	if int32(len(c.replicas)) < c.targetNumReplicas {
+		c.log.Error("Only have %d replica(s); however, supposed to have %d...", len(c.replicas), c.targetNumReplicas)
+	}
+
 	removalErrors := make([]error, 0, len(c.replicas))
 
 	// Create a copy as we're going to modify c.replicas while we iterate.
@@ -914,6 +918,103 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	for idx, replica := range c.replicas {
 		replicas[idx] = replica
 	}
+
+	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
+	// requests to prompt the containers to persist any important state to remote storage.
+	if forIdleReclamation {
+		c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote storage.")
+
+		// We'll give the replicas up to 5 minutes to write their state to remote storage.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+		defer cancel()
+
+		// *PrepareToMigrateResponse
+		respChan := make(chan interface{}, c.targetNumReplicas)
+		startTime := time.Now()
+
+		responsesReceived := atomic.Int32{}
+
+		// wrappedError wraps an error and a replica ID so that the error can be associated with a particular replica.
+		type wrappedError struct {
+			Error     error
+			ReplicaId int32
+		}
+
+		// Send a PrepareToMigrate request to each replica in-parallel.
+		for _, replica := range replicas {
+			host := replica.Host()
+
+			if host == nil {
+				c.log.Error("Replica %d has a nil host...", replica.ReplicaID())
+				continue
+			}
+
+			info := &proto.ReplicaInfo{
+				ReplicaId: replica.ReplicaID(),
+				KernelId:  replica.ID(),
+			}
+
+			// Send request.
+			go func(replicaInfo *proto.ReplicaInfo) {
+				// Send request.
+				resp, err := host.PrepareToMigrate(ctx, replicaInfo)
+
+				// Deliver response back to main goroutine.
+				if err == nil {
+					responsesReceived.Add(1)
+					respChan <- resp
+				} else {
+					responsesReceived.Add(1)
+					respChan <- &wrappedError{
+						Error:     err,
+						ReplicaId: replicaInfo.ReplicaId,
+					}
+				}
+			}(info)
+		}
+
+		// Keep looping until we've received all responses.
+		// We'll break out of the loop manually/explicitly if the context times-out or an error response is received.
+		for responsesReceived.Load() < len(replicas) {
+			select {
+			case <-ctx.Done():
+				{
+					timeElapsed := time.Since(startTime)
+					finalNumResponsesReceived := responsesReceived.Load()
+
+					c.log.Error("Timed out waiting for %d remaining response(s) to PrepareToMigrate request after %v.",
+						finalNumResponsesReceived, timeElapsed)
+
+					return fmt.Errorf("%w: failed to receive response to PrepareToMigrate request after %v (received %d/%d responses)",
+						types.ErrRequestTimedOut, timeElapsed, finalNumResponsesReceived, len(replicas))
+				}
+			case v := <-respChan:
+				{
+					switch v.(type) {
+					case *wrappedError:
+						{
+							// Log an error message and return the error.
+							err := v.(*wrappedError)
+							c.log.Error("Replica %d failed to handle 'prepare to migrate' request during idle reclamation: %v",
+								err.ReplicaId, err.Error)
+
+							return err.Error
+						}
+					case *proto.PrepareToMigrateResponse:
+						{
+							// We'll just print a message indicating that we received the 'OK' response from this replica.
+							// The for-loop will return once we've received responses from all replicas.
+							c.log.Debug("Replica %d successfully prepared to migrate during idle reclamation. Received %d/%d responses so far. Time elapsed: %v.",
+								v.(*proto.PrepareToMigrateResponse).Id, responsesReceived.Load(), len(replicas), time.Since(startTime))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	c.log.Debug("Received all %d response(s) to 'Prepare to Migrate' requests. Removing %d replica(s) now for idle reclamation.",
+		len(replicas), len(replicas))
 
 	// Iterate over the copy, removing replicas one-by-one.
 	for _, replica := range replicas {
