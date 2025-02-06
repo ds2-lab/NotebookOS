@@ -382,7 +382,7 @@ type KernelReplica interface {
 	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
 
 	// ContainerType returns the current ContainerType of the (KernelContainer of the) target KernelReplica.
-	ContainerType() ContainerType
+	ContainerType() (ContainerType, bool)
 
 	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
 	// to a StandardContainer.

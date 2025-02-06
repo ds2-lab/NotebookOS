@@ -796,6 +796,7 @@ message KernelReplicaSpec {
   optional string persistentId = 6;
   int32 dockerModeKernelDebugPort = 7;
   string workloadId = 8;
+  bool prewarmContainer = 9;
 }
 
 message ResourceSpec {

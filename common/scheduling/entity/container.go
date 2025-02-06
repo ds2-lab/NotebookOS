@@ -39,12 +39,10 @@ type Container struct {
 	containerType scheduling.ContainerType
 }
 
-type PlaceholderContainer struct {
-	*Container
-}
-
 // NewContainer creates and returns a new *Container.
-func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host, kernelIp string) *Container {
+func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host,
+	kernelIp string, containerType scheduling.ContainerType) *Container {
+
 	id := session.ID()
 	container := &Container{
 		KernelReplica:  kernelReplica,
@@ -57,6 +55,7 @@ func NewContainer(session scheduling.UserSession, kernelReplica scheduling.Kerne
 		spec:           types.ToDecimalSpec(session.ResourceSpec()),
 		startedAt:      time.Now(),
 		addr:           kernelIp,
+		containerType:  containerType,
 	}
 
 	container.executions.Store(0)

@@ -811,17 +811,17 @@ func (mr *MockSchedulerMockRecorder) CanScaleIn() *gomock.Call {
 }
 
 // DeployKernelReplicas mocks base method.
-func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeployKernelReplicas", ctx, kernelSpec, blacklistedHosts)
+	ret := m.ctrl.Call(m, "DeployKernelReplicas", ctx, kernel, blacklistedHosts)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DeployKernelReplicas indicates an expected call of DeployKernelReplicas.
-func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernelSpec, blacklistedHosts any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernel, blacklistedHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernelSpec, blacklistedHosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernel, blacklistedHosts)
 }
 
 // FindReadyReplica mocks base method.
@@ -6532,6 +6532,20 @@ func (mr *MockKernelMockRecorder) GetSocketPort(typ any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSocketPort", reflect.TypeOf((*MockKernel)(nil).GetSocketPort), typ)
 }
 
+// HasActiveTraining mocks base method.
+func (m *MockKernel) HasActiveTraining() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasActiveTraining")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasActiveTraining indicates an expected call of HasActiveTraining.
+func (mr *MockKernelMockRecorder) HasActiveTraining() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveTraining", reflect.TypeOf((*MockKernel)(nil).HasActiveTraining))
+}
+
 // ID mocks base method.
 func (m *MockKernel) ID() string {
 	m.ctrl.T.Helper()
@@ -6841,18 +6855,6 @@ func (mr *MockKernelMockRecorder) PersistentID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PersistentID", reflect.TypeOf((*MockKernel)(nil).PersistentID))
 }
 
-// PlacementBeganSchedulingReplicaContainers mocks base method.
-func (m *MockKernel) RecordContainerPlacementStarted() {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RecordContainerPlacementStarted")
-}
-
-// PlacementBeganSchedulingReplicaContainers indicates an expected call of PlacementBeganSchedulingReplicaContainers.
-func (mr *MockKernelMockRecorder) PlacementBeganSchedulingReplicaContainers() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordContainerPlacementStarted", reflect.TypeOf((*MockKernel)(nil).RecordContainerPlacementStarted))
-}
-
 // PodOrContainerName mocks base method.
 func (m *MockKernel) PodOrContainerName(id int32) (string, error) {
 	m.ctrl.T.Helper()
@@ -6892,6 +6894,18 @@ func (m *MockKernel) RecordContainerCreated(warm bool) {
 func (mr *MockKernelMockRecorder) RecordContainerCreated(warm any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordContainerCreated", reflect.TypeOf((*MockKernel)(nil).RecordContainerCreated), warm)
+}
+
+// RecordContainerPlacementStarted mocks base method.
+func (m *MockKernel) RecordContainerPlacementStarted() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RecordContainerPlacementStarted")
+}
+
+// RecordContainerPlacementStarted indicates an expected call of RecordContainerPlacementStarted.
+func (mr *MockKernelMockRecorder) RecordContainerPlacementStarted() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordContainerPlacementStarted", reflect.TypeOf((*MockKernel)(nil).RecordContainerPlacementStarted))
 }
 
 // RegisterAck mocks base method.
@@ -7524,6 +7538,21 @@ func (mr *MockKernelReplicaMockRecorder) Container() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Container", reflect.TypeOf((*MockKernelReplica)(nil).Container))
 }
 
+// ContainerType mocks base method.
+func (m *MockKernelReplica) ContainerType() (scheduling.ContainerType, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ContainerType")
+	ret0, _ := ret[0].(scheduling.ContainerType)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// ContainerType indicates an expected call of ContainerType.
+func (mr *MockKernelReplicaMockRecorder) ContainerType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerType", reflect.TypeOf((*MockKernelReplica)(nil).ContainerType))
+}
+
 // Context mocks base method.
 func (m *MockKernelReplica) Context() context.Context {
 	m.ctrl.T.Helper()
@@ -7859,6 +7888,20 @@ func (m *MockKernelReplica) PersistentID() string {
 func (mr *MockKernelReplicaMockRecorder) PersistentID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PersistentID", reflect.TypeOf((*MockKernelReplica)(nil).PersistentID))
+}
+
+// PromotePrewarmContainer mocks base method.
+func (m *MockKernelReplica) PromotePrewarmContainer() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PromotePrewarmContainer")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PromotePrewarmContainer indicates an expected call of PromotePrewarmContainer.
+func (mr *MockKernelReplicaMockRecorder) PromotePrewarmContainer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelReplica)(nil).PromotePrewarmContainer))
 }
 
 // ReceivedExecuteReply mocks base method.
@@ -8470,6 +8513,20 @@ func (mr *MockKernelContainerMockRecorder) ContainerStoppedTraining() *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStoppedTraining", reflect.TypeOf((*MockKernelContainer)(nil).ContainerStoppedTraining))
 }
 
+// ContainerType mocks base method.
+func (m *MockKernelContainer) ContainerType() scheduling.ContainerType {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ContainerType")
+	ret0, _ := ret[0].(scheduling.ContainerType)
+	return ret0
+}
+
+// ContainerType indicates an expected call of ContainerType.
+func (mr *MockKernelContainerMockRecorder) ContainerType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerType", reflect.TypeOf((*MockKernelContainer)(nil).ContainerType))
+}
+
 // Explain mocks base method.
 func (m *MockKernelContainer) Explain(key scheduling.ExplainerEntry) string {
 	m.ctrl.T.Helper()
@@ -8634,6 +8691,20 @@ func (m *MockKernelContainer) PreemptionPriority() float64 {
 func (mr *MockKernelContainerMockRecorder) PreemptionPriority() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreemptionPriority", reflect.TypeOf((*MockKernelContainer)(nil).PreemptionPriority))
+}
+
+// PromotePrewarmContainer mocks base method.
+func (m *MockKernelContainer) PromotePrewarmContainer() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PromotePrewarmContainer")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PromotePrewarmContainer indicates an expected call of PromotePrewarmContainer.
+func (mr *MockKernelContainerMockRecorder) PromotePrewarmContainer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelContainer)(nil).PromotePrewarmContainer))
 }
 
 // ReplicaId mocks base method.
@@ -9555,6 +9626,20 @@ func (m *MockExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMe
 func (mr *MockExecutionManagerMockRecorder) HandleSmrLeadTaskMessage(msg, kernelReplica any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleSmrLeadTaskMessage", reflect.TypeOf((*MockExecutionManager)(nil).HandleSmrLeadTaskMessage), msg, kernelReplica)
+}
+
+// HasActiveTraining mocks base method.
+func (m *MockExecutionManager) HasActiveTraining() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasActiveTraining")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasActiveTraining indicates an expected call of HasActiveTraining.
+func (mr *MockExecutionManagerMockRecorder) HasActiveTraining() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveTraining", reflect.TypeOf((*MockExecutionManager)(nil).HasActiveTraining))
 }
 
 // LastPrimaryReplica mocks base method.
@@ -12062,6 +12147,18 @@ func (m *MockCreateReplicaContainersAttempt) EXPECT() *MockCreateReplicaContaine
 	return m.recorder
 }
 
+// ContainerPlacementStarted mocks base method.
+func (m *MockCreateReplicaContainersAttempt) ContainerPlacementStarted() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ContainerPlacementStarted")
+}
+
+// ContainerPlacementStarted indicates an expected call of ContainerPlacementStarted.
+func (mr *MockCreateReplicaContainersAttemptMockRecorder) ContainerPlacementStarted() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerPlacementStarted", reflect.TypeOf((*MockCreateReplicaContainersAttempt)(nil).ContainerPlacementStarted))
+}
+
 // FailureReason mocks base method.
 func (m *MockCreateReplicaContainersAttempt) FailureReason() error {
 	m.ctrl.T.Helper()
@@ -12198,4 +12295,18 @@ func (m *MockCreateReplicaContainersAttempt) Wait(ctx context.Context) error {
 func (mr *MockCreateReplicaContainersAttemptMockRecorder) Wait(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Wait", reflect.TypeOf((*MockCreateReplicaContainersAttempt)(nil).Wait), ctx)
+}
+
+// WaitForPlacementPhaseToBegin mocks base method.
+func (m *MockCreateReplicaContainersAttempt) WaitForPlacementPhaseToBegin(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WaitForPlacementPhaseToBegin", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WaitForPlacementPhaseToBegin indicates an expected call of WaitForPlacementPhaseToBegin.
+func (mr *MockCreateReplicaContainersAttemptMockRecorder) WaitForPlacementPhaseToBegin(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForPlacementPhaseToBegin", reflect.TypeOf((*MockCreateReplicaContainersAttempt)(nil).WaitForPlacementPhaseToBegin), ctx)
 }

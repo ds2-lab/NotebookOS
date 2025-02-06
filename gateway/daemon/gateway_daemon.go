@@ -2566,7 +2566,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	}
 
 	// Create the new Container.
-	container := entity.NewContainer(session, replica, host, in.KernelIp)
+	container := entity.NewContainer(session, replica, host, in.KernelIp, scheduling.StandardContainer)
 
 	// Assign the Container to the kernel.
 	replica.SetContainer(container)
@@ -2861,7 +2861,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	}
 
 	// Create the new Container.
-	container := entity.NewContainer(session, replica, host, in.KernelIp)
+	container := entity.NewContainer(session, replica, host, in.KernelIp, scheduling.StandardContainer)
 
 	// Assign the Container to the kernel.
 	replica.SetContainer(container)
