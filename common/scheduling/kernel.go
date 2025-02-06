@@ -136,6 +136,28 @@ type Kernel interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 
+	// NumContainersCreated returns the total number of KernelContainer instances that have been created or provisioned
+	// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
+	// KernelContainer instance(s) as well as any KernelContainer instance(s) created during migrations or as on-demand.
+	//
+	// Technically, if a warm container is used, then that container wasn't strictly "created", but we count it in this
+	// statistic, in any case. To get the number of containers that were strictly created cold for the target Kernel,
+	// simply compute NumContainersCreated - NumWarmContainersUsed.
+	NumContainersCreated() int32
+
+	// NumWarmContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+	// for the target Kernel, the KernelReplica / KernelContainer was created using a warm KernelContainer.
+	NumWarmContainersUsed() int32
+
+	// NumColdContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+	// for the target Kernel, the KernelReplica / KernelContainer was created using a cold KernelContainer.
+	NumColdContainersUsed() int32
+
+	// RecordContainerCreated records that a scheduling.KernelContainer was created for the target DistributedKernelClient.
+	//
+	// The argument to RecordContainerCreated indicates whether the created container was warm or cold.
+	RecordContainerCreated(warm bool)
+
 	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
 	// code execution, or nil if no code executions have occurred.
 	LastPrimaryReplica() KernelReplica

@@ -6771,6 +6771,20 @@ func (mr *MockKernelMockRecorder) NumActiveMigrationOperations() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumActiveMigrationOperations", reflect.TypeOf((*MockKernel)(nil).NumActiveMigrationOperations))
 }
 
+// NumColdContainersUsed mocks base method.
+func (m *MockKernel) NumColdContainersUsed() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumColdContainersUsed")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumColdContainersUsed indicates an expected call of NumColdContainersUsed.
+func (mr *MockKernelMockRecorder) NumColdContainersUsed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumColdContainersUsed", reflect.TypeOf((*MockKernel)(nil).NumColdContainersUsed))
+}
+
 // NumCompletedTrainings mocks base method.
 func (m *MockKernel) NumCompletedTrainings() int {
 	m.ctrl.T.Helper()
@@ -6783,6 +6797,34 @@ func (m *MockKernel) NumCompletedTrainings() int {
 func (mr *MockKernelMockRecorder) NumCompletedTrainings() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumCompletedTrainings", reflect.TypeOf((*MockKernel)(nil).NumCompletedTrainings))
+}
+
+// NumContainersCreated mocks base method.
+func (m *MockKernel) NumContainersCreated() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumContainersCreated")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumContainersCreated indicates an expected call of NumContainersCreated.
+func (mr *MockKernelMockRecorder) NumContainersCreated() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumContainersCreated", reflect.TypeOf((*MockKernel)(nil).NumContainersCreated))
+}
+
+// NumWarmContainersUsed mocks base method.
+func (m *MockKernel) NumWarmContainersUsed() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumWarmContainersUsed")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumWarmContainersUsed indicates an expected call of NumWarmContainersUsed.
+func (mr *MockKernelMockRecorder) NumWarmContainersUsed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumWarmContainersUsed", reflect.TypeOf((*MockKernel)(nil).NumWarmContainersUsed))
 }
 
 // PersistentID mocks base method.
@@ -8965,6 +9007,20 @@ func (m *MockPolicy) SupportsPredictiveAutoscaling() bool {
 func (mr *MockPolicyMockRecorder) SupportsPredictiveAutoscaling() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsPredictiveAutoscaling", reflect.TypeOf((*MockPolicy)(nil).SupportsPredictiveAutoscaling))
+}
+
+// UseWarmContainers mocks base method.
+func (m *MockPolicy) UseWarmContainers() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UseWarmContainers")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UseWarmContainers indicates an expected call of UseWarmContainers.
+func (mr *MockPolicyMockRecorder) UseWarmContainers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UseWarmContainers", reflect.TypeOf((*MockPolicy)(nil).UseWarmContainers))
 }
 
 // ValidateCapacity mocks base method.

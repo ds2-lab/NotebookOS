@@ -119,6 +119,19 @@ type DistributedKernelClient struct {
 	// isIdleReclaimed indicates whether the DistributedKernelClient is in a state of being idle reclaimed.
 	isIdleReclaimed atomic.Bool
 
+	// numContainersCreated is the total number of KernelContainer instances that have been created or provisioned
+	// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
+	// KernelContainer instance(s) as well as any KernelContainer instance(s) created during migrations or as on-demand.
+	numContainersCreated atomic.Int32
+
+	// NumColdContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+	// for the target Kernel, the KernelReplica / KernelContainer was created using a cold KernelContainer.
+	numColdContainersUsed atomic.Int32
+
+	// NumWarmContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+	// for the target Kernel, the KernelReplica / KernelContainer was created using a warm KernelContainer.
+	numWarmContainersUsed atomic.Int32
+
 	nextNodeId atomic.Int32
 
 	closing int32
@@ -261,6 +274,42 @@ func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, sche
 	c.log.Debug("Beginning attempt to schedule %d replica container(s).", c.targetNumReplicas)
 	c.createReplicaContainersAttempt = newCreateReplicaContainersAttempt(c)
 	return true, c.createReplicaContainersAttempt
+}
+
+// RecordContainerCreated records that a scheduling.KernelContainer was created for the target DistributedKernelClient.
+//
+// The argument to RecordContainerCreated indicates whether the created container was warm or cold.
+func (c *DistributedKernelClient) RecordContainerCreated(warm bool) {
+	c.numContainersCreated.Add(1)
+
+	if warm {
+		c.numWarmContainersUsed.Add(1)
+	} else {
+		c.numColdContainersUsed.Add(1)
+	}
+}
+
+// NumContainersCreated returns the total number of KernelContainer instances that have been created or provisioned
+// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
+// KernelContainer instance(s) as well as any KernelContainer instance(s) created during migrations or as on-demand.
+//
+// Technically, if a warm container is used, then that container wasn't strictly "created", but we count it in this
+// statistic, in any case. To get the number of containers that were strictly created cold for the target
+// DistributedKernelClient, simply compute NumContainersCreated - NumWarmContainersUsed.
+func (c *DistributedKernelClient) NumContainersCreated() int32 {
+	return c.numContainersCreated.Load()
+}
+
+// NumWarmContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+// for the target Kernel, the KernelReplica / KernelContainer was created using a warm KernelContainer.
+func (c *DistributedKernelClient) NumWarmContainersUsed() int32 {
+	return c.numWarmContainersUsed.Load()
+}
+
+// NumColdContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+// for the target Kernel, the KernelReplica / KernelContainer was created using a cold KernelContainer.
+func (c *DistributedKernelClient) NumColdContainersUsed() int32 {
+	return c.numColdContainersUsed.Load()
 }
 
 // concludeSchedulingReplicaContainers is called automatically by a CreateReplicaContainersAttempt struct

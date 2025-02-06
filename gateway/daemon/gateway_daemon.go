@@ -2830,6 +2830,9 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 //
 // Next, for policies that use long-lived containers (regardless of the number of replicas), the kernel should restore
 // state if the kernel replicas are being recreated following an idle kernel/session reclamation.
+//
+// Finally, when using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from
+// remote storage if this is not the very first time that they're being created.
 func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel) bool {
 	policy := d.Scheduler().Policy()
 
@@ -2844,6 +2847,8 @@ func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kerne
 	if kernel.IsIdleReclaimed() {
 		return true
 	}
+
+	if policy.UseWarmContainers()
 
 	return false
 }
