@@ -226,7 +226,7 @@ type AllocationManager struct {
 	// by this AllocationManager.
 	resourceManager *Manager
 
-	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
+	// availableGpuDevices is a queue.ThreadsafeFifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
 	metricsManager *metrics.LocalDaemonPrometheusManager

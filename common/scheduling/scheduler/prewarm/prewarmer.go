@@ -5,6 +5,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"golang.org/x/net/context"
 	"sync"
@@ -43,13 +44,13 @@ type PrewarmedContainer struct {
 }
 
 type ContainerPrewarmer struct {
-	// PrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
+	// AllPrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
 	// of pre-warmed containers.
-	PrewarmContainers map[string]*PrewarmedContainer
+	AllPrewarmContainers map[string]*PrewarmedContainer
 
-	// NumPrewarmContainersPerHost is a map from scheduling.Host ID to the number of pre-warmed containers on
-	// that scheduling.Host.
-	NumPrewarmContainersPerHost map[string]int
+	// PrewarmContainersPerHost is a map from host ID to a queue of PrewarmedContainer created and available on the
+	// associated host.
+	PrewarmContainersPerHost map[string]*queue.ThreadsafeFifo[*PrewarmedContainer]
 
 	// Scheduler is a reference to the scheduling.Scheduler.
 	Scheduler scheduling.Scheduler
@@ -67,11 +68,11 @@ type ContainerPrewarmer struct {
 // NewContainerPrewarmer creates a new ContainerPrewarmer struct and returns a pointer to it.
 func NewContainerPrewarmer(cluster scheduling.Cluster, initialNumContainersPerHost int) *ContainerPrewarmer {
 	warmer := &ContainerPrewarmer{
-		PrewarmContainers:           make(map[string]*PrewarmedContainer),
-		NumPrewarmContainersPerHost: make(map[string]int),
-		Cluster:                     cluster,
-		Scheduler:                   cluster.Scheduler(),
-		initialNumPerHost:           initialNumContainersPerHost,
+		AllPrewarmContainers:     make(map[string]*PrewarmedContainer),
+		PrewarmContainersPerHost: make(map[string]*queue.ThreadsafeFifo[*PrewarmedContainer]),
+		Cluster:                  cluster,
+		Scheduler:                cluster.Scheduler(),
+		initialNumPerHost:        initialNumContainersPerHost,
 	}
 
 	config.InitLogger(&warmer.log, warmer)
@@ -102,7 +103,7 @@ func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.Ke
 		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
 		SignatureScheme: "hmac-sha256",
 		Key:             "",
-		ResourceSpec:    proto.NewResourceSpec(-1, -1, -1, -1),
+		ResourceSpec:    proto.NewResourceSpec(0, 0, 0, 0),
 		WorkloadId:      "",
 	}
 
@@ -147,19 +148,12 @@ func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelCo
 		KernelReplicaSpec: spec,
 	}
 
-	p.PrewarmContainers[spec.Kernel.Id] = prewarmedContainer
+	p.AllPrewarmContainers[spec.Kernel.Id] = prewarmedContainer
 
-	var (
-		n      int
-		loaded bool
-	)
+	fifo, _ := p.PrewarmContainersPerHost[host.GetID()]
+	fifo.Enqueue(prewarmedContainer)
 
-	n, loaded = p.NumPrewarmContainersPerHost[host.GetID()]
-	if loaded {
-		p.NumPrewarmContainersPerHost[host.GetID()] = n + 1
-	} else {
-		p.NumPrewarmContainersPerHost[host.GetID()] = 1
-	}
+	p.log.Debug("Number of pre-warmed containers on host %s: %d", host.GetNodeName(), fifo.Len())
 }
 
 // provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
@@ -253,6 +247,9 @@ func (p *ContainerPrewarmer) ProvisionInitialPrewarmContainers() (created int32,
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
 		wg.Add(1)
 		atomic.AddInt32(&target, int32(p.initialNumPerHost))
+
+		fifo := queue.NewThreadsafeFifo[*PrewarmedContainer](p.initialNumPerHost)
+		p.PrewarmContainersPerHost[host.GetID()] = fifo
 
 		go func() {
 			defer wg.Done()
