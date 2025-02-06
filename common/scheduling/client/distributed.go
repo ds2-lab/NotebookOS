@@ -884,6 +884,13 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	if isIdleReclaim {
 		c.isIdleReclaimed.Store(true)
+
+		currentStatus := c.status
+		statusChanged := c.setStatus(currentStatus, jupyter.KernelStatusIdleReclaimed)
+		if !statusChanged {
+			c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+				currentStatus.String(), jupyter.KernelStatusError.String(), c.status.String())
+		}
 	}
 
 	return nil
