@@ -223,13 +223,13 @@ func (c *DistributedKernelClient) ReplicaContainersAreBeingScheduled() bool {
 	return c.replicaContainersAreBeingScheduled.Load() > 0
 }
 
-// ContainerPlacementStarted is called while scheduling the KernelContainer instances for the
+// RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 // KernelReplica instances of the target Kernel.
 //
-// Specifically, ContainerPlacementStarted is called to signal that N viable Host instances have
+// Specifically, RecordContainerPlacementStarted is called to signal that N viable Host instances have
 // been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 // of the target Kernel.
-func (c *DistributedKernelClient) ContainerPlacementStarted() {
+func (c *DistributedKernelClient) RecordContainerPlacementStarted() {
 	if c.createReplicaContainersAttempt == nil {
 		c.log.Error("Informed that placement of containers has began, but there is no active container creation operation...")
 		return

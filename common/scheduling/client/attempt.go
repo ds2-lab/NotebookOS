@@ -214,17 +214,18 @@ func (a *CreateReplicaContainersAttempt) SetDone(failureReason error) {
 		panic(ErrAlreadyComplete)
 	}
 
-	// This will be a no-op if it was already called.
-	a.ContainerPlacementStarted()
-
 	// We only want to call this big release once.
 	if a.complete.CompareAndSwap(false, true) {
+		// Only set these if we set the 'complete' flag.
+		a.failureReason = failureReason
+		a.succeeded.Store(failureReason == nil)
+
 		// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
 		defer a.primarySemaphore.Release(maxSemaphoreWeight)
 	}
 
-	a.failureReason = failureReason
-	a.succeeded.Store(failureReason == nil)
+	// This will be a no-op if it was already called.
+	a.ContainerPlacementStarted()
 
 	if !a.kernel.concludeSchedulingReplicaContainers() {
 		panic("Failed to conclude kernel replica container creation operation")

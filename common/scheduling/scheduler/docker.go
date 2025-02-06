@@ -321,7 +321,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 				resultChan <- &schedulingNotification{
 					SchedulingCompletedAt: time.Now(),
 					KernelId:              in.Id,
-					ReplicaId:             int32(replicaId),
+					ReplicaId:             replicaId,
 					Host:                  targetHost,
 					Error:                 nil,
 					Successful:            true,
@@ -478,6 +478,9 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 		return candidateError
 	}
 
+	// Take note that we're starting to place the kernel replicas now.
+	kernel.RecordContainerPlacementStarted()
+
 	// Schedule a replica of the kernel on each of the candidate hosts.
 	resultChan := s.scheduleKernelReplicas(kernelSpec, hosts, blacklistedHosts, false)
 
@@ -487,9 +490,6 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 	for len(responsesReceived) < responsesRequired {
 		select {
 		// Context time-out, meaning the operation itself has timed-out or been cancelled.
-		// TODO: We ultimately need to handle this somehow, as we'll have allocated TransactionResources to the kernel replicas
-		// 		 on the hosts that we selected. If this operation fails or times-out, then we need to potentially
-		//		 terminate the replicas that we know were scheduled successfully and release the TransactionResources on those hosts.
 		case <-ctx.Done():
 			{
 				err := ctx.Err()
@@ -502,6 +502,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 					err = types.ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
 				}
 
+				// If we received no responses, then no replicas were scheduled (apparently), so we can just return.
 				if len(responsesReceived) == 0 {
 					s.log.Error("Scheduling of kernel %s has failed after %v. Failed to schedule any of the %d replicas.",
 						kernel.ID(), time.Since(st), responsesRequired)
@@ -513,6 +514,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 					}).Error())
 				}
 
+				// We'll need to remove any replicas that were successfully scheduled.
 				return s.removeOrphanedReplicas(context.WithValue(ctx, "start_time", st), kernel, responsesReceived)
 			}
 		// Received response.

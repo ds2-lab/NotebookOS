@@ -1951,7 +1951,13 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 }
 
 // scheduleReplicas actually scheduled the replicas of the specified kernel.
-func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec) error {
+//
+// Important: if the attemptChan argument is non-nil, then it should be a buffered channel so that the operation
+// to place the scheduling.CreateReplicaContainersAttempt into it will not block. (We don't want to get stuck
+// there forever in case the caller goes away for whatever reason.)
+func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec,
+	attemptChan chan<- scheduling.CreateReplicaContainersAttempt) error {
+
 	d.log.Debug("Scheduling %d replica container(s) of kernel %s.", d.NumReplicas(), kernel.ID())
 
 	var (
@@ -1993,13 +1999,21 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 			continue
 		}
 
+		if attemptChan != nil {
+			attemptChan <- attempt
+		}
+
 		// If we did not start a new attempt, then a previous attempt must still be active.
 		// We'll just wait for the attempt to conclude.
 		// If the scheduling is successful, then this will eventually return nil.
 		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
-		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago.",
+		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
 			kernel.ID(), attempt.TimeElapsed())
 		return attempt.Wait(ctx)
+	}
+
+	if attemptChan != nil {
+		attemptChan <- attempt
 	}
 
 	// Verify that the replicas aren't scheduled.
@@ -2204,6 +2218,96 @@ func (d *ClusterGatewayImpl) sendIoPubStatusesOnStart(kernel scheduling.Kernel) 
 	return nil
 }
 
+// startLongRunningKernel runs some long-running-kernel-specific start-up code.
+//
+// startLongRunningKernel will return as soon as the container creation process for the long-running kernel enters
+// the "placement" stage, as it is very likely to succeed at that point, but the remaining process can take anywhere
+// from 15 to 45 seconds (on average).
+func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec) error {
+	notifyChan := make(chan interface{}, 1)
+	attemptChan := make(chan scheduling.CreateReplicaContainersAttempt, 1)
+
+	// Use a separate goroutine for this step.
+	go func() {
+		// We pass a new/separate context, because if we end up returning all the way back to the gRPC handler (and
+		// then return from there), then the scheduling operation will fail, as the context will be cancelled (when we
+		// return from the gRPC handler).
+		err := d.scheduleReplicas(context.Background(), kernel, in, attemptChan)
+
+		if err == nil {
+			notifyChan <- struct{}{}
+			return
+		}
+
+		d.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v", in.Id, err)
+
+		// Set the kernel's status to KernelStatusError.
+		kernel.InitialContainerCreationFailed()
+
+		notifyChan <- err
+	}()
+
+	var attempt scheduling.CreateReplicaContainersAttempt
+	select {
+	case <-ctx.Done(): // Original context passed to us from the gRPC handler.
+		{
+			err := ctx.Err()
+
+			d.log.Error("gRPC context cancelled while scheduling replicas of new kernel \"%s\": %v",
+				in.Id, err)
+
+			if err != nil {
+				return fmt.Errorf("%w: failed to schedule replicas of kernel \"%s\"", err, in.Id)
+			}
+
+			return fmt.Errorf("failed to schedule replicas of kernel \"%s\" because: %w",
+				in.Id, types.ErrRequestTimedOut)
+		}
+	case v := <-notifyChan:
+		{
+			// If we received an error, then we already know that the operation failed (and we know why -- it is
+			// whatever the error is/says), so we can just return the error.
+			if err, ok := v.(error); ok {
+				d.log.Error("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+
+				return err
+			}
+
+			// Print a warning message because this is suspicious, but not necessarily indicative
+			// that something is wrong. (It is really, really weird, though...)
+			d.log.Warn("Received non-error response to creation of new, "+
+				"long-running kernel \"%s\" before receiving attempt value...", in.Id)
+
+			// If we receive a non-error response here, then we apparently already scheduled the replicas?
+			// This is very unexpected, but technically it's possible...
+			//
+			// It's unexpected because the overhead of starting containers is high enough that the case in which
+			// we receive the value from the attemptChan should occur first. We receive the attempt as soon as the
+			// placement of the containers begins, which should be anywhere from 15 to 45 seconds before the
+			// containers are fully created.
+			return nil
+		}
+	case attempt = <-attemptChan:
+		{
+			break
+		}
+	}
+
+	// Sanity check. We should only get to this point if the attempt was received from the attempt channel.
+	if attempt == nil {
+		panic("Expected scheduling.CreateReplicaContainersAttempt variable to be non-nil at this point.")
+	}
+
+	err := attempt.WaitForPlacementPhaseToBegin(ctx)
+	if err != nil {
+		d.log.Error("Error waiting for placement to begin during creation of new kernel \"%s\": %v", in.Id, err)
+		return err
+	}
+
+	d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
+	return nil
+}
+
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
@@ -2272,13 +2376,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	} else {
-		err = d.scheduleReplicas(ctx, kernel, in)
+		err = d.startLongRunningKernel(ctx, kernel, in)
+
 		if err != nil {
-			d.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v", in.Id, err)
-
-			// Set the kernel's status to KernelStatusError.
-			kernel.InitialContainerCreationFailed()
-
+			d.log.Error("Error while starting long-running kernel \"%s\": %v", in.Id, err)
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	}
@@ -2298,7 +2399,12 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		Key:             kernel.KernelSpec().Key,
 	}
 
-	d.log.Info("kernel(%s) started after %v: %v", kernel.ID(), time.Since(startTime), info)
+	if kernel.ReplicasAreScheduled() {
+		d.log.Info("Kernel %s started after %v: %v", kernel.ID(), time.Since(startTime), info)
+	} else {
+		d.log.Info("Finished initialization (but not necessarily container creation) for kernel %s after %v: %v",
+			kernel.ID(), time.Since(startTime), info)
+	}
 
 	session, ok := d.cluster.GetSession(kernel.ID())
 	if ok {
@@ -3859,7 +3965,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 
 	// Create the kernel containers in another goroutine.
 	go func() {
-		err := d.scheduleReplicas(ctx, kernel, kernel.KernelSpec())
+		err := d.scheduleReplicas(ctx, kernel, kernel.KernelSpec(), nil)
 
 		if err == nil {
 			// No error. Just send a struct{}{}.
@@ -4730,6 +4836,16 @@ func (d *ClusterGatewayImpl) shouldReplicasBeRunning(kernel scheduling.Kernel) b
 		return false
 	}
 
+	// If the containers are in the process of being scheduled, then it's OK that they aren't running yet.
+	//
+	// If the caller is handling a message that can be spoofed, then it'll be spoofed.
+	//
+	// If the caller is handling something like an "execute_request", then the "execute_request" handler will end
+	// up waiting for the container creation operation to complete.
+	if kernel.ReplicaContainersAreBeingScheduled() {
+		return false
+	}
+
 	return d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning
 }
 
@@ -4743,7 +4859,6 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 		d.log.Debug(utils.CyanStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
 
 		// Check availability.
-		// TODO: This only matters if the replicas should already be running.
 		if kernel.Status() != jupyter.KernelStatusRunning && d.shouldReplicasBeRunning(kernel) {
 			return ErrKernelNotReady
 		}

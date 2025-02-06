@@ -272,13 +272,13 @@ type Kernel interface {
 	// BeginSchedulingReplicaContainers will return false and nil.
 	BeginSchedulingReplicaContainers() (bool, CreateReplicaContainersAttempt)
 
-	// PlacementBeganSchedulingReplicaContainers is called while scheduling the KernelContainer instances for the
+	// RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 	// KernelReplica instances of the target Kernel.
 	//
 	// Specifically, PlacementBeganSchedulingReplicaContainers is called to signal that N viable Host instances have
 	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 	// of the target Kernel.
-	ContainerPlacementStarted()
+	RecordContainerPlacementStarted()
 }
 
 type KernelReplica interface {
