@@ -3,6 +3,7 @@ package prewarm
 import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"golang.org/x/net/context"
@@ -35,10 +36,16 @@ func DivideWork(n, m int) []int {
 	return result
 }
 
+type PrewarmedContainer struct {
+	Host              scheduling.Host
+	ConnectionInfo    *proto.KernelConnectionInfo
+	KernelReplicaSpec *proto.KernelReplicaSpec
+}
+
 type ContainerPrewarmer struct {
 	// PrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
 	// of pre-warmed containers.
-	PrewarmContainers map[string]scheduling.KernelContainer
+	PrewarmContainers map[string]*PrewarmedContainer
 
 	// NumPrewarmContainersPerHost is a map from scheduling.Host ID to the number of pre-warmed containers on
 	// that scheduling.Host.
@@ -53,13 +60,14 @@ type ContainerPrewarmer struct {
 	// initialNumPerHost is the number of pre-warmed containers to create per host at the very beginning.
 	initialNumPerHost int
 
+	mu  sync.Mutex
 	log logger.Logger
 }
 
 // NewContainerPrewarmer creates a new ContainerPrewarmer struct and returns a pointer to it.
 func NewContainerPrewarmer(cluster scheduling.Cluster, initialNumContainersPerHost int) *ContainerPrewarmer {
 	warmer := &ContainerPrewarmer{
-		PrewarmContainers:           make(map[string]scheduling.KernelContainer),
+		PrewarmContainers:           make(map[string]*PrewarmedContainer),
 		NumPrewarmContainersPerHost: make(map[string]int),
 		Cluster:                     cluster,
 		Scheduler:                   cluster.Scheduler(),
@@ -82,35 +90,76 @@ func (p *ContainerPrewarmer) OnKernelStopped() {
 }
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
-func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.KernelConnectionInfo, error) {
+func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.KernelConnectionInfo, *proto.KernelReplicaSpec, error) {
 	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
 	defer cancel()
 
-	return host.StartKernelReplica(ctx, nil)
+	kernelSpec := &proto.KernelSpec{
+		Id:              uuid.NewString(),
+		Session:         "",
+		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+		SignatureScheme: "hmac-sha256",
+		Key:             "",
+		ResourceSpec:    proto.NewResourceSpec(-1, -1, -1, -1),
+		WorkloadId:      "",
+	}
+
+	spec := &proto.KernelReplicaSpec{
+		Kernel:      kernelSpec,
+		ReplicaId:   0,
+		NumReplicas: 0,
+		Join:        false,
+		WorkloadId:  "",
+	}
+
+	resp, err := host.StartKernelReplica(ctx, spec)
+
+	return resp, spec, err
 }
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 func (p *ContainerPrewarmer) ProvisionContainer(host scheduling.Host) error {
 	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
 
-	resp, err := p.provisionContainer(host)
+	resp, spec, err := p.provisionContainer(host)
 
 	if err != nil {
 		p.log.Error("Failed to provision pre-warmed container on host %s because: %v", host.GetNodeName(), err)
 		return err
 	}
 
-	p.registerPrewarmedContainer(resp, host)
+	p.registerPrewarmedContainer(resp, spec, host)
 	return nil
 }
 
 // registerPrewarmedContainer registers a pre-warmed container that was successfully created on the specified Host.
-func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelConnectionInfo, host scheduling.Host) {
+func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelConnectionInfo, spec *proto.KernelReplicaSpec, host scheduling.Host) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.log.Debug("Registering pre-warmed container created on host %s.", host.GetNodeName())
 
-	panic("Not implemented.")
+	prewarmedContainer := &PrewarmedContainer{
+		Host:              host,
+		ConnectionInfo:    connInfo,
+		KernelReplicaSpec: spec,
+	}
+
+	p.PrewarmContainers[spec.Kernel.Id] = prewarmedContainer
+
+	var (
+		n      int
+		loaded bool
+	)
+
+	n, loaded = p.NumPrewarmContainersPerHost[host.GetID()]
+	if loaded {
+		p.NumPrewarmContainersPerHost[host.GetID()] = n + 1
+	} else {
+		p.NumPrewarmContainersPerHost[host.GetID()] = 1
+	}
 }
 
 // provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
