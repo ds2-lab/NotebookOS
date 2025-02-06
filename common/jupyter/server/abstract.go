@@ -462,7 +462,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 			}
 			return
 		case <-s.Ctx.Done():
-			s.Log.Debug("Context is SetDone. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
+			s.Log.Debug("Context is done. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
 			if contd != nil {
 				contd <- false
 			}

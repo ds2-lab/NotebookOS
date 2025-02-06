@@ -300,6 +300,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	AfterEach(func() {
+		defer GinkgoRecover()
+
 		if clusterGateway != nil {
 			_ = clusterGateway.Close()
 		}
@@ -4789,6 +4791,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
 
 					Expect(cluster.Len()).To(Equal(3))
+
+					time.Sleep(time.Second * 1)
 				})
 			})
 
