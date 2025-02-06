@@ -3937,7 +3937,7 @@ class DistributedKernel(IPythonKernel):
             content, success = await self.prepare_to_migrate()
         finally:
             # Regardless of what happens up above, we need to flip the value of the self.preparing_to_migrate flag
-            # back to false and notify anybody waiting on the condition variable. 
+            # back to false and notify anybody waiting on the condition variable.
             async with self.preparing_to_migrate_cv:
                 self.preparing_to_migrate = False
                 self.preparing_to_migrate_cv.notify_all()
