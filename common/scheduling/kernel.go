@@ -76,6 +76,9 @@ type CreateReplicaContainersAttempt interface {
 	// then the failure reason will be returned.
 	Wait(ctx context.Context) error
 
+	// WaitForPlacementPhaseToBegin blocks until the placement phase begins.
+	WaitForPlacementPhaseToBegin(ctx context.Context) error
+
 	// IsComplete returns true if the target CreateReplicaContainersAttempt has finished.
 	//
 	// Note that if IsComplete is true, that doesn't necessarily mean that the associated container creation operation
@@ -89,6 +92,10 @@ type CreateReplicaContainersAttempt interface {
 	// If the target CreateReplicaContainersAttempt has already been marked as having completed,
 	// then SetDone will panic.
 	SetDone(failureReason error)
+
+	// ContainerPlacementStarted records that the placement of the associated Kernel's KernelContainer instances has
+	// officially started.
+	ContainerPlacementStarted()
 
 	// PlacementInProgress returns true if the process of placing and creating the scheduling.KernelContainer
 	// instances has started. Generally, if this stage is reached, then the operation will most-likely complete
@@ -264,6 +271,14 @@ type Kernel interface {
 	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
 	// BeginSchedulingReplicaContainers will return false and nil.
 	BeginSchedulingReplicaContainers() (bool, CreateReplicaContainersAttempt)
+
+	// PlacementBeganSchedulingReplicaContainers is called while scheduling the KernelContainer instances for the
+	// KernelReplica instances of the target Kernel.
+	//
+	// Specifically, PlacementBeganSchedulingReplicaContainers is called to signal that N viable Host instances have
+	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
+	// of the target Kernel.
+	PlacementBeganSchedulingReplicaContainers()
 }
 
 type KernelReplica interface {

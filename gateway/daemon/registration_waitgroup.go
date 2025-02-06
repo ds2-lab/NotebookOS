@@ -55,7 +55,7 @@ func (wg *registrationWaitGroups) String() string {
 	return fmt.Sprintf("RegistrationWaitGroups[NumRegistered=%d, NumNotified=%d]", wg.numRegistered, wg.numNotified)
 }
 
-// Notify calls `SetDone()` on the "notified" sync.Semaphore.
+// Notify calls `SetDone()` on the "notified" sync.primarSemaphore.
 func (wg *registrationWaitGroups) Notify() {
 	wg.notified.Done()
 
@@ -64,7 +64,7 @@ func (wg *registrationWaitGroups) Notify() {
 	wg.numNotified += 1
 }
 
-// Register calls `SetDone()` on the "registered" sync.Semaphore.
+// Register calls `SetDone()` on the "registered" sync.primarSemaphore.
 func (wg *registrationWaitGroups) Register(replicaId int32) {
 	wg.registered.Done()
 
@@ -95,7 +95,7 @@ func (wg *registrationWaitGroups) NumReplicas() int {
 }
 
 // RemoveReplica returns true if the node with the given ID was actually removed.
-// If the node with the given ID was not present in the Semaphore, then returns false.
+// If the node with the given ID was not present in the primarSemaphore, then returns false.
 func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
@@ -122,28 +122,28 @@ func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[
 	return wg.replicas
 }
 
-// GetNotified returns the "notified" sync.Semaphore.
+// GetNotified returns the "notified" sync.primarSemaphore.
 func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
 	return &wg.notified
 }
 
-// GetRegistered returns the "registered" sync.Semaphore.
+// GetRegistered returns the "registered" sync.primarSemaphore.
 func (wg *registrationWaitGroups) GetRegistered() *sync.WaitGroup {
 	return &wg.registered
 }
 
-// WaitNotified calls `Wait()` on the "notified" sync.Semaphore.
+// WaitNotified calls `Wait()` on the "notified" sync.primarSemaphore.
 func (wg *registrationWaitGroups) WaitNotified() {
 	wg.notified.Wait()
 }
 
-// WaitRegistered calls `Wait()` on the "registered" sync.Semaphore.
+// WaitRegistered calls `Wait()` on the "registered" sync.primarSemaphore.
 func (wg *registrationWaitGroups) WaitRegistered() {
 	wg.registered.Wait()
 }
 
-// Wait first calls `Wait()` on the "registered" sync.Semaphore.
-// Then, Wait calls `Wait()` on the "notified" sync.Semaphore.
+// Wait first calls `Wait()` on the "registered" sync.primarSemaphore.
+// Then, Wait calls `Wait()` on the "notified" sync.primarSemaphore.
 func (wg *registrationWaitGroups) Wait() {
 	wg.WaitRegistered()
 	wg.WaitNotified()

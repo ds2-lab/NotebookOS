@@ -6,6 +6,7 @@ import (
 	"go.uber.org/atomic"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
+	"sync"
 	"time"
 )
 
@@ -37,8 +38,11 @@ type kernel interface {
 // CreateReplicaContainersAttempt is similar to kernelDescheduleAttempt, but CreateReplicaContainersAttempt is used
 // to keep track of a kernel whose kernel replicas and kernel containers are being created, rather than removed.
 type CreateReplicaContainersAttempt struct {
-	// Semaphore is used to enable waiting with a timeout for the container creation operation(s) to complete.
-	Semaphore *semaphore.Weighted
+	// primarySemaphore is used to enable waiting with a timeout for the container creation operation(s) to complete.
+	primarySemaphore *semaphore.Weighted
+
+	// placementBeganSemaphore is used to enable waiting with a timeout for the placement phase to begin.
+	placementBeganSemaphore *semaphore.Weighted
 
 	// startedAt is the time at which the container creation operation(s) began.
 	startedAt time.Time
@@ -64,24 +68,42 @@ type CreateReplicaContainersAttempt struct {
 	// instances has started. Generally, if this stage is reached, then the operation will most-likely complete
 	// successfully, as errors are unlikely, and it means that resources were available and whatnot.
 	placementInProgress atomic.Bool
+
+	// placementMu is used with placementCond to enable waiting and signaling on the placement phase to begin.
+	placementMu sync.Mutex
+
+	// placementCond is used with placementMu to enable waiting and signaling on the placement phase to begin.
+	placementCond *sync.Cond
 }
 
 // newCreateReplicaContainersAttempt creates a new CreateReplicaContainersAttempt struct and returns a pointer to it.
 func newCreateReplicaContainersAttempt(kernel kernel) *CreateReplicaContainersAttempt {
-	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
+	primarySemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
+	placementBeganSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
 
-	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
-	err := weightedSemaphore.Acquire(context.Background(), maxSemaphoreWeight)
+	// Acquire the primarySemaphore so anybody who calls Wait will have to wait.
+	err := primarySemaphore.Acquire(context.Background(), maxSemaphoreWeight)
 	if err != nil {
 		panic(err)
 	}
 
-	return &CreateReplicaContainersAttempt{
-		Semaphore: weightedSemaphore,
-		startedAt: time.Now(),
-		kernelId:  kernel.ID(),
-		kernel:    kernel,
+	// Acquire the placementBeganSemaphore so anybody who calls Wait will have to wait.
+	err = placementBeganSemaphore.Acquire(context.Background(), maxSemaphoreWeight)
+	if err != nil {
+		panic(err)
 	}
+
+	attempt := &CreateReplicaContainersAttempt{
+		primarySemaphore:        primarySemaphore,
+		placementBeganSemaphore: placementBeganSemaphore,
+		startedAt:               time.Now(),
+		kernelId:                kernel.ID(),
+		kernel:                  kernel,
+	}
+
+	attempt.placementCond = sync.NewCond(&attempt.placementMu)
+
+	return attempt
 }
 
 // KernelId returns the kernel ID of the scheduling.Kernel associated with the target CreateReplicaContainersAttempt.
@@ -106,6 +128,15 @@ func (a *CreateReplicaContainersAttempt) PlacementInProgress() bool {
 	return a.placementInProgress.Load()
 }
 
+// ContainerPlacementStarted records that the placement of the associated scheduling.Kernel's scheduling.KernelContainer
+// instances has officially started.
+func (a *CreateReplicaContainersAttempt) ContainerPlacementStarted() {
+	if a.placementInProgress.CompareAndSwap(false, true) {
+		// We only want to do this once.
+		a.placementBeganSemaphore.Release(maxSemaphoreWeight)
+	}
+}
+
 // Succeeded returns true if the container creation operation(s) succeeded.
 func (a *CreateReplicaContainersAttempt) Succeeded() bool {
 	return a.succeeded.Load()
@@ -128,7 +159,7 @@ func (a *CreateReplicaContainersAttempt) Kernel() scheduling.Kernel {
 //
 // If the operation completes in a failed state and there's a failure reason, then the failure reason will be returned.
 func (a *CreateReplicaContainersAttempt) Wait(ctx context.Context) error {
-	err := a.Semaphore.Acquire(ctx, 1)
+	err := a.primarySemaphore.Acquire(ctx, 1)
 	if err != nil {
 		return err
 	}
@@ -149,6 +180,22 @@ func (a *CreateReplicaContainersAttempt) Wait(ctx context.Context) error {
 	return ErrFailureUnspecified
 }
 
+// WaitForPlacementPhaseToBegin blocks until the placement phase begins.
+func (a *CreateReplicaContainersAttempt) WaitForPlacementPhaseToBegin(ctx context.Context) error {
+	// If we check this flag, and we see that it's true, then we can just return without touching the semaphore.
+	if a.placementInProgress.Load() {
+		return nil
+	}
+
+	// Call acquire, which will block until context is cancelled or until placement begins.
+	err := a.placementBeganSemaphore.Acquire(ctx, 1)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // IsComplete returns true if the target CreateReplicaContainersAttempt has finished.
 //
 // Note that if IsComplete is true, that doesn't necessarily mean that the associated container creation operation
@@ -167,10 +214,15 @@ func (a *CreateReplicaContainersAttempt) SetDone(failureReason error) {
 		panic(ErrAlreadyComplete)
 	}
 
-	// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
-	defer a.Semaphore.Release(maxSemaphoreWeight)
+	// This will be a no-op if it was already called.
+	a.ContainerPlacementStarted()
 
-	a.complete.Store(true)
+	// We only want to call this big release once.
+	if a.complete.CompareAndSwap(false, true) {
+		// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
+		defer a.primarySemaphore.Release(maxSemaphoreWeight)
+	}
+
 	a.failureReason = failureReason
 	a.succeeded.Store(failureReason == nil)
 

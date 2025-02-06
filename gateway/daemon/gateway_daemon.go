@@ -303,7 +303,7 @@ type ClusterGatewayImpl struct {
 
 	log logger.Logger
 
-	// waitGroups hashmap.HashMap[string, *sync.Semaphore]
+	// waitGroups hashmap.HashMap[string, *sync.primarSemaphore]
 	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
 
 	// Kubernetes client. This is shared with the associated internalCluster Gateway.
@@ -2382,7 +2382,7 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelRegistrationNotification, kernel scheduling.Kernel) (*proto.KernelRegistrationNotificationResponse, error) {
 	waitGroup, loaded := d.waitGroups.Load(in.KernelId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", in.KernelId))
+		panic(fmt.Sprintf("Expected to find existing primarSemaphore associated with kernel with ID %s", in.KernelId))
 	}
 
 	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
@@ -2682,7 +2682,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	// Load the 'registrationWaitGroup' struct created for this kernel's creation.
 	waitGroup, loaded := d.waitGroups.Load(in.KernelId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Semaphore associated with kernel with ID %s", in.KernelId))
+		panic(fmt.Sprintf("Expected to find existing primarSemaphore associated with kernel with ID %s", in.KernelId))
 	}
 
 	connectionInfo := in.ConnectionInfo
@@ -2801,7 +2801,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	waitGroup.Register(replicaId)
 	d.log.Debug("SetDone registering kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
-	d.log.Debug("Semaphore for kernel \"%s\": %s", kernelId, waitGroup.String())
+	d.log.Debug("primarSemaphore for kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
 

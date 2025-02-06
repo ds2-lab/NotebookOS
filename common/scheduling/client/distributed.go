@@ -223,6 +223,21 @@ func (c *DistributedKernelClient) ReplicaContainersAreBeingScheduled() bool {
 	return c.replicaContainersAreBeingScheduled.Load() > 0
 }
 
+// PlacementBeganSchedulingReplicaContainers is called while scheduling the KernelContainer instances for the
+// KernelReplica instances of the target Kernel.
+//
+// Specifically, PlacementBeganSchedulingReplicaContainers is called to signal that N viable Host instances have
+// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
+// of the target Kernel.
+func (c *DistributedKernelClient) PlacementBeganSchedulingReplicaContainers() {
+	if c.createReplicaContainersAttempt == nil {
+		c.log.Error("Informed that placement of containers has began, but there is no active container creation operation...")
+		return
+	}
+
+	c.createReplicaContainersAttempt.ContainerPlacementStarted()
+}
+
 // BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
 //
 // If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
@@ -369,16 +384,16 @@ func (c *DistributedKernelClient) InitialContainerCreationFailed() {
 // SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
 // DistributedKernelClient.
 func (c *DistributedKernelClient) SetSignatureScheme(signatureScheme string) {
-	//c.mu.Lock()
-	//defer c.mu.Unlock()
+	//c.placementMu.Lock()
+	//defer c.placementMu.Unlock()
 
 	c.server.Meta.SignatureScheme = signatureScheme
 }
 
 // SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
 func (c *DistributedKernelClient) SetKernelKey(key string) {
-	//c.mu.Lock()
-	//defer c.mu.Unlock()
+	//c.placementMu.Lock()
+	//defer c.placementMu.Unlock()
 
 	c.server.Meta.Key = key
 }
@@ -1462,7 +1477,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// message, as we don't use the original message (in the case that the replicas send cloned versions).
 	// Thus, the original message is never going to be changed, so it's safe for each replica to proceed
 	// as soon as it clones the original message.
-	//var responseReceivedWg sync.Semaphore
+	//var responseReceivedWg sync.primarySemaphore
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
 
@@ -1581,9 +1596,9 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	}
 	defer cancel()
 
-	// Spawn a goroutine to just send a notification when the sync.Semaphore reaches 0.
+	// Spawn a goroutine to just send a notification when the sync.primarySemaphore reaches 0.
 	go func() {
-		// responseReceivedSem.Wait()                            // Wait til the Semaphore reaches 0.
+		// responseReceivedSem.Wait()                            // Wait til the primarySemaphore reaches 0.
 		err := responseReceivedSem.Acquire(ctx, int64(numResponsesExpected))
 		if err == nil {
 			allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
@@ -1595,7 +1610,7 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	select {
 	case <-allResponsesReceivedNotificationChannel:
 		{
-			// The Semaphore counter reached 0. Call done, and then return.
+			// The primarySemaphore counter reached 0. Call done, and then return.
 			c.log.Debug("Received all %d replies for %s \"%s\" message %s (JupyterID=\"%s\"). "+
 				"Calling 'done' callback now. Time elapsed: %v.", numResponsesExpected, typ.String(),
 				jMsg.JupyterParentMessageType(), jMsg.RequestId, jMsg.JupyterParentMessageId(), time.Since(st))
