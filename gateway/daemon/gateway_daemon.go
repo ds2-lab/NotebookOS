@@ -2502,7 +2502,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 		Id:                              replicaSpec.ReplicaId,
 		Replicas:                        updatedReplicas,
 		PersistentId:                    &persistentId,
-		ShouldReadDataFromRemoteStorage: true,
+		ShouldReadDataFromRemoteStorage: d.shouldKernelReplicaReadStateFromRemoteStorage(kernel, true),
 		ResourceSpec:                    replicaSpec.Kernel.ResourceSpec,
 		SmrPort:                         int32(d.smrPort),
 	}
@@ -2527,8 +2527,10 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 		d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 	}
 
-	// Issue the AddHost request now, so that the node can join when it starts up.
-	// d.issueAddNodeRequest(in.kernelId, replicaSpec.ReplicaID, in.KernelIp)
+	// TODO: Eventually, this may be true (as in a warm container may be used).
+	// TODO: We may also have to move this call, as we may not be able to determine whether a warm container was
+	//		 used or not, unless that information is included in the registration payload (which it could be).
+	kernel.RecordContainerCreated(false)
 
 	d.log.Debug("SetDone handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
@@ -2810,11 +2812,16 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		PersistentId:                    &persistentId,
 		ResourceSpec:                    kernelSpec.ResourceSpec,
 		SmrPort:                         int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
-		ShouldReadDataFromRemoteStorage: d.shouldKernelReplicaReadStateFromRemoteStorage(kernel),
-		// DataDirectory: nil,
+		ShouldReadDataFromRemoteStorage: d.shouldKernelReplicaReadStateFromRemoteStorage(kernel, false),
 	}
 
-	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v", kernelId, replicaId, response)
+	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v",
+		kernelId, replicaId, response)
+
+	// TODO: Eventually, this may be true (as in a warm container may be used).
+	// TODO: We may also have to move this call, as we may not be able to determine whether a warm container was
+	//		 used or not, unless that information is included in the registration payload (which it could be).
+	kernel.RecordContainerCreated(false)
 
 	waitGroup.Notify()
 	return response, nil
@@ -2833,12 +2840,18 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 //
 // Finally, when using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from
 // remote storage if this is not the very first time that they're being created.
-func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel) bool {
+func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel, forMigration bool) bool {
 	policy := d.Scheduler().Policy()
 
 	// If the scheduling policy uses short-lived containers that are created on-demand for each training event,
 	// then they should always restore state from intermediate storage.
 	if policy.ContainerLifetime() == scheduling.SingleTrainingEvent {
+		return true
+	}
+
+	// If the kernel replica that is registering was created for a migration operation, then it should read and
+	// restore its state from intermediate storage.
+	if forMigration {
 		return true
 	}
 
@@ -2848,7 +2861,21 @@ func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kerne
 		return true
 	}
 
-	if policy.UseWarmContainers()
+	// When using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from remote
+	// storage if this is not the very first time that they're being created. We can test for this by checking if the
+	// total number of containers created for this kernel is greater than zero.
+	//
+	// We also need to check if the number of containers created for this kernel is greater than or equal to the number
+	// of replicas mandated by the scheduling policy. Although this isn't supported at the time of writing this, if we
+	// enable warm container reuse by (e.g.,) the Static policy, then we'll be creating 3 containers when the kernel is
+	// first created. We don't want the second or third replica to attempt to read state from remote storage when they
+	// are being created for the first time. So, it's only once we've created at least as many containers as there are
+	// replicas of an individual kernel that a new kernel replica should attempt to read state from remote storage.
+	//
+	// For single-replica policies, like the WarmContainerPoolPolicy, this logic will still work appropriately.
+	if policy.ReuseWarmContainers() && kernel.NumContainersCreated() > 0 && kernel.NumContainersCreated() >= int32(d.NumReplicas()) {
+		return true
+	}
 
 	return false
 }
