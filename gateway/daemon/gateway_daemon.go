@@ -825,6 +825,13 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 				return true
 			}
 
+			// If the kernel is actively training (as in, it is literally executing code, or the client has submitted
+			// code to be executed but the kernel has not necessarily started executing code yet), then we should not
+			// reclaim this kernel.
+			if kernel.HasActiveTraining() {
+				return true
+			}
+
 			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
 			timeElapsedSinceLastTrainingSubmitted := time.Since(kernel.LastTrainingSubmittedAt())
 			timeElapsedSinceLastTrainingBegan := time.Since(kernel.LastTrainingStartedAt())

@@ -1959,3 +1959,11 @@ func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, st
 
 	return err
 }
+
+// HasActiveTraining returns true if the target DistributedKernelClient has an active training -- meaning that the
+// DistributedKernelClient has submitted an "execute_request" and is still awaiting a response.
+//
+// Having an active training prevents a DistributedKernelClient from being idle-reclaimed.
+func (c *DistributedKernelClient) HasActiveTraining() bool {
+	return c.ExecutionManager.HasActiveTraining()
+}

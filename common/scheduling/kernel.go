@@ -260,6 +260,15 @@ type Kernel interface {
 	// training ended.
 	LastTrainingEndedAt() time.Time
 
+	// HasActiveTraining returns true if the target Kernel has an active training -- meaning that the Kernel has
+	// submitted an "execute_request" and is still awaiting a response.
+	//
+	// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+	// It simply means that an execution has been submitted to the Kernel.
+	//
+	// Having an active training prevents a Kernel from being idle-reclaimed.
+	HasActiveTraining() bool
+
 	// IsTraining returns true if one of the target Kernel's KernelReplica instances is actively training.
 	IsTraining() bool
 

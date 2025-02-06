@@ -180,6 +180,15 @@ type ExecutionManager struct {
 	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
 	// in terms of what the client is doing/submitting.
 	completedExecutionIndex int32
+
+	// hasActiveTraining is true if the associated Kernel has an active training -- meaning that the Kernel has
+	// submitted an "execute_request" and is still awaiting a response.
+	//
+	// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+	// It simply means that an execution has been submitted to the Kernel.
+	//
+	// Having an active training prevents a Kernel from being idle-reclaimed.
+	hasActiveTraining atomic.Bool
 }
 
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
@@ -264,6 +273,7 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 		return err
 	}
 
+	m.hasActiveTraining.Store(true)
 	m.submittedExecutionIndex = executionIndex
 	m.lastTrainingSubmittedAt = time.Now()
 
@@ -550,24 +560,33 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// Store the execution in the "finished" map.
 	m.finishedExecutions[executeRequestId] = activeExecution
 
-	if m.statisticsProvider != nil && m.statisticsProvider.PrometheusMetricsEnabled() {
-		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
-	}
-
+	// If our statistics provider field is non-nil, then we'll update some statistics.
 	if m.statisticsProvider != nil {
+		// If prometheus metrics are enabled, then we'll also update some prometheus metrics.
+		if m.statisticsProvider.PrometheusMetricsEnabled() {
+			m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
+		}
+
 		m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 			statistics.CompletedTrainings += 1
 			statistics.NumIdleSessions += 1
 		})
 	}
 
+	// If the execution index is equal to the submitted execution index, then that means that the "execute_reply" that
+	// we just received is in response to the most-recently-submitted "execute_request" message.
 	if activeExecution.ExecutionIndex == m.submittedExecutionIndex {
 		m.log.Debug("Received \"execute_reply\" for execution \"%s\" with index=%d matching last-submitted execution's index. 'Completed' execution index %d → %d.",
 			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
 		m.lastTrainingEndedAt = time.Now()
+
+		// No longer waiting for "execute_reply" for most-recently-submitted "execute_request".
+		m.hasActiveTraining.Store(false)
 	} else {
+		// The "execute_reply" that we received is... for an old "execute_reply" message?
+		// This generally shouldn't happen.
 		m.log.Warn("Received \"execute_reply\" for execution \"%s\" with index=%d; however, latest submitted execution has index=%d.",
 			executeRequestId, activeExecution.ExecutionIndex, m.submittedExecutionIndex)
 
@@ -579,6 +598,11 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		}
 	}
 
+	// Similar to the above -- if the execution index of the "execute_reply" does not match the most up-to-date
+	// execution index that the ExecutionManager is aware of, then something is wrong (potentially).
+	//
+	// In particular, if we're configured to send "execute_request" messages one-at-a-time, then this definitely
+	// should not happen.
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
 		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)
@@ -959,4 +983,15 @@ func (m *ExecutionManager) getExecuteRequestForResubmission(executeReply *messag
 		executeRequestId, execution.ExecutionIndex, execution.JupyterMessage.StringFormatted())
 
 	return execution.JupyterMessage, nil
+}
+
+// HasActiveTraining returns true if the target DistributedKernelClient has an active training -- meaning that the
+// Kernel has submitted an "execute_request" and is still awaiting a response.
+//
+// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+// It simply means that an execution has been submitted to the Kernel.
+//
+// Having an active training prevents a Kernel from being idle-reclaimed.
+func (m *ExecutionManager) HasActiveTraining() bool {
+	return m.hasActiveTraining.Load()
 }
