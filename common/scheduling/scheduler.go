@@ -51,7 +51,7 @@ type KernelScheduler interface {
 	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
+	DeployKernelReplicas(ctx context.Context, kernel Kernel, blacklistedHosts []Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
