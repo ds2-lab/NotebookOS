@@ -2608,16 +2608,10 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Info("kernel ID: %v", kernelId)
 	d.log.Info("Replica ID: %v", in.ReplicaId)
 	d.log.Info("kernel IP: %v", in.KernelIp)
-
-	if d.KubernetesMode() {
-		d.log.Info("Pod name: %v", in.PodOrContainerName)
-	} else {
-		d.log.Info("Container name: %v", in.PodOrContainerName)
-	}
-
 	d.log.Info("Node ID: %v", in.HostId)
 	d.log.Info("Node Name: %v", in.NodeName)
 	d.log.Info("Notification ID: %v", in.NotificationId)
+	d.log.Info("Container name: %v", in.PodOrContainerName)
 
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
@@ -2634,6 +2628,10 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"kernel Registered\" notification with ID=%s", in.NotificationId)
+
+		go d.notifyDashboardOfWarning("Received Duplicate \"Kernel Registered\" Notification",
+			fmt.Sprintf("NotificationID=\"%s\", KernelID=\"%s\"", in.NotificationId, in.KernelId))
+
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
@@ -2642,7 +2640,9 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
 		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find kernel \"%s\" Despite Receiving 'kernel Registered' Notification for that kernel", kernelId), "See notification title.")
+
+		title := fmt.Sprintf("Unknown Kernel \"%s\" Specified by 'Kernel Registered' Notification", kernelId)
+		go d.notifyDashboardOfError(title, "The Cluster Gateway has no record of the referenced kernel.")
 
 		// d.mu.Unlock()
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
