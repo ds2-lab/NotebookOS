@@ -305,7 +305,6 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 			s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
 				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
 
-			// Only 1 of arguments 2 and 3 can be non-nil.
 			var schedulingError error
 			if schedulingError = s.ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts, forTraining); schedulingError != nil {
 				// An error occurred. Send it over the channel.
@@ -334,27 +333,153 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 	return resultChan
 }
 
+// removeOrphanedReplicas is called if there's an error deploying one of the replicas of the specified scheduling.Kernel.
+// If there are other replicas that were created successfully, then they're orphaned in the sense that this scheduling
+// operation failed, and so they need to be removed.
+//
+// PRECONDITION: removeOrphanedReplicas expects the given context.Context to have a value with key "start_time".
+func (s *DockerScheduler) removeOrphanedReplicas(ctx context.Context, kernel scheduling.Kernel, responsesReceived []*schedulingNotification) error {
+	startTime := ctx.Value("start_time").(time.Time)
+
+	// Write out the host/replica IDs that we scheduled like:
+	// "0"
+	// "0 and 1"
+	// "0, 1, and 2"
+	// "0, 1, 2, and 3"
+	// etc.
+	var replicasScheduledBuilder strings.Builder
+	var hostsWithOrphanedReplicaBuilder strings.Builder
+
+	replicasScheduled := make([]int32, 0, len(responsesReceived))
+	idsOfHostsWithOrphanedReplica := make([]string, 0, len(responsesReceived))
+	hostsWithOrphanedReplica := make([]scheduling.Host, 0, len(responsesReceived))
+
+	// Build out an error message indicating the hosts with orphaned replicas and whatnot.
+	for idx, notification := range responsesReceived {
+		// If we're writing the ID of the last replica, and we scheduled at least 2, then we'll
+		// prepend the replica ID with "and " so that the final string is like "0 and 1" or "0, 1, and 2".
+		if len(responsesReceived) > 1 && (idx+1) == len(responsesReceived) {
+			replicasScheduledBuilder.WriteString("and ")
+			hostsWithOrphanedReplicaBuilder.WriteString("and ")
+		}
+
+		hostsWithOrphanedReplica = append(hostsWithOrphanedReplica, notification.Host)
+
+		replicasScheduled = append(replicasScheduled, notification.ReplicaId)
+		idsOfHostsWithOrphanedReplica = append(idsOfHostsWithOrphanedReplica, notification.Host.GetID())
+
+		// Write the replica ID.
+		replicasScheduledBuilder.WriteString(fmt.Sprintf("%d", notification.ReplicaId))
+		// Write the host ID.
+		hostsWithOrphanedReplicaBuilder.WriteString(fmt.Sprintf("Host %s", notification.Host.GetID()))
+
+		// If this is not the last replica ID that we'll be writing out...
+		if (idx + 1) < len(responsesReceived) {
+			// If we just scheduled two replicas, then just add a space. We'll add the "and " on the
+			// final iteration of the loop, so the resulting string will look like "0 and 1".
+			if len(responsesReceived) == 2 {
+				replicasScheduledBuilder.WriteString(" ")
+				hostsWithOrphanedReplicaBuilder.WriteString(" ")
+			} else {
+				// We scheduled more than 2 replicas (which means the total number of replicas is > 3,
+				// since we otherwise would have succeeded, so this is unlikely as we usually use 3
+				// replicas, but nevertheless)...
+				//
+				// ... so add a comma so that the string is of the form "0, 1, and 2".
+				replicasScheduledBuilder.WriteString(", ")
+				hostsWithOrphanedReplicaBuilder.WriteString(", ")
+			}
+		}
+	}
+
+	s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
+		kernel.ID(), time.Since(startTime), replicasScheduledBuilder.String(), len(responsesReceived), s.Policy().NumReplicas())
+
+	s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
+		kernel.ID(), hostsWithOrphanedReplicaBuilder.String())
+
+	notifyChan := make(chan interface{}, len(hostsWithOrphanedReplica))
+	numResponsesReceived := atomic.Int32{}
+
+	type wrappedResult struct {
+		Error error
+		Host  scheduling.Host
+	}
+
+	for _, host := range hostsWithOrphanedReplica {
+		go func(targetHost scheduling.Host) {
+			err := s.placer.Reclaim(targetHost, kernel.GetSession(), false)
+
+			res := &wrappedResult{
+				Error: err,
+				Host:  host,
+			}
+
+			notifyChan <- res
+
+			numResponsesReceived.Add(1)
+		}(host)
+	}
+
+	for numResponsesReceived.Load() < int32(len(hostsWithOrphanedReplica)) {
+		select {
+		case <-ctx.Done():
+			{
+				s.log.Error("Context cancelled while removing %d orphaned replica(s) of kernel \"%s\".",
+					len(hostsWithOrphanedReplica), kernel.ID())
+
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("error occurred while removing %d orphaned replica(s) of kernel \"%s\": %w",
+						len(hostsWithOrphanedReplica), kernel.ID(), err)
+				}
+
+				return fmt.Errorf("context cancelled occurred while removing %d orphaned replica(s) of kernel \"%s\"",
+					len(hostsWithOrphanedReplica), kernel.ID())
+			}
+		case v := <-notifyChan:
+			{
+				res := v.(*wrappedResult)
+
+				if res.Error != nil {
+					s.log.Error("Failed to remove orphaned replica of kernel \"%s\" from host \"%s\": %v",
+						kernel.ID(), res.Host.GetNodeName(), res.Error)
+
+					return fmt.Errorf("failed to remove orphaned replica of kernel \"%s\" from host \"%s\": %w",
+						kernel.ID(), res.Host.GetNodeName(), res.Error)
+				}
+
+				s.log.Debug("Successfully removed orphaned replica of kernel \"%s\" from host \"%s\".",
+					kernel.ID(), res.Host.GetNodeName())
+			}
+		}
+	}
+
+	return nil
+}
+
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
 	st := time.Now()
 
+	kernelSpec := kernel.KernelSpec()
+
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. TransactionResources required: %s.",
-		s.schedulingPolicy.NumReplicas(), in.Id, in.ResourceSpec.String())
+		s.schedulingPolicy.NumReplicas(), kernel.ID(), kernelSpec.String())
 
 	deadline, ok := ctx.Deadline()
 	if ok {
 		s.log.Debug("Context (for deploying replicas of kernel %s) has deadline of %v, which is in %v.",
-			in.Id, deadline, time.Until(deadline))
+			kernel.ID(), deadline, time.Until(deadline))
 	}
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
-	hosts, candidateError := s.GetCandidateHosts(ctx, in)
+	hosts, candidateError := s.GetCandidateHosts(ctx, kernelSpec)
 	if candidateError != nil {
 		return candidateError
 	}
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
-	resultChan := s.scheduleKernelReplicas(in, hosts, blacklistedHosts, false)
+	resultChan := s.scheduleKernelReplicas(kernelSpec, hosts, blacklistedHosts, false)
 
 	// Keep looping until we've received all responses or the context times-out.
 	responsesReceived := make([]*schedulingNotification, 0, len(hosts))
@@ -370,98 +495,45 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 				err := ctx.Err()
 				if err != nil {
 					s.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. "+
-						"Error extracted from now-cancelled context: %v", in.Id, err)
+						"Error extracted from now-cancelled context: %v", kernel.ID(), err)
 				} else {
 					s.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. "+
-						"No error extracted from now-cancelled context.", in.Id, err)
+						"No error extracted from now-cancelled context.", kernel.ID(), err)
 					err = types.ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
 				}
 
-				// Write out the host/replica IDs that we scheduled like:
-				// "0"
-				// "0 and 1"
-				// "0, 1, and 2"
-				// "0, 1, 2, and 3"
-				// etc.
-				var replicasScheduledBuilder strings.Builder
-				var hostsWithOrphanedReplicaBuilder strings.Builder
-
-				replicasScheduled := make([]int32, 0, len(responsesReceived))
-				hostsWithOrphanedReplica := make([]string, 0, len(responsesReceived))
-
-				for idx, notification := range responsesReceived {
-					// If we're writing the ID of the last replica, and we scheduled at least 2, then we'll
-					// prepend the replica ID with "and " so that the final string is like "0 and 1" or "0, 1, and 2".
-					if len(responsesReceived) > 1 && (idx+1) == len(responsesReceived) {
-						replicasScheduledBuilder.WriteString("and ")
-						hostsWithOrphanedReplicaBuilder.WriteString("and ")
-					}
-
-					replicasScheduled = append(replicasScheduled, notification.ReplicaId)
-					hostsWithOrphanedReplica = append(hostsWithOrphanedReplica, notification.Host.GetID())
-
-					// Write the replica ID.
-					replicasScheduledBuilder.WriteString(fmt.Sprintf("%d", notification.ReplicaId))
-					// Write the host ID.
-					hostsWithOrphanedReplicaBuilder.WriteString(fmt.Sprintf("Host %s", notification.Host.GetID()))
-
-					// If this is not the last replica ID that we'll be writing out...
-					if (idx + 1) < len(responsesReceived) {
-						// If we just scheduled two replicas, then just add a space. We'll add the "and " on the
-						// final iteration of the loop, so the resulting string will look like "0 and 1".
-						if len(responsesReceived) == 2 {
-							replicasScheduledBuilder.WriteString(" ")
-							hostsWithOrphanedReplicaBuilder.WriteString(" ")
-						} else {
-							// We scheduled more than 2 replicas (which means the total number of replicas is > 3,
-							// since we otherwise would have succeeded, so this is unlikely as we usually use 3
-							// replicas, but nevertheless)...
-							//
-							// ... so add a comma so that the string is of the form "0, 1, and 2".
-							replicasScheduledBuilder.WriteString(", ")
-							hostsWithOrphanedReplicaBuilder.WriteString(", ")
-						}
-					}
-				}
-
-				// TODO: kill orphaned replicas so that they don't just sit there, taking up TransactionResources unnecessarily.
-				if len(responsesReceived) > 0 {
-					s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
-						in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
-
-					s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
-						in.Id, hostsWithOrphanedReplicaBuilder.String())
-
-					// TODO: Kill orphaned replicas.
-				} else {
+				if len(responsesReceived) == 0 {
 					s.log.Error("Scheduling of kernel %s has failed after %v. Failed to schedule any of the %d replicas.",
-						in.Id, time.Since(st), responsesRequired)
+						kernel.ID(), time.Since(st), responsesRequired)
+
+					return status.Error(codes.Internal, (&scheduling.ErrorDuringScheduling{
+						UnderlyingError:           err,
+						HostsWithOrphanedReplicas: []string{},
+						ScheduledReplicaIDs:       []int32{},
+					}).Error())
 				}
 
-				return status.Error(codes.Internal, (&scheduling.ErrorDuringScheduling{
-					UnderlyingError:           err,
-					HostsWithOrphanedReplicas: hostsWithOrphanedReplica,
-					ScheduledReplicaIDs:       replicasScheduled,
-				}).Error())
+				return s.removeOrphanedReplicas(context.WithValue(ctx, "start_time", st), kernel, responsesReceived)
 			}
 		// Received response.
 		case notification := <-resultChan:
 			{
 				if !notification.Successful {
-					s.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, notification.Error)
+					s.log.Error("Error while launching at least one of the replicas of kernel %s: %v",
+						kernel.ID(), notification.Error)
 					return notification.Error
 				}
 
 				responsesReceived = append(responsesReceived, notification)
 				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s (ID=%s). %d/%d replicas scheduled. Time elapsed: %v.",
-					notification.ReplicaId, in.Id, notification.Host.GetNodeName(), notification.Host.GetID(), len(responsesReceived),
+					notification.ReplicaId, kernel.ID(), notification.Host.GetNodeName(), notification.Host.GetID(), len(responsesReceived),
 					responsesRequired, time.Since(st))
 			}
 		}
 	}
 
 	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
-		s.schedulingPolicy.NumReplicas(), in.Id, time.Since(st))
+		s.schedulingPolicy.NumReplicas(), kernel.ID(), time.Since(st))
 
 	return nil
 }

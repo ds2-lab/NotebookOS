@@ -278,7 +278,7 @@ type Kernel interface {
 	// Specifically, PlacementBeganSchedulingReplicaContainers is called to signal that N viable Host instances have
 	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 	// of the target Kernel.
-	PlacementBeganSchedulingReplicaContainers()
+	ContainerPlacementStarted()
 }
 
 type KernelReplica interface {
