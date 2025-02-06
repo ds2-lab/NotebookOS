@@ -216,6 +216,7 @@ func (a *CreateReplicaContainersAttempt) SetDone(failureReason error) {
 
 	// We only want to call this big release once.
 	if a.complete.CompareAndSwap(false, true) {
+		// Only set these if we set the 'complete' flag.
 		a.failureReason = failureReason
 		a.succeeded.Store(failureReason == nil)
 
