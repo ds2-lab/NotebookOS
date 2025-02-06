@@ -171,7 +171,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce)
-		clusterScheduler.log.Debug("ScalingIntervalSec: %d",
+		clusterScheduler.log.Debug("ScalingIntervalSec: %.3f",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
 		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
 			clusterScheduler.schedulingPolicy.SupportsPredictiveAutoscaling())
