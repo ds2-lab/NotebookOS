@@ -1086,6 +1086,40 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*messaging.Socket, error)
 	return iopub, nil
 }
 
+// InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
+// If the provided messaging.MessageHandler parameter is nil, then we will use the default handler.
+// (The default handler is KernelReplicaClient::InitializeIOSub.)
+//
+// The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
+func (c *KernelReplicaClient) InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Default to kernel::handleMsg if the provided handler is null.
+	if handler == nil {
+		c.log.Debug("Creating ZeroMQ SUB socket: default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
+		handler = c.handleMsg
+	} else {
+		c.log.Debug("Creating ZeroMQ SUB socket: non-default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
+	}
+
+	// Handler is set, so server routing will be started on dialing.
+	c.client.Sockets.IO = messaging.NewSocketWithHandler(zmq4.NewSub(c.client.Ctx), c.client.Meta.IOPubPort /* sub socket for client */, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s]", c.id), handler)
+
+	_ = c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+	c.client.Sockets.All[messaging.IOMessage] = c.client.Sockets.IO
+
+	if c.status == jupyter.KernelStatusRunning {
+		if err := c.dial(c.client.Sockets.IO); err != nil {
+			return nil, err
+		}
+	}
+
+	c.log.Debug("ZeroMQ SUB socket has port %d", c.client.Sockets.IO.Port)
+
+	return c.client.Sockets.IO, nil
+}
+
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
 func (c *KernelReplicaClient) AddIOHandler(topic string, handler scheduling.MessageBrokerHandler[scheduling.KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error {
@@ -1272,40 +1306,6 @@ func (c *KernelReplicaClient) Close() error {
 	}
 
 	return err
-}
-
-// InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
-// If the provided messaging.MessageHandler parameter is nil, then we will use the default handler.
-// (The default handler is KernelReplicaClient::InitializeIOSub.)
-//
-// The ZMQ socket is subscribed to the specified topic, which should be "" (i.e., the empty string) if no subscription is desired.
-func (c *KernelReplicaClient) InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Default to kernel::handleMsg if the provided handler is null.
-	if handler == nil {
-		c.log.Debug("Creating ZeroMQ SUB socket: default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
-		handler = c.handleMsg
-	} else {
-		c.log.Debug("Creating ZeroMQ SUB socket: non-default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
-	}
-
-	// Handler is set, so server routing will be started on dialing.
-	c.client.Sockets.IO = messaging.NewSocketWithHandler(zmq4.NewSub(c.client.Ctx), c.client.Meta.IOPubPort /* sub socket for client */, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s]", c.id), handler)
-
-	_ = c.client.Sockets.IO.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
-	c.client.Sockets.All[messaging.IOMessage] = c.client.Sockets.IO
-
-	if c.status == jupyter.KernelStatusRunning {
-		if err := c.dial(c.client.Sockets.IO); err != nil {
-			return nil, err
-		}
-	}
-
-	c.log.Debug("ZeroMQ SUB socket has port %d", c.client.Sockets.IO.Port)
-
-	return c.client.Sockets.IO, nil
 }
 
 // dial connects to specified sockets
