@@ -8951,6 +8951,20 @@ func (mr *MockPolicyMockRecorder) ResourceScalingPolicy() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceScalingPolicy", reflect.TypeOf((*MockPolicy)(nil).ResourceScalingPolicy))
 }
 
+// ReuseWarmContainers mocks base method.
+func (m *MockPolicy) ReuseWarmContainers() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReuseWarmContainers")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ReuseWarmContainers indicates an expected call of ReuseWarmContainers.
+func (mr *MockPolicyMockRecorder) ReuseWarmContainers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReuseWarmContainers", reflect.TypeOf((*MockPolicy)(nil).ReuseWarmContainers))
+}
+
 // ScalingConfiguration mocks base method.
 func (m *MockPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	m.ctrl.T.Helper()
@@ -9019,20 +9033,6 @@ func (m *MockPolicy) SupportsPredictiveAutoscaling() bool {
 func (mr *MockPolicyMockRecorder) SupportsPredictiveAutoscaling() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsPredictiveAutoscaling", reflect.TypeOf((*MockPolicy)(nil).SupportsPredictiveAutoscaling))
-}
-
-// ReuseWarmContainers mocks base method.
-func (m *MockPolicy) ReuseWarmContainers() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReuseWarmContainers")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// ReuseWarmContainers indicates an expected call of ReuseWarmContainers.
-func (mr *MockPolicyMockRecorder) ReuseWarmContainers() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReuseWarmContainers", reflect.TypeOf((*MockPolicy)(nil).ReuseWarmContainers))
 }
 
 // ValidateCapacity mocks base method.
