@@ -888,6 +888,13 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 }
 
 // RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
+//
+// As of right now, the RemoveAllReplicas method is just used by the Cluster Gateway in two scenarios:
+//
+// (i) idle reclamation
+//
+// (ii) removing the container(s) of a kernel when operating under a scheduling policy for which the container lifetime
+// argument is set to 'single training event'.
 func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool, forIdleReclamation bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
