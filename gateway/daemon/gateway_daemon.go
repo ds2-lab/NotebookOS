@@ -2043,7 +2043,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	})
 	d.waitGroups.Store(in.Id, created)
 
-	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, in, []scheduling.Host{ /* No blacklisted hosts */ })
+	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, kernel, []scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
 		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
 
