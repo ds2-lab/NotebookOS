@@ -975,7 +975,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 		// Keep looping until we've received all responses.
 		// We'll break out of the loop manually/explicitly if the context times-out or an error response is received.
-		for responsesReceived.Load() < len(replicas) {
+		for responsesReceived.Load() < int32(len(replicas)) {
 			select {
 			case <-ctx.Done():
 				{
