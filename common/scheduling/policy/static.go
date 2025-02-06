@@ -183,6 +183,18 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 	return nil, nil // Migration is permitted, so we never return an error.
 }
 
+// UseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being
+// placed back into the warm KernelContainer pool, or if it should simply be terminated.
+//
+// UseWarmContainers is used in conjunction with ContainerLifetime to determine what to do with the container of a
+// Kernel when the Policy specifies the ContainerLifetime as SingleTrainingEvent. Specifically, for policies like
+// FCFS Batch Scheduling, the warm KernelContainer will simply be destroyed.
+//
+// But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
+func (p *StaticPolicy) UseWarmContainers() bool {
+	return false
+}
+
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
 // resource request of an existing/scheduled kernel after it has already been created, or if the
 // initial resource request/allocation is static and cannot be changed after the kernel is created.
