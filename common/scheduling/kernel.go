@@ -380,4 +380,11 @@ type KernelReplica interface {
 	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
+
+	// ContainerType returns the current ContainerType of the (KernelContainer of the) target KernelReplica.
+	ContainerType() ContainerType
+
+	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
+	// to a StandardContainer.
+	PromotePrewarmContainer() error
 }

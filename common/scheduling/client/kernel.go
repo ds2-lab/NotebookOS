@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
@@ -1435,4 +1436,24 @@ func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.KernelRep
 	}
 
 	return types.ErrStopPropagation
+}
+
+// ContainerType returns the current ContainerType of the (KernelReplicaClient of the) target KernelReplicaClient.
+func (c *KernelReplicaClient) ContainerType() (scheduling.ContainerType, bool) {
+	if c.container == nil {
+		return scheduling.UnknownContainer, false
+	}
+
+	return c.container.ContainerType(), true
+}
+
+// PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
+// scheduling.PrewarmContainer to a scheduling.StandardContainer.
+func (c *KernelReplicaClient) PromotePrewarmContainer() error {
+	if c.container == nil {
+		return fmt.Errorf("%w: replica %d of kernel \"%s\" does not have a container",
+			entity.ErrInvalidContainer, c.replicaId, c.id)
+	}
+
+	return c.container.PromotePrewarmContainer()
 }

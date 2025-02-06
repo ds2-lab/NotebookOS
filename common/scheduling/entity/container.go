@@ -35,6 +35,8 @@ type Container struct {
 	interactivePriorityBase float64
 	replicaId               int32        // The SMR node ID of the kernel replica running within the Container.
 	executions              atomic.Int32 // The number of training events processed by the Container.
+
+	containerType scheduling.ContainerType
 }
 
 type PlaceholderContainer struct {
@@ -354,4 +356,21 @@ func (c *Container) ContainerStopped() error {
 // This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
 func (c *Container) NumTrainingEventsProcessed() int {
 	return c.numTrainingEventsProcessed
+}
+
+// ContainerType returns the current ContainerType of the Container.
+func (c *Container) ContainerType() scheduling.ContainerType {
+	return c.containerType
+}
+
+// PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
+// scheduling.PrewarmContainer to a scheduling.StandardContainer.
+func (c *Container) PromotePrewarmContainer() error {
+	if c.containerType != scheduling.PrewarmContainer {
+		return fmt.Errorf("%w: cannot promote container for replica %d of kernel %s as it is of type '%s'",
+			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.containerType.String())
+	}
+
+	c.containerType = scheduling.StandardContainer
+	return nil
 }

@@ -11,7 +11,17 @@ const (
 	ContainerStateStopped   ContainerState = "SESSION_STOPPED"   // Indicates that the Container is permanently stopped.
 	ContainerStateIdle      ContainerState = "SESSION_IDLE"      // Indicates that the Container is actively running on a Host and is NOT actively performing a task.
 	ContainerStateMigrating ContainerState = "SESSION_MIGRATING" // Indicates that the Container is currently migrating to a new Host.
+
+	PrewarmContainer  ContainerType = "Prewarm"
+	StandardContainer ContainerType = "Standard"
+	UnknownContainer  ContainerType = "Unknown"
 )
+
+type ContainerType string
+
+func (ct ContainerType) String() string {
+	return string(ct)
+}
 
 type ContainerState string
 
@@ -58,6 +68,13 @@ type KernelContainer interface {
 	String() string
 	ToDockerContainer() *proto.DockerContainer
 	TrainingStartedInContainer() error
+
+	// ContainerType returns the current ContainerType of the target KernelContainer.
+	ContainerType() ContainerType
+
+	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
+	// to a StandardContainer.
+	PromotePrewarmContainer() error
 
 	// SetHost sets the scheduling.Host of the Container.
 	SetHost(host Host)

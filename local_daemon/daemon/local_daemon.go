@@ -61,9 +61,6 @@ const (
 	// guaranteed. Specifically, the order in which the messages are enqueued is non-deterministic.
 	// (Once enqueued, the messages will be served in a first-come, first-serve manner.)
 	DefaultExecuteRequestQueueSize = 128
-
-	PrewarmContainer  ContainerType = "Prewarm"
-	StandardContainer ContainerType = "Standard"
 )
 
 var (
@@ -77,12 +74,6 @@ var (
 
 	errConcurrentConnectionAttempt = errors.New("another goroutine is already attempting to connect to the Cluster Gateway")
 )
-
-type ContainerType string
-
-func (ct ContainerType) String() string {
-	return string(ct)
-}
 
 // enqueuedExecOrYieldRequest encapsulates an "execute_request" or "yield_request" *messaging.JupyterMessage and a
 // chan interface{} used to notify the caller when the request has been submitted and a result has been returned.
@@ -130,7 +121,12 @@ type LocalScheduler struct {
 	// the kernel replica).
 	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
 
-	kernels                      hashmap.HashMap[string, scheduling.KernelReplica]
+	// kernels is a map from kernel ID to scheduling.KernelReplica. It is the primary mapping of kernels.
+	kernels hashmap.HashMap[string, scheduling.KernelReplica]
+
+	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed scheduling.KernelReplica.
+	prewarmKernels hashmap.HashMap[string, scheduling.KernelReplica]
+
 	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 
 	log logger.Logger
@@ -335,10 +331,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		ip:                             ip,
 		id:                             dockerNodeId,
 		nodeName:                       nodeName,
-		kernelsStopping:                hashmap.NewCornelkMap[string, chan struct{}](128),
-		kernels:                        hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
-		kernelClientCreationChannels:   hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
-		kernelDebugPorts:               hashmap.NewCornelkMap[string, int](256),
+		kernelsStopping:                hashmap.NewThreadsafeCornelkMap[string, chan struct{}](128),
+		kernels:                        hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
+		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
+		kernelClientCreationChannels:   hashmap.NewThreadsafeCornelkMap[string, chan *proto.KernelConnectionInfo](128),
+		kernelDebugPorts:               hashmap.NewThreadsafeCornelkMap[string, int](256),
 		closed:                         make(chan struct{}),
 		cleaned:                        make(chan struct{}),
 		kernelRegistryPort:             kernelRegistryPort,
@@ -1227,7 +1224,11 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager(manager.py)
 	for _, session := range kernel.Sessions() {
-		d.kernels.Store(session, kernel)
+		if containerType == PrewarmContainer {
+			d.prewarmKernels.Store(session, kernel)
+		} else {
+			d.kernels.Store(session, kernel)
+		}
 	}
 
 	// TODO: Is this any different than the KernelConnectionInfo object that's created while initializing the kernel client?
