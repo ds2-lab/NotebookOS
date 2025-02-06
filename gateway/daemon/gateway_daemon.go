@@ -884,7 +884,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			// TODO: If this ends up being slow, then we can spawn helper goroutines to handle it.
 			for _, kernel := range kernelsToReclaim {
 				reclamationStartTime := time.Now()
-				err := d.removeAllReplicasOfKernel(kernel, false)
+				err := d.removeAllReplicasOfKernel(kernel, false, true)
 				if err != nil {
 					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
 				} else {
@@ -980,7 +980,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	// If we're using, for example, batch FCFS scheduling, then the replicas may not be scheduled.
 	// In this case, we'll just return a result directly.
 	if !kernel.ReplicasAreScheduled() {
-		if d.replicasShouldBeRunning() {
+		if d.shouldReplicasBeRunning(kernel) {
 			return nil, ErrKernelNotReady
 		}
 
@@ -4632,17 +4632,22 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *messaging.JupyterMessage)
 	}
 
 	// TODO: This only matters if the replicas should already be running.
-	if kernel.Status() != jupyter.KernelStatusRunning && d.replicasShouldBeRunning() {
+	if kernel.Status() != jupyter.KernelStatusRunning && d.shouldReplicasBeRunning(kernel) {
 		return kernel, messageType, ErrKernelNotReady
 	}
 
 	return kernel, messageType, nil
 }
 
-// replicasShouldBeRunning returns a flag indicating whether the containers of kernels should be running already.
+// shouldReplicasBeRunning returns a flag indicating whether the containers of kernels should be running already.
 //
 // For scheduling policies in which the ContainerLifetime is scheduling.LongRunning, this is true.
-func (d *ClusterGatewayImpl) replicasShouldBeRunning() bool {
+func (d *ClusterGatewayImpl) shouldReplicasBeRunning(kernel scheduling.Kernel) bool {
+	// If the kernel has been idle-reclaimed, then its replicas should not be running.
+	if kernel.IsIdleReclaimed() {
+		return false
+	}
+
 	return d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning
 }
 
@@ -4657,7 +4662,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 
 		// Check availability.
 		// TODO: This only matters if the replicas should already be running.
-		if kernel.Status() != jupyter.KernelStatusRunning && d.replicasShouldBeRunning() {
+		if kernel.Status() != jupyter.KernelStatusRunning && d.shouldReplicasBeRunning(kernel) {
 			return ErrKernelNotReady
 		}
 	}
@@ -4907,7 +4912,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		kernel, loaded := d.kernels.Load(from.ID())
 
 		if loaded {
-			_ = d.removeAllReplicasOfKernel(kernel, true)
+			_ = d.removeAllReplicasOfKernel(kernel, true, false)
 		} else {
 			d.log.Error("Could not find Distributed kernel Client for kernel \"%s\"...", from.ID())
 		}
@@ -4946,7 +4951,7 @@ func (d *ClusterGatewayImpl) kernelReplicaResponseForwarder(from scheduling.Kern
 // removeAllReplicasOfKernel is used to de-schedule the replicas of the given kernel without removing the kernel itself.
 //
 // This does not remove the kernel itself.
-func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool) error {
+func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool, isIdleReclaim bool) error {
 	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
 		d.log.Error("Instructed to remove all replicas of kernel \"%s\"; however, another attempt that began %v ago is still in progress...",
 			kernel.ID(), time.Since(descheduleAttempt.StartedAt))
@@ -4964,7 +4969,7 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	doRemoveReplicas := func() error {
 		defer descheduleAttempt.SetDone()
 
-		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false)
+		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false, isIdleReclaim)
 	}
 
 	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.

@@ -6590,6 +6590,20 @@ func (mr *MockKernelMockRecorder) InitializeShellForwarder(handler any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitializeShellForwarder", reflect.TypeOf((*MockKernel)(nil).InitializeShellForwarder), handler)
 }
 
+// IsIdleReclaimed mocks base method.
+func (m *MockKernel) IsIdleReclaimed() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsIdleReclaimed")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsIdleReclaimed indicates an expected call of IsIdleReclaimed.
+func (mr *MockKernelMockRecorder) IsIdleReclaimed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsIdleReclaimed", reflect.TypeOf((*MockKernel)(nil).IsIdleReclaimed))
+}
+
 // IsReady mocks base method.
 func (m *MockKernel) IsReady() bool {
 	m.ctrl.T.Helper()
@@ -6861,17 +6875,17 @@ func (mr *MockKernelMockRecorder) ReleasePreCommitedResourcesFromReplica(replica
 }
 
 // RemoveAllReplicas mocks base method.
-func (m *MockKernel) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool) error {
+func (m *MockKernel) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop, isIdleReclaim bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RemoveAllReplicas", remover, noop)
+	ret := m.ctrl.Call(m, "RemoveAllReplicas", remover, noop, isIdleReclaim)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RemoveAllReplicas indicates an expected call of RemoveAllReplicas.
-func (mr *MockKernelMockRecorder) RemoveAllReplicas(remover, noop any) *gomock.Call {
+func (mr *MockKernelMockRecorder) RemoveAllReplicas(remover, noop, isIdleReclaim any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAllReplicas", reflect.TypeOf((*MockKernel)(nil).RemoveAllReplicas), remover, noop)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAllReplicas", reflect.TypeOf((*MockKernel)(nil).RemoveAllReplicas), remover, noop, isIdleReclaim)
 }
 
 // RemoveReplica mocks base method.

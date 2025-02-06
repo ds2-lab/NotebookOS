@@ -116,6 +116,9 @@ type DistributedKernelClient struct {
 	// When there is an active operation, the value of createReplicaContainersAttempt will be strictly positive.
 	replicaContainersAreBeingScheduled atomic.Int32
 
+	// isIdleReclaimed indicates whether the DistributedKernelClient is in a state of being idle reclaimed.
+	isIdleReclaimed atomic.Bool
+
 	nextNodeId atomic.Int32
 
 	closing int32
@@ -170,6 +173,16 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		executionLatencyCallback, statisticsProvider)
 
 	return kernel
+}
+
+// IsIdleReclaimed returns true if the DistributedKernelClient has been idle reclaimed.
+func (c *DistributedKernelClient) IsIdleReclaimed() bool {
+	return c.isIdleReclaimed.Load()
+}
+
+// IdleReclaim removes the replicas of the target DistributedKernelClient and sets its isIdleReclaimed flag to true.
+func (c *DistributedKernelClient) IdleReclaim() error {
+	return nil
 }
 
 // LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
@@ -622,7 +635,11 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 
 		// Collect the status of all replicas.
 		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), messaging.MessageKernelStatusStarting, c.pubIOMessage)
+
+		// The kernel is now running. It's no longer idle-reclaimed.
+		c.isIdleReclaimed.Store(false)
 	}
+
 	return nil
 }
 
@@ -790,7 +807,7 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 }
 
 // RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
-func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool) error {
+func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool, isIdleReclaim bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -824,6 +841,10 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	if len(removalErrors) > 0 {
 		return errors.Join(removalErrors...)
+	}
+
+	if isIdleReclaim {
+		c.isIdleReclaimed.Store(true)
 	}
 
 	return nil

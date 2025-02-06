@@ -171,11 +171,13 @@ type Kernel interface {
 	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
 	GetReplicaByID(id int32) (KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
-	RemoveAllReplicas(remover ReplicaRemover, noop bool) error
+	RemoveAllReplicas(remover ReplicaRemover, noop bool, isIdleReclaim bool) error
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	InitializeIOForwarder() (*messaging.Socket, error)
 	GetReadyReplica() KernelReplica
+	// IsIdleReclaimed returns true if the Kernel has been idle reclaimed.
+	IsIdleReclaimed() bool
 	IsReady() bool
 	Socket(typ messaging.MessageType) *messaging.Socket
 	GetSocketPort(typ messaging.MessageType) int
