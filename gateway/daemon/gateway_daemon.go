@@ -2275,6 +2275,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		err = d.scheduleReplicas(ctx, kernel, in)
 		if err != nil {
 			d.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v", in.Id, err)
+
+			// Set the kernel's status to KernelStatusError.
+			kernel.InitialContainerCreationFailed()
+
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	}

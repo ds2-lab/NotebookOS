@@ -6560,6 +6560,18 @@ func (mr *MockKernelMockRecorder) IOPubListenPort() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IOPubListenPort", reflect.TypeOf((*MockKernel)(nil).IOPubListenPort))
 }
 
+// InitialContainerCreationFailed mocks base method.
+func (m *MockKernel) InitialContainerCreationFailed() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "InitialContainerCreationFailed")
+}
+
+// InitialContainerCreationFailed indicates an expected call of InitialContainerCreationFailed.
+func (mr *MockKernelMockRecorder) InitialContainerCreationFailed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitialContainerCreationFailed", reflect.TypeOf((*MockKernel)(nil).InitialContainerCreationFailed))
+}
+
 // InitializeIOForwarder mocks base method.
 func (m *MockKernel) InitializeIOForwarder() (*messaging.Socket, error) {
 	m.ctrl.T.Helper()

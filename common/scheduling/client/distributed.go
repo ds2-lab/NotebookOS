@@ -249,6 +249,12 @@ func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, sche
 		return false, nil
 	}
 
+	statusChanged := c.setStatus(jupyter.KernelStatusIdleReclaimed, jupyter.KernelStatusInitializing)
+	if !statusChanged {
+		c.log.Error("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+			jupyter.KernelStatusIdleReclaimed.String(), jupyter.KernelStatusInitializing.String(), c.status.String())
+	}
+
 	c.log.Debug("Beginning attempt to schedule %d replica container(s).", c.targetNumReplicas)
 	c.createReplicaContainersAttempt = newCreateReplicaContainersAttempt(c)
 	return true, c.createReplicaContainersAttempt
@@ -274,12 +280,38 @@ func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
 	if c.unsafeAreReplicasScheduled() {
 		c.log.Debug("Successfully scheduled %d replica container(s).", c.targetNumReplicas)
 		c.replicaContainersStartedAt = time.Now()
+		c.isIdleReclaimed.Store(false)
+
+		// If the status isn't already set to running, then we'll attempt to transition to that status.
+		if c.status != jupyter.KernelStatusRunning {
+			statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusRunning)
+			if !statusChanged {
+				c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+					jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusInitializing.String(), c.status.String())
+			}
+		}
 	} else {
 		c.log.Warn("Attempt to schedule %d replica container(s) has failed.", c.targetNumReplicas)
+
+		statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusError)
+		if !statusChanged {
+			c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+				jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusError.String(), c.status.String())
+		}
 	}
 
 	c.createReplicaContainersAttempt = nil
 	return true
+}
+
+// InitialContainerCreationFailed is called by the Cluster Gateway/Scheduler if the initial attempt to schedule
+// the replica containers of the target DistributedKernelClient fails.
+func (c *DistributedKernelClient) InitialContainerCreationFailed() {
+	statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusError)
+	if !statusChanged {
+		c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+			jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusError.String(), c.status.String())
+	}
 }
 
 // SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
@@ -633,19 +665,19 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 		c.log.Debug("Replica %d of kernel %s is available. kernel is ready. Assigned signature scheme \"%s\" and key \"%s\"",
 			r.ReplicaID(), c.id, r.ConnectionInfo().SignatureScheme, r.ConnectionInfo().Key)
 
-		// Collect the status of all replicas.
+		// Collect the status of the replica(s).
 		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), messaging.MessageKernelStatusStarting, c.pubIOMessage)
 
 		// TODO: This won't work unless we update the kernel status code.
 		// The kernel is now running. It's no longer idle-reclaimed.
-		c.isIdleReclaimed.Store(false)
+		//c.isIdleReclaimed.Store(false)
 	}
 
 	// TODO: Temporary. Better to actually have kernel's statuses reflect this.
 	// If we are idle reclaimed and now all our replicas are running, then set the flag to false.
-	if c.isIdleReclaimed.Load() && int32(len(c.replicas)) == c.targetNumReplicas {
-		c.isIdleReclaimed.Store(false)
-	}
+	//if c.isIdleReclaimed.Load() && int32(len(c.replicas)) == c.targetNumReplicas {
+	//	c.isIdleReclaimed.Store(false)
+	//}
 
 	return nil
 }

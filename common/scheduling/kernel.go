@@ -172,6 +172,9 @@ type Kernel interface {
 	GetReplicaByID(id int32) (KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
 	RemoveAllReplicas(remover ReplicaRemover, noop bool, isIdleReclaim bool) error
+	// InitialContainerCreationFailed is called by the Cluster Gateway/Scheduler if the initial attempt to schedule
+	// the replica containers of the target DistributedKernelClient fails.
+	InitialContainerCreationFailed()
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	InitializeIOForwarder() (*messaging.Socket, error)

@@ -18,7 +18,8 @@ var (
 )
 
 const (
-	KernelStatusInitializing KernelStatus = iota - 3
+	KernelStatusIdleReclaimed KernelStatus = iota - 4
+	KernelStatusInitializing
 	KernelStatusAbnormal
 	KernelStatusRunning
 	KernelStatusExited
@@ -33,7 +34,9 @@ func (s KernelStatus) String() string {
 	}
 
 	if s < 0 {
-		if s == KernelStatusInitializing {
+		if s == KernelStatusIdleReclaimed {
+			return "Unknown(KernelStatusIdleReclaimed)"
+		} else if s == KernelStatusInitializing {
 			return "Unknown(KernelStatusInitializing)"
 		} else if s == KernelStatusAbnormal {
 			return "Unknown(KernelStatusAbnormal)"
