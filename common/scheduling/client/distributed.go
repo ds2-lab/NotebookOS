@@ -719,17 +719,7 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 
 		// Collect the status of the replica(s).
 		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), messaging.MessageKernelStatusStarting, c.pubIOMessage)
-
-		// TODO: This won't work unless we update the kernel status code.
-		// The kernel is now running. It's no longer idle-reclaimed.
-		//c.isIdleReclaimed.Store(false)
 	}
-
-	// TODO: Temporary. Better to actually have kernel's statuses reflect this.
-	// If we are idle reclaimed and now all our replicas are running, then set the flag to false.
-	//if c.isIdleReclaimed.Load() && int32(len(c.replicas)) == c.targetNumReplicas {
-	//	c.isIdleReclaimed.Store(false)
-	//}
 
 	return nil
 }
@@ -898,7 +888,7 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 }
 
 // RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
-func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool, isIdleReclaim bool) error {
+func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool, forIdleReclamation bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -934,7 +924,9 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 		return errors.Join(removalErrors...)
 	}
 
-	if isIdleReclaim {
+	// If we're removing all replicas of the kernel for an idle reclamation, then we'll set the associated flag to
+	// true, and we'll attempt to update the kernel's status to reflect that it has been idle reclaimed.
+	if forIdleReclamation {
 		c.isIdleReclaimed.Store(true)
 
 		currentStatus := c.status
