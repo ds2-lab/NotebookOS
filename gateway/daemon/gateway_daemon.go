@@ -816,12 +816,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			kernelsSeen[kernel.ID()] = struct{}{}
 
 			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
-			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning {
-				return true
-			}
-
-			// If the kernel has never trained before, then it is ineligible for idle reclamation.
-			if kernel.NumCompletedTrainings() == 0 {
+			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() {
 				return true
 			}
 
@@ -837,28 +832,33 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			timeElapsedSinceContainersCreated := time.Since(kernel.ReplicaContainersStartedAt())
 
 			// May want to use this to dynamically adjust the interval required for a kernel to be considered idle.
-			multiplier := time.Duration(1)
+			multiplier := 1.0
+
+			// If the kernel has never trained before, then we increase the interval by a factor of 1.5.
+			if kernel.NumCompletedTrainings() == 0 {
+				multiplier = 1.5
+			}
 
 			// Compute how long it has been since the kernel last submitted a training event, last began training,
 			// and last completed training. If the idle interval has elapsed for all of these times, then the
 			// session is eligible for idle reclamation.
 
-			if timeElapsedSinceLastTrainingSubmitted < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceLastTrainingSubmitted < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
 
-			if timeElapsedSinceLastTrainingBegan < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceLastTrainingBegan < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
 
-			if timeElapsedSinceLastTrainingEnded < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceLastTrainingEnded < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
 
-			if timeElapsedSinceContainersCreated < (d.IdleSessionReclamationInterval * multiplier) {
+			if timeElapsedSinceContainersCreated < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
 				return true
 			}
