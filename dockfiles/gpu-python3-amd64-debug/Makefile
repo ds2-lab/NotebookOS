@@ -6,7 +6,7 @@ build:
 	docker build ${PARAMS} -t $(DOCKER_USER)jupyter-gpu -f Dockerfile ../..
 # ../clean.sh
 
-build-and-push: docker
+build-and-push: build
 	docker push $(DOCKER_USER)jupyter-gpu:latest
 
 clean:
