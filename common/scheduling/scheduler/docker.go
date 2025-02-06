@@ -479,7 +479,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 	}
 
 	// Take note that we're starting to place the kernel replicas now.
-	kernel.ContainerPlacementStarted()
+	kernel.RecordContainerPlacementStarted()
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
 	resultChan := s.scheduleKernelReplicas(kernelSpec, hosts, blacklistedHosts, false)

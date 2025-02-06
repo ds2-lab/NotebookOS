@@ -2229,7 +2229,10 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 
 	// Use a separate goroutine for this step.
 	go func() {
-		err := d.scheduleReplicas(ctx, kernel, in, attemptChan)
+		// We pass a new/separate context, because if we end up returning all the way back to the gRPC handler (and
+		// then return from there), then the scheduling operation will fail, as the context will be cancelled (when we
+		// return from the gRPC handler).
+		err := d.scheduleReplicas(context.Background(), kernel, in, attemptChan)
 
 		if err == nil {
 			notifyChan <- struct{}{}
@@ -4833,6 +4836,16 @@ func (d *ClusterGatewayImpl) shouldReplicasBeRunning(kernel scheduling.Kernel) b
 		return false
 	}
 
+	// If the containers are in the process of being scheduled, then it's OK that they aren't running yet.
+	//
+	// If the caller is handling a message that can be spoofed, then it'll be spoofed.
+	//
+	// If the caller is handling something like an "execute_request", then the "execute_request" handler will end
+	// up waiting for the container creation operation to complete.
+	if kernel.ReplicaContainersAreBeingScheduled() {
+		return false
+	}
+
 	return d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning
 }
 
@@ -4846,7 +4859,6 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 		d.log.Debug(utils.CyanStyle.Render("[gid=%d] Received %s message targeting kernel %s. Inspecting now..."), goroutineId, typ.String(), kernel.ID())
 
 		// Check availability.
-		// TODO: This only matters if the replicas should already be running.
 		if kernel.Status() != jupyter.KernelStatusRunning && d.shouldReplicasBeRunning(kernel) {
 			return ErrKernelNotReady
 		}
