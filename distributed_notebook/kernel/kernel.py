@@ -377,6 +377,11 @@ class DistributedKernel(IPythonKernel):
         config=False
     )
 
+    is_prewarmed_container: Bool = (Bool(False,
+                                        help="Indicates whether this Kernel was created to serve as a pre-warm container, "
+                                             "or if it was created as an actual kernel container.").
+                                    tag(config=True))
+
     # Indicates whether we should embed Election metadata in "execute_reply" messages.
     include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
 
@@ -459,6 +464,9 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
+
+        if "is_prewarmed_container" in kwargs:
+            self.is_prewarmed_container = kwargs["is_prewarmed_container"]
 
         # Keep track of how many times we generate the 'download' code when generating custom DL training code.
         self._get_download_code_called: int = 0
@@ -1046,6 +1054,7 @@ class DistributedKernel(IPythonKernel):
             "nodeName": self.node_name,
             "connection-info": connection_info,
             "workload_id": self.workload_id,
+            "prewarm_container": self.is_prewarmed_container,
             "kernel": {
                 "id": self.kernel_id,
                 "session": session_id,

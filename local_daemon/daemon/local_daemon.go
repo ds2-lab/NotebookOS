@@ -61,6 +61,9 @@ const (
 	// guaranteed. Specifically, the order in which the messages are enqueued is non-deterministic.
 	// (Once enqueued, the messages will be served in a first-come, first-serve manner.)
 	DefaultExecuteRequestQueueSize = 128
+
+	PrewarmContainer  ContainerType = "Prewarm"
+	StandardContainer ContainerType = "Standard"
 )
 
 var (
@@ -74,6 +77,12 @@ var (
 
 	errConcurrentConnectionAttempt = errors.New("another goroutine is already attempting to connect to the Cluster Gateway")
 )
+
+type ContainerType string
+
+func (ct ContainerType) String() string {
+	return string(ct)
+}
 
 // enqueuedExecOrYieldRequest encapsulates an "execute_request" or "yield_request" *messaging.JupyterMessage and a
 // chan interface{} used to notify the caller when the request has been submitted and a result has been returned.
@@ -286,11 +295,32 @@ type KernelRegistrationPayload struct {
 	Memory             int32                   `json:"memory,omitempty"`
 	Gpu                int32                   `json:"gpu,omitempty"`
 	Join               bool                    `json:"join,omitempty"`
+
+	// PrewarmContainer indicates that the registering Kernel was created to be a pre-warmed container,
+	// and not directly for use when a specific Kernel that has already been created by a user.
+	PrewarmContainer bool `json:"prewarm_container"`
 }
 
 // KernelRegistrationClient represents an incoming connection from local distributed kernel.
 type KernelRegistrationClient struct {
 	conn net.Conn
+
+	PrewarmContainer bool
+	ContainerType    ContainerType
+}
+
+// AssignContainerType is used to record whether the Kernel replica connecting to the LocalScheduler via this
+// KernelRegistrationClient is a PrewarmContainer or a StandardContainer.
+func (krc *KernelRegistrationClient) AssignContainerType(prewarmContainer bool) ContainerType {
+	krc.PrewarmContainer = prewarmContainer
+
+	if prewarmContainer {
+		krc.ContainerType = PrewarmContainer
+	} else {
+		krc.ContainerType = StandardContainer
+	}
+
+	return krc.ContainerType
 }
 
 func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.LocalDaemonOptions,
@@ -1068,7 +1098,6 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 // This method must be thread-safe.
 func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
 	registeredAt := time.Now()
-	d.log.Debug("Registering kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
 
 	remoteIp, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
 	if err != nil {
@@ -1102,7 +1131,10 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		return
 	}
 
-	d.log.Debug("Received registration payload: %v", registrationPayload)
+	containerType := kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
+
+	d.log.Debug("Registering %s kernel at (remote) address %s with registration payload: %v",
+		kernelRegistrationClient.ContainerType.String(), containerType.String(), registrationPayload)
 
 	var connInfo *jupyter.ConnectionInfo
 	if d.LocalMode() {
@@ -1123,16 +1155,15 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	}
 
 	if connInfo == nil {
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+		d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 			Id:               uuid.NewString(),
-			Title:            "Received nil Connection Info from kernel",
+			Title:            fmt.Sprintf("Received nil Connection Info from %v Kernel", containerType.String()),
 			Message:          fmt.Sprintf("The connection info sent in the registration payload of kernel at address %s is nil.", remoteIp),
 			NotificationType: 0,
 			Panicked:         true,
 		})
 		panic(fmt.Sprintf("Connection info sent to us by kernel at %s is nil.", remoteIp))
 	}
-	d.log.Debug("connInfo: %v", connInfo)
 
 	kernelReplicaSpec := &proto.KernelReplicaSpec{
 		Kernel:       registrationPayload.Kernel,
@@ -1143,7 +1174,11 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		WorkloadId:   registrationPayload.WorkloadId,
 	}
 
-	d.log.Debug("kernel replica spec: %v", kernelReplicaSpec)
+	d.log.Debug("%s Kernel \"%s\" has connection info: %v.",
+		containerType.String(), registrationPayload.Kernel.Id, connInfo)
+
+	d.log.Debug("%s Kernel \"%s\" has kernel replica spec: %v.",
+		containerType.String(), registrationPayload.Kernel.Id, kernelReplicaSpec)
 
 	// If we're running in Kubernetes mode, then we need to create a new kernel client here (as well as a new DockerInvoker).
 	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
@@ -1163,21 +1198,26 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 			d.notifyClusterGatewayAndPanic("Failed to Load 'kernel Client Creation' Channel", err.Error(), err)
 		}
 
-		d.log.Debug("Waiting for notification that the KernelClient for kernel \"%s\" has been created.", kernelReplicaSpec.Kernel.Id)
+		d.log.Debug("Waiting for notification that the KernelClient for %s Kernel \"%s\" has been created.",
+			containerType.String(), kernelReplicaSpec.Kernel.Id)
 		kernelConnectionInfo = <-kernelClientCreationChannel
-		d.log.Debug("Received notification that the KernelClient for kernel \"%s\" was created.", kernelReplicaSpec.Kernel.Id)
+		d.log.Debug("Received notification that the KernelClient for %s Kernel \"%s\" was created.",
+			containerType.String(), kernelReplicaSpec.Kernel.Id)
 
 		kernel, loaded = d.kernels.Load(kernelReplicaSpec.Kernel.Id)
 
 		if !loaded {
-			message := fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...", kernelReplicaSpec.Kernel.Id)
-			d.notifyClusterGatewayAndPanic("Failed to Load kernel Client for New kernel Replica", message, message)
+			message := fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...",
+				kernelReplicaSpec.Kernel.Id)
+			d.notifyClusterGatewayAndPanic("Failed to Load kernel Client for New kernel Replica",
+				message, message)
 		}
 
 		createdAt, ok := d.getInvoker(kernel).KernelCreatedAt()
 		if !ok {
 			message := "Docker Invoker thinks it hasn't created kernel container, but kernel just registered..."
-			d.notifyClusterGatewayAndPanic("Docker Invoker Thinks Container Has Not Been Created", message, message)
+			d.notifyClusterGatewayAndPanic("Docker Invoker Thinks Container Has Not Been Created",
+				message, message)
 		}
 
 		timeElapsed := registeredAt.Sub(createdAt)
@@ -1215,6 +1255,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		PodOrContainerName: registrationPayload.PodOrContainerName,
 		NodeName:           d.nodeName,
 		NotificationId:     uuid.NewString(),
+		PrewarmContainer:   registrationPayload.PrewarmContainer,
 	}
 
 	var dockerContainerId string
@@ -1230,7 +1271,8 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		kernelRegistrationNotification.PodOrContainerName = dockerContainerId
 	}
 
-	d.log.Info("kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
+	d.log.Info("%s kernel %s registered: %v. Notifying Gateway now.",
+		containerType.String(), kernelReplicaSpec.ID(), info)
 
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancelPing()
@@ -1252,8 +1294,8 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		response, err = d.provisioner.NotifyKernelRegistered(context.Background(), kernelRegistrationNotification)
 
 		if err != nil {
-			d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-				kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
+			d.log.Error("Failed to notify Cluster Gateway that %s kernel %s has registered on attempt %d/%d: %v",
+				containerType.String(), kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
 
 			if errors.Is(err, types.ErrDuplicateRegistrationNotification) {
 				// TODO: What to do here? If the Gateway received our request but then there was some sort
@@ -1326,11 +1368,11 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		panic(domain.ErrKernelRegistrationNotificationFailure)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v. Response: %v.",
-		response.Id, response.Replicas, response.String())
+	d.log.Debug("Successfully notified Gateway of %s kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v. Response: %v.",
+		containerType.String(), response.Id, response.Replicas, response.String())
 
 	if response.ResourceSpec == nil {
-		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())
+		errorMessage := fmt.Sprintf("ResourceSpec for %s kernel %s is nil.", containerType.String(), kernel.ID())
 		d.log.Error(errorMessage)
 		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 			Id:               uuid.NewString(),
@@ -1352,7 +1394,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		return
 	}
 
-	d.log.Debug("Resource spec for kernel %s: %v", kernel.ID(), response.ResourceSpec)
+	d.log.Debug("Resource spec for %s kernel %s: %v", containerType.String(), kernel.ID(), response.ResourceSpec)
 
 	kernel.InitializeResourceSpec(response.ResourceSpec)
 	kernel.SetReplicaID(response.Id)
@@ -1371,7 +1413,8 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	}
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
-		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of kernel %s.", response.GetPersistentId(), response.Id, kernel.ID())
+		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of %s kernel %s.",
+			containerType.String(), response.GetPersistentId(), response.Id, kernel.ID())
 		payload["persistent_id"] = response.GetPersistentId()
 		kernel.SetPersistentID(response.GetPersistentId())
 	} else {
@@ -1379,13 +1422,6 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	}
 
 	payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
-
-	// if response.DataDirectory != nil && response.GetDataDirectory() != "" {
-	// 	d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
-	// 	payload["data_directory"] = response.GetDataDirectory()
-	// } else {
-	// 	d.log.Debug("No data directory to include in response.")
-	// }
 
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
@@ -1400,11 +1436,8 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
 		d.notifyClusterGatewayAndPanic("Failed to Write Registration Response Payload Back to kernel", err.Error(), err)
 	}
-	d.log.Debug("Wrote %d bytes back to kernel in response to kernel registration.", bytesWritten)
-
-	// TODO(Ben): Need a better system for this. Basically, give the kernel time to setup its persistent store.
-	// TODO: Is this still needed?
-	// time.Sleep(time.Second * 1)
+	d.log.Debug("Wrote %d bytes back to %s kernel in response to kernel registration.",
+		containerType.String(), bytesWritten)
 }
 
 // ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.

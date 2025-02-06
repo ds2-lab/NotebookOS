@@ -903,6 +903,7 @@ message KernelRegistrationNotification {
   int32 gpu = 12; // Number of GPUs.
   string dockerContainerId=13; // Docker ID of the container. Only populated in Docker mode.
   string notificationId = 14;
+  bool prewarmContainer = 15;
 }
 
 // Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.
@@ -913,6 +914,7 @@ message KernelRegistrationNotificationResponse {
   ResourceSpec resourceSpec = 4;
   bool shouldReadDataFromRemoteStorage = 5;
   optional string persistentId = 6;
+  bool prewarmContainer = 7;
   // optional string dataDirectory = 6;
   // int32 dockerKernelDebugPort = 7;
 }

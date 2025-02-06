@@ -1672,7 +1672,7 @@ const (
 //
 // KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
 //
-// kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
 // If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
 // gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
 // be submitted to the Cluster Dashboard.
@@ -1705,7 +1705,7 @@ func (c *kernelErrorReporterClient) Notify(ctx context.Context, in *KernelNotifi
 //
 // KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
 //
-// kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
 // If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
 // gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
 // be submitted to the Cluster Dashboard.
