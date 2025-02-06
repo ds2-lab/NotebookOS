@@ -881,7 +881,19 @@ class DistributedKernel(IPythonKernel):
         )
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
-        self.persistent_store_cv = asyncio.Condition()
+        self.persistent_store_cv: asyncio.Condition = asyncio.Condition()
+
+        # preparing_to_migrate_cv is used when handling shutdown requests.
+        #
+        # Specifically, the control thread needs to wait to shut the kernel down until the important state
+        # is safely persisted to remote storage.
+        #
+        # This condition variable is used to wait until that completes, and to signal that it has completed.
+        self.preparing_to_migrate_cv: asyncio.Condition = asyncio.Condition()
+
+        # preparing_to_migrate is a flag indicating that the kernel is preparing to migrate and should not
+        # be shutdown, as important state needs to be checkpointed first.
+        self.preparing_to_migrate: bool = False
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
@@ -3658,6 +3670,17 @@ class DistributedKernel(IPythonKernel):
             self.kernel_id,
         )
 
+        # Make sure we're not (still) preparing to migrate.
+        # If we are, then we need to wait to ensure that all important state is checkpointed to remote storage.
+        async with self.preparing_to_migrate_cv:
+            while self.preparing_to_migrate:
+                self.log.warning("We are currently preparing to migrate. "
+                                 "Will wait until migration completes before shutting down.")
+
+                self.preparing_to_migrate_cv.wait()
+
+            self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
+
         if self.synchronizer:
             self.log.info("Closing the Synchronizer.")
             self.synchronizer.close()
@@ -3907,7 +3930,17 @@ class DistributedKernel(IPythonKernel):
                 )
                 await self.persistent_store_cv.wait()
 
-        content, success = await self.prepare_to_migrate()
+        async with self.preparing_to_migrate_cv:
+            self.preparing_to_migrate = True
+
+        try:
+            content, success = await self.prepare_to_migrate()
+        finally:
+            # Regardless of what happens up above, we need to flip the value of the self.preparing_to_migrate flag
+            # back to false and notify anybody waiting on the condition variable. 
+            async with self.preparing_to_migrate_cv:
+                self.preparing_to_migrate = False
+                self.preparing_to_migrate_cv.notify_all()
 
         if not success:
             self.log.error("Failed to prepare to migrate...")
