@@ -2,10 +2,9 @@ package hashmap
 
 import (
 	"fmt"
+	"github.com/zhangjyr/hashmap"
 	"log"
 	"reflect"
-
-	"github.com/zhangjyr/hashmap"
 )
 
 // SyncPool using sync.Pool
@@ -79,6 +78,17 @@ func (m *CornelkMap[K, V]) CompareAndSwap(key K, oldVal V, newVal V) (val V, swa
 }
 
 func (m *CornelkMap[K, V]) Range(cb func(K, V) bool) {
+	next := true
+	for item := range m.hashmap.Iter() {
+		if next {
+			v, _ := item.Value.(V)
+			next = cb(item.Key.(K), v)
+		}
+		// iterate over all items to drain the channel
+	}
+}
+
+func (m *CornelkMap[K, V]) RangeSafe(cb func(K, V) bool) {
 	next := true
 	for item := range m.hashmap.Iter() {
 		if next {

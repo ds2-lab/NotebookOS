@@ -44,6 +44,8 @@ distributed_notebook_assign_kernel_debug_ports: false
 distributed_notebook_submit_execute_requests_one_at_a_time: true
 distributed_notebook_s3_bucket: "distributed-notebook-storage"
 distributed_notebook_aws_region: "us-east-1"
+distributed_notebook_idle_session_reclamation_enabled: true
+distributed_notebook_idle_session_reclamation_interval_sec: 1800
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: redis

@@ -283,7 +283,7 @@ func CopyRequestTraceFromBuffersToMetadata(msg *JupyterMessage, signatureScheme 
 
 	// Resign and re-verify the message.
 	if signatureScheme == "" {
-		logger.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", JupyterSignatureScheme)
+		logger.Warn("kernel %s's signature scheme is blank. Defaulting to \"%s\"", JupyterSignatureScheme)
 		signatureScheme = JupyterSignatureScheme
 	}
 

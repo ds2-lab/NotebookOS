@@ -31,7 +31,7 @@ var (
 )
 
 // NodeType indicates whether a node is a Cluster Gateway ("cluster_gateway"), a Local Daemon ("local_daemon"),
-// or a Jupyter Kernel Replica ("jupyter_kernel").
+// or a Jupyter kernel Replica ("jupyter_kernel").
 type NodeType string
 
 func (t NodeType) String() string {
@@ -345,7 +345,7 @@ func (m *basePrometheusManager) initializeMetrics() error {
 	// Register miscellaneous metrics.
 
 	if err := prometheus.Register(m.NumActiveKernelReplicasGaugeVec); err != nil {
-		m.log.Error("Failed to register 'Number of Active Kernel Replicas' metric because: %v", err)
+		m.log.Error("Failed to register 'Number of Active kernel Replicas' metric because: %v", err)
 		return err
 	}
 

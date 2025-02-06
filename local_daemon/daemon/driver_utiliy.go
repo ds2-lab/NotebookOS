@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"log"
 	"os"
@@ -139,8 +140,8 @@ func getNameAndIdOfDockerContainerNonJson() (string, string, error) {
 	hostnameEnv := os.Getenv("HOSTNAME")
 
 	if len(hostnameEnv) == 0 {
-		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
-		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		globalLogger.Warn("Could not retrieve valid value from HOSTNAME environment variable.")
+		globalLogger.Warn("Returning default value for NodeName: \"%s\"", types.DockerNode)
 		return types.DockerNode, "", errHostnameUnavailable
 	}
 
@@ -163,8 +164,8 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 	hostnameEnv := os.Getenv("HOSTNAME")
 
 	if len(hostnameEnv) == 0 {
-		globalLogger.Error("Could not retrieve valid value from HOSTNAME environment variable.")
-		globalLogger.Error("Returning default value for NodeName: \"%s\"", types.DockerNode)
+		globalLogger.Warn("Could not retrieve valid value from HOSTNAME environment variable.")
+		globalLogger.Warn("Returning default value for NodeName: \"%s\"", types.DockerNode)
 		return types.DockerNode, "", errHostnameUnavailable
 	}
 
@@ -238,6 +239,13 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	err := scheduler.connectToGateway(options.ProvisionerAddr, finalize)
 	if err != nil {
+
+		// If we're in local mode, then we're running unit tests, so we'll just... return.
+		if options.LocalMode {
+			fmt.Printf(utils.RedStyle.Render("Failed to connect to Cluster Gateway: %v\n"), err)
+			return nil, nil
+		}
+
 		log.Fatalf(utils.RedStyle.Render("Failed to connect to Cluster Gateway: %v\n"), err)
 	}
 
@@ -259,6 +267,11 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	go func() {
 		defer finalize(true)
 		if err := scheduler.Start(); err != nil {
+			// If we're in local mode, then we're running unit tests, so we'll just... return.
+			if options.LocalMode {
+				return
+			}
+
 			log.Fatalf("Error during daemon serving: %v", err)
 		}
 	}()

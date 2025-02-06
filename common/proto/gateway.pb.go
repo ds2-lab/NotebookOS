@@ -3906,7 +3906,7 @@ func (x *KernelId) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use KernelId.ProtoReflect.Descriptor instead.
+// Deprecated: Use kernelId.ProtoReflect.Descriptor instead.
 func (*KernelId) Descriptor() ([]byte, []int) {
 	return file_common_proto_gateway_proto_rawDescGZIP(), []int{53}
 }
@@ -4597,7 +4597,7 @@ type KernelRegistrationNotification struct {
 	unknownFields protoimpl.UnknownFields
 
 	ConnectionInfo     *KernelConnectionInfo `protobuf:"bytes,1,opt,name=connectionInfo,proto3" json:"connectionInfo,omitempty"`         // Connection information of the kernel.
-	KernelId           string                `protobuf:"bytes,2,opt,name=kernelId,proto3" json:"kernelId,omitempty"`                     // ID of the Kernel.
+	KernelId           string                `protobuf:"bytes,2,opt,name=kernelId,proto3" json:"kernelId,omitempty"`                     // ID of the kernel.
 	SessionId          string                `protobuf:"bytes,3,opt,name=sessionId,proto3" json:"sessionId,omitempty"`                   // ID of the associated Session.
 	HostId             string                `protobuf:"bytes,4,opt,name=hostId,proto3" json:"hostId,omitempty"`                         // The ID of the LocalDaemonClient associated with this Host. It's basically the ID of the LocalDaemon.
 	ReplicaId          int32                 `protobuf:"varint,5,opt,name=replicaId,proto3" json:"replicaId,omitempty"`                  // The SMR replica ID.
@@ -6031,7 +6031,7 @@ var file_common_proto_gateway_proto_goTypes = []any{
 	(*GpuInfo)(nil),                                // 50: gateway.GpuInfo
 	(*KernelReplicaSpec)(nil),                      // 51: gateway.KernelReplicaSpec
 	(*ResourceSpec)(nil),                           // 52: gateway.ResourceSpec
-	(*KernelId)(nil),                               // 53: gateway.KernelId
+	(*KernelId)(nil),                               // 53: gateway.kernelId
 	(*ReplicaInfo)(nil),                            // 54: gateway.ReplicaInfo
 	(*MigrationRequest)(nil),                       // 55: gateway.MigrationRequest
 	(*SmrReadyNotification)(nil),                   // 56: gateway.SmrReadyNotification
@@ -6107,7 +6107,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	66, // 52: gateway.DistributedCluster.GetClusterActualGpuInfo:input_type -> gateway.Void
 	66, // 53: gateway.DistributedCluster.GetClusterVirtualGpuInfo:input_type -> gateway.Void
 	55, // 54: gateway.DistributedCluster.MigrateKernelReplica:input_type -> gateway.MigrationRequest
-	53, // 55: gateway.DistributedCluster.FailNextExecution:input_type -> gateway.KernelId
+	53, // 55: gateway.DistributedCluster.FailNextExecution:input_type -> gateway.kernelId
 	66, // 56: gateway.DistributedCluster.RegisterDashboard:input_type -> gateway.Void
 	66, // 57: gateway.DistributedCluster.GetVirtualDockerNodes:input_type -> gateway.Void
 	66, // 58: gateway.DistributedCluster.GetDockerSwarmNodes:input_type -> gateway.Void
@@ -6127,11 +6127,11 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	38, // 72: gateway.LocalGateway.SetID:input_type -> gateway.HostId
 	61, // 73: gateway.LocalGateway.StartKernel:input_type -> gateway.KernelSpec
 	51, // 74: gateway.LocalGateway.StartKernelReplica:input_type -> gateway.KernelReplicaSpec
-	53, // 75: gateway.LocalGateway.GetKernelStatus:input_type -> gateway.KernelId
-	53, // 76: gateway.LocalGateway.KillKernel:input_type -> gateway.KernelId
-	53, // 77: gateway.LocalGateway.StopKernel:input_type -> gateway.KernelId
+	53, // 75: gateway.LocalGateway.GetKernelStatus:input_type -> gateway.kernelId
+	53, // 76: gateway.LocalGateway.KillKernel:input_type -> gateway.kernelId
+	53, // 77: gateway.LocalGateway.StopKernel:input_type -> gateway.kernelId
 	28, // 78: gateway.LocalGateway.PingKernel:input_type -> gateway.PingInstruction
-	53, // 79: gateway.LocalGateway.WaitKernel:input_type -> gateway.KernelId
+	53, // 79: gateway.LocalGateway.WaitKernel:input_type -> gateway.kernelId
 	66, // 80: gateway.LocalGateway.SetClose:input_type -> gateway.Void
 	60, // 81: gateway.LocalGateway.AddReplica:input_type -> gateway.ReplicaInfoWithAddr
 	60, // 82: gateway.LocalGateway.UpdateReplicaAddr:input_type -> gateway.ReplicaInfoWithAddr
@@ -6142,7 +6142,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	66, // 87: gateway.LocalGateway.GetVirtualGpuInfo:input_type -> gateway.Void
 	47, // 88: gateway.LocalGateway.SetTotalVirtualGPUs:input_type -> gateway.SetVirtualGPUsRequest
 	66, // 89: gateway.LocalGateway.GetVirtualGpuAllocations:input_type -> gateway.Void
-	53, // 90: gateway.LocalGateway.YieldNextExecution:input_type -> gateway.KernelId
+	53, // 90: gateway.LocalGateway.YieldNextExecution:input_type -> gateway.kernelId
 	41, // 91: gateway.LocalGateway.ReconnectToGateway:input_type -> gateway.ReconnectToGatewayRequest
 	36, // 92: gateway.ClusterGateway.ID:output_type -> gateway.ProvisionerId
 	66, // 93: gateway.ClusterGateway.RemoveHost:output_type -> gateway.Void

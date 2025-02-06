@@ -32,7 +32,7 @@ type LocalDaemonOptions struct {
 	jupyter.ConnectionInfo
 	SchedulerDaemonOptions
 	Port               int `name:"port" usage:"Port that the gRPC service listens on."`
-	KernelRegistryPort int `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
+	KernelRegistryPort int `name:"kernel-registry-port" usage:"Port on which the kernel Registry Server listens."`
 	RedisPort          int `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
 	RedisDatabase      int `name:"redis_database" json:"redis_database" yaml:"redis_database"` // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 }
@@ -99,7 +99,7 @@ func (o SchedulerDaemonOptions) IsKubernetesMode() bool {
 
 // IsLocalMode returns true if the deployment mode is specified as "local".
 func (o SchedulerDaemonOptions) IsLocalMode() bool {
-	return o.DeploymentMode == string(types.LocalMode)
+	return o.LocalMode
 }
 
 // IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".

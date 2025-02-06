@@ -33,7 +33,7 @@ type MessageDataDirectory struct {
 }
 
 func (m MessageDataDirectory) String() string {
-	return fmt.Sprintf("MessageDataDirectory[KernelId=%s,Status=%v,DataDirectory=%s,HostId=%d]", m.KernelId, m.Status, m.DataDirectory, m.NodeID)
+	return fmt.Sprintf("MessageDataDirectory[kernelId=%s,Status=%v,DataDirectory=%s,HostId=%d]", m.KernelId, m.Status, m.DataDirectory, m.NodeID)
 }
 
 type MessageSMRNodeUpdated struct {
@@ -44,7 +44,7 @@ type MessageSMRNodeUpdated struct {
 }
 
 func (m MessageSMRNodeUpdated) String() string {
-	return fmt.Sprintf("MessageSMRNodeUpdated[KernelId=%s,Success=%v,PersistentID=%s,HostId=%d,Address=%s]", m.KernelId, m.Success, m.PersistentID, m.NodeID, m.Address)
+	return fmt.Sprintf("MessageSMRNodeUpdated[kernelId=%s,Success=%v,PersistentID=%s,HostId=%d,Address=%s]", m.KernelId, m.Success, m.PersistentID, m.NodeID, m.Address)
 }
 
 type MessageSMRLeadTask struct {

@@ -67,7 +67,7 @@ type BasicKubeClient struct {
 	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
 	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
 	podWatcherStopChan     chan struct{}                              // Used to tell the Pod Watcher to stop.
-	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
+	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
 	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
 	ipythonConfigPath      string                                     // Where the IPython config is located.
@@ -408,7 +408,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 // Returns a tuple containing the connection info returned by the `prepareConnectionFileContents` function and an error,
 // which will be nil if there were no errors encountered while creating the StatefulSet and related components.
 func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
-	c.log.Debug("Creating Kubernetes resources for Kernel %s [Session: %s].", kernel.Id, kernel.Session)
+	c.log.Debug("Creating Kubernetes resources for kernel %s [Session: %s].", kernel.Id, kernel.Session)
 
 	// Prepare the *jupyter.ConnectionInfo.
 	connectionInfo, err := c.prepareConnectionFileContents(kernel)
@@ -418,7 +418,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	}
 	c.log.Debug("Prepared connection info: %v\n", connectionInfo)
 	for i := 0; i < len(kernel.Argv); i++ {
-		c.log.Debug("spec.Kernel.Argv[%d]: %v", i, kernel.Argv[i])
+		c.log.Debug("spec.kernel.Argv[%d]: %v", i, kernel.Argv[i])
 	}
 
 	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
@@ -473,7 +473,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	return connectionInfo, nil
 }
 
-// Return the migration operation associated with the given Kernel ID and SMR Node ID of the new replica.
+// Return the migration operation associated with the given kernel ID and SMR Node ID of the new replica.
 // func (c *BasicKubeClient) GetMigrationOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (MigrationOperation, bool) {
 // 	return c.migrationManager.GetMigrationOperationByKernelIdAndNewReplicaId(kernelId, smrNodeId)
 // }

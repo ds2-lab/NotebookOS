@@ -41,7 +41,19 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 	return policy, nil
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being
+// placed back into the warm KernelContainer pool, or if it should simply be terminated.
+//
+// ReuseWarmContainers is used in conjunction with ContainerLifetime to determine what to do with the container of a
+// Kernel when the Policy specifies the ContainerLifetime as SingleTrainingEvent. Specifically, for policies like
+// FCFS Batch Scheduling, the warm KernelContainer will simply be destroyed.
+//
+// But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
+func (p *FcfsBatchSchedulingPolicy) ReuseWarmContainers() bool {
+	return false
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if p.SupportsMigration() {
 		panic("FcfsBatchSchedulingPolicy isn't supposed to support migration, yet apparently it does?")
@@ -50,7 +62,7 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 	return nil, ErrMigrationNotSupported
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates

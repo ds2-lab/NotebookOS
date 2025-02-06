@@ -196,7 +196,7 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 }
 
 // ReserveResourcesForReplica is used to instruct the scheduling.Placer to explicitly reserve resources for a
-// particular KernelReplica of a particular Kernel.
+// particular KernelReplica of a particular kernel.
 //
 // The primary use case for ReserveResourcesForReplica is when a specific scheduling.KernelReplica is specified to
 // serve as the primary replica within the metadata of an "execute_request" message. This may occur because the user
@@ -309,7 +309,8 @@ func (placer *AbstractPlacer) Reclaim(host scheduling.Host, sess scheduling.User
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// We'll wait up to 5 minutes for the operation to complete, in case there is some significant I/O required.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	placer.log.Debug("Calling StopKernel on kernel %s running on host %s (ID=%v).",

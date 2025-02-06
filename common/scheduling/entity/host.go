@@ -924,8 +924,8 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 // The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
 // pre-release resources when we shouldn't have.
 //
-// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
-// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+// For example, let's say we submit EXECUTION_1 to a kernel. We received the main execute_reply from the leader,
+// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the kernel.
 // EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
 // we may release the pre-committed resources for EXECUTION_2.
 //
@@ -956,8 +956,8 @@ func (h *Host) GetResourceCountsAsString() string {
 // The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
 // pre-release resources when we shouldn't have.
 //
-// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
-// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+// For example, let's say we submit EXECUTION_1 to a kernel. We received the main execute_reply from the leader,
+// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the kernel.
 // EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
 // we may release the pre-committed resources for EXECUTION_2.
 //

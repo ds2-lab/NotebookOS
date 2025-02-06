@@ -62,6 +62,56 @@ type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.Jupyter
 
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
+// CreateReplicaContainersAttempt is similar to kernelDescheduleAttempt, but CreateReplicaContainersAttempt is used
+// to keep track of a kernel whose kernel replicas and kernel containers are being created, rather than removed.
+type CreateReplicaContainersAttempt interface {
+	// Kernel returns the scheduling.Kernel associated with the target CreateReplicaContainersAttempt (i.e., the
+	// scheduling.Kernel whose scheduling.KernelContainer instances are being created).
+	Kernel() Kernel
+
+	// Wait blocks until the target CreateReplicaContainersAttempt is finished, or until the given
+	// context.Context is cancelled.
+	//
+	// If the operation completes in a failed state and there's a failure reason,
+	// then the failure reason will be returned.
+	Wait(ctx context.Context) error
+
+	// IsComplete returns true if the target CreateReplicaContainersAttempt has finished.
+	//
+	// Note that if IsComplete is true, that doesn't necessarily mean that the associated container creation operation
+	// finished successfully. It may have encountered errors or timed-out on its own.
+	IsComplete() bool
+
+	// SetDone records that the target CreateReplicaContainersAttempt has finished.
+	//
+	// If the operation failed, then the reason, in the form of an error, should be passed to SetDone.
+	//
+	// If the target CreateReplicaContainersAttempt has already been marked as having completed,
+	// then SetDone will panic.
+	SetDone(failureReason error)
+
+	// PlacementInProgress returns true if the process of placing and creating the scheduling.KernelContainer
+	// instances has started. Generally, if this stage is reached, then the operation will most-likely complete
+	// successfully, as errors are unlikely, and it means that resources were available and whatnot.
+	PlacementInProgress() bool
+
+	// Succeeded returns true if the container creation operation(s) succeeded.
+	Succeeded() bool
+
+	// FailureReason returns a non-nil value if there is an error associated with the failure of the
+	// container creation operation(s) succeeded.
+	FailureReason() error
+
+	// KernelId returns the kernel ID of the scheduling.Kernel associated with the target CreateReplicaContainersAttempt.
+	KernelId() string
+
+	// StartedAt returns the time at which the target CreateReplicaContainersAttempt began.
+	StartedAt() time.Time
+
+	// TimeElapsed returns the amount of time that has elapsed since the target CreateReplicaContainersAttempt began.
+	TimeElapsed() time.Duration
+}
+
 type Kernel interface {
 	types.Contextable
 	SessionManager
@@ -86,6 +136,28 @@ type Kernel interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 
+	// NumContainersCreated returns the total number of KernelContainer instances that have been created or provisioned
+	// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
+	// KernelContainer instance(s) as well as any KernelContainer instance(s) created during migrations or as on-demand.
+	//
+	// Technically, if a warm container is used, then that container wasn't strictly "created", but we count it in this
+	// statistic, in any case. To get the number of containers that were strictly created cold for the target Kernel,
+	// simply compute NumContainersCreated - NumWarmContainersUsed.
+	NumContainersCreated() int32
+
+	// NumWarmContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+	// for the target Kernel, the KernelReplica / KernelContainer was created using a warm KernelContainer.
+	NumWarmContainersUsed() int32
+
+	// NumColdContainersUsed returns the number of times that, when a KernelReplica / KernelContainer had to be created
+	// for the target Kernel, the KernelReplica / KernelContainer was created using a cold KernelContainer.
+	NumColdContainersUsed() int32
+
+	// RecordContainerCreated records that a scheduling.KernelContainer was created for the target DistributedKernelClient.
+	//
+	// The argument to RecordContainerCreated indicates whether the created container was warm or cold.
+	RecordContainerCreated(warm bool)
+
 	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
 	// code execution, or nil if no code executions have occurred.
 	LastPrimaryReplica() KernelReplica
@@ -101,6 +173,13 @@ type Kernel interface {
 	// ReplicasAreScheduled returns a flag indicating whether the replicas of this Kernel are scheduled.
 	// Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 	ReplicasAreScheduled() bool
+	// NumCompletedTrainings returns the number of training events that have been completed successfully.
+	NumCompletedTrainings() int
+	// ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
+	// for the target Kernel.
+	ReplicaContainersAreBeingScheduled() bool
+	// ReplicaContainersStartedAt returns the time at which the target Kernel's KernelContainer instances last started.
+	ReplicaContainersStartedAt() time.Time
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
@@ -114,11 +193,16 @@ type Kernel interface {
 	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
 	GetReplicaByID(id int32) (KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
-	RemoveAllReplicas(remover ReplicaRemover, noop bool) error
+	RemoveAllReplicas(remover ReplicaRemover, noop bool, isIdleReclaim bool) error
+	// InitialContainerCreationFailed is called by the Cluster Gateway/Scheduler if the initial attempt to schedule
+	// the replica containers of the target DistributedKernelClient fails.
+	InitialContainerCreationFailed()
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	InitializeIOForwarder() (*messaging.Socket, error)
 	GetReadyReplica() KernelReplica
+	// IsIdleReclaimed returns true if the Kernel has been idle reclaimed.
+	IsIdleReclaimed() bool
 	IsReady() bool
 	Socket(typ messaging.MessageType) *messaging.Socket
 	GetSocketPort(typ messaging.MessageType) int
@@ -149,8 +233,37 @@ type Kernel interface {
 	// of a given kernel is/are not scheduled, and that kernel receives a message.
 	TemporaryKernelReplicaClient() KernelReplicaInfo
 
-	TrainingStartedAt() time.Time
+	// ActiveTrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
+	// began actively training, if there is an actively-training replica.
+	ActiveTrainingStartedAt() time.Time
+
+	// LastTrainingStartedAt returns the time at which the last training to occur began. If there is an active
+	// training when LastTrainingStartedAt is called, then LastTrainingStartedAt will return the time at which
+	// the active training began.
+	LastTrainingStartedAt() time.Time
+
+	// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
+	// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
+	// the time at which the active training was submitted to the kernel.
+	LastTrainingSubmittedAt() time.Time
+
+	// LastTrainingEndedAt returns the time at which the last completed training ended.
+	//
+	// If the kernel is currently training, then LastTrainingEndedAt returns the time at which the previous
+	// training ended.
+	LastTrainingEndedAt() time.Time
+
+	// IsTraining returns true if one of the target Kernel's KernelReplica instances is actively training.
 	IsTraining() bool
+
+	// BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
+	//
+	// If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
+	// associated with the active/ongoing container creation operation.
+	//
+	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
+	// BeginSchedulingReplicaContainers will return false and nil.
+	BeginSchedulingReplicaContainers() (bool, CreateReplicaContainersAttempt)
 }
 
 type KernelReplica interface {
@@ -173,7 +286,7 @@ type KernelReplica interface {
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
-	KernelStartedTraining() error
+	KernelStartedTraining(trainingStartedAt time.Time) error
 	WaitForPendingExecuteRequests()
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
@@ -184,7 +297,7 @@ type KernelReplica interface {
 	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
 	SendingExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool)
-	TrainingStartedAt() time.Time
+	LastTrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool

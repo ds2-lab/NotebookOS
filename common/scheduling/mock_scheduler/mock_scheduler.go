@@ -336,6 +336,20 @@ func (mr *MockSchedulingPolicyMockRecorder) ResourceScalingPolicy() *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceScalingPolicy", reflect.TypeOf((*MockSchedulingPolicy)(nil).ResourceScalingPolicy))
 }
 
+// ReuseWarmContainers mocks base method.
+func (m *MockSchedulingPolicy) ReuseWarmContainers() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReuseWarmContainers")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ReuseWarmContainers indicates an expected call of ReuseWarmContainers.
+func (mr *MockSchedulingPolicyMockRecorder) ReuseWarmContainers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReuseWarmContainers", reflect.TypeOf((*MockSchedulingPolicy)(nil).ReuseWarmContainers))
+}
+
 // ScalingConfiguration mocks base method.
 func (m *MockSchedulingPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	m.ctrl.T.Helper()

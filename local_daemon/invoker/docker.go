@@ -405,7 +405,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		}
 	}
 
-	ivk.log.Debug("[DockerInvoker] Kernel Name: \"%s\". Port: %d.\n", kernelName, port)
+	ivk.log.Debug("[DockerInvoker] kernel Name: \"%s\". Port: %d.\n", kernelName, port)
 
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionInfo(spec.Kernel)

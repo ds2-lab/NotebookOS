@@ -33,6 +33,18 @@ func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) (*DynamicV4Policy, er
 	return policy, nil
 }
 
+// ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being
+// placed back into the warm KernelContainer pool, or if it should simply be terminated.
+//
+// ReuseWarmContainers is used in conjunction with ContainerLifetime to determine what to do with the container of a
+// Kernel when the Policy specifies the ContainerLifetime as SingleTrainingEvent. Specifically, for policies like
+// FCFS Batch Scheduling, the warm KernelContainer will simply be destroyed.
+//
+// But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
+func (p *DynamicV4Policy) ReuseWarmContainers() bool {
+	return false
+}
+
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (p *DynamicV4Policy) ValidateCapacity(cluster scheduling.Cluster) {
@@ -100,7 +112,7 @@ func (p *DynamicV4Policy) ScalingConfiguration() *scheduling.ScalingConfiguratio
 	return p.scalingConfiguration
 }
 
-// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *DynamicV4Policy) SelectReplicaForMigration(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if !p.SupportsMigration() {
 		panic("DynamicV4Policy is supposed to support migration, yet apparently it doesn't?")
@@ -110,7 +122,7 @@ func (p *DynamicV4Policy) SelectReplicaForMigration(_ scheduling.Kernel) (schedu
 	panic("Not implemented.")
 }
 
-// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates

@@ -22,6 +22,7 @@ type CommonOptions struct {
 	SMRPort                            int    `name:"smr-port"                         json:"smr-port"                          yaml:"smr-port"                            description:"Port used by the state machine replication (SMR) protocol."`
 	DebugPort                          int    `name:"debug_port"                       json:"debug_port"                        yaml:"debug_port"                          description:"The port for the debug HTTP server."`
 	ElectionTimeoutSeconds             int    `name:"election_timeout_seconds" json:"election_timeout_seconds" yaml:"election_timeout_seconds" description:"How long kernel leader elections wait to receive all proposals before electing a leader"`
+	LocalMode                          bool   `name:"local_mode" json:"local_mode" yaml:"local_mode" description:"Local mode is set to true during unit tests and changes how certain information is resolved, such as how Local Schedulers determine their name (normally from an environment variable)"`
 	RealGpusAvailable                  bool   `name:"use_real_gpus" json:"use_real_gpus" yaml:"use_real_gpus" description:"Indicates whether there are real GPUs available that should be bound to kernel containers or not."`
 	MessageAcknowledgementsEnabled     bool   `name:"acks_enabled"                     json:"acks_enabled"                      yaml:"acks_enabled"                        description:"MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements for the ZMQ messages that we're forwarding back and forth between the various cluster components."`
 	DebugMode                          bool   `name:"debug_mode"                       json:"debug_mode"                        yaml:"debug_mode"                          description:"Enable the debug HTTP server."`
@@ -30,6 +31,10 @@ type CommonOptions struct {
 	SimulateTrainingUsingSleep         bool   `name:"simulate_training_using_sleep" json:"simulate_training_using_sleep" yaml:"simulate_training_using_sleep" description:"Flag which informs system whether to use real GPUs for training or not."`
 	BindDebugPyPort                    bool   `name:"bind_debugpy_port" json:"bind_debugpy_port" yaml:"bind_debugpy_port" description:"If true, bind a port to the kernel for debugpy."`
 	SaveStoppedKernelContainers        bool   `name:"save_stopped_kernel_containers" json:"save_stopped_kernel_containers" yaml:"save_stopped_kernel_containers" description:"If true, rename stopped kernel containers to save/persist them."`
+
+	// PrettyPrintOptions, when true, instructs the Cluster Gateway's driver script to pretty-print
+	// the ClusterGatewayOptions struct when the program first begins running.
+	PrettyPrintOptions bool `name:"pretty_print_options" json:"pretty_print_options" yaml:"pretty_print_options"`
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.

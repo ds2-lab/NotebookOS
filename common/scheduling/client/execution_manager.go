@@ -86,6 +86,15 @@ type ExecutionManager struct {
 	// the State of the Execution.
 	allExecutions map[string]*Execution
 
+	// lastTrainingEndedAt is the time at which the last completed training ended/stopped.
+	lastTrainingEndedAt time.Time
+
+	// lastTrainingStartedAt is the time at which the last training that entered the 'active' state did so.
+	lastTrainingStartedAt time.Time
+
+	// lastTrainingSubmittedAt is the time at which the last training to be submitted to a kernel was submitted.
+	lastTrainingSubmittedAt time.Time
+
 	// ExecutionIndices is a map from Execution ID (i.e., the "msg_id" of the associated "execute_request" [or
 	// "yield_request"] message) to the ExecutionIndex of that Execution.
 	//
@@ -173,7 +182,7 @@ type ExecutionManager struct {
 	completedExecutionIndex int32
 }
 
-// NewExecutionManager creates a new ExecutionManager struct to be associated with the given Kernel.
+// NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
 func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCallback scheduling.ExecutionFailedCallback,
@@ -256,6 +265,7 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 	}
 
 	m.submittedExecutionIndex = executionIndex
+	m.lastTrainingSubmittedAt = time.Now()
 
 	return nil
 }
@@ -556,6 +566,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
+		m.lastTrainingEndedAt = time.Now()
 	} else {
 		m.log.Warn("Received \"execute_reply\" for execution \"%s\" with index=%d; however, latest submitted execution has index=%d.",
 			executeRequestId, activeExecution.ExecutionIndex, m.submittedExecutionIndex)
@@ -569,7 +580,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	}
 
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
-		m.log.Debug("\"execute_reply\" with index %d does not match last-known active index %d...",
+		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)
 	}
 
@@ -615,6 +626,27 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	return activeExecution, nil
 }
 
+// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
+// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
+// the time at which the active training was submitted to the kernel.
+func (m *ExecutionManager) LastTrainingSubmittedAt() time.Time {
+	return m.lastTrainingSubmittedAt
+}
+
+// LastTrainingStartedAt returns the time at which the last training to occur began. If there is an active
+// training when LastTrainingStartedAt is called, then LastTrainingStartedAt will return the time at which
+// the active training began.
+func (m *ExecutionManager) LastTrainingStartedAt() time.Time {
+	return m.lastTrainingStartedAt
+}
+
+// LastTrainingEndedAt returns the time at which the last completed training ended.
+//
+// If the kernel is currently training, then TrainingEndedAt returns the time at which the previous training ended.
+func (m *ExecutionManager) LastTrainingEndedAt() time.Time {
+	return m.lastTrainingEndedAt
+}
+
 // GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
 // or nil if no such Execution exists.
 //
@@ -644,6 +676,21 @@ func (m *ExecutionManager) TotalNumExecutionOperations() int {
 	defer m.mu.Unlock()
 
 	return len(m.allExecutions)
+}
+
+// NumCompletedTrainings returns the number of training events that have been completed successfully.
+func (m *ExecutionManager) NumCompletedTrainings() int {
+	return len(m.finishedExecutions)
+}
+
+// ReplicaRemoved is used to notify the ExecutionManager that a particular KernelReplica has been removed.
+// This allows the ExecutionManager to set the LastPrimaryReplica field to nil if the removed KernelReplica
+// is the LastPrimaryReplica.
+func (m *ExecutionManager) ReplicaRemoved(replica scheduling.KernelReplica) {
+	if m.lastPrimaryReplica == replica {
+		m.log.Debug("The previous primary replica of kernel \"%s\" has been removed.", m.Kernel.ID())
+		m.lastPrimaryReplica = nil
+	}
 }
 
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
@@ -719,12 +766,16 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		return nil
 	}
 
+	// This is the most up-to-date training event to begin training, so we'll record the timestamp in
+	// the 'lastTrainingStartedAt' field.
+	m.lastTrainingStartedAt = time.UnixMilli(leadMessage.UnixMilliseconds)
+
 	// Record that the kernel has started training.
-	if err = replica.KernelStartedTraining(); err != nil {
+	if err = replica.KernelStartedTraining(time.UnixMilli(leadMessage.UnixMilliseconds)); err != nil {
 		m.log.Error("Failed to start training for kernel replica %s-%d: %v", m.Kernel.ID(),
 			replica.ReplicaID(), err)
 
-		m.sendNotification(fmt.Sprintf("Failed to Start Training for Kernel \"%s\"",
+		m.sendNotification(fmt.Sprintf("Failed to Start Training for kernel \"%s\"",
 			m.Kernel.ID()), err.Error(), messaging.ErrorNotification, true)
 
 		return err
@@ -750,7 +801,7 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 		activeExecution.ActiveReplica.ReplicaID(), requestId, replica.ReplicaID())
 
 	m.sendNotification(
-		fmt.Sprintf("Inconsistent Primary Replicas for Completed Code Execution \"%s\" of Kernel \"%s\"",
+		fmt.Sprintf("Inconsistent Primary Replicas for Completed Code Execution \"%s\" of kernel \"%s\"",
 			requestId, m.Kernel.ID()),
 		fmt.Sprintf("Received 'execute_reply' from primary replica %d for execution \"%s\", "+
 			"but we previously recorded that replica %d was the primary replica for this execution...",

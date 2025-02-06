@@ -43,8 +43,24 @@ type ClusterDaemonOptions struct {
 	InitialClusterSize                int `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many Local Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
 	InitialClusterConnectionPeriodSec int `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all Local Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
 
+	// IdleSessionReclamationIntervalSec is the interval of real-life clock time, in seconds, that must elapse before a
+	// Session is considered idle and is eligible for reclamation of IdleSessionReclamationEnabled is set to true.
+	//
+	// If IdleSessionReclamationIntervalSec is set to 0, then idle session reclamation is disabled, regardless of the
+	// value of the IdleSessionReclamationEnabled flag.
+	IdleSessionReclamationIntervalSec int `name:"idle_session_reclamation_interval_sec" json:"idle_session_reclamation_interval_sec" yaml:"idle_session_reclamation_interval_sec"`
+
 	SubmitExecuteRequestsOneAtATime bool `name:"submit_execute_requests_one_at_a_time" json:"submit_execute_requests_one_at_a_time" yaml:"submit_execute_requests_one_at_a_time" description:"If true, the Cluster Gateway will submit 'execute_request' messages one-at-a-time to kernels."`
 	UseStatefulSet                  bool `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
+
+	// IdleSessionReclamationEnabled if a flag that, when true, instructs the system to consider sessions to be idle
+	// and eligible for "reclamation" after IdleSessionReclamationIntervalSec seconds elapse. When a session is
+	// reclaimed, its kernel replica containers are de-scheduled. They will have to be rescheduled if the client submits
+	// execute requests again in the future.
+	//
+	// If IdleSessionReclamationIntervalSec is set to 0, then idle session reclamation is disabled, regardless of the
+	// value of the IdleSessionReclamationEnabled flag.
+	IdleSessionReclamationEnabled bool `name:"idle_session_reclamation_enabled" json:"idle_session_reclamation_enabled" yaml:"idle_session_reclamation_enabled"`
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
@@ -77,10 +93,10 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 		o.PrometheusInterval = DefaultPrometheusIntervalSeconds
 	}
 
-	if o.PrometheusPort <= 0 {
-		log.Printf("[WARNING] Using default Prometheus port: %d.\n", DefaultPrometheusPort)
-		o.PrometheusPort = DefaultPrometheusPort
-	}
+	//if o.PrometheusPort <= 0 {
+	//	log.Printf("[WARNING] Using default Prometheus port: %d.\n", DefaultPrometheusPort)
+	//	o.PrometheusPort = DefaultPrometheusPort
+	//}
 
 	if len(o.RemoteStorageEndpoint) == 0 {
 		panic("remote storage endpoint is empty.")
@@ -89,7 +105,7 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 
 // IsLocalMode returns true if the deployment mode is specified as "local".
 func (o *ClusterDaemonOptions) IsLocalMode() bool {
-	return o.DeploymentMode == string(types.LocalMode)
+	return o.LocalMode
 }
 
 // IsDockerMode returns true if the deployment mode is specified as either "docker-swarm" or "docker-compose".
