@@ -126,11 +126,11 @@ type LocalScheduler struct {
 	// the kernel replica).
 	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
 
-	// kernels is a map from kernel ID to scheduling.KernelReplica. It is the primary mapping of kernels.
-	kernels hashmap.HashMap[string, scheduling.KernelReplica]
+	// kernels is a map from kernel ID to *client.KernelReplicaClient. It is the primary mapping of kernels.
+	kernels hashmap.HashMap[string, *client.KernelReplicaClient]
 
-	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed scheduling.KernelReplica.
-	prewarmKernels hashmap.HashMap[string, scheduling.KernelReplica]
+	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed *client.KernelReplicaClient.
+	prewarmKernels hashmap.HashMap[string, *client.KernelReplicaClient]
 
 	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 
@@ -341,8 +341,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		id:                             dockerNodeId,
 		nodeName:                       nodeName,
 		kernelsStopping:                hashmap.NewThreadsafeCornelkMap[string, chan struct{}](128),
-		kernels:                        hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
-		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
+		kernels:                        hashmap.NewThreadsafeCornelkMap[string, *client.KernelReplicaClient](128),
+		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, *client.KernelReplicaClient](128),
 		kernelClientCreationChannels:   hashmap.NewThreadsafeCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:               hashmap.NewThreadsafeCornelkMap[string, int](256),
 		closed:                         make(chan struct{}),
@@ -670,7 +670,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 
 	// Update the ID field of the router and of any existing kernels.
 	d.router.SetComponentId(d.id)
-	d.kernels.Range(func(_ string, replicaClient scheduling.KernelReplica) (contd bool) {
+	d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
 		replicaClient.SetComponentId(d.id)
 		return true
 	})
@@ -797,7 +797,7 @@ func (d *LocalScheduler) publishPrometheusMetrics(wg *sync.WaitGroup) {
 
 			// TODO: This is somewhat imprecise insofar if we stop training RIGHT before this goroutine runs again,
 			// then we'll not add any of that training time.
-			d.kernels.Range(func(_ string, replicaClient scheduling.KernelReplica) (contd bool) {
+			d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
 				if replicaClient.IsTraining() {
 					trainingTimeSeconds := time.Since(replicaClient.LastTrainingStartedAt()).Seconds()
 
@@ -1193,7 +1193,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
 	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
 	var (
-		kernel                      scheduling.KernelReplica
+		kernel                      *client.KernelReplicaClient
 		kernelClientCreationChannel chan *proto.KernelConnectionInfo
 		loaded                      bool
 		kernelConnectionInfo        *proto.KernelConnectionInfo
@@ -1900,7 +1900,7 @@ func (d *LocalScheduler) LocalMode() bool {
 // Initialize a kernel client for a new kernel.
 // Initialize shell/IO forwarders, validate the connection with the kernel (which includes connecting to the ZMQ sockets), etc.
 // If there's an error at any point during the initialization process, then the kernel connection/client is closed and an error is returned.
-func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel scheduling.KernelReplica) (*proto.KernelConnectionInfo, error) {
+func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel *client.KernelReplicaClient) (*proto.KernelConnectionInfo, error) {
 	shell := d.router.Socket(messaging.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		var err error
@@ -2018,54 +2018,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 // prepareKernelInvoker prepares a new invoker.KernelInvoker to invoke/create the container for a new kernel replica.
 func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invoker.KernelInvoker, error) {
-	if in == nil {
-		d.log.Error("`kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
-		return nil, status.Error(codes.InvalidArgument, "received nil KernelReplicaSpec argument")
-	}
-
-	if in.Kernel == nil {
-		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
-		d.log.Error("kernelReplicaSpec: %v", in)
-
-		return nil, status.Error(codes.InvalidArgument, "KernelSpec field within KernelReplicaSpec argument cannot be nil")
-	}
-
 	kernelId := in.Kernel.Id
-
-	if in.PrewarmContainer {
-		d.log.Debug("LocalScheduler::StartKernelReplica called for prewarm container \"%s\"", in.Kernel.Id)
-	} else {
-		d.log.Debug("LocalScheduler::StartKernelReplica(\"%s\"). Spec: %v.", kernelId, in)
-	}
-
-	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
-		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())
-		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
-	}
-
-	// We only commit resources if the container is not a pre-warmed container.
-	// We commit resources for pre-warmed containers at the time that they are used/promoted.
-	if !in.PrewarmContainer {
-		// We always create a pending resource allocation (i.e., for any scheduling policy).
-		resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-		if resourceError != nil {
-			d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-			return nil, status.Error(codes.Internal, resourceError.Error())
-		}
-
-		// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
-		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-			_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
-				in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
-
-			if resourceError != nil {
-				d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
-					in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-				return nil, status.Error(codes.Internal, resourceError.Error())
-			}
-		}
-	}
 
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
@@ -2125,6 +2078,57 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 // StartKernelReplica launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
 func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	// Validate that argument is non-nil.
+	if in == nil {
+		d.log.Error("`kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
+		return nil, status.Error(codes.InvalidArgument, "received nil KernelReplicaSpec argument")
+	}
+
+	// Validate that required field of argument is non-nil.
+	if in.Kernel == nil {
+		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
+		d.log.Error("kernelReplicaSpec: %v", in)
+
+		return nil, status.Error(codes.InvalidArgument, "KernelSpec field within KernelReplicaSpec argument cannot be nil")
+	}
+
+	if in.PrewarmContainer {
+		d.log.Debug("LocalScheduler::StartKernelReplica called for prewarm container \"%s\"", in.Kernel.Id)
+	} else {
+		d.log.Debug("LocalScheduler::StartKernelReplica(\"%s\"). Spec: %v.", in.Kernel.Id, in)
+	}
+
+	// Make sure we don't already have another replica of the same kernel running locally.
+	if otherReplica, loaded := d.kernels.Load(in.Kernel.Id); loaded {
+		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.",
+			in.Kernel.Id, otherReplica.ReplicaID())
+		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
+	}
+
+	// We only commit resources if the container is not a pre-warmed container.
+	// We commit resources for pre-warmed containers at the time that they are used/promoted.
+	if !in.PrewarmContainer {
+		// We always create a pending resource allocation (i.e., for any scheduling policy).
+		resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
+		if resourceError != nil {
+			d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
+				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+			return nil, status.Error(codes.Internal, resourceError.Error())
+		}
+
+		// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
+		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+			_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
+				in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
+
+			if resourceError != nil {
+				d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
+					in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+				return nil, status.Error(codes.Internal, resourceError.Error())
+			}
+		}
+	}
+
 	// Prepare the kernel invoker, which we'll use to create the kernel replica's container.
 	kernelInvoker, err := d.prepareKernelInvoker(in)
 	if err != nil {
@@ -3055,7 +3059,7 @@ func (d *LocalScheduler) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*p
 
 	containers := make([]*proto.ReplicaInfo, 0)
 
-	d.kernels.Range(func(s string, replicaClient scheduling.KernelReplica) (contd bool) {
+	d.kernels.Range(func(kernelId string, replicaClient *client.KernelReplicaClient) (contd bool) {
 		replicaInfo := &proto.ReplicaInfo{
 			ReplicaId:    replicaClient.ReplicaID(),
 			KernelId:     replicaClient.ID(),
@@ -3463,7 +3467,7 @@ func (d *LocalScheduler) cleanUp() {
 	}
 }
 
-func (d *LocalScheduler) clearHandler(_ string, kernel scheduling.KernelReplica) (contd bool) {
+func (d *LocalScheduler) clearHandler(_ string, kernel *client.KernelReplicaClient) (contd bool) {
 	err := d.getInvoker(kernel).Close()
 	if err != nil {
 		d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
@@ -3471,7 +3475,7 @@ func (d *LocalScheduler) clearHandler(_ string, kernel scheduling.KernelReplica)
 	return true
 }
 
-func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelReplica) (contd bool) {
+func (d *LocalScheduler) gcHandler(kernelId string, kernel *client.KernelReplicaClient) (contd bool) {
 	if d.getInvoker(kernel).Expired(cleanUpInterval) {
 		d.kernels.Delete(kernelId)
 		if kernelId == kernel.ID() {
