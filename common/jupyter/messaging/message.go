@@ -20,14 +20,16 @@ import (
 const (
 	MessageHeaderDefaultUsername = "username"
 
-	ShellExecuteRequest        = "execute_request"
-	ShellExecuteReply          = "execute_reply"
-	ShellYieldRequest          = "yield_request"
-	ShellShutdownRequest       = "shutdown_request"
-	KernelInfoRequest          = "kernel_info_request"
-	KernelInfoReply            = "kernel_info_reply"
-	MessageTypeShutdownRequest = "shutdown_request"
-	MessageTypeShutdownReply   = "shutdown_reply"
+	ShellExecuteRequest          = "execute_request"
+	ShellExecuteReply            = "execute_reply"
+	ShellYieldRequest            = "yield_request"
+	ShellShutdownRequest         = "shutdown_request"
+	ControlPromotePrewarmRequest = "promote_prewarm_request"
+	ControlPromotePrewarmReply   = "promote_prewarm_reply"
+	KernelInfoRequest            = "kernel_info_request"
+	KernelInfoReply              = "kernel_info_reply"
+	MessageTypeShutdownRequest   = "shutdown_request"
+	MessageTypeShutdownReply     = "shutdown_reply"
 
 	ErrorNotification   NotificationType = 0
 	WarningNotification NotificationType = 1
@@ -701,19 +703,24 @@ func (m *JupyterMessage) SetSignatureScheme(signatureScheme string) {
 	m.signatureSchemeSet = true
 }
 
-// EncodeMetadata attempts to marshal the given metadata map into the underlying JupyterFrames.
+// EncodeMetadata attempts to marshal the given metadata map into the metadata frame of the underlying JupyterFrames.
 // If successful, then the metadata field of the JupyterMessage, which essentially serves as a cached
 // version of the JupyterFrames' serialized metadata dictionary, will be updated (i.e., assigned to the
 // metadata parameter of this EncodeMetadata method).
-func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) (err error) {
-	err = m.JupyterFrames.EncodeMetadata(metadata)
+func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) error {
+	err := m.JupyterFrames.EncodeMetadata(metadata)
 	if err == nil {
 		m.metadata = metadata
 		m.metadataDecoded = true
 		return nil
 	}
 
-	return
+	return err
+}
+
+// EncodeContent attempts to marshal the given map into the content frame of the underlying JupyterFrames.
+func (m *JupyterMessage) EncodeContent(content map[string]interface{}) error {
+	return m.JupyterFrames.EncodeContent(content)
 }
 
 func (m *JupyterMessage) EncodeMessageHeader(header *MessageHeader) error {

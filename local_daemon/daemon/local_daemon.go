@@ -17,6 +17,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/test_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"log"
@@ -1970,18 +1971,63 @@ func (d *LocalScheduler) registerKernelWithExecReqForwarder(kernel scheduling.Ke
 	d.executeRequestForwarder.RegisterKernel(kernel, forwarder, d.kernelResponseForwarder)
 }
 
-// StartKernelReplica launches a new kernel via Docker.
-// This is ONLY used in the Docker-based deployment mode.
-func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
-	if in == nil {
-		d.log.Error("`gateway.kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
+// PromotePrewarmedContainer is similar to StartKernelReplica, except that PromotePrewarmedContainer launches the new
+// kernel using an existing, pre-warmed container that is already available on this host.
+func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	prewarmedContainerId := in.PrewarmedContainerId
+	kernelReplicaSpec := in.KernelReplicaSpec
+
+	if kernelReplicaSpec.Kernel == nil {
+		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
+		d.log.Error("kernelReplicaSpec: %v", in)
 		return nil, ErrNilArgument
 	}
 
+	prewarmedContainer, loaded := d.prewarmKernels.Load(prewarmedContainerId)
+	if !loaded {
+		d.log.Error("Unknown pre-warmed container specified: \"%s\"", prewarmedContainerId)
+
+		return nil, status.Error(codes.InvalidArgument,
+			fmt.Sprintf("unknown pre-warmed container \"%s\"", prewarmedContainerId))
+	}
+
+	jMsg := test_utils.CreateJupyterMessage(messaging.ControlPromotePrewarmRequest, prewarmedContainerId,
+		prewarmedContainer.ConnectionInfo().Key)
+
+	content := make(map[string]interface{})
+
+	err := jMsg.EncodeContent(content)
+	if err != nil {
+		d.log.Error("Failed to encode content of \"%s\" request for pre-warmed container \"%s\": %v",
+			messaging.ControlPromotePrewarmRequest, prewarmedContainerId, err)
+
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	err = prewarmedContainer.RequestWithHandler(ctx, "Forwarding", messaging.ControlMessage, jMsg, handler, done)
+	if err != nil {
+		d.log.Error("Promotion of prewarmed container \"%s\" failed: %v", prewarmedContainer, err)
+		d.log.Error("Failed to create replica %d of kernel \"%s\" using pre-warmed container \"%s\".",
+			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, prewarmedContainer)
+
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return nil, nil
+}
+
+// prepareKernelInvoker prepares a new invoker.KernelInvoker to invoke/create the container for a new kernel replica.
+func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invoker.KernelInvoker, error) {
+	if in == nil {
+		d.log.Error("`kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
+		return nil, status.Error(codes.InvalidArgument, "received nil KernelReplicaSpec argument")
+	}
+
 	if in.Kernel == nil {
-		d.log.Error("The `gateway.KernelSpec` field within the gateway.kernelReplicaSpec argument is nil in call to StartKernelReplica...")
-		d.log.Error("gateway.kernelReplicaSpec: %v", in)
-		return nil, ErrNilArgument
+		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
+		d.log.Error("kernelReplicaSpec: %v", in)
+
+		return nil, status.Error(codes.InvalidArgument, "KernelSpec field within KernelReplicaSpec argument cannot be nil")
 	}
 
 	kernelId := in.Kernel.Id
@@ -1994,7 +2040,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 
 	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
 		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())
-		return nil, ErrExistingReplicaAlreadyRunning
+		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
 	}
 
 	// We only commit resources if the container is not a pre-warmed container.
@@ -2026,7 +2072,6 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		invokerOpts := &invoker.DockerInvokerOptions{
 			RemoteStorageEndpoint:                d.remoteStorageEndpoint,
 			RemoteStorage:                        d.remoteStorage,
-			KernelDebugPort:                      int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:                    d.dockerStorageBase,
 			RunKernelsInGdb:                      d.runKernelsInGdb,
 			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
@@ -2035,19 +2080,20 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			ElectionTimeoutSeconds:               d.electionTimeoutSeconds,
 			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
-			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			BindDebugpyPort:                      d.bindDebugpyPort,
 			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 			SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
 			BindGPUs:                             d.realGpusAvailable,
 			BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
-			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 			S3Bucket:                             d.S3Bucket,
 			AwsRegion:                            d.AwsRegion,
 			RedisPassword:                        d.RedisPassword,
 			RedisPort:                            d.RedisPort,
 			RedisDatabase:                        d.RedisDatabase,
+			KernelDebugPort:                      int(in.DockerModeKernelDebugPort),
+			WorkloadId:                           in.WorkloadId,
+			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		// Note that we could pass d.prometheusManager directly in the call above.
@@ -2058,6 +2104,40 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	} else {
 		message := fmt.Sprintf("Unknown/unsupported deployment mode: \"%s\"", d.deploymentMode)
 		d.notifyClusterGatewayAndPanic("Unknown or Unsupported Deployment Mode", message, message)
+	}
+
+	// We already know for a fact that kernelInvoker cannot be nil here.
+	// We'll have either returned from this method or panicked in any of the cases in which
+	// kernelInvoker is nil before this line of code is executed.
+	// This is just to stop the IDE from complaining, as it (apparently) cannot detect the impossibility here.
+	if kernelInvoker == nil {
+		errorMessage := fmt.Errorf("invoker is nil when creating replica %d of kernel %s", in.ReplicaId, in.Kernel.Id)
+		d.notifyClusterGatewayAndPanic(errorMessage.Error(), errorMessage.Error(), errorMessage)
+
+		// This won't get executed, as the above call will panic.
+		// This line is just here so that the IDE won't complain about kernelInvoker possibly being null below.
+		return nil, status.Error(codes.Internal, errorMessage.Error())
+	}
+
+	return kernelInvoker, nil
+}
+
+// StartKernelReplica launches a new kernel via Docker.
+// This is ONLY used in the Docker-based deployment mode.
+func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	// Prepare the kernel invoker, which we'll use to create the kernel replica's container.
+	kernelInvoker, err := d.prepareKernelInvoker(in)
+	if err != nil {
+		// Print a different error message depending on the type of kernel/container we were supposed to create.
+		if in.PrewarmContainer {
+			d.log.Error("Failed to prepare Kernel Invoker for new prewarm container %s: %v",
+				in.Kernel.Id, err)
+		} else {
+			d.log.Error("Failed to prepare Kernel Invoker for new replica %d of kernel %s: %v",
+				in.ReplicaId, in.Kernel.Id, err)
+		}
+
+		return nil, err // Should already be compatible with gRPC.
 	}
 
 	// When the kernel registers, we need the kernel client that we create here.
@@ -2074,30 +2154,27 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		}
 	}
 
-	// We already know for a fact that kernelInvoker cannot be nil here.
-	// We'll have either returned from this method or panicked in any of the cases in which
-	// kernelInvoker is nil before this line of code is executed.
-	// This is just to stop the IDE from complaining, as it (apparently) cannot detect the impossibility here.
-	if kernelInvoker == nil {
-		errorMessage := fmt.Errorf("invoker is nil when creating replica %d of kernel %s", in.ReplicaId, in.Kernel.Id)
-		d.notifyClusterGatewayAndPanic(errorMessage.Error(), errorMessage.Error(), errorMessage)
-
-		// This won't get executed, as the above call will panic.
-		// This line is just here so that the IDE won't complain about kernelInvoker possibly being null below.
-		return nil, errorMessage
-	}
-
-	connInfo, resourceError := kernelInvoker.InvokeWithContext(ctx, in)
-	if resourceError != nil {
+	// Invoke the kernel -- create the container.
+	connInfo, err := kernelInvoker.InvokeWithContext(ctx, in)
+	if err != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            fmt.Sprintf("Failed to Create Container for kernel %s-%d", in.Kernel.Id, in.ReplicaId),
-			Message:          resourceError.Error(),
+			Message:          err.Error(),
 			NotificationType: 0,
 			Panicked:         false,
 		})
-		return nil, status.Errorf(codes.Internal, resourceError.Error())
+		return nil, status.Errorf(codes.Internal, err.Error())
 	}
+
+	// Finish creating the kernel client.
+	return d.createNewKernelClient(in, kernelInvoker, connInfo, kernelClientCreationChannel)
+}
+
+// createNewKernelClient creates a new *client.KernelReplicaClient for a new scheduling.KernelReplica that we're in the
+// process of creating.
+func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kernelInvoker invoker.KernelInvoker,
+	connInfo *jupyter.ConnectionInfo, kernelClientCreationChannel chan *proto.KernelConnectionInfo) (*proto.KernelConnectionInfo, error) {
 
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
@@ -2115,10 +2192,10 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		d.kernels.Store(kernel.ID(), kernel)
 	}
 
-	info, resourceError := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
-	if resourceError != nil {
+	info, err := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
+	if err != nil {
 		d.log.Error("Failed to initialize replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
-		return nil, resourceError
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	d.registerKernelWithExecReqForwarder(kernel)

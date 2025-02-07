@@ -1781,26 +1781,27 @@ var KernelErrorReporter_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	LocalGateway_SetID_FullMethodName                    = "/gateway.LocalGateway/SetID"
-	LocalGateway_StartKernel_FullMethodName              = "/gateway.LocalGateway/StartKernel"
-	LocalGateway_StartKernelReplica_FullMethodName       = "/gateway.LocalGateway/StartKernelReplica"
-	LocalGateway_GetKernelStatus_FullMethodName          = "/gateway.LocalGateway/GetKernelStatus"
-	LocalGateway_KillKernel_FullMethodName               = "/gateway.LocalGateway/KillKernel"
-	LocalGateway_StopKernel_FullMethodName               = "/gateway.LocalGateway/StopKernel"
-	LocalGateway_PingKernel_FullMethodName               = "/gateway.LocalGateway/PingKernel"
-	LocalGateway_WaitKernel_FullMethodName               = "/gateway.LocalGateway/WaitKernel"
-	LocalGateway_SetClose_FullMethodName                 = "/gateway.LocalGateway/SetClose"
-	LocalGateway_AddReplica_FullMethodName               = "/gateway.LocalGateway/AddReplica"
-	LocalGateway_UpdateReplicaAddr_FullMethodName        = "/gateway.LocalGateway/UpdateReplicaAddr"
-	LocalGateway_PrepareToMigrate_FullMethodName         = "/gateway.LocalGateway/PrepareToMigrate"
-	LocalGateway_ResourcesSnapshot_FullMethodName        = "/gateway.LocalGateway/ResourcesSnapshot"
-	LocalGateway_GetLocalDaemonInfo_FullMethodName       = "/gateway.LocalGateway/GetLocalDaemonInfo"
-	LocalGateway_GetActualGpuInfo_FullMethodName         = "/gateway.LocalGateway/GetActualGpuInfo"
-	LocalGateway_GetVirtualGpuInfo_FullMethodName        = "/gateway.LocalGateway/GetVirtualGpuInfo"
-	LocalGateway_SetTotalVirtualGPUs_FullMethodName      = "/gateway.LocalGateway/SetTotalVirtualGPUs"
-	LocalGateway_GetVirtualGpuAllocations_FullMethodName = "/gateway.LocalGateway/GetVirtualGpuAllocations"
-	LocalGateway_YieldNextExecution_FullMethodName       = "/gateway.LocalGateway/YieldNextExecution"
-	LocalGateway_ReconnectToGateway_FullMethodName       = "/gateway.LocalGateway/ReconnectToGateway"
+	LocalGateway_SetID_FullMethodName                     = "/gateway.LocalGateway/SetID"
+	LocalGateway_StartKernel_FullMethodName               = "/gateway.LocalGateway/StartKernel"
+	LocalGateway_StartKernelReplica_FullMethodName        = "/gateway.LocalGateway/StartKernelReplica"
+	LocalGateway_PromotePrewarmedContainer_FullMethodName = "/gateway.LocalGateway/PromotePrewarmedContainer"
+	LocalGateway_GetKernelStatus_FullMethodName           = "/gateway.LocalGateway/GetKernelStatus"
+	LocalGateway_KillKernel_FullMethodName                = "/gateway.LocalGateway/KillKernel"
+	LocalGateway_StopKernel_FullMethodName                = "/gateway.LocalGateway/StopKernel"
+	LocalGateway_PingKernel_FullMethodName                = "/gateway.LocalGateway/PingKernel"
+	LocalGateway_WaitKernel_FullMethodName                = "/gateway.LocalGateway/WaitKernel"
+	LocalGateway_SetClose_FullMethodName                  = "/gateway.LocalGateway/SetClose"
+	LocalGateway_AddReplica_FullMethodName                = "/gateway.LocalGateway/AddReplica"
+	LocalGateway_UpdateReplicaAddr_FullMethodName         = "/gateway.LocalGateway/UpdateReplicaAddr"
+	LocalGateway_PrepareToMigrate_FullMethodName          = "/gateway.LocalGateway/PrepareToMigrate"
+	LocalGateway_ResourcesSnapshot_FullMethodName         = "/gateway.LocalGateway/ResourcesSnapshot"
+	LocalGateway_GetLocalDaemonInfo_FullMethodName        = "/gateway.LocalGateway/GetLocalDaemonInfo"
+	LocalGateway_GetActualGpuInfo_FullMethodName          = "/gateway.LocalGateway/GetActualGpuInfo"
+	LocalGateway_GetVirtualGpuInfo_FullMethodName         = "/gateway.LocalGateway/GetVirtualGpuInfo"
+	LocalGateway_SetTotalVirtualGPUs_FullMethodName       = "/gateway.LocalGateway/SetTotalVirtualGPUs"
+	LocalGateway_GetVirtualGpuAllocations_FullMethodName  = "/gateway.LocalGateway/GetVirtualGpuAllocations"
+	LocalGateway_YieldNextExecution_FullMethodName        = "/gateway.LocalGateway/YieldNextExecution"
+	LocalGateway_ReconnectToGateway_FullMethodName        = "/gateway.LocalGateway/ReconnectToGateway"
 )
 
 // LocalGatewayClient is the client API for LocalGateway service.
@@ -1816,6 +1817,9 @@ type LocalGatewayClient interface {
 	StartKernel(ctx context.Context, in *KernelSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
 	// StartKernelReplica starts a kernel replica on the local host.
 	StartKernelReplica(ctx context.Context, in *KernelReplicaSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
+	// PromotePrewarmedContainer is similar to StartKernelReplica, except that PromotePrewarmedContainer launches the new
+	// kernel using an existing, pre-warmed container that is already available on this host.
+	PromotePrewarmedContainer(ctx context.Context, in *PrewarmedKernelReplicaSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
 	// GetKernelStatus returns the status of a kernel.
 	GetKernelStatus(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*KernelStatus, error)
 	// KillKernel kills a kernel.
@@ -1897,6 +1901,16 @@ func (c *localGatewayClient) StartKernelReplica(ctx context.Context, in *KernelR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(KernelConnectionInfo)
 	err := c.cc.Invoke(ctx, LocalGateway_StartKernelReplica_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localGatewayClient) PromotePrewarmedContainer(ctx context.Context, in *PrewarmedKernelReplicaSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(KernelConnectionInfo)
+	err := c.cc.Invoke(ctx, LocalGateway_PromotePrewarmedContainer_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2086,6 +2100,9 @@ type LocalGatewayServer interface {
 	StartKernel(context.Context, *KernelSpec) (*KernelConnectionInfo, error)
 	// StartKernelReplica starts a kernel replica on the local host.
 	StartKernelReplica(context.Context, *KernelReplicaSpec) (*KernelConnectionInfo, error)
+	// PromotePrewarmedContainer is similar to StartKernelReplica, except that PromotePrewarmedContainer launches the new
+	// kernel using an existing, pre-warmed container that is already available on this host.
+	PromotePrewarmedContainer(context.Context, *PrewarmedKernelReplicaSpec) (*KernelConnectionInfo, error)
 	// GetKernelStatus returns the status of a kernel.
 	GetKernelStatus(context.Context, *KernelId) (*KernelStatus, error)
 	// KillKernel kills a kernel.
@@ -2151,6 +2168,9 @@ func (UnimplementedLocalGatewayServer) StartKernel(context.Context, *KernelSpec)
 }
 func (UnimplementedLocalGatewayServer) StartKernelReplica(context.Context, *KernelReplicaSpec) (*KernelConnectionInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartKernelReplica not implemented")
+}
+func (UnimplementedLocalGatewayServer) PromotePrewarmedContainer(context.Context, *PrewarmedKernelReplicaSpec) (*KernelConnectionInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PromotePrewarmedContainer not implemented")
 }
 func (UnimplementedLocalGatewayServer) GetKernelStatus(context.Context, *KernelId) (*KernelStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetKernelStatus not implemented")
@@ -2274,6 +2294,24 @@ func _LocalGateway_StartKernelReplica_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LocalGatewayServer).StartKernelReplica(ctx, req.(*KernelReplicaSpec))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalGateway_PromotePrewarmedContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrewarmedKernelReplicaSpec)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).PromotePrewarmedContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_PromotePrewarmedContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).PromotePrewarmedContainer(ctx, req.(*PrewarmedKernelReplicaSpec))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2602,6 +2640,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StartKernelReplica",
 			Handler:    _LocalGateway_StartKernelReplica_Handler,
+		},
+		{
+			MethodName: "PromotePrewarmedContainer",
+			Handler:    _LocalGateway_PromotePrewarmedContainer_Handler,
 		},
 		{
 			MethodName: "GetKernelStatus",
