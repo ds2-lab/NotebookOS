@@ -423,6 +423,7 @@ class DistributedKernel(IPythonKernel):
             "prepare_to_migrate_request",
             "stop_running_training_code_request",
             "ping_kernel_ctrl_request",
+            "promote_prewarm_request",
         ]
 
         self.msg_types = [
@@ -467,6 +468,14 @@ class DistributedKernel(IPythonKernel):
 
         if "is_prewarmed_container" in kwargs:
             self.is_prewarmed_container = kwargs["is_prewarmed_container"]
+
+        # If we are now, then we were "before" (technically before doesn't exist because this is the c'tor, but still).
+        self.was_prewarmed_container = self.is_prewarmed_container
+
+        if self.is_prewarmed_container:
+            self.prewarm_container_id: Optional[str] = self.kernel_id
+        else:
+            self.prewarm_container_id: Optional[str] = None
 
         # Keep track of how many times we generate the 'download' code when generating custom DL training code.
         self._get_download_code_called: int = 0
@@ -906,18 +915,18 @@ class DistributedKernel(IPythonKernel):
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
 
-        connection_info: dict[str, Any] = {}
+        self.connection_info: dict[str, Any] = {}
         try:
             if len(connection_file_path) > 0:
                 with open(connection_file_path, "r") as connection_file:
-                    connection_info = json.load(connection_file)
+                    self.connection_info = json.load(connection_file)
         except Exception as ex:
             self.log.error(
                 'Failed to obtain connection info from file "%s" because: %s'
                 % (connection_file_path, str(ex))
             )
 
-        self.log.info("Connection info: %s" % str(connection_info))
+        self.log.info("Connection info: %s" % str(self.connection_info))
 
         # Allow setting env variable to prevent registration altogether.
         skip_registration_override: bool = (
@@ -926,7 +935,7 @@ class DistributedKernel(IPythonKernel):
 
         if self.should_register_with_local_daemon and not skip_registration_override:
             registration_start: float = time.time()
-            self.register_with_local_daemon(connection_info, session_id)
+            self.register_with_local_daemon(self.connection_info, session_id)
             registration_duration: float = (time.time() - registration_start) * 1.0e3
 
             if self.prometheus_enabled:
@@ -1089,7 +1098,7 @@ class DistributedKernel(IPythonKernel):
             f"{time.time() - start_time} seconds. Response payload: {str(response)}"
         )
 
-        # If we're a pre-warm container, then we ignore everything from the initial registration payload. 
+        # If we're a pre-warm container, then we ignore everything from the initial registration payload.
         if self.is_prewarmed_container:
             return
 
@@ -2275,6 +2284,56 @@ class DistributedKernel(IPythonKernel):
 
         if self.prometheus_enabled:
             self.execute_request_latency.observe(duration_ms)
+
+    async def promote_prewarm_request(self, stream, ident, parent):
+        """
+        Handle requests to promote ourselves to a standard container.
+
+        :param stream:
+        :param ident:
+        :param parent:
+        :return:
+        """
+        content = parent.get("content", {})
+        self.log.debug(f"Received PROMOTION request\n{json.dumps(content, indent=2)}")
+
+        if not self.is_prewarmed_container:
+            self.log.error(f"We are NOT a pre-warm container...")
+            self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container", "")
+            return
+
+        for key, value in content.items():
+            if hasattr(self, key):
+                self.log.debug(f"Assigning field '{key}' to value of type "
+                               f"'{type(value).__name__}': '{value}'.")
+                setattr(self, key, value)
+            else:
+                self.log.warning(f"Payload has unmatched field '{key}' with "
+                                 f"value of type '{type(value).__name__}': '{value}'.")
+
+        registration_start: float = time.time()
+        self.register_with_local_daemon(self.connection_info, self.kernel_id)
+        registration_duration: float = (time.time() - registration_start) * 1.0e3
+
+        self.is_prewarmed_container = False
+
+        if self.prometheus_enabled:
+            self.registration_time_milliseconds.observe(registration_duration)
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "promote_prewarm_reply",
+            {"timestamp": time.time()},
+            parent,
+            metadata={},
+            buffers=buffers,
+            ident=ident,
+        )
+
+        self.log.debug(f'Sent "promote_prewarm_reply" message: {reply_msg}')
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """Respond to a 'ping kernel' Control request."""
