@@ -12650,3 +12650,15 @@ func (mr *MockContainerPrewarmerMockRecorder) ReturnUnusedPrewarmContainer(conta
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnUnusedPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnUnusedPrewarmContainer), container)
 }
+
+// Run mocks base method.
+func (m *MockContainerPrewarmer) Run() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Run")
+}
+
+// Run indicates an expected call of Run.
+func (mr *MockContainerPrewarmerMockRecorder) Run() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockContainerPrewarmer)(nil).Run))
+}

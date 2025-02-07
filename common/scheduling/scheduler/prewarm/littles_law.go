@@ -61,3 +61,9 @@ func NewLittlesLawPrewarmer(cluster scheduling.Cluster, configuration *LittlesLa
 func (p *LittlesLawPrewarmer) Run() {
 	// TODO: Implement me.
 }
+
+// ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
+// ContainerPrewarmer's policy.
+func (p *LittlesLawPrewarmer) ValidateHostCapacity(host scheduling.Host) {
+	// TODO: Implement me.
+}

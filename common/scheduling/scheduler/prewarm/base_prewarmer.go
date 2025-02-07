@@ -205,6 +205,8 @@ type BaseContainerPrewarmer struct {
 	// Config encapsulates the configuration of the BaseContainerPrewarmer.
 	Config *PrewarmerConfig
 
+	stopChan chan struct{}
+
 	mu  sync.Mutex
 	log logger.Logger
 }
@@ -215,6 +217,7 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerC
 		AllPrewarmContainers:     make(map[string]scheduling.PrewarmedContainer),
 		PrewarmContainersPerHost: make(map[string]*queue.ThreadsafeFifo[scheduling.PrewarmedContainer]),
 		ProvisioningPerHost:      make(map[string]*atomic.Int32),
+		stopChan:                 make(chan struct{}, 1),
 		Cluster:                  cluster,
 		Scheduler:                cluster.Scheduler(),
 		Config:                   configuration,
@@ -234,6 +237,11 @@ func (p *BaseContainerPrewarmer) Run() {
 	}
 
 	p.instance.Run()
+}
+
+// Stop instructs the ContainerPrewarmer to stop.
+func (p *BaseContainerPrewarmer) Stop() {
+	p.stopChan <- struct{}{}
 }
 
 // RequestPrewarmedContainer is used to request a pre-warm container on a particular host.
@@ -298,35 +306,6 @@ func (p *BaseContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduli
 	}
 
 	return p.unsafeRegisterPrewarmedContainer(container)
-}
-
-// onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
-func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
-	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
-		container.ID(), container.HostName(), container.HostId())
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	container.SetUnavailable()
-
-	containers, ok := p.PrewarmContainersPerHost[container.HostId()]
-	if !ok {
-		panic(fmt.Sprintf("No queue found for host of prewarm container %s, host %s (ID=%s)",
-			container.ID(), container.HostName(), container.HostId()))
-	}
-
-	if containers.Len() > p.Config.MinPrewarmedContainersPerHost {
-		return
-	}
-
-	numToProvision := p.Config.MinPrewarmedContainersPerHost - containers.Len()
-	p.log.Debug("Host %s (ID=%s) is now under capacity (%d). Provisioning %d pre-warm container(s) on host.",
-		containers.Len(), container.HostName(), container.HostId(), numToProvision)
-
-	go p.ProvisionContainers(container.Host(), numToProvision)
-
-	return
 }
 
 // ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
@@ -461,6 +440,28 @@ func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
 // conclusion of the 'initial connection period'.
 func (p *BaseContainerPrewarmer) InitialPrewarmedContainersPerHost() int {
 	return p.Config.InitialPrewarmedContainersPerHost
+}
+
+// onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
+func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
+	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
+		container.ID(), container.HostName(), container.HostId())
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	container.SetUnavailable()
+	delete(p.AllPrewarmContainers, container.ID())
+
+	return
+}
+
+// ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
+// ContainerPrewarmer's policy.
+func (p *BaseContainerPrewarmer) ValidateHostCapacity(host scheduling.Host) {
+	if p.instance != nil {
+		p.instance.ValidateHostCapacity(host)
+	}
 }
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.

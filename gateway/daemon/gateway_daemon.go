@@ -5067,16 +5067,8 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
-	if msg.JupyterMessageType() == messaging.ShellExecuteReply && d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
-		d.log.Debug("kernel \"%s\" has finished training. Removing container.", from.ID())
-
-		kernel, loaded := d.kernels.Load(from.ID())
-
-		if loaded {
-			_ = d.removeAllReplicasOfKernel(kernel, true, false)
-		} else {
-			d.log.Error("Could not find Distributed kernel Client for kernel \"%s\"...", from.ID())
-		}
+	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
+		d.cleanUpBeforeForwardingExecuteReply(from)
 	}
 
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
@@ -5087,6 +5079,38 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	}
 
 	return sendError
+}
+
+// cleanUpBeforeForwardingExecuteReply is called when forwarding an "execute_reply" message back to the client.
+//
+// cleanUpBeforeForwardingExecuteReply performs any necessary "clean up" steps. The steps that are required ultimately
+// depend upon the configured scheduling.Policy.
+//
+// For example, scheduling.Policy instances in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent
+// will either terminate the scheduling.KernelContainer instance(s) or return them to the warm container pool.
+func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info) {
+	// If the scheduling policy isn't a single-training-event policy, then we can just return immediately.
+	if d.Scheduler().Policy().ContainerLifetime() != scheduling.SingleTrainingEvent {
+		return
+	}
+
+	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
+
+	// For the "middle ground" policy, we return the kernel's container to the warm container pool.
+	if d.Scheduler().Policy().ReuseWarmContainers() {
+		d.log.Debug("Reusing warm kernel container.")
+
+		// TODO: Implement me.
+		panic("Not implemented.")
+	}
+
+	kernel, loaded := d.kernels.Load(from.ID())
+	if loaded {
+		_ = d.removeAllReplicasOfKernel(kernel, true, false)
+		return
+	}
+
+	d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
 }
 
 // kernelReplicaResponseForwarder is used as the response handler for a variety of requests/forwarded messages.

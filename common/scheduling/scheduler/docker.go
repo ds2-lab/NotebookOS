@@ -268,11 +268,53 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, kernelId)
 	}
 
-	s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaSpec.ReplicaId, kernelId, targetHost)
+	container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
+	if container != nil {
+		return s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
+	}
+
+	s.log.Debug("No pre-warmed containers available on host %s: %v.", targetHost.GetNodeName(), unavailErr)
+	return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
+}
+
+// scheduleKernelReplicaPrewarm creates a new scheduling.KernelReplica using an existing, pre-warmed scheduling.PrewarmedContainer
+// that is available on the specified scheduling.Host.
+func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.KernelReplicaSpec,
+	container scheduling.PrewarmedContainer, targetHost scheduling.Host) error {
+
+	// Validate argument.
+	if replicaSpec == nil {
+		panic("Invalid arguments to scheduling kernel replica prewarm (replicaSpec is nil).")
+	}
+
+	// Validate argument.
+	if container == nil {
+		panic("Invalid arguments to scheduling kernel replica prewarm (container is nil).")
+	}
+
+	// Validate argument.
+	if targetHost == nil {
+		panic("Invalid arguments to scheduling kernel replica prewarm (targetHost is nil).")
+	}
+
+	// Validate that the target host matches the pre-warmed container's host.
+	if container.Host() != targetHost {
+		panic("Invalid arguments to scheduling kernel replica prewarm (container.Host() != targetHost).")
+	}
+
+	return nil
+}
+
+// scheduleKernelReplicaOnDemand uses the scheduling.Placer to create a new scheduling.KernelContainer on the specified
+// scheduling.Host for the specified scheduling.KernelReplica.
+func (s *DockerScheduler) scheduleKernelReplicaOnDemand(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host) error {
+	s.log.Debug("Launching replica %d of kernel %s in on-demand container on targetHost %s (ID=%s) now.",
+		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID())
 
 	replicaConnInfo, err := s.placer.Place(targetHost, replicaSpec)
 	if err != nil {
-		s.log.Warn("Failed to start kernel replica(%s:%d): %v", kernelId, replicaSpec.ReplicaId, err)
+		s.log.Warn("Failed to start kernel replica(%s:%d): %v",
+			replicaSpec.Kernel.Id, replicaSpec.ReplicaId, err)
 		return err
 	}
 

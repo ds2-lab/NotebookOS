@@ -56,6 +56,13 @@ type ContainerPrewarmer interface {
 	// given scheduling.Host at any given time. If there are MaxPrewarmedContainersPerHost pre-warmed containers
 	// available on a given scheduling.Host, then more will not be provisioned.
 	MaxPrewarmedContainersPerHost() int
+
+	// ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
+	// ContainerPrewarmer's policy.
+	ValidateHostCapacity(host Host)
+
+	// Stop instructs the ContainerPrewarmer to stop.
+	Stop()
 }
 
 // PrewarmedContainer encapsulates information about a pre-warmed container that exists on a particular Host.
