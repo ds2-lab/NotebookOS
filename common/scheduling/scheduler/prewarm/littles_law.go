@@ -67,3 +67,10 @@ func (p *LittlesLawPrewarmer) Run() {
 func (p *LittlesLawPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	// TODO: Implement me.
 }
+
+// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
+// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+// below this quantity, then a new pre-warmed container will be provisioned.
+func (p *LittlesLawPrewarmer) MinPrewarmedContainersPerHost() int {
+	return 0
+}

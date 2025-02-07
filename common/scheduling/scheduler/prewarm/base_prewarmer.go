@@ -172,11 +172,6 @@ type PrewarmerConfig struct {
 	// If MaxPrewarmedContainersPerHost is negative, then there will be no limit/cap on the number of pre-warmed
 	// containers that can be created on any given scheduling.Host.
 	MaxPrewarmedContainersPerHost int
-
-	// MinPrewarmedContainersPerHost is the minimum number of pre-warmed containers that should be available on any
-	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
-	// below this quantity, then a new pre-warmed container will be provisioned.
-	MinPrewarmedContainersPerHost int
 }
 
 // BaseContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
@@ -429,13 +424,6 @@ func (p *BaseContainerPrewarmer) MaxPrewarmedContainersPerHost() int {
 	return p.Config.MaxPrewarmedContainersPerHost
 }
 
-// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
-// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
-// below this quantity, then a new pre-warmed container will be provisioned.
-func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
-	return p.Config.MinPrewarmedContainersPerHost
-}
-
 // InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
 // conclusion of the 'initial connection period'.
 func (p *BaseContainerPrewarmer) InitialPrewarmedContainersPerHost() int {
@@ -462,6 +450,17 @@ func (p *BaseContainerPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	if p.instance != nil {
 		p.instance.ValidateHostCapacity(host)
 	}
+}
+
+// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
+// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+// below this quantity, then a new pre-warmed container will be provisioned.
+func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
+	if p.instance != nil {
+		return p.instance.MinPrewarmedContainersPerHost()
+	}
+
+	return 0
 }
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.

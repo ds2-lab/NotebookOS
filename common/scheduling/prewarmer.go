@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+const (
+	PreWarmerInterval                    = time.Second * 5
+	MaintainMinCapacity PrewarmingPolicy = "maintain_minimum_capacity"
+	LittleLawCapacity   PrewarmingPolicy = "little_law_capacity"
+)
+
+type PrewarmingPolicy string
+
+func (p PrewarmingPolicy) String() string {
+	return string(p)
+}
+
 // PrewarmedContainerUsedCallback is a callback function to be called by the scheduling.Scheduler if it commits
 // to using a prewarmed container.
 type PrewarmedContainerUsedCallback func(container PrewarmedContainer)

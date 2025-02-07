@@ -6,18 +6,30 @@ import (
 	"time"
 )
 
+type MinCapacityPrewarmerConfig struct {
+	*PrewarmerConfig
+
+	// MinPrewarmedContainersPerHost is the minimum number of pre-warmed containers that should be available on any
+	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+	// below this quantity, then a new pre-warmed container will be provisioned.
+	MinPrewarmedContainersPerHost int
+}
+
 // MinCapacityPrewarmer attempts to maintain the minimum number of prewarmed containers on each scheduling.Host
 // in the scheduling.Cluster.
 type MinCapacityPrewarmer struct {
 	*BaseContainerPrewarmer
+
+	Config *MinCapacityPrewarmerConfig
 }
 
 // NewMinCapacityPrewarmer creates a new MinCapacityPrewarmer struct and returns a pointer to it.
-func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *LittlesLawPrewarmerConfig) *MinCapacityPrewarmer {
+func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapacityPrewarmerConfig) *MinCapacityPrewarmer {
 	base := NewContainerPrewarmer(cluster, configuration.PrewarmerConfig)
 
 	warmer := &MinCapacityPrewarmer{
 		BaseContainerPrewarmer: base,
+		Config:                 configuration,
 	}
 
 	base.instance = warmer
@@ -54,7 +66,7 @@ func (p *MinCapacityPrewarmer) Run() {
 			p.ValidateHostCapacity(host)
 		}
 
-		time.Sleep(time.Second * 5)
+		time.Sleep(scheduling.PreWarmerInterval)
 	}
 }
 
@@ -79,4 +91,11 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 		host.GetNodeName(), host.GetID(), containers.Len(), p.Config.MinPrewarmedContainersPerHost, numToProvision)
 
 	go p.ProvisionContainers(host, numToProvision)
+}
+
+// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
+// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+// below this quantity, then a new pre-warmed container will be provisioned.
+func (p *MinCapacityPrewarmer) MinPrewarmedContainersPerHost() int {
+	return p.Config.MinPrewarmedContainersPerHost
 }

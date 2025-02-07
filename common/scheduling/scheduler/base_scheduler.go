@@ -166,12 +166,48 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 
 	prewarmerConfig := &prewarm.PrewarmerConfig{
 		InitialPrewarmedContainersPerHost: b.initialNumContainersPerHost,
-		MaxPrewarmedContainersPerHost:     0,
-		MinPrewarmedContainersPerHost:     0,
+		MaxPrewarmedContainersPerHost:     b.options.MaxPrewarmContainersPerHost,
 	}
 
-	prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
-	clusterScheduler.prewarmer = prewarmer
+	if b.options.PrewarmingEnabled {
+		switch b.options.PrewarmingPolicy {
+		case scheduling.MaintainMinCapacity.String():
+			{
+				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
+
+				minCapacityPrewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
+					PrewarmerConfig:               prewarmerConfig,
+					MinPrewarmedContainersPerHost: b.options.MinPrewarmContainersPerHost,
+				}
+
+				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig)
+				clusterScheduler.prewarmer = prewarmer
+			}
+		case scheduling.LittleLawCapacity.String():
+			{
+				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
+
+				littlesLawConfig := &prewarm.LittlesLawPrewarmerConfig{
+					PrewarmerConfig: prewarmerConfig,
+					W:               0,
+					Lambda:          0,
+				}
+
+				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig)
+				clusterScheduler.prewarmer = prewarmer
+			}
+		case "":
+			{
+				clusterScheduler.log.Warn("No pre-warming policy specified. Using default (i.e., none).")
+				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
+				clusterScheduler.prewarmer = prewarmer
+			}
+		default:
+			{
+				panic(fmt.Sprintf("Unknown or unsupported prewarming policy: \"%s\"", b.options.PrewarmingPolicy))
+			}
+		}
+	}
 
 	if b.options.GpuPollIntervalSeconds <= 0 {
 		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
