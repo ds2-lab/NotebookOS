@@ -12,7 +12,7 @@ const (
 	ContainerStateIdle      ContainerState = "SESSION_IDLE"      // Indicates that the Container is actively running on a Host and is NOT actively performing a task.
 	ContainerStateMigrating ContainerState = "SESSION_MIGRATING" // Indicates that the Container is currently migrating to a new Host.
 
-	PrewarmContainer  ContainerType = "Prewarm"
+	PrewarmContainer  ContainerType = "Prewarmed"
 	StandardContainer ContainerType = "Standard"
 	UnknownContainer  ContainerType = "Unknown"
 )

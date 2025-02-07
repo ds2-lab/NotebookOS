@@ -269,27 +269,30 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, kernelId)
 	}
 
-	container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
-	if container != nil {
-		s.log.Debug("Found pre-warmed container on host %s. Using for replica %d of kernel %s.",
-			targetHost.GetID(), replicaSpec.ReplicaId, kernelId)
+	if s.prewarmer != nil {
+		container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
+		if container != nil {
+			s.log.Debug("Found pre-warmed container on host %s. Using for replica %d of kernel %s.",
+				targetHost.GetID(), replicaSpec.ReplicaId, kernelId)
 
-		err = s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
+			err = s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
 
-		if err == nil {
-			return nil
+			if err == nil {
+				return nil
+			}
+
+			if errors.Is(err, prewarm.ErrPrewarmedContainerAlreadyUsed) {
+				s.log.Error("Will use on-demand container for replica %d of kernel \"%s\" since pre-warmed container was already used...",
+					replicaSpec.ReplicaId, kernelId)
+				return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
+			}
+
+			return err
 		}
 
-		if errors.Is(err, prewarm.ErrPrewarmedContainerAlreadyUsed) {
-			s.log.Error("Will use on-demand container for replica %d of kernel \"%s\" since pre-warmed container was already used...",
-				replicaSpec.ReplicaId, kernelId)
-			return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
-		}
-
-		return err
+		s.log.Debug("No pre-warmed containers available on host %s: %v.", targetHost.GetNodeName(), unavailErr)
 	}
 
-	s.log.Debug("No pre-warmed containers available on host %s: %v.", targetHost.GetNodeName(), unavailErr)
 	return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
 }
 

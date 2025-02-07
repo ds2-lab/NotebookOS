@@ -2304,7 +2304,12 @@ class DistributedKernel(IPythonKernel):
             self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container", "")
             return
 
-        for key, value in content.items():
+        self.log.debug(f'Replacing old prewarm ID "{self.kernel_id}" with new kernel ID "{content["kernel_id"]}"')
+
+        self.kernel_id: str = content["kernel_id"]
+        distributed_kernel_config: Dict[str, Any] = content["distributed_kernel_config"]
+
+        for key, value in distributed_kernel_config.items():
             if hasattr(self, key):
                 self.log.debug(f"Assigning field '{key}' to value of type "
                                f"'{type(value).__name__}': '{value}'.")
@@ -2313,11 +2318,11 @@ class DistributedKernel(IPythonKernel):
                 self.log.warning(f"Payload has unmatched field '{key}' with "
                                  f"value of type '{type(value).__name__}': '{value}'.")
 
+        self.prewarm_container = False
+
         registration_start: float = time.time()
         self.register_with_local_daemon(self.connection_info, self.kernel_id)
         registration_duration: float = (time.time() - registration_start) * 1.0e3
-
-        self.prewarm_container = False
 
         if self.prometheus_enabled:
             self.registration_time_milliseconds.observe(registration_duration)

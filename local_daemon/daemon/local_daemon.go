@@ -1275,7 +1275,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
 	if registrationPayload.PrewarmContainer {
 		d.writeResponseToRegisteringKernelReplica(map[string]interface{}{
-			"status": "ok",
+			"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
 		}, kernelRegistrationClient, containerType)
 		return
 	}
@@ -2004,6 +2004,9 @@ func (d *LocalScheduler) registerKernelWithExecReqForwarder(kernel scheduling.Ke
 func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	prewarmedContainerId := in.PrewarmedContainerId
 	kernelReplicaSpec := in.KernelReplicaSpec
+
+	d.log.Debug("PromotePrewarmedContainer[ID=%s, For=Replica %d of Kernel %s]",
+		prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 	if kernelReplicaSpec.Kernel == nil {
 		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")

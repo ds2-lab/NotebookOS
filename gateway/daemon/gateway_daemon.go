@@ -2873,7 +2873,6 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	waitGroup.Register(replicaId)
 	d.log.Debug("SetDone registering kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
-	d.log.Debug("primarSemaphore for kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
 	waitGroup.WaitRegistered()
 
