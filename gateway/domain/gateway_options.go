@@ -40,7 +40,6 @@ type ClusterDaemonOptions struct {
 	GlobalDaemonServicePort         int `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
 	DistributedClusterServicePort   int `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
 	RemoteDockerEventAggregatorPort int `name:"remote-docker-event-aggregator-port" json:"remote-docker-event-aggregator-port" yaml:"remote-docker-event-aggregator-port" description:"The port to be used by the Docker Remote Event Aggregator when running in Docker Swarm mode."`
-	InitialClusterSize              int `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many Local Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
 
 	// IdleSessionReclamationIntervalSec is the interval of real-life clock time, in seconds, that must elapse before a
 	// Session is considered idle and is eligible for reclamation of IdleSessionReclamationEnabled is set to true.

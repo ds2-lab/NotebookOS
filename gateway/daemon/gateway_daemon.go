@@ -382,22 +382,6 @@ type ClusterGatewayImpl struct {
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
 
-	// The initial size of the cluster.
-	// If more than this many Local Daemons connect during the 'initial connection period',
-	// then the extra nodes will be disabled until a scale-out event occurs.
-	//
-	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
-	//
-	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
-	initialClusterSize int
-
-	// The initial connection period is the time immediately after the Cluster Gateway begins running during
-	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
-	// where N is the initial cluster size, then those extra daemons will be disabled.
-	//
-	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
-	initialConnectionPeriod time.Duration
-
 	// IdleSessionReclamationInterval is the interval of real-life clock time that must elapse before a Session
 	// is considered idle and is eligible for reclamation of IdleSessionReclamationEnabled is set to true.
 	//
@@ -405,10 +389,7 @@ type ClusterGatewayImpl struct {
 	// value of the IdleSessionReclamationEnabled flag.
 	IdleSessionReclamationInterval time.Duration
 
-	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
-	// during the initial connection period.
-	numHostsDisabledDuringInitialConnectionPeriod int
-	mu                                            sync.RWMutex
+	mu sync.RWMutex
 
 	clusterStatisticsMutex sync.Mutex
 
@@ -481,8 +462,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		dockerNetworkName:               clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:               clusterDaemonOptions.NumResendAttempts,
 		MessageAcknowledgementsEnabled:  clusterDaemonOptions.MessageAcknowledgementsEnabled,
-		initialClusterSize:              clusterDaemonOptions.InitialClusterSize,
-		initialConnectionPeriod:         time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
 		prometheusInterval:              time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 		ClusterStatistics:               metrics.NewClusterStatistics(),
 		SubmitExecuteRequestsOneAtATime: clusterDaemonOptions.SubmitExecuteRequestsOneAtATime,
@@ -745,20 +724,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
 	}
 
-	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
-	// setting inInitialConnectionPeriod to true and creating a goroutine to eventually set inInitialConnectionPeriod
-	// to false if the feature is enabled in the first place.
-	if clusterGateway.initialClusterSize >= 0 {
-		clusterGateway.inInitialConnectionPeriod.Store(true)
-
-		go d.handleInitialConnectionPeriod()
-	} else {
-		clusterGateway.log.Debug("Initial Cluster Size specified as negative number (%d). "+
-			"Disabling 'initial connection period' feature.", clusterGateway.initialClusterSize)
-		clusterGateway.inInitialConnectionPeriod.Store(false) // It defaults to false, so this is unnecessary.
-	}
-
-	clusterGateway.ClusterStatistics.CumulativeNumHostsProvisioned = clusterGateway.initialClusterSize
 	clusterGateway.gatherClusterStatistics()
 
 	if clusterGateway.IdleSessionReclamationEnabled {
@@ -766,44 +731,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 
 	return clusterGateway
-}
-
-// handleInitialConnectionPeriod first waits for the "initial connection period" to elapse, after which it sets the
-// ClusterGatewayImpl's inInitialConnectionPeriod field to false.
-//
-// After that, handleInitialConnectionPeriod invokes the ProvisionInitialPrewarmContainers method of the
-// scheduling.ContainerPrewarmer (if one exists).
-func (d *ClusterGatewayImpl) handleInitialConnectionPeriod() {
-	d.log.Debug("Initial Connection Period will end in %v.",
-		d.initialConnectionPeriod)
-
-	time.Sleep(d.initialConnectionPeriod)
-
-	d.inInitialConnectionPeriod.Store(false)
-
-	d.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
-		d.initialConnectionPeriod, d.cluster.Len())
-
-	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
-	prewarmer := d.containerPrewarmer()
-	if prewarmer == nil {
-		d.log.Debug("No ContainerPrewarmer available.")
-		return
-	}
-
-	if d.ClusterOptions.InitialNumContainersPerHost == 0 {
-		d.log.Debug("Not supposed to pre-warm any containers per host.")
-		return
-	}
-
-	d.log.Debug("Triggering initial pre-warming of %d container(s) on each connected host.",
-		d.ClusterOptions.InitialNumContainersPerHost)
-
-	created, target := prewarmer.ProvisionInitialPrewarmContainers()
-
-	if target > 0 {
-		d.log.Debug("Created %d/%d pre-warm containers.", created, target)
-	}
 }
 
 // containerPrewarmer returns the scheduling.ContainerPrewarmer used by the cluster's Scheduler.
@@ -1378,18 +1305,6 @@ func (d *ClusterGatewayImpl) RegisterNewHost(host scheduling.Host) error {
 	}
 
 	d.log.Info("Incoming Local Scheduler %s (ID=%s) connected", host.GetNodeName(), host.GetID())
-
-	if d.inInitialConnectionPeriod.Load() && d.cluster.Len() >= d.initialClusterSize {
-		d.numHostsDisabledDuringInitialConnectionPeriod += 1
-		d.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
-			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",
-			d.cluster.Len(), host.GetNodeName(), host.GetID(), d.numHostsDisabledDuringInitialConnectionPeriod)
-		err := host.Disable()
-		if err != nil {
-			// As of right now, the only reason Disable will fail/return an error is if the Host is already disabled.
-			d.log.Warn("Failed to disable newly-connected host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), err)
-		}
-	}
 
 	err := d.cluster.NewHostAddedOrConnected(host)
 	if err != nil {

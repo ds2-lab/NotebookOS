@@ -810,6 +810,20 @@ func (mr *MockSchedulerMockRecorder) CanScaleIn() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanScaleIn", reflect.TypeOf((*MockScheduler)(nil).CanScaleIn))
 }
 
+// ContainerPrewarmer mocks base method.
+func (m *MockScheduler) ContainerPrewarmer() scheduling.ContainerPrewarmer {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ContainerPrewarmer")
+	ret0, _ := ret[0].(scheduling.ContainerPrewarmer)
+	return ret0
+}
+
+// ContainerPrewarmer indicates an expected call of ContainerPrewarmer.
+func (mr *MockSchedulerMockRecorder) ContainerPrewarmer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerPrewarmer", reflect.TypeOf((*MockScheduler)(nil).ContainerPrewarmer))
+}
+
 // DeployKernelReplicas mocks base method.
 func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
 	m.ctrl.T.Helper()

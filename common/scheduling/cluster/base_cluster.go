@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
@@ -59,6 +60,19 @@ type BaseCluster struct {
 	numSuccessfulScaleInOps  int
 	numSuccessfulScaleOutOps int
 
+	// The initial size of the cluster.
+	// If more than this many Local Daemons connect during the 'initial connection period',
+	// then the extra nodes will be disabled until a scale-out event occurs.
+	//
+	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialClusterSize int
+
+	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
+	// during the initial connection period.
+	numHostsDisabledDuringInitialConnectionPeriod int
+
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
 
@@ -91,6 +105,16 @@ type BaseCluster struct {
 	maximumCapacity int32
 
 	closed atomic.Bool
+
+	// The initial connection period is the time immediately after the Cluster Gateway begins running during
+	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
+	// where N is the initial cluster size, then those extra daemons will be disabled.
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialConnectionPeriod time.Duration
+
+	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
+	inInitialConnectionPeriod atomic.Bool
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
@@ -117,6 +141,8 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		StdDevScaleOutPerHost:     time.Millisecond * time.Duration(opts.StdDevScaleOutPerHostSec*1000),
 		MeanScaleInPerHost:        time.Millisecond * time.Duration(opts.MeanScaleInPerHostSec*1000),
 		StdDevScaleInPerHost:      time.Millisecond * time.Duration(opts.StdDevScaleInPerHostSec*1000),
+		initialClusterSize:        opts.InitialClusterSize,
+		initialConnectionPeriod:   time.Second * time.Duration(opts.InitialClusterConnectionPeriodSec),
 	}
 	cluster.closed.Store(false)
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
@@ -143,7 +169,57 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		panic(err)
 	}
 
+	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
+	// setting inInitialConnectionPeriod to true and creating a goroutine to eventually set inInitialConnectionPeriod
+	// to false if the feature is enabled in the first place.
+	if cluster.initialClusterSize >= 0 {
+		cluster.inInitialConnectionPeriod.Store(true)
+
+		go cluster.handleInitialConnectionPeriod()
+	} else {
+		cluster.log.Debug("Initial Cluster Size specified as negative number (%d). "+
+			"Disabling 'initial connection period' feature.", cluster.initialClusterSize)
+		cluster.inInitialConnectionPeriod.Store(false) // It defaults to false, so this is unnecessary.
+	}
+
 	return cluster
+}
+
+// handleInitialConnectionPeriod first waits for the "initial connection period" to elapse, after which it sets the
+// ClusterGatewayImpl's inInitialConnectionPeriod field to false.
+//
+// After that, handleInitialConnectionPeriod invokes the ProvisionInitialPrewarmContainers method of the
+// scheduling.ContainerPrewarmer (if one exists).
+func (c *BaseCluster) handleInitialConnectionPeriod() {
+	c.log.Debug("Initial Connection Period will end in %v.", c.initialConnectionPeriod)
+
+	time.Sleep(c.initialConnectionPeriod)
+
+	c.inInitialConnectionPeriod.Store(false)
+
+	c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %c.",
+		c.initialConnectionPeriod, c.Len())
+
+	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
+	prewarmer := c.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		c.log.Debug("No ContainerPrewarmer available.")
+		return
+	}
+
+	if c.opts.InitialNumContainersPerHost == 0 {
+		c.log.Debug("Not supposed to pre-warm any containers per host.")
+		return
+	}
+
+	c.log.Debug("Triggering initial pre-warming of %c container(s) on each connected host.",
+		c.opts.InitialNumContainersPerHost)
+
+	created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+	if target > 0 {
+		c.log.Debug("Created %c/%c pre-warm containers.", created, target)
+	}
 }
 
 func (c *BaseCluster) initRatioUpdater() {
@@ -1172,6 +1248,24 @@ func (c *BaseCluster) MetricsProvider() scheduling.MetricsProvider {
 func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
+
+	// If we're still in the "initial connection period" and we already have all the hosts we're supposed to have,
+	// then we'll disable this host before registering it.
+	if c.inInitialConnectionPeriod.Load() && c.Len() >= c.initialClusterSize {
+		c.numHostsDisabledDuringInitialConnectionPeriod += 1
+		c.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
+			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",
+			c.Len(), host.GetNodeName(), host.GetID(), c.numHostsDisabledDuringInitialConnectionPeriod)
+
+		err := host.Disable()
+
+		// As of right now, the only reason Disable will fail/return an error is if the Host is already disabled.
+		if err != nil && !errors.Is(err, scheduling.ErrHostAlreadyDisabled) {
+			c.log.Error("Failed to disable newly-connected host %s (ID=%s) because: %v",
+				host.GetNodeName(), host.GetID(), err)
+			return err
+		}
+	}
 
 	if !host.Enabled() {
 		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.",

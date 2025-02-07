@@ -108,11 +108,12 @@ func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.Ke
 	}
 
 	spec := &proto.KernelReplicaSpec{
-		Kernel:      kernelSpec,
-		ReplicaId:   0,
-		NumReplicas: 0,
-		Join:        false,
-		WorkloadId:  "",
+		Kernel:           kernelSpec,
+		ReplicaId:        0,
+		NumReplicas:      0,
+		Join:             false,
+		WorkloadId:       "",
+		PrewarmContainer: true,
 	}
 
 	resp, err := host.StartKernelReplica(ctx, spec)
