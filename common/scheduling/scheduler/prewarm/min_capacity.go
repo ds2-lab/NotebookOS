@@ -21,3 +21,9 @@ func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *LittlesL
 
 	return warmer
 }
+
+// Run creates a separate goroutine in which the MinCapacityPrewarmer maintains the overall capacity/availability of
+// pre-warmed containers in accordance with MinCapacityPrewarmer's policy for doing so.
+func (p *MinCapacityPrewarmer) Run() {
+	// TODO: Implement me.
+}

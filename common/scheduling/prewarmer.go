@@ -12,6 +12,10 @@ type PrewarmedContainerUsedCallback func(container PrewarmedContainer)
 // ContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
 // these pre-warmed containers, such as how many are available on each scheduling.Host.
 type ContainerPrewarmer interface {
+	// Run creates a separate goroutine in which the ContainerPrewarmer maintains the overall capacity/availability of
+	// pre-warmed containers in accordance with ContainerPrewarmer's policy for doing so.
+	Run()
+
 	// ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
 	// the specified scheduling.Host. The work of provisioning the n containers is distributed amongst several goroutines,
 	// the number of which depends upon the size of n.

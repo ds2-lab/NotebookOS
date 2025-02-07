@@ -225,6 +225,17 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerC
 	return warmer
 }
 
+// Run creates a separate goroutine in which the BaseContainerPrewarmer maintains the overall capacity/availability of
+// pre-warmed containers in accordance with BaseContainerPrewarmer's policy for doing so.
+func (p *BaseContainerPrewarmer) Run() {
+	if p.instance == nil {
+		p.log.Warn("No specific 'Warm Container Pool' maintenance strategy configured.")
+		return
+	}
+
+	p.instance.Run()
+}
+
 // RequestPrewarmedContainer is used to request a pre-warm container on a particular host.
 //
 // RequestPrewarmedContainer is explicitly thread safe (i.e., it uses a mutex).
