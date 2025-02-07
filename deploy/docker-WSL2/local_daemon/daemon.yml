@@ -70,3 +70,7 @@ aws_region: "us-east-1"
 redis_password: ""
 redis_port: 6379
 redis_database: 0
+prewarming_enabled: true
+min_prewarm_containers_per_host: 1
+max_prewarm_containers_per_host: 3
+prewarming_policy: maintain_minimum_capacity
