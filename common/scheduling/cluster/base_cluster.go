@@ -197,7 +197,7 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 
 	c.inInitialConnectionPeriod.Store(false)
 
-	c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %c.",
+	c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
 		c.initialConnectionPeriod, c.Len())
 
 	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
@@ -218,7 +218,7 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 	created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
 	if target > 0 {
-		c.log.Debug("Created %c/%c pre-warm containers.", created, target)
+		c.log.Debug("Created %d/%d pre-warm containers.", created, target)
 	}
 
 	// Start the prewarmer.
