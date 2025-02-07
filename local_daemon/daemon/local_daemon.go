@@ -1479,7 +1479,7 @@ func (d *LocalScheduler) writeResponseToRegisteringKernelReplica(payload map[str
 	}
 
 	d.log.Debug("Wrote %d bytes back to %s kernel in response to kernel registration.",
-		typ.String(), bytesWritten)
+		bytesWritten, typ.String())
 }
 
 // ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
