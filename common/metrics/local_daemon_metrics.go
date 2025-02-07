@@ -56,11 +56,14 @@ type LocalDaemonPrometheusManager struct {
 	// The units of the observations recorded by DockerContainerCreationLatencyHistogramVec are milliseconds.
 	DockerContainerCreationLatencyHistogramVec *prometheus.HistogramVec
 
-	TotalNumKernelsCounter                  prometheus.Counter  // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
-	NumTrainingEventsCompletedCounter       prometheus.Counter  // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
-	NumActiveKernelReplicasGauge            prometheus.Gauge    // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
-	DockerContainerCreationLatencyHistogram prometheus.Observer // DockerContainerCreationLatencyHistogram is a cached return of DockerContainerCreationLatencyHistogramVec.With(<label for the local daemon on this node>)
-	AckLatencyMicrosecondsHistogram         prometheus.Observer // AckLatencyMicrosecondsHistogram is a cached return of AckLatencyMicrosecondsVec.With(<label for the local daemon on this node>)
+	TotalNumPrewarmContainersUsed            prometheus.Counter
+	TotalNumPrewarmContainersCreatedCounter  prometheus.Counter
+	TotalNumStandardContainersCreatedCounter prometheus.Counter
+	TotalNumKernelsCounter                   prometheus.Counter  // TotalNumKernelsCounter is a cached return of TotalNumKernelsCounterVec.With(<label for the local daemon on this node>)
+	NumTrainingEventsCompletedCounter        prometheus.Counter  // NumTrainingEventsCompletedCounter is a cached return of NumTrainingEventsCompletedCounterVec.With(<label for the local daemon on this node>)
+	NumActiveKernelReplicasGauge             prometheus.Gauge    // NumActiveKernelReplicasGauge is a cached return of NumActiveKernelReplicasGaugeVec.With(<label for the local daemon on this node>)
+	DockerContainerCreationLatencyHistogram  prometheus.Observer // DockerContainerCreationLatencyHistogram is a cached return of DockerContainerCreationLatencyHistogramVec.With(<label for the local daemon on this node>)
+	AckLatencyMicrosecondsHistogram          prometheus.Observer // AckLatencyMicrosecondsHistogram is a cached return of AckLatencyMicrosecondsVec.With(<label for the local daemon on this node>)
 }
 
 // UpdateClusterStatistics isn't directly supported by LocalDaemonPrometheusManager.
@@ -275,6 +278,12 @@ func (m *LocalDaemonPrometheusManager) initMetrics() error {
 		prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
 	m.TotalNumKernelsCounter = m.TotalNumKernelsCounterVec.
 		With(prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
+	m.TotalNumPrewarmContainersUsed = m.TotalNumPrewarmContainersUsedVec.
+		With(prometheus.Labels{"node_id": m.nodeId})
+	m.TotalNumPrewarmContainersCreatedCounter = m.TotalNumPrewarmContainersCreatedCounterVec.
+		With(prometheus.Labels{"node_id": m.nodeId})
+	m.TotalNumStandardContainersCreatedCounter = m.TotalNumStandardContainersCreatedCounterVec.
+		With(prometheus.Labels{"node_id": m.nodeId})
 	m.NumTrainingEventsCompletedCounter = m.NumTrainingEventsCompletedCounterVec.
 		With(prometheus.Labels{"node_id": m.nodeId, "node_type": string(LocalDaemon)})
 	m.DockerContainerCreationLatencyHistogram = m.DockerContainerCreationLatencyHistogramVec.With(
