@@ -1117,7 +1117,12 @@ func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.Ke
 	d.log.Debug("Received notification that the KernelClient for %s Kernel \"%s\" was created.",
 		containerType.String(), kernelReplicaSpec.Kernel.Id)
 
-	kernel, loaded := d.kernels.Load(kernelReplicaSpec.Kernel.Id)
+	var kernel *client.KernelReplicaClient
+	if kernelReplicaSpec.PrewarmContainer {
+		kernel, loaded = d.prewarmKernels.Load(kernelReplicaSpec.Kernel.Id)
+	} else {
+		kernel, loaded = d.kernels.Load(kernelReplicaSpec.Kernel.Id)
+	}
 
 	if !loaded {
 		message := fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...",
@@ -1252,6 +1257,9 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
 	if registrationPayload.PrewarmContainer {
+		d.writeResponseToRegisteringKernelReplica(map[string]interface{}{
+			"status": "ok",
+		}, kernelRegistrationClient, containerType)
 		return
 	}
 
@@ -1433,21 +1441,27 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
 
+	d.writeResponseToRegisteringKernelReplica(payload, kernelRegistrationClient, containerType)
+}
+
+// writeResponseToRegisteringKernelReplica writes the specified response back to the specified KernelRegistrationClient.
+func (d *LocalScheduler) writeResponseToRegisteringKernelReplica(payload map[string]interface{},
+	client *KernelRegistrationClient, typ scheduling.ContainerType) {
+
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
 		d.log.Error("Error encountered while marshalling registration response payload to JSON: %v", err)
-		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
 		d.notifyClusterGatewayAndPanic("Failed to Marshal Registration Response Payload", err.Error(), err)
 	}
 
-	bytesWritten, err := kernelRegistrationClient.conn.Write(payloadJson)
+	bytesWritten, err := client.conn.Write(payloadJson)
 	if err != nil {
 		d.log.Error("Error encountered while writing registration response payload back to kernel: %v", err)
-		// TODO(Ben): Handle gracefully. For now, panic so we see something bad happened.
 		d.notifyClusterGatewayAndPanic("Failed to Write Registration Response Payload Back to kernel", err.Error(), err)
 	}
+
 	d.log.Debug("Wrote %d bytes back to %s kernel in response to kernel registration.",
-		containerType.String(), bytesWritten)
+		typ.String(), bytesWritten)
 }
 
 // ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.

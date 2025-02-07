@@ -344,6 +344,9 @@ func (p *BaseContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int
 	numCreated := atomic.Int32{}
 	work := DivideWork(n, nWorkers)
 
+	p.log.Debug("Dividing work of provisioning %d container(s) with %d worker(s) as follows: %v",
+		n, nWorkers, work)
+
 	for i := 0; i < nWorkers; i++ {
 		wg.Add(1)
 
@@ -375,6 +378,16 @@ func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainers() (created in
 	target = 0
 	created = 0
 
+	// Clamp initial number to the maximum.
+	if p.Config.InitialPrewarmedContainersPerHost > p.Config.MaxPrewarmedContainersPerHost {
+		p.log.Warn("Configured 'initial prewarmed containers per host' (%d) is greater than configured maximum (%d). Clamping.",
+			p.Config.InitialPrewarmedContainersPerHost, p.Config.MaxPrewarmedContainersPerHost)
+		p.Config.InitialPrewarmedContainersPerHost = p.Config.MaxPrewarmedContainersPerHost
+	}
+
+	p.log.Debug("Will create %d prewarmed container(s) on each host (initially).",
+		p.Config.InitialPrewarmedContainersPerHost)
+
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
 		wg.Add(1)
 		atomic.AddInt32(&target, int32(p.Config.InitialPrewarmedContainersPerHost))
@@ -398,8 +411,6 @@ func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainers() (created in
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 func (p *BaseContainerPrewarmer) ProvisionContainer(host scheduling.Host) error {
-	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
-
 	resp, spec, err := p.provisionContainer(host)
 
 	if err != nil {
@@ -430,20 +441,6 @@ func (p *BaseContainerPrewarmer) InitialPrewarmedContainersPerHost() int {
 	return p.Config.InitialPrewarmedContainersPerHost
 }
 
-// onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
-func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
-	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
-		container.ID(), container.HostName(), container.HostId())
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	container.SetUnavailable()
-	delete(p.AllPrewarmContainers, container.ID())
-
-	return
-}
-
 // ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
 // ContainerPrewarmer's policy.
 func (p *BaseContainerPrewarmer) ValidateHostCapacity(host scheduling.Host) {
@@ -461,6 +458,20 @@ func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
 	}
 
 	return 0
+}
+
+// onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
+func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
+	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
+		container.ID(), container.HostName(), container.HostId())
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	container.SetUnavailable()
+	delete(p.AllPrewarmContainers, container.ID())
+
+	return
 }
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
@@ -485,12 +496,14 @@ func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) (*prot
 	}
 
 	spec := &proto.KernelReplicaSpec{
-		Kernel:           kernelSpec,
-		ReplicaId:        0,
-		NumReplicas:      0,
-		Join:             false,
-		WorkloadId:       "",
-		PrewarmContainer: true,
+		Kernel:                    kernelSpec,
+		ReplicaId:                 1,
+		NumReplicas:               1,
+		Replicas:                  []string{},
+		Join:                      false,
+		WorkloadId:                "",
+		DockerModeKernelDebugPort: -1,
+		PrewarmContainer:          true,
 	}
 
 	resp, err := host.StartKernelReplica(ctx, spec)
