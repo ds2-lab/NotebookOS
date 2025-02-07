@@ -1,6 +1,8 @@
 package prewarm
 
 import (
+	"errors"
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
@@ -11,6 +13,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+)
+
+var (
+	ErrPrewarmedContainerRegistrationFailure = errors.New("could not register the specified prewarmed container")
+	ErrPrewarmedContainerAlreadyRegistered   = errors.New("a prewarmed container with the same ID is already registered")
+	ErrNoPrewarmedContainersAvailable        = errors.New("there are no prewarmed containers available on the specified host")
 )
 
 // DivideWork divides the work of creating n containers between m workers.
@@ -80,6 +88,58 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, initialNumContainersPerHo
 	return warmer
 }
 
+// RequestPrewarmContainer is used to request a pre-warm container on a particular host.
+//
+// RequestPrewarmContainer is explicitly thread safe (i.e., it uses a mutex).
+func (p *ContainerPrewarmer) RequestPrewarmContainer(host scheduling.Host) (*PrewarmedContainer, error) {
+	p.log.Debug("Received request[Host %s (ID=%s)].", host.GetNodeName(), host.GetID())
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	containers, loaded := p.PrewarmContainersPerHost[host.GetID()]
+
+	// If there is no queue associated with the specified host, then we'll create the queue,
+	// but we'll still return an error, as we'll have no containers available.
+	if !loaded {
+		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable, UnknownHost].",
+			host.GetNodeName(), host.GetID(), containers.Len())
+
+		fifo := queue.NewThreadsafeFifo[*PrewarmedContainer](p.initialNumPerHost)
+		p.PrewarmContainersPerHost[host.GetID()] = fifo
+
+		return nil, fmt.Errorf("%w: host \"%s\" (ID=\"%s\")",
+			ErrNoPrewarmedContainersAvailable, host.GetNodeName(), host.GetID())
+	}
+
+	if containers.Len() == 0 {
+		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable].",
+			host.GetNodeName(), host.GetID(), containers.Len())
+
+		return nil, fmt.Errorf("%w: host \"%s\" (ID=\"%s\")",
+			ErrNoPrewarmedContainersAvailable, host.GetNodeName(), host.GetID())
+	}
+
+	prewarmedContainer, ok := containers.Dequeue()
+
+	// Sanity check. Since this is all occurring with the mutex held,
+	// `ok` should always be true and `prewarmedContainer` should never be nil.
+	if prewarmedContainer == nil || !ok {
+		panic("Expected to receive valid, non-nil pre-warmed container.")
+	}
+
+	p.log.Debug("Request fulfilled[Host %s (ID=%s), Remaining=%d].",
+		host.GetNodeName(), host.GetID(), containers.Len())
+
+	return prewarmedContainer, nil
+}
+
+// ReturnUnusedPrewarmContainer is used to return a pre-warmed container that was originally returned to the caller
+// via the RequestPrewarmContainer method, but ended up being unused, and so it can simply be put back into the pool.
+func (p *ContainerPrewarmer) ReturnUnusedPrewarmContainer(container *PrewarmedContainer) error {
+	return p.registerPrewarmedContainer(container)
+}
+
 // OnPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
 func (p *ContainerPrewarmer) OnPrewarmedContainerUsed() {
 	// No-op.
@@ -132,12 +192,17 @@ func (p *ContainerPrewarmer) ProvisionContainer(host scheduling.Host) error {
 		return err
 	}
 
-	p.registerPrewarmedContainer(resp, spec, host)
-	return nil
+	return p.registerPrewarmedContainerInfo(resp, spec, host)
 }
 
-// registerPrewarmedContainer registers a pre-warmed container that was successfully created on the specified Host.
-func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelConnectionInfo, spec *proto.KernelReplicaSpec, host scheduling.Host) {
+func (p *ContainerPrewarmer) registerPrewarmedContainer(container *PrewarmedContainer) error {
+	return p.registerPrewarmedContainerInfo(container.ConnectionInfo, container.KernelReplicaSpec, container.Host)
+}
+
+// registerPrewarmedContainerInfo registers a pre-warmed container that was successfully created on the specified Host.
+//
+// registerPrewarmedContainerInfo is explicitly thread safe.
+func (p *ContainerPrewarmer) registerPrewarmedContainerInfo(connInfo *proto.KernelConnectionInfo, spec *proto.KernelReplicaSpec, host scheduling.Host) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -149,12 +214,19 @@ func (p *ContainerPrewarmer) registerPrewarmedContainer(connInfo *proto.KernelCo
 		KernelReplicaSpec: spec,
 	}
 
+	// Verify that the specified pre-warmed container isn't already registered.
+	if _, loaded := p.AllPrewarmContainers[spec.Kernel.Id]; loaded {
+		return fmt.Errorf("%w: %w: \"%s\"", ErrPrewarmedContainerRegistrationFailure,
+			ErrPrewarmedContainerAlreadyRegistered, spec.Kernel.Id)
+	}
+
 	p.AllPrewarmContainers[spec.Kernel.Id] = prewarmedContainer
 
 	fifo, _ := p.PrewarmContainersPerHost[host.GetID()]
 	fifo.Enqueue(prewarmedContainer)
 
 	p.log.Debug("Number of pre-warmed containers on host %s: %d", host.GetNodeName(), fifo.Len())
+	return nil
 }
 
 // provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
