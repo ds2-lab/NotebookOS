@@ -164,7 +164,13 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
-	prewarmer := prewarm.NewContainerPrewarmer(b.cluster, b.initialNumContainersPerHost)
+	prewarmerConfig := &prewarm.PrewarmerConfig{
+		InitialPrewarmedContainersPerHost: b.initialNumContainersPerHost,
+		MaxPrewarmedContainersPerHost:     0,
+		MinPrewarmedContainersPerHost:     0,
+	}
+
+	prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
 	clusterScheduler.prewarmer = prewarmer
 
 	if b.options.GpuPollIntervalSeconds <= 0 {

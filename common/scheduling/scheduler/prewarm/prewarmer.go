@@ -18,6 +18,7 @@ import (
 var (
 	ErrPrewarmedContainerRegistrationFailure = errors.New("could not register the specified prewarmed container")
 	ErrPrewarmedContainerAlreadyRegistered   = errors.New("a prewarmed container with the same ID is already registered")
+	ErrPrewarmedContainerAlreadyUsed         = errors.New("the prewarmed container has already been used")
 	ErrNoPrewarmedContainersAvailable        = errors.New("there are no prewarmed containers available on the specified host")
 )
 
@@ -45,20 +46,135 @@ func DivideWork(n, m int) []int {
 	return result
 }
 
+type PrewarmedContainerUsedCallback func(container *PrewarmedContainer)
+
+type PrewarmedContainerBuilder struct {
+	host                             scheduling.Host
+	connectionInfo                   *proto.KernelConnectionInfo
+	kernelReplicaSpec                *proto.KernelReplicaSpec
+	onPrewarmedContainerUsedCallback PrewarmedContainerUsedCallback
+}
+
+func NewPrewarmedContainerBuilder() *PrewarmedContainerBuilder {
+	return &PrewarmedContainerBuilder{}
+}
+
+func (b *PrewarmedContainerBuilder) WithHost(host scheduling.Host) *PrewarmedContainerBuilder {
+	b.host = host
+	return b
+}
+
+func (b *PrewarmedContainerBuilder) WithKernelConnectionInfo(connectionInfo *proto.KernelConnectionInfo) *PrewarmedContainerBuilder {
+	b.connectionInfo = connectionInfo
+	return b
+}
+
+func (b *PrewarmedContainerBuilder) WithKernelReplicaSpec(kernelReplicaSpec *proto.KernelReplicaSpec) *PrewarmedContainerBuilder {
+	b.kernelReplicaSpec = kernelReplicaSpec
+	return b
+}
+
+func (b *PrewarmedContainerBuilder) WithPrewarmedContainerUsedCallback(callback PrewarmedContainerUsedCallback) *PrewarmedContainerBuilder {
+	b.onPrewarmedContainerUsedCallback = callback
+	return b
+}
+
+func (b *PrewarmedContainerBuilder) Build() *PrewarmedContainer {
+	container := &PrewarmedContainer{
+		Host:                     b.host,
+		ConnectionInfo:           b.connectionInfo,
+		KernelReplicaSpec:        b.kernelReplicaSpec,
+		CreatedAt:                time.Now(),
+		onPrewarmedContainerUsed: b.onPrewarmedContainerUsedCallback,
+	}
+
+	container.Available.Store(true)
+
+	return container
+}
+
 type PrewarmedContainer struct {
 	Host              scheduling.Host
 	ConnectionInfo    *proto.KernelConnectionInfo
 	KernelReplicaSpec *proto.KernelReplicaSpec
+	CreatedAt         time.Time
+	Available         atomic.Bool
+
+	onPrewarmedContainerUsed func(container *PrewarmedContainer)
 }
 
+func (p *PrewarmedContainer) IsAvailable() bool {
+	return p.Available.Load()
+}
+
+func (p *PrewarmedContainer) SetUnavailable() {
+	p.Available.Store(false)
+}
+
+func (p *PrewarmedContainer) String() string {
+	return fmt.Sprintf("PrewarmContainer[ID=%s,Host=%s,HostId=%s]",
+		p.ID(), p.HostName(), p.HostId())
+}
+
+func (p *PrewarmedContainer) Age() time.Duration {
+	return time.Since(p.CreatedAt)
+}
+
+func (p *PrewarmedContainer) ID() string {
+	return p.KernelReplicaSpec.Kernel.Id
+}
+
+func (p *PrewarmedContainer) HostId() string {
+	return p.Host.GetID()
+}
+
+func (p *PrewarmedContainer) HostName() string {
+	return p.Host.GetNodeName()
+}
+
+// OnPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
+//
+// If this PrewarmedContainer is officially used, then this function should be called.
+func (p *PrewarmedContainer) OnPrewarmedContainerUsed(container *PrewarmedContainer) {
+	if p.onPrewarmedContainerUsed != nil {
+		p.onPrewarmedContainerUsed(container)
+	}
+}
+
+// PrewarmerConfig encapsulates configuration information/parameters of the ContainerPrewarmer.
+type PrewarmerConfig struct {
+	// InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
+	// conclusion of the 'initial connection period'.
+	InitialPrewarmedContainersPerHost int
+
+	// MaxPrewarmedContainersPerHost is the maximum number of pre-warmed containers that should be provisioned on any
+	// given scheduling.Host at any given time. If there are MaxPrewarmedContainersPerHost pre-warmed containers
+	// available on a given scheduling.Host, then more will not be provisioned.
+	//
+	// If MaxPrewarmedContainersPerHost is negative, then there will be no limit/cap on the number of pre-warmed
+	// containers that can be created on any given scheduling.Host.
+	MaxPrewarmedContainersPerHost int
+
+	// MinPrewarmedContainersPerHost is the minimum number of pre-warmed containers that should be available on any
+	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+	// below this quantity, then a new pre-warmed container will be provisioned.
+	MinPrewarmedContainersPerHost int
+}
+
+// ContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
+// these pre-warmed containers, such as how many are available on each scheduling.Host.
 type ContainerPrewarmer struct {
 	// AllPrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
 	// of pre-warmed containers.
-	AllPrewarmContainers map[string]*PrewarmedContainer
+	AllPrewarmContainers map[string]scheduling.PrewarmedContainer
 
 	// PrewarmContainersPerHost is a map from host ID to a queue of PrewarmedContainer created and available on the
 	// associated host.
-	PrewarmContainersPerHost map[string]*queue.ThreadsafeFifo[*PrewarmedContainer]
+	PrewarmContainersPerHost map[string]*queue.ThreadsafeFifo[scheduling.PrewarmedContainer]
+
+	// ProvisioningPerHost is a map from scheduling.Host ID to the number of PrewarmedContainer instances currently
+	// being provisioned on that scheduling.Host.
+	ProvisioningPerHost map[string]*atomic.Int32
 
 	// Scheduler is a reference to the scheduling.Scheduler.
 	Scheduler scheduling.Scheduler
@@ -66,21 +182,22 @@ type ContainerPrewarmer struct {
 	// Cluster is a reference to the scheduling.Cluster.
 	Cluster scheduling.Cluster
 
-	// initialNumPerHost is the number of pre-warmed containers to create per host at the very beginning.
-	initialNumPerHost int
+	// Config encapsulates the configuration of the ContainerPrewarmer.
+	Config *PrewarmerConfig
 
 	mu  sync.Mutex
 	log logger.Logger
 }
 
 // NewContainerPrewarmer creates a new ContainerPrewarmer struct and returns a pointer to it.
-func NewContainerPrewarmer(cluster scheduling.Cluster, initialNumContainersPerHost int) *ContainerPrewarmer {
+func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerConfig) *ContainerPrewarmer {
 	warmer := &ContainerPrewarmer{
-		AllPrewarmContainers:     make(map[string]*PrewarmedContainer),
-		PrewarmContainersPerHost: make(map[string]*queue.ThreadsafeFifo[*PrewarmedContainer]),
+		AllPrewarmContainers:     make(map[string]scheduling.PrewarmedContainer),
+		PrewarmContainersPerHost: make(map[string]*queue.ThreadsafeFifo[scheduling.PrewarmedContainer]),
+		ProvisioningPerHost:      make(map[string]*atomic.Int32),
 		Cluster:                  cluster,
 		Scheduler:                cluster.Scheduler(),
-		initialNumPerHost:        initialNumContainersPerHost,
+		Config:                   configuration,
 	}
 
 	config.InitLogger(&warmer.log, warmer)
@@ -88,10 +205,10 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, initialNumContainersPerHo
 	return warmer
 }
 
-// RequestPrewarmContainer is used to request a pre-warm container on a particular host.
+// RequestPrewarmedContainer is used to request a pre-warm container on a particular host.
 //
-// RequestPrewarmContainer is explicitly thread safe (i.e., it uses a mutex).
-func (p *ContainerPrewarmer) RequestPrewarmContainer(host scheduling.Host) (*PrewarmedContainer, error) {
+// RequestPrewarmedContainer is explicitly thread safe (i.e., it uses a mutex).
+func (p *ContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host) (scheduling.PrewarmedContainer, error) {
 	p.log.Debug("Received request[Host %s (ID=%s)].", host.GetNodeName(), host.GetID())
 
 	p.mu.Lock()
@@ -105,7 +222,7 @@ func (p *ContainerPrewarmer) RequestPrewarmContainer(host scheduling.Host) (*Pre
 		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable, UnknownHost].",
 			host.GetNodeName(), host.GetID(), containers.Len())
 
-		fifo := queue.NewThreadsafeFifo[*PrewarmedContainer](p.initialNumPerHost)
+		fifo := queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
 		p.PrewarmContainersPerHost[host.GetID()] = fifo
 
 		return nil, fmt.Errorf("%w: host \"%s\" (ID=\"%s\")",
@@ -135,114 +252,49 @@ func (p *ContainerPrewarmer) RequestPrewarmContainer(host scheduling.Host) (*Pre
 }
 
 // ReturnUnusedPrewarmContainer is used to return a pre-warmed container that was originally returned to the caller
-// via the RequestPrewarmContainer method, but ended up being unused, and so it can simply be put back into the pool.
-func (p *ContainerPrewarmer) ReturnUnusedPrewarmContainer(container *PrewarmedContainer) error {
-	return p.registerPrewarmedContainer(container)
-}
-
-// OnPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
-func (p *ContainerPrewarmer) OnPrewarmedContainerUsed() {
-	// No-op.
-}
-
-// OnKernelStopped is a callback to execute when a scheduling.Kernel is stopped.
-func (p *ContainerPrewarmer) OnKernelStopped() {
-	// No-op.
-}
-
-// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
-func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.KernelConnectionInfo, *proto.KernelReplicaSpec, error) {
-	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
-	defer cancel()
-
-	kernelSpec := &proto.KernelSpec{
-		Id:              uuid.NewString(),
-		Session:         "",
-		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-		SignatureScheme: "hmac-sha256",
-		Key:             "",
-		ResourceSpec:    proto.NewResourceSpec(0, 0, 0, 0),
-		WorkloadId:      "",
-	}
-
-	spec := &proto.KernelReplicaSpec{
-		Kernel:           kernelSpec,
-		ReplicaId:        0,
-		NumReplicas:      0,
-		Join:             false,
-		WorkloadId:       "",
-		PrewarmContainer: true,
-	}
-
-	resp, err := host.StartKernelReplica(ctx, spec)
-
-	return resp, spec, err
-}
-
-// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
-func (p *ContainerPrewarmer) ProvisionContainer(host scheduling.Host) error {
-	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
-
-	resp, spec, err := p.provisionContainer(host)
-
-	if err != nil {
-		p.log.Error("Failed to provision pre-warmed container on host %s because: %v", host.GetNodeName(), err)
-		return err
-	}
-
-	return p.registerPrewarmedContainerInfo(resp, spec, host)
-}
-
-func (p *ContainerPrewarmer) registerPrewarmedContainer(container *PrewarmedContainer) error {
-	return p.registerPrewarmedContainerInfo(container.ConnectionInfo, container.KernelReplicaSpec, container.Host)
-}
-
-// registerPrewarmedContainerInfo registers a pre-warmed container that was successfully created on the specified Host.
-//
-// registerPrewarmedContainerInfo is explicitly thread safe.
-func (p *ContainerPrewarmer) registerPrewarmedContainerInfo(connInfo *proto.KernelConnectionInfo, spec *proto.KernelReplicaSpec, host scheduling.Host) error {
+// via the RequestPrewarmedContainer method, but ended up being unused, and so it can simply be put back into the pool.
+func (p *ContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduling.PrewarmedContainer) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.log.Debug("Registering pre-warmed container created on host %s.", host.GetNodeName())
+	p.log.Debug("Container returned unused [%v]", container.String())
 
-	prewarmedContainer := &PrewarmedContainer{
-		Host:              host,
-		ConnectionInfo:    connInfo,
-		KernelReplicaSpec: spec,
+	// Ensure the container hasn't already been used.
+	if container.IsAvailable() {
+		p.log.Error("Returned prewarmed container %s is marked as having been used.", container.ID())
+		return fmt.Errorf("%w: container \"%s\"", ErrPrewarmedContainerAlreadyUsed, container.ID())
 	}
 
-	// Verify that the specified pre-warmed container isn't already registered.
-	if _, loaded := p.AllPrewarmContainers[spec.Kernel.Id]; loaded {
-		return fmt.Errorf("%w: %w: \"%s\"", ErrPrewarmedContainerRegistrationFailure,
-			ErrPrewarmedContainerAlreadyRegistered, spec.Kernel.Id)
-	}
-
-	p.AllPrewarmContainers[spec.Kernel.Id] = prewarmedContainer
-
-	fifo, _ := p.PrewarmContainersPerHost[host.GetID()]
-	fifo.Enqueue(prewarmedContainer)
-
-	p.log.Debug("Number of pre-warmed containers on host %s: %d", host.GetNodeName(), fifo.Len())
-	return nil
+	return p.unsafeRegisterPrewarmedContainer(container)
 }
 
-// provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
-//
-// provisionContainers returns the number of pre-warmed scheduling.KernelContainer instances created.
-func (p *ContainerPrewarmer) provisionContainers(host scheduling.Host, n int) (int, error) {
-	for i := 0; i < n; i++ {
-		err := p.ProvisionContainer(host)
+// onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
+func (p *ContainerPrewarmer) onPrewarmedContainerUsed(container *PrewarmedContainer) {
+	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
+		container.ID(), container.HostName(), container.HostId())
 
-		if err != nil {
-			return i, err
-		}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	container.Available.Store(false)
+
+	containers, ok := p.PrewarmContainersPerHost[container.HostId()]
+	if !ok {
+		panic(fmt.Sprintf("No queue found for host of prewarm container %s, host %s (ID=%s)",
+			container.ID(), container.HostName(), container.HostId()))
 	}
 
-	p.log.Debug("Successfully provisioned %d pre-warmed container(s) on host %s.", n, host.GetNodeName())
-	return n, nil
+	if containers.Len() > p.Config.MinPrewarmedContainersPerHost {
+		return
+	}
+
+	numToProvision := p.Config.MinPrewarmedContainersPerHost - containers.Len()
+	p.log.Debug("Host %s (ID=%s) is now under capacity (%d). Provisioning %d pre-warm container(s) on host.",
+		containers.Len(), container.HostName(), container.HostId(), numToProvision)
+
+	go p.ProvisionContainers(container.Host, numToProvision)
+
+	return
 }
 
 // ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
@@ -270,7 +322,7 @@ func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) in
 
 	}
 
-	p.log.Debug("Instructed to prewarm a %d containers on host %s.", n, host.GetNodeName())
+	p.log.Debug("Instructed to prewarm %d containers on host %s.", n, host.GetNodeName())
 
 	// Determine how many worker goroutines to use.
 	var nWorkers int
@@ -309,7 +361,7 @@ func (p *ContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int) in
 // maximum number that were supposed to be created (if no errors were to occur).
 func (p *ContainerPrewarmer) ProvisionInitialPrewarmContainers() (created int32, target int32) {
 	// If we're not supposed to create any pre-warmed containers upon starting, then just return immediately.
-	if p.initialNumPerHost == 0 {
+	if p.Config.InitialPrewarmedContainersPerHost == 0 {
 		return 0, 0
 	}
 
@@ -319,14 +371,14 @@ func (p *ContainerPrewarmer) ProvisionInitialPrewarmContainers() (created int32,
 
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
 		wg.Add(1)
-		atomic.AddInt32(&target, int32(p.initialNumPerHost))
+		atomic.AddInt32(&target, int32(p.Config.InitialPrewarmedContainersPerHost))
 
-		fifo := queue.NewThreadsafeFifo[*PrewarmedContainer](p.initialNumPerHost)
+		fifo := queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
 		p.PrewarmContainersPerHost[host.GetID()] = fifo
 
 		go func() {
 			defer wg.Done()
-			numCreated := p.ProvisionContainers(host, p.initialNumPerHost)
+			numCreated := p.ProvisionContainers(host, p.Config.InitialPrewarmedContainersPerHost)
 			atomic.AddInt32(&created, numCreated)
 		}()
 
@@ -336,4 +388,141 @@ func (p *ContainerPrewarmer) ProvisionInitialPrewarmContainers() (created int32,
 	wg.Wait()
 
 	return atomic.LoadInt32(&created), atomic.LoadInt32(&target)
+}
+
+// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
+func (p *ContainerPrewarmer) ProvisionContainer(host scheduling.Host) error {
+	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
+
+	resp, spec, err := p.provisionContainer(host)
+
+	if err != nil {
+		p.log.Error("Failed to provision pre-warmed container on host %s because: %v", host.GetNodeName(), err)
+		return err
+	}
+
+	prewarmedContainer := NewPrewarmedContainerBuilder().
+		WithHost(host).
+		WithKernelConnectionInfo(resp).
+		WithKernelReplicaSpec(spec).
+		WithPrewarmedContainerUsedCallback(p.onPrewarmedContainerUsed).
+		Build()
+
+	return p.onPrewarmContainerProvisioned(prewarmedContainer)
+}
+
+// MaxPrewarmedContainersPerHost returns the maximum number of pre-warmed containers that should be provisioned on any
+// given scheduling.Host at any given time. If there are MaxPrewarmedContainersPerHost pre-warmed containers
+// available on a given scheduling.Host, then more will not be provisioned.
+func (p *ContainerPrewarmer) MaxPrewarmedContainersPerHost() int {
+	return p.Config.MaxPrewarmedContainersPerHost
+}
+
+// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
+// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+// below this quantity, then a new pre-warmed container will be provisioned.
+func (p *ContainerPrewarmer) MinPrewarmedContainersPerHost() int {
+	return p.Config.MinPrewarmedContainersPerHost
+}
+
+// InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
+// conclusion of the 'initial connection period'.
+func (p *ContainerPrewarmer) InitialPrewarmedContainersPerHost() int {
+	return p.Config.InitialPrewarmedContainersPerHost
+}
+
+// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
+func (p *ContainerPrewarmer) provisionContainer(host scheduling.Host) (*proto.KernelConnectionInfo, *proto.KernelReplicaSpec, error) {
+	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
+	defer cancel()
+
+	kernelSpec := &proto.KernelSpec{
+		Id:              uuid.NewString(),
+		Session:         "",
+		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+		SignatureScheme: "hmac-sha256",
+		Key:             "",
+		ResourceSpec:    proto.NewResourceSpec(0, 0, 0, 0),
+		WorkloadId:      "",
+	}
+
+	spec := &proto.KernelReplicaSpec{
+		Kernel:           kernelSpec,
+		ReplicaId:        0,
+		NumReplicas:      0,
+		Join:             false,
+		WorkloadId:       "",
+		PrewarmContainer: true,
+	}
+
+	resp, err := host.StartKernelReplica(ctx, spec)
+
+	return resp, spec, err
+}
+
+func (p *ContainerPrewarmer) unsafeRegisterPrewarmedContainer(container scheduling.PrewarmedContainer) error {
+	// Verify that the specified pre-warmed container isn't already registered.
+	if _, loaded := p.AllPrewarmContainers[container.ID()]; loaded {
+		return fmt.Errorf("%w: %w: \"%s\"", ErrPrewarmedContainerRegistrationFailure,
+			ErrPrewarmedContainerAlreadyRegistered, container.ID())
+	}
+
+	// Ensure the container hasn't already been used.
+	if container.IsAvailable() {
+		p.log.Error("Returned prewarmed container %s is marked as having been used.", container.ID())
+		return fmt.Errorf("%w: container \"%s\"", ErrPrewarmedContainerAlreadyUsed, container.ID())
+	}
+
+	p.AllPrewarmContainers[container.ID()] = container
+
+	fifo, _ := p.PrewarmContainersPerHost[container.HostId()]
+	fifo.Enqueue(container)
+
+	p.log.Debug("Number of pre-warmed containers on host %s: %d", container.HostName(), fifo.Len())
+	return nil
+}
+
+// registerPrewarmedContainerInfo registers a pre-warmed container that was successfully created on the specified Host.
+//
+// registerPrewarmedContainerInfo is explicitly thread safe.
+func (p *ContainerPrewarmer) registerPrewarmedContainerInfo(connInfo *proto.KernelConnectionInfo, spec *proto.KernelReplicaSpec, host scheduling.Host) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.log.Debug("Registering pre-warmed container created on host %s.", host.GetNodeName())
+
+	prewarmedContainer := NewPrewarmedContainerBuilder().
+		WithHost(host).
+		WithKernelConnectionInfo(connInfo).
+		WithKernelReplicaSpec(spec).
+		WithPrewarmedContainerUsedCallback(p.onPrewarmedContainerUsed).
+		Build()
+
+	return p.unsafeRegisterPrewarmedContainer(prewarmedContainer)
+}
+
+// provisionContainers provisions n pre-warmed scheduling.KernelContainer instances on the specified scheduling.Host.
+//
+// provisionContainers returns the number of pre-warmed scheduling.KernelContainer instances created.
+func (p *ContainerPrewarmer) provisionContainers(host scheduling.Host, n int) (int, error) {
+	for i := 0; i < n; i++ {
+		err := p.ProvisionContainer(host)
+
+		if err != nil {
+			return i, err
+		}
+	}
+
+	p.log.Debug("Successfully provisioned %d pre-warmed container(s) on host %s.", n, host.GetNodeName())
+	return n, nil
+}
+
+// onPrewarmContainerProvisioned is called whenever a PrewarmedContainer is successfully provisioned.
+func (p *ContainerPrewarmer) onPrewarmContainerProvisioned(container *PrewarmedContainer) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.unsafeRegisterPrewarmedContainer(container)
 }
