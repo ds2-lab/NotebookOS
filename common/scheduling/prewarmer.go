@@ -1,7 +1,6 @@
 package scheduling
 
 import (
-	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler/prewarm"
 	"time"
 )
 
@@ -53,7 +52,7 @@ type PrewarmedContainer interface {
 	ID() string
 	HostId() string
 	HostName() string
-	OnPrewarmedContainerUsed(container *prewarm.PrewarmedContainer)
+	OnPrewarmedContainerUsed(container PrewarmedContainer)
 	IsAvailable() bool
 	SetUnavailable()
 }
