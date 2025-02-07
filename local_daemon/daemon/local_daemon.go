@@ -15,6 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/test_utils"
@@ -1993,20 +1994,38 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 	kernelInvoker := d.getInvoker(prewarmedContainer)
 	if kernelInvoker == nil {
-		errorMessage := fmt.Sprint("prewarmed container \"%s\" has nil invoker.", prewarmedContainerId)
+		errorMessage := fmt.Sprintf("prewarmed container \"%s\" has nil invoker", prewarmedContainerId)
 		d.log.Error(errorMessage)
 
 		return nil, status.Error(codes.Internal, errorMessage)
 	}
 
-	kernelInvoker.
+	// Update fields of the KernelInvoker.
+	kernelInvoker.SetWorkloadId(kernelReplicaSpec.WorkloadId)
+	kernelInvoker.SetAssignedGpuDeviceIds(kernelReplicaSpec.Kernel.ResourceSpec.GpuDeviceIds)
+	kernelInvoker.SetDebugPort(kernelReplicaSpec.DockerModeKernelDebugPort)
+	kernelInvoker.SetKernelId(kernelReplicaSpec.Kernel.Id)
+
+	// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
+	promoted := kernelInvoker.PromotePrewarmedContainer()
+	if !promoted {
+		d.log.Error("Expected to promote container of KernelInvoker")
+		return nil, status.Error(codes.Internal, "expected to promote container of KernelInvoker")
+	}
+
+	// Promote the container (with respect to the scheduling.KernelReplica and scheduling.Container).
+	err := prewarmedContainer.PromotePrewarmContainer(kernelReplicaSpec)
+	if err != nil && !errors.Is(err, entity.ErrInvalidContainer) /* It's fine if it doesn't have a container */ {
+		d.log.Error("Failed to promote prewarmed container (with respect to the KernelReplicaClient): %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
 	jMsg := test_utils.CreateJupyterMessage(messaging.ControlPromotePrewarmRequest, prewarmedContainerId,
 		prewarmedContainer.ConnectionInfo().Key)
 
 	content := make(map[string]interface{})
 
-	err := jMsg.EncodeContent(content)
+	err = jMsg.EncodeContent(content)
 	if err != nil {
 		d.log.Error("Failed to encode content of \"%s\" request for pre-warmed container \"%s\": %v",
 			messaging.ControlPromotePrewarmRequest, prewarmedContainerId, err)
@@ -2054,7 +2073,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			RedisPassword:                        d.RedisPassword,
 			RedisPort:                            d.RedisPort,
 			RedisDatabase:                        d.RedisDatabase,
-			KernelDebugPort:                      int(in.DockerModeKernelDebugPort),
+			KernelDebugPort:                      in.DockerModeKernelDebugPort,
 			WorkloadId:                           in.WorkloadId,
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 		}

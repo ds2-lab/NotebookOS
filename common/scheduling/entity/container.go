@@ -24,7 +24,6 @@ type Container struct {
 	host    scheduling.Host        // The Host on which the Container is currently scheduled.
 
 	spec *types.DecimalSpec
-	// lastSpec *types.DecimalSpec
 
 	id                             string                    // The kernel ID of the Container.
 	containerState                 scheduling.ContainerState // The current state of the Container.
@@ -243,7 +242,7 @@ func (c *Container) UpdateResourceSpec(spec *types.DecimalSpec) {
 
 // ScaleOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
 // last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
-// potential training task plus the sum of the preemption priorities of the pre-emptible tasks.
+// potential training task plus the sum of the preemption priorities of the preemptible tasks.
 //
 // SOP(h) = Last Rescheduling Clock + Freq(h) * IP(h) + SUM PP(h').
 // To schedule out a potential task, we need to weight benefits of migration(IP) and penalty of preempting running task(s) if stay(PP).
@@ -252,7 +251,7 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
+func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
@@ -282,7 +281,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
+func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
 	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err
@@ -364,12 +363,17 @@ func (c *Container) ContainerType() scheduling.ContainerType {
 
 // PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
 // scheduling.PrewarmContainer to a scheduling.StandardContainer.
-func (c *Container) PromotePrewarmContainer() error {
+func (c *Container) PromotePrewarmContainer(kernelId string, replicaId int32, spec types.Spec) error {
 	if c.containerType != scheduling.PrewarmContainer {
 		return fmt.Errorf("%w: cannot promote container for replica %d of kernel %s as it is of type '%s'",
 			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.containerType.String())
 	}
 
 	c.containerType = scheduling.StandardContainer
+
+	c.replicaId = replicaId
+	c.spec = types.ToDecimalSpec(spec)
+	c.id = kernelId
+
 	return nil
 }

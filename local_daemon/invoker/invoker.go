@@ -61,13 +61,13 @@ type KernelInvoker interface {
 	// target KernelInvoker struct is scheduling.PrewarmContainer.
 	SetAssignedGpuDeviceIds([]int32)
 
-	DebugPort() int
+	DebugPort() int32
 
 	// SetDebugPort will panic if the CurrentContainerType of the target KernelInvoker is scheduling.StandardContainer.
 	//
 	// You can only mutate the DebugPort field of a KernelInvoker struct if the CurrentContainerType of the target
 	// KernelInvoker struct is scheduling.PrewarmContainer.
-	SetDebugPort(int)
+	SetDebugPort(int32)
 
 	KernelId() string
 

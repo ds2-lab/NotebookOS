@@ -386,5 +386,5 @@ type KernelReplica interface {
 
 	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
 	// to a StandardContainer.
-	PromotePrewarmContainer() error
+	PromotePrewarmContainer(spec *proto.KernelReplicaSpec) error
 }

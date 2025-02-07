@@ -117,7 +117,7 @@ type DockerInvoker struct {
 
 	assignedGpuDeviceIds   []int32 // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
 	smrPort                int     // Port used by the SMR cluster.
-	KernelDebugPort        int     // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	KernelDebugPort        int32   // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	electionTimeoutSeconds int     // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
 	prometheusMetricsPort  int     // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
 
@@ -176,7 +176,7 @@ type DockerInvokerOptions struct {
 	AssignedGpuDeviceIds []int32
 
 	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	KernelDebugPort int
+	KernelDebugPort int32
 
 	// PrometheusMetricsPort is the port that the container should serve prometheus metrics on.
 	PrometheusMetricsPort int
@@ -839,6 +839,10 @@ func (ivk *DockerInvoker) WorkloadId() string {
 // You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
 // DockerInvoker struct is scheduling.PrewarmContainer.
 func (ivk *DockerInvoker) SetWorkloadId(workloadId string) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the WorkloadId field of a DockerInvoker a non-prewarm container.")
+	}
+
 	ivk.workloadId = workloadId
 }
 
@@ -852,10 +856,14 @@ func (ivk *DockerInvoker) AssignedGpuDeviceIds() []int32 {
 // You can only mutate the AssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
 // target DockerInvoker struct is scheduling.PrewarmContainer.
 func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the AssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
+	}
+
 	ivk.assignedGpuDeviceIds = assignedGpuDeviceIds
 }
 
-func (ivk *DockerInvoker) DebugPort() int {
+func (ivk *DockerInvoker) DebugPort() int32 {
 	return ivk.KernelDebugPort
 }
 
@@ -863,7 +871,11 @@ func (ivk *DockerInvoker) DebugPort() int {
 //
 // You can only mutate the DebugPort field of a DockerInvoker struct if the CurrentContainerType of the target
 // DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int) {
+func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int32) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the DebugPort field of a DockerInvoker a non-prewarm container.")
+	}
+
 	ivk.KernelDebugPort = kernelDebugPort
 }
 
@@ -876,6 +888,10 @@ func (ivk *DockerInvoker) KernelId() string {
 // You can only mutate the KernelId field of a DockerInvoker struct if the CurrentContainerType of the target
 // DockerInvoker struct is scheduling.PrewarmContainer.
 func (ivk *DockerInvoker) SetKernelId(kernelId string) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the KernelId field of a DockerInvoker a non-prewarm container.")
+	}
+
 	ivk.kernelId = kernelId
 }
 

@@ -1449,11 +1449,16 @@ func (c *KernelReplicaClient) ContainerType() (scheduling.ContainerType, bool) {
 
 // PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
 // scheduling.PrewarmContainer to a scheduling.StandardContainer.
-func (c *KernelReplicaClient) PromotePrewarmContainer() error {
+func (c *KernelReplicaClient) PromotePrewarmContainer(spec *proto.KernelReplicaSpec) error {
 	if c.container == nil {
 		return fmt.Errorf("%w: replica %d of kernel \"%s\" does not have a container",
 			entity.ErrInvalidContainer, c.replicaId, c.id)
 	}
 
-	return c.container.PromotePrewarmContainer()
+	c.replicaId = spec.ReplicaId
+	c.spec = spec.Kernel
+	c.replicaSpec = spec
+	c.id = spec.Kernel.Id
+
+	return c.container.PromotePrewarmContainer(spec.Kernel.Id, spec.ReplicaId, spec.ResourceSpec().ToDecimalSpec())
 }

@@ -74,7 +74,7 @@ type KernelContainer interface {
 
 	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
 	// to a StandardContainer.
-	PromotePrewarmContainer() error
+	PromotePrewarmContainer(kernelId string, replicaId int32, spec types.Spec) error
 
 	// SetHost sets the scheduling.Host of the Container.
 	SetHost(host Host)

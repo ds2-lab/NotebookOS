@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"log"
 	"net"
 	"os"
@@ -48,6 +49,66 @@ type LocalInvoker struct {
 	status jupyter.KernelStatus
 
 	created bool
+}
+
+func (ivk *LocalInvoker) WorkloadId() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) SetWorkloadId(s string) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) AssignedGpuDeviceIds() []int32 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) SetAssignedGpuDeviceIds(int32s []int32) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) DebugPort() int32 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) SetDebugPort(i int32) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) KernelId() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) SetKernelId(s string) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) CurrentContainerType() scheduling.ContainerType {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) OriginalContainerType() scheduling.ContainerType {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) PromotePrewarmedContainer() bool {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (ivk *LocalInvoker) ContainerIsPrewarm() bool {
+	//TODO implement me
+	panic("implement me")
 }
 
 func NewLocalInvoker() *LocalInvoker {
