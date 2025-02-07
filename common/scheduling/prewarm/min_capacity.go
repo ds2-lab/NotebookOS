@@ -1,7 +1,6 @@
 package prewarm
 
 import (
-	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"time"
 )
@@ -76,21 +75,18 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	containers, ok := p.PrewarmContainersPerHost[host.GetID()]
-	if !ok {
-		panic(fmt.Sprintf("No queue found for host %s (ID=%s)",
-			host.GetNodeName(), host.GetID()))
-	}
+	count, countWithProvisioning := p.numContainersOnHost(host, true)
+	numProvisioning := countWithProvisioning - count
 
 	// Check if we're satisfying the minimum capacity constraint. If we are, then we can return.
-	if containers.Len() >= p.Config.MinPrewarmedContainersPerHost {
+	if countWithProvisioning >= p.Config.MinPrewarmedContainersPerHost {
 		return
 	}
 
 	// Calculate how many containers we need to provision on this host.
-	numToProvision := p.Config.MinPrewarmedContainersPerHost - containers.Len()
-	p.log.Debug("Host %s (ID=%s) is under capacity (current=%d, min=%d). Provisioning %d pre-warm container(s) on host.",
-		host.GetNodeName(), host.GetID(), containers.Len(), p.Config.MinPrewarmedContainersPerHost, numToProvision)
+	numToProvision := p.Config.MinPrewarmedContainersPerHost - countWithProvisioning
+	p.log.Debug("Host %s (ID=%s) is under capacity (current=%d, provisioning=%d, min=%d). Provisioning %d pre-warm container(s) on host.",
+		host.GetNodeName(), host.GetID(), count, numProvisioning, p.Config.MinPrewarmedContainersPerHost, numToProvision)
 
 	// Provision the containers in a separate goroutine.
 	go p.ProvisionContainers(host, numToProvision)
