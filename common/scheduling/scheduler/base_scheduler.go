@@ -10,6 +10,7 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -66,14 +67,15 @@ type NotificationBroker interface {
 }
 
 type baseSchedulerBuilder struct {
-	cluster            scheduling.Cluster
-	placer             scheduling.Placer
-	hostMapper         HostMapper
-	hostSpec           types.Spec
-	kernelProvider     KernelProvider
-	notificationBroker NotificationBroker
-	schedulingPolicy   SchedulingPolicy // Optional, will be extracted from Options if not specified.
-	options            *scheduling.SchedulerOptions
+	cluster                     scheduling.Cluster
+	placer                      scheduling.Placer
+	hostMapper                  HostMapper
+	hostSpec                    types.Spec
+	kernelProvider              KernelProvider
+	notificationBroker          NotificationBroker
+	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from Options if not specified.
+	initialNumContainersPerHost int
+	options                     *scheduling.SchedulerOptions
 }
 
 func newBaseSchedulerBuilder() *baseSchedulerBuilder {
@@ -120,6 +122,11 @@ func (b *baseSchedulerBuilder) WithOptions(options *scheduling.SchedulerOptions)
 	return b
 }
 
+func (b *baseSchedulerBuilder) WithInitialNumContainersPerHost(initialNumContainersPerHost int) *baseSchedulerBuilder {
+	b.initialNumContainersPerHost = initialNumContainersPerHost
+	return b
+}
+
 // Build method
 func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	if b.options == nil {
@@ -156,6 +163,9 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		schedulingPolicy:                         b.schedulingPolicy,
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
+
+	prewarmer := prewarm.NewContainerPrewarmer(b.cluster, b.initialNumContainersPerHost)
+	clusterScheduler.prewarmer = prewarmer
 
 	if b.options.GpuPollIntervalSeconds <= 0 {
 		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
@@ -248,20 +258,7 @@ type BaseScheduler struct {
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
 
-	//-//-//-//-//-//-//-//-//-//
-	//  Scaling Configuration  //
-	//-//-//-//-//-//-//-//-//-//
-	//gpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
-	//virtualGpusPerHost           int32         // The number of virtual GPUs per host.
-	//scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy TransactionResources.
-	//maximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	//scalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
-	//scalingInterval              time.Duration // How often to call UpdateRatio .
-	//scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
-	//predictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	//scalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
-	//minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
-	//maximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	prewarmer scheduling.ContainerPrewarmer
 
 	canScaleIn bool // Can the Cluster/Placer scale-in?
 }
@@ -1534,6 +1531,11 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 
 		s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
 	}
+}
+
+// ContainerPrewarmer returns the ContainerPrewarmer used by the BaseScheduler.
+func (s *BaseScheduler) ContainerPrewarmer() scheduling.ContainerPrewarmer {
+	return s.prewarmer
 }
 
 // ReleaseIdleHosts tries to release n idle hosts. Return the number of hosts that were actually released.

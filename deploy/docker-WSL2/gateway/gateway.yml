@@ -73,3 +73,4 @@ submit_execute_requests_one_at_a_time: true
 idle_session_reclamation_enabled: true
 idle_session_reclamation_interval_sec: 30
 pretty_print_options: true
+initial_num_containers_per_host: 1

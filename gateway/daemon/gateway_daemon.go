@@ -751,13 +751,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	if clusterGateway.initialClusterSize >= 0 {
 		clusterGateway.inInitialConnectionPeriod.Store(true)
 
-		go func() {
-			clusterGateway.log.Debug("Initial Connection Period will end in %v.", clusterGateway.initialConnectionPeriod)
-			time.Sleep(clusterGateway.initialConnectionPeriod)
-			clusterGateway.inInitialConnectionPeriod.Store(false)
-			clusterGateway.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
-				clusterGateway.initialConnectionPeriod, clusterGateway.cluster.Len())
-		}()
+		go d.handleInitialConnectionPeriod()
 	} else {
 		clusterGateway.log.Debug("Initial Cluster Size specified as negative number (%d). "+
 			"Disabling 'initial connection period' feature.", clusterGateway.initialClusterSize)
@@ -772,6 +766,54 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 
 	return clusterGateway
+}
+
+// handleInitialConnectionPeriod first waits for the "initial connection period" to elapse, after which it sets the
+// ClusterGatewayImpl's inInitialConnectionPeriod field to false.
+//
+// After that, handleInitialConnectionPeriod invokes the ProvisionInitialPrewarmContainers method of the
+// scheduling.ContainerPrewarmer (if one exists).
+func (d *ClusterGatewayImpl) handleInitialConnectionPeriod() {
+	d.log.Debug("Initial Connection Period will end in %v.",
+		d.initialConnectionPeriod)
+
+	time.Sleep(d.initialConnectionPeriod)
+
+	d.inInitialConnectionPeriod.Store(false)
+
+	d.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+		d.initialConnectionPeriod, d.cluster.Len())
+
+	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
+	prewarmer := d.containerPrewarmer()
+	if prewarmer == nil {
+		d.log.Debug("No ContainerPrewarmer available.")
+		return
+	}
+
+	if d.ClusterOptions.InitialNumContainersPerHost == 0 {
+		d.log.Debug("Not supposed to pre-warm any containers per host.")
+		return
+	}
+
+	d.log.Debug("Triggering initial pre-warming of %d container(s) on each connected host.",
+		d.ClusterOptions.InitialNumContainersPerHost)
+
+	created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+	if target > 0 {
+		d.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	}
+}
+
+// containerPrewarmer returns the scheduling.ContainerPrewarmer used by the cluster's Scheduler.
+func (d *ClusterGatewayImpl) containerPrewarmer() scheduling.ContainerPrewarmer {
+	clusterScheduler := d.Scheduler()
+	if clusterScheduler == nil {
+		return nil
+	}
+
+	return clusterScheduler.ContainerPrewarmer()
 }
 
 // idleSessionReclaimer runs a loop and searches for scheduling.Kernel instances that are idle.

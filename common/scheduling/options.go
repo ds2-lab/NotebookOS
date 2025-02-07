@@ -136,9 +136,11 @@ type SchedulerOptions struct {
 	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each Host, in megabytes."`
 	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each Host, in gigabytes."`
 
-	PrewarmingEnabled    bool `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
-	MaxPrewarmContainers int  `name:"max_prewarm_containers" json:"max_prewarm_containers" yaml:"max_prewarm_containers"`
-
+	PrewarmingEnabled                 bool `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
+	MaxPrewarmContainers              int  `name:"max_prewarm_containers" json:"max_prewarm_containers" yaml:"max_prewarm_containers"`
+	InitialNumContainersPerHost       int  `name:"initial_num_containers_per_host" json:"initial_num_containers_per_host" yaml:"initial_num_containers_per_host"`
+	InitialClusterConnectionPeriodSec int  `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all Local Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
+	
 	PredictiveAutoscalingEnabled bool `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the Cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
 
 	// If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
