@@ -1089,6 +1089,10 @@ class DistributedKernel(IPythonKernel):
             f"{time.time() - start_time} seconds. Response payload: {str(response)}"
         )
 
+        # If we're a pre-warm container, then we ignore everything from the initial registration payload. 
+        if self.is_prewarmed_container:
+            return
+
         response_dict = json.loads(response)
         self.smr_node_id: int = response_dict["smr_node_id"]
         self.hostname = response_dict["hostname"]

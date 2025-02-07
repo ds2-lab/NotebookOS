@@ -1103,6 +1103,32 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 	return kernel, kernelConnectionInfo
 }
 
+// registerKernelReplicaDocker performs some Docker-specific registration steps.
+func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.KernelReplicaSpec, containerType scheduling.ContainerType) (*client.KernelReplicaClient, *proto.KernelConnectionInfo) {
+	kernelClientCreationChannel, loaded := d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
+	if !loaded {
+		err := fmt.Errorf("failed to load 'kernel client creation' channel for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
+		d.notifyClusterGatewayAndPanic("Failed to Load 'kernel Client Creation' Channel", err.Error(), err)
+	}
+
+	d.log.Debug("Waiting for notification that the KernelClient for %s Kernel \"%s\" has been created.",
+		containerType.String(), kernelReplicaSpec.Kernel.Id)
+	kernelConnectionInfo := <-kernelClientCreationChannel
+	d.log.Debug("Received notification that the KernelClient for %s Kernel \"%s\" was created.",
+		containerType.String(), kernelReplicaSpec.Kernel.Id)
+
+	kernel, loaded := d.kernels.Load(kernelReplicaSpec.Kernel.Id)
+
+	if !loaded {
+		message := fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...",
+			kernelReplicaSpec.Kernel.Id)
+		d.notifyClusterGatewayAndPanic("Failed to Load kernel Client for New kernel Replica",
+			message, message)
+	}
+
+	return kernel, kernelConnectionInfo
+}
+
 // Register a kernel that has started running on the same node that we are running on.
 // This method must be thread-safe.
 func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
@@ -1194,34 +1220,14 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
 	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
 	var (
-		kernel                      *client.KernelReplicaClient
-		kernelClientCreationChannel chan *proto.KernelConnectionInfo
-		loaded                      bool
-		kernelConnectionInfo        *proto.KernelConnectionInfo
+		kernel               *client.KernelReplicaClient
+		kernelConnectionInfo *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		kernel, kernelConnectionInfo = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload, connInfo, kernelRegistrationClient)
+		kernel, kernelConnectionInfo = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload,
+			connInfo, kernelRegistrationClient)
 	} else {
-		kernelClientCreationChannel, loaded = d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
-		if !loaded {
-			err := fmt.Errorf("failed to load 'kernel client creation' channel for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
-			d.notifyClusterGatewayAndPanic("Failed to Load 'kernel Client Creation' Channel", err.Error(), err)
-		}
-
-		d.log.Debug("Waiting for notification that the KernelClient for %s Kernel \"%s\" has been created.",
-			containerType.String(), kernelReplicaSpec.Kernel.Id)
-		kernelConnectionInfo = <-kernelClientCreationChannel
-		d.log.Debug("Received notification that the KernelClient for %s Kernel \"%s\" was created.",
-			containerType.String(), kernelReplicaSpec.Kernel.Id)
-
-		kernel, loaded = d.kernels.Load(kernelReplicaSpec.Kernel.Id)
-
-		if !loaded {
-			message := fmt.Sprintf("Failed to load kernel client with ID \"%s\", even though one should have already been created...",
-				kernelReplicaSpec.Kernel.Id)
-			d.notifyClusterGatewayAndPanic("Failed to Load kernel Client for New kernel Replica",
-				message, message)
-		}
+		kernel, kernelConnectionInfo = d.registerKernelReplicaDocker(kernelReplicaSpec, containerType)
 
 		createdAt, ok := d.getInvoker(kernel).KernelCreatedAt()
 		if !ok {
@@ -1244,23 +1250,13 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		}
 	}
 
-	// TODO: Is this any different than the KernelConnectionInfo object that's created while initializing the kernel client?
-	// If not, then we should just return the `kernelConnectionInfo` variable directly (that's the one created when initializing the kernel client).
-	info := &proto.KernelConnectionInfo{
-		Ip:              d.ip,
-		Transport:       d.transport,
-		ControlPort:     int32(d.router.Socket(messaging.ControlMessage).Port),
-		ShellPort:       kernelConnectionInfo.ShellPort,
-		StdinPort:       int32(d.router.Socket(messaging.StdinMessage).Port),
-		HbPort:          int32(d.router.Socket(messaging.HBMessage).Port),
-		IopubPort:       kernelConnectionInfo.IopubPort, // TODO(Ben): Are these still needed? I think so...
-		IosubPort:       kernelConnectionInfo.IosubPort, // TODO(Ben): Are these still needed? I think so...
-		SignatureScheme: connInfo.SignatureScheme,
-		Key:             connInfo.Key,
+	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
+	if registrationPayload.PrewarmContainer {
+		return
 	}
 
 	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
-		ConnectionInfo:     info,
+		ConnectionInfo:     kernelConnectionInfo,
 		KernelId:           kernel.ID(),
 		HostId:             d.id,
 		SessionId:          "N/A",
@@ -1286,7 +1282,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	}
 
 	d.log.Info("%s kernel %s registered: %v. Notifying Gateway now.",
-		containerType.String(), kernelReplicaSpec.ID(), info)
+		containerType.String(), kernelReplicaSpec.ID(), kernelConnectionInfo)
 
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancelPing()
@@ -2020,10 +2016,65 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	// Allocate resources.
+	allocated, err := d.allocateResourcesForNewReplica(kernelReplicaSpec)
+	if err != nil {
+		d.log.Error("Failed to allocate resources to new replica %d of kernel %s during prewarm promotion: %v",
+			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, err)
+		return nil, err // Should already be compatible with gRPC
+	}
+
+	if !allocated {
+		d.log.Error("Expected to allocate resources to replica %d of kernel %s during prewarm promotion...")
+		d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
+			Id: uuid.NewString(),
+			Title: fmt.Sprintf("Resources Not Allocated to Container for kernel %s-%d During Prewarm Promotion",
+				kernelReplicaSpec.Kernel.Id, kernelReplicaSpec.ReplicaId),
+			Message:          "Resources were not allocated for some unknown reason.",
+			NotificationType: 0,
+			Panicked:         false,
+		})
+
+		return nil, status.Error(codes.Internal, "resources were not allocated for some unknown reason")
+	}
+
 	jMsg := test_utils.CreateJupyterMessage(messaging.ControlPromotePrewarmRequest, prewarmedContainerId,
 		prewarmedContainer.ConnectionInfo().Key)
 
 	content := make(map[string]interface{})
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		d.log.Error("[ERROR] DockerInvoker could not resolve hostname because: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	distributedKernelConfig := &jupyter.DistributedKernelConfig{
+		StorageBase:                  d.dockerStorageBase,
+		SMRNodeID:                    int(kernelReplicaSpec.ReplicaId),
+		SMRNodes:                     kernelReplicaSpec.Replicas,
+		SMRJoin:                      kernelReplicaSpec.Join,
+		RegisterWithLocalDaemon:      true,
+		LocalDaemonAddr:              hostname,
+		RemoteStorageEndpoint:        d.remoteStorageEndpoint,
+		RemoteStorage:                d.remoteStorage,
+		PrometheusServerPort:         d.prometheusPort,
+		SpecCpus:                     float64(kernelReplicaSpec.Kernel.ResourceSpec.Cpu),
+		SpecMemoryMb:                 float64(kernelReplicaSpec.Kernel.ResourceSpec.Memory),
+		SpecGpus:                     int(kernelReplicaSpec.Kernel.ResourceSpec.Gpu),
+		SpecVramGb:                   float64(kernelReplicaSpec.Kernel.ResourceSpec.Vram),
+		DeploymentMode:               d.deploymentMode,
+		SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
+		ElectionTimeoutSeconds:       d.electionTimeoutSeconds,
+		WorkloadId:                   kernelReplicaSpec.WorkloadId,
+		SmrEnabled:                   d.schedulingPolicy.SmrEnabled(),
+		SimulateTrainingUsingSleep:   d.simulateTrainingUsingSleep,
+	}
+
+	// Pass in any information that the kernel would've normally received
+	// from configuration files that are populated by the KernelInvoker.
+	content["kernel_id"] = kernelReplicaSpec.Kernel.Id
+	content["distributed_kernel_config"] = distributedKernelConfig
 
 	err = jMsg.EncodeContent(content)
 	if err != nil {
@@ -2033,7 +2084,27 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	err = prewarmedContainer.RequestWithHandler(ctx, "Forwarding", messaging.ControlMessage, jMsg, handler, done)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// When the kernel registers, we need the kernel client that we create here.
+	// We use this channel to notify the goroutine handling the registration that
+	// the kernel client is set up and connected.
+	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
+	d.kernelClientCreationChannels.Store(kernelReplicaSpec.Kernel.Id, kernelClientCreationChannel)
+
+	// Clear any existing "container started" notifications associated with the target kernel.
+	if d.containerStartedNotificationManager != nil {
+		deleted := d.containerStartedNotificationManager.DeleteNotification(kernelReplicaSpec.Kernel.Id)
+		if deleted {
+			d.log.Warn("Deleted existing 'Container Started' notification associated with replica %d of kernel %s.",
+				kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+		}
+	}
+
+	// Send the "promote_prewarm_request" message to the kernel, which will prompt it to re-register.
+	// TODO: Setup infrastructure required for this part...
+	err = prewarmedContainer.RequestWithHandler(ctx, "Forwarding", messaging.ControlMessage, jMsg, nil, wg.Done)
 	if err != nil {
 		d.log.Error("Promotion of prewarmed container \"%s\" failed: %v", prewarmedContainer, err)
 		d.log.Error("Failed to create replica %d of kernel \"%s\" using pre-warmed container \"%s\".",
@@ -2042,7 +2113,40 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	return nil, nil
+	// Wait for the response to be received.
+	wg.Wait()
+
+	// Remove the entry from the "prewarmed" mapping...
+	d.prewarmKernels.Delete(prewarmedContainerId)
+	// ... and add a new entry to the standard kernel replica mapping.
+	d.kernels.Store(kernelReplicaSpec.Kernel.Id, prewarmedContainer)
+
+	// Unregister the prewarmed kernel replica client with the execute request forwarder...
+	d.executeRequestForwarder.UnregisterKernel(prewarmedContainerId)
+	// ... and re-register the kernel replica client under its new kernel ID.
+	d.registerKernelWithExecReqForwarder(prewarmedContainer)
+
+	info := &proto.KernelConnectionInfo{
+		Ip:              d.ip,
+		Transport:       d.transport,
+		ControlPort:     int32(d.router.Socket(messaging.ControlMessage).Port),
+		ShellPort:       int32(prewarmedContainer.Socket(messaging.ShellMessage).Port),
+		StdinPort:       int32(d.router.Socket(messaging.StdinMessage).Port),
+		HbPort:          int32(d.router.Socket(messaging.HBMessage).Port),
+		IopubPort:       int32(prewarmedContainer.IOPubListenPort()),
+		IosubPort:       int32(prewarmedContainer.IOSubSocketPort()),
+		SignatureScheme: kernelReplicaSpec.Kernel.SignatureScheme,
+		Key:             kernelReplicaSpec.Kernel.Key,
+	}
+
+	// Notify that the kernel client has been set up successfully.
+	kernelClientCreationChannel <- info
+
+	if d.prometheusManager != nil {
+		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()
+	}
+
+	return info, nil
 }
 
 // prepareKernelInvoker prepares a new invoker.KernelInvoker to invoke/create the container for a new kernel replica.
@@ -2134,28 +2238,13 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
 	}
 
-	// We only commit resources if the container is not a pre-warmed container.
-	// We commit resources for pre-warmed containers at the time that they are used/promoted.
-	if !in.PrewarmContainer {
-		// We always create a pending resource allocation (i.e., for any scheduling policy).
-		resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-		if resourceError != nil {
-			d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-			return nil, status.Error(codes.Internal, resourceError.Error())
-		}
+	// Allocate resources. If it's a pre-warm container, then resources will not be allocated.
+	_, err := d.allocateResourcesForNewReplica(in)
+	if err != nil {
+		d.log.Error("Failed to allocate resources to new replica %d of kernel %s: %v",
+			in.ReplicaId, in.Kernel.Id, err)
 
-		// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
-		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-			_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
-				in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
-
-			if resourceError != nil {
-				d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
-					in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-				return nil, status.Error(codes.Internal, resourceError.Error())
-			}
-		}
+		return nil, err // Should already be compatible with gRPC
 	}
 
 	// Prepare the kernel invoker, which we'll use to create the kernel replica's container.
@@ -2204,6 +2293,42 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	return d.createNewKernelClient(in, kernelInvoker, connInfo, kernelClientCreationChannel)
 }
 
+// allocateResourcesForNewReplica allocates resources to the new kernel replica in accordance with the
+// configured scheduling.Policy.
+//
+// allocateResourcesForNewReplica returns a flag indicating whether resources were allocated.
+//
+// If there's an error, allocateResourcesForNewReplica will return a gRPC-compatible error.
+func (d *LocalScheduler) allocateResourcesForNewReplica(in *proto.KernelReplicaSpec) (bool, error) {
+	// We only commit resources if the container is not a pre-warmed container.
+	// We commit resources for pre-warmed containers at the time that they are used/promoted.
+	if in.PrewarmContainer {
+		return false, nil
+	}
+
+	// We always create a pending resource allocation (i.e., for any scheduling policy).
+	resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
+	if resourceError != nil {
+		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
+			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+		return false, status.Error(codes.Internal, resourceError.Error())
+	}
+
+	// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
+	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
+			in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
+
+		if resourceError != nil {
+			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
+				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+			return false, status.Error(codes.Internal, resourceError.Error())
+		}
+	}
+
+	return true, nil
+}
+
 // createNewKernelClient creates a new *client.KernelReplicaClient for a new scheduling.KernelReplica that we're in the
 // process of creating.
 func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kernelInvoker invoker.KernelInvoker,
@@ -2239,6 +2364,12 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	if d.prometheusManager != nil {
 		d.prometheusManager.TotalNumKernelsCounter.Inc()
 		d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
+
+		if in.PrewarmContainer {
+			d.prometheusManager.TotalNumPrewarmContainersCreatedCounter.Inc()
+		} else {
+			d.prometheusManager.TotalNumStandardContainersCreatedCounter.Inc()
+		}
 	}
 
 	return info, nil
@@ -2577,7 +2708,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := kernel.RequestWithHandler(ctx, "Forwarding", messaging.ShellMessage, msg, d.kernelResponseForwarder, func() {
 		cancel()
-		d.log.Debug("SetDone() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
+		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
 			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
 	}); err != nil {
 		return err

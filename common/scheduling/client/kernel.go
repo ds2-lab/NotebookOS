@@ -1121,6 +1121,15 @@ func (c *KernelReplicaClient) InitializeIOSub(handler messaging.MessageHandler, 
 	return c.client.Sockets.IO, nil
 }
 
+// IOSubSocketPort return the Port of the IO Socket of the target KernelReplicaClient's client.
+func (c *KernelReplicaClient) IOSubSocketPort() int {
+	if c.client == nil || c.client.Sockets == nil || c.client.Sockets.IO == nil {
+		return -1
+	}
+
+	return c.client.Sockets.IO.Port
+}
+
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
 func (c *KernelReplicaClient) AddIOHandler(topic string, handler scheduling.MessageBrokerHandler[scheduling.KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error {
