@@ -18,7 +18,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/test_utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"log"
@@ -2070,8 +2069,9 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, "resources were not allocated for some unknown reason")
 	}
 
-	jMsg := test_utils.CreateJupyterMessage(messaging.ControlPromotePrewarmRequest, prewarmedContainerId,
-		prewarmedContainer.ConnectionInfo().Key)
+	msgId := uuid.NewString()
+	msgTyp := messaging.ControlPromotePrewarmRequest
+	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, msgTyp, prewarmedContainerId)
 
 	content := make(map[string]interface{})
 
@@ -2109,13 +2109,23 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	content["kernel_id"] = kernelReplicaSpec.Kernel.Id
 	content["distributed_kernel_config"] = distributedKernelConfig
 
-	err = jMsg.EncodeContent(content)
+	err = frames.EncodeContent(&content)
 	if err != nil {
 		d.log.Error("Failed to encode content of \"%s\" request for pre-warmed container \"%s\": %v",
 			messaging.ControlPromotePrewarmRequest, prewarmedContainerId, err)
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+
+	var msg zmq4.Msg
+	msg.Frames, err = frames.Sign(kernelReplicaSpec.Kernel.SignatureScheme, []byte(kernelReplicaSpec.Kernel.Key))
+	if err != nil {
+		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
+			kernelReplicaSpec.Kernel.Id, kernelReplicaSpec.Kernel.SignatureScheme, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	jMsg := messaging.NewJupyterMessage(&msg)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -2136,7 +2146,6 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	}
 
 	// Send the "promote_prewarm_request" message to the kernel, which will prompt it to re-register.
-	// TODO: Setup infrastructure required for this part...
 	err = prewarmedContainer.RequestWithHandler(ctx, "Forwarding", messaging.ControlMessage, jMsg, nil, wg.Done)
 	if err != nil {
 		d.log.Error("Promotion of prewarmed container \"%s\" failed: %v", prewarmedContainer, err)
