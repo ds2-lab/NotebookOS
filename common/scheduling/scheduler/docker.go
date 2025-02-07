@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -270,7 +271,19 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 
 	container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
 	if container != nil {
-		return s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
+		err = s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
+
+		if err == nil {
+			return nil
+		}
+
+		if errors.Is(err, prewarm.ErrPrewarmedContainerAlreadyUsed) {
+			s.log.Error("Will use on-demand container for replica %d of kernel \"%s\" since pre-warmed container was already used...",
+				replicaSpec.ReplicaId, kernelId)
+			return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
+		}
+
+		return err
 	}
 
 	s.log.Debug("No pre-warmed containers available on host %s: %v.", targetHost.GetNodeName(), unavailErr)
@@ -302,7 +315,16 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 		panic("Invalid arguments to scheduling kernel replica prewarm (container.Host() != targetHost).")
 	}
 
-	return nil
+	if !container.IsAvailable() {
+		s.log.Error("Pre-warmed container \"%s\" has already been used...", container.ID())
+		return prewarm.ErrPrewarmedContainerAlreadyUsed
+	}
+
+	s.log.Debug("Launching replica %d of kernel %s in pre-warmed container \"%s\" on targetHost %s (ID=%s) now.",
+		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID())
+
+	// TODO: Finish implementing
+	panic("Finish implementing me")
 }
 
 // scheduleKernelReplicaOnDemand uses the scheduling.Placer to create a new scheduling.KernelContainer on the specified
