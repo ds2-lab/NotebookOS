@@ -44,6 +44,7 @@ const (
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
 
+	PrewarmKernelName    = "prewarm-%s-%s"
 	DockerKernelName     = "kernel-%s-%s"
 	VarContainerImage    = "{image}"
 	VarConnectionFile    = "{connection_file}"
@@ -390,7 +391,13 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 
 	ivk.log.Debug("[DockerInvoker] Invoking with context now.\n")
 
-	kernelName, port, err := ivk.extractKernelNamePort(spec)
+	var (
+		kernelName string
+		port       int
+		err        error
+	)
+
+	kernelName, port, err = ivk.extractKernelNamePort(spec)
 	if err != nil {
 		return nil, ivk.reportLaunchError(err)
 	}
@@ -688,8 +695,20 @@ func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replicaId
 	return fmt.Sprintf(DockerKernelName, fmt.Sprintf("%s-%d", kernel.Id, replicaId), utils.GenerateRandomString(8))
 }
 
+// generatePrewarmedContainerName generates a name to use for a new pre-warmed container that is not associated
+// with a real/actual kernel (yet).
+func (ivk *DockerInvoker) generatePrewarmedContainerName(spec *proto.KernelReplicaSpec) string {
+	// We append a string of random characters to the end of the name to help mitigate the risk of name collisions
+	// when re-running the same workload (with the same kernels/sessions) multiple times on the same cluster.
+	return fmt.Sprintf(PrewarmKernelName, fmt.Sprintf("%s", spec.Kernel.Id), utils.GenerateRandomString(8))
+}
+
 // extractKernelName extracts kernel name and port from the replica spec
 func (ivk *DockerInvoker) extractKernelNamePort(spec *proto.KernelReplicaSpec) (name string, port int, err error) {
+	if spec.PrewarmContainer {
+		return ivk.generatePrewarmedContainerName(spec), 0, nil
+	}
+
 	if spec.ReplicaId > int32(len(spec.Replicas)) {
 		return ivk.generateKernelName(spec.Kernel, spec.ReplicaId), 0, nil
 	}
@@ -793,4 +812,9 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	}
 
 	return nil
+}
+
+// RenameContainer renames the container.
+func (ivk *DockerInvoker) RenameContainer(name string) error {
+	panic("Not implemented")
 }

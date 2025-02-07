@@ -229,6 +229,7 @@ func (p *ContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host) (sc
 			ErrNoPrewarmedContainersAvailable, host.GetNodeName(), host.GetID())
 	}
 
+	// Check if there are simply no pre-warmed containers available.
 	if containers.Len() == 0 {
 		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable].",
 			host.GetNodeName(), host.GetID(), containers.Len())
