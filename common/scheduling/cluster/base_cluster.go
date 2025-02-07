@@ -220,6 +220,9 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 	if target > 0 {
 		c.log.Debug("Created %c/%c pre-warm containers.", created, target)
 	}
+
+	// Start the prewarmer.
+	prewarmer.Run()
 }
 
 func (c *BaseCluster) initRatioUpdater() {
