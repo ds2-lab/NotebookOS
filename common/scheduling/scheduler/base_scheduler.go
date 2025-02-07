@@ -10,7 +10,7 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	prewarm2 "github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
+	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -164,7 +164,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
-	prewarmerConfig := &prewarm2.PrewarmerConfig{
+	prewarmerConfig := &prewarm.PrewarmerConfig{
 		InitialPrewarmedContainersPerHost: b.initialNumContainersPerHost,
 		MaxPrewarmedContainersPerHost:     b.options.MaxPrewarmContainersPerHost,
 	}
@@ -175,31 +175,31 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 			{
 				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
 
-				minCapacityPrewarmerConfig := &prewarm2.MinCapacityPrewarmerConfig{
+				minCapacityPrewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
 					PrewarmerConfig:               prewarmerConfig,
 					MinPrewarmedContainersPerHost: b.options.MinPrewarmContainersPerHost,
 				}
 
-				prewarmer := prewarm2.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig)
+				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case scheduling.LittleLawCapacity.String():
 			{
 				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
 
-				littlesLawConfig := &prewarm2.LittlesLawPrewarmerConfig{
+				littlesLawConfig := &prewarm.LittlesLawPrewarmerConfig{
 					PrewarmerConfig: prewarmerConfig,
 					W:               0,
 					Lambda:          0,
 				}
 
-				prewarmer := prewarm2.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig)
+				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case "":
 			{
 				clusterScheduler.log.Warn("No pre-warming policy specified. Using default (i.e., none).")
-				prewarmer := prewarm2.NewContainerPrewarmer(b.cluster, prewarmerConfig)
+				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		default:

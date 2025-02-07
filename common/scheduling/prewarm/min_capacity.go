@@ -75,7 +75,7 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	count, countWithProvisioning := p.numContainersOnHost(host, true)
+	count, countWithProvisioning := p.unsafeNumContainersOnHost(host, true)
 	numProvisioning := countWithProvisioning - count
 
 	// Check if we're satisfying the minimum capacity constraint. If we are, then we can return.

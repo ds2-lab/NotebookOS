@@ -271,6 +271,9 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 
 	container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
 	if container != nil {
+		s.log.Debug("Found pre-warmed container on host %s. Using for replica %d of kernel %s.",
+			targetHost.GetID(), replicaSpec.ReplicaId, kernelId)
+
 		err = s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
 
 		if err == nil {

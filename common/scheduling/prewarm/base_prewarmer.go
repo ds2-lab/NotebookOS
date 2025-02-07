@@ -462,13 +462,26 @@ func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
 //
 // The first quantity returned by numContainersOnHost is the number without provisioning.
 //
-// If `X` is specified as true, then the second quantity will be the number with provisioning.
+// If `includeProvisioning` is specified as true, then the second quantity will be the number with provisioning.
 //
-// If `X` is specified as false, then the second quantity will be -1.
+// If `includeProvisioning` is specified as false, then the second quantity will be -1.
 func (p *BaseContainerPrewarmer) numContainersOnHost(host scheduling.Host, includeProvisioning bool) (int, int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	return p.unsafeNumContainersOnHost(host, includeProvisioning)
+}
+
+// unsafeNumContainersOnHost returns the number of pre-warmed containers on the specified scheduling.Host, with a
+// second parameter enabling the specification of whether to include containers that are being provisioned (but are not
+// yet created) in that count.
+//
+// The first quantity returned by unsafeNumContainersOnHost is the number without provisioning.
+//
+// If `includeProvisioning` is specified as true, then the second quantity will be the number with provisioning.
+//
+// If `includeProvisioning` is specified as false, then the second quantity will be -1.
+func (p *BaseContainerPrewarmer) unsafeNumContainersOnHost(host scheduling.Host, includeProvisioning bool) (int, int) {
 	containers, loaded := p.PrewarmContainersPerHost[host.GetID()]
 	if !loaded {
 		containers = queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
