@@ -82,14 +82,17 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 			host.GetNodeName(), host.GetID()))
 	}
 
-	if containers.Len() > p.Config.MinPrewarmedContainersPerHost {
+	// Check if we're satisfying the minimum capacity constraint. If we are, then we can return.
+	if containers.Len() >= p.Config.MinPrewarmedContainersPerHost {
 		return
 	}
 
+	// Calculate how many containers we need to provision on this host.
 	numToProvision := p.Config.MinPrewarmedContainersPerHost - containers.Len()
 	p.log.Debug("Host %s (ID=%s) is under capacity (current=%d, min=%d). Provisioning %d pre-warm container(s) on host.",
 		host.GetNodeName(), host.GetID(), containers.Len(), p.Config.MinPrewarmedContainersPerHost, numToProvision)
 
+	// Provision the containers in a separate goroutine.
 	go p.ProvisionContainers(host, numToProvision)
 }
 
