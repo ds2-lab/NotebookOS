@@ -212,7 +212,7 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 		return
 	}
 
-	c.log.Debug("Triggering initial pre-warming of %c container(s) on each connected host.",
+	c.log.Debug("Triggering initial pre-warming of %d container(s) on each connected host.",
 		c.opts.InitialNumContainersPerHost)
 
 	created, target := prewarmer.ProvisionInitialPrewarmContainers()

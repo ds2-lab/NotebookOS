@@ -684,9 +684,10 @@ func (ivk *DockerInvoker) Wait() (jupyter.KernelStatus, error) {
 	return ivk.status, nil
 }
 
-//func (ivk *DockerInvoker) GetReplicaAddress(kernel *proto.KernelSpec, replicaId int32) string {
-//	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
-//}
+// RenameContainer renames the container.
+func (ivk *DockerInvoker) RenameContainer(name string) error {
+	panic("Not implemented")
+}
 
 // generateKernelName generates and returns a name for the kernel container based on the kernel ID and replica ID.
 func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replicaId int32) string {
@@ -812,9 +813,4 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	}
 
 	return nil
-}
-
-// RenameContainer renames the container.
-func (ivk *DockerInvoker) RenameContainer(name string) error {
-	panic("Not implemented")
 }
