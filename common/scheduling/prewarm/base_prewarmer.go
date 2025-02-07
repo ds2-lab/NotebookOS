@@ -295,7 +295,7 @@ func (p *BaseContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduli
 	p.log.Debug("Container returned unused [%v]", container.String())
 
 	// Ensure the container hasn't already been used.
-	if container.IsAvailable() {
+	if !container.IsAvailable() {
 		p.log.Error("Returned prewarmed container %s is marked as having been used.", container.ID())
 		return fmt.Errorf("%w: container \"%s\"", ErrPrewarmedContainerAlreadyUsed, container.ID())
 	}
@@ -519,7 +519,7 @@ func (p *BaseContainerPrewarmer) unsafeRegisterPrewarmedContainer(container sche
 	}
 
 	// Ensure the container hasn't already been used.
-	if container.IsAvailable() {
+	if !container.IsAvailable() {
 		p.log.Error("Returned prewarmed container %s is marked as having been used.", container.ID())
 		return fmt.Errorf("%w: container \"%s\"", ErrPrewarmedContainerAlreadyUsed, container.ID())
 	}

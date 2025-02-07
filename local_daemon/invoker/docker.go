@@ -784,6 +784,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			WorkloadId:                   ivk.workloadId,
 			SmrEnabled:                   ivk.SmrEnabled,
 			SimulateTrainingUsingSleep:   ivk.SimulateTrainingUsingSleep,
+			PrewarmContainer:             spec.PrewarmContainer,
 		},
 	}
 	if spec.PersistentId != nil {

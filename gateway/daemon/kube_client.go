@@ -1506,6 +1506,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 			RemoteStorage:           c.remoteStorage,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         "", // This is only used in Docker mode.
+			PrewarmContainer:        spec.PrewarmContainer,
 		},
 	}
 	if spec.PersistentId != nil {

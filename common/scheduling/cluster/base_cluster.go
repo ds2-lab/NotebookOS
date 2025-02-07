@@ -217,12 +217,23 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 
 	created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-	if target > 0 {
-		c.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	// If we were supposed to create some number of containers, and we created none, then that's problematic.
+	if created == 0 && target > 0 {
+		c.log.Error("Created 0/%d pre-warm containers...", created, target)
+		panic(fmt.Sprintf("Something is wrong. Failed to create any pre-warmed containers (target=%d).", target))
 	}
 
-	// Start the prewarmer.
-	prewarmer.Run()
+	// Start the prewarmer when we return.
+	defer prewarmer.Run()
+
+	// If the target was 0, then return immediately to avoid printing the unnecessary log message below.
+	// We deferred `prewarmer.Run()`, so that'll run when we return.
+	if target == 0 {
+		return
+	}
+
+	c.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	// We deferred `prewarmer.Run()`, so that'll run when we return.
 }
 
 func (c *BaseCluster) initRatioUpdater() {

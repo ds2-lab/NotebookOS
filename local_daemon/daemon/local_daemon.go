@@ -307,6 +307,24 @@ type KernelRegistrationPayload struct {
 	PrewarmContainer bool `json:"prewarm_container"`
 }
 
+func (p *KernelRegistrationPayload) String() string {
+	m, err := json.Marshal(p)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+func (p *KernelRegistrationPayload) StringFormatted() string {
+	m, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
 // KernelRegistrationClient represents an incoming connection from local distributed kernel.
 type KernelRegistrationClient struct {
 	conn net.Conn
@@ -1171,11 +1189,10 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		return
 	}
 
-	var containerType scheduling.ContainerType
-	containerType = kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
-
+	containerType := kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
+	remoteAddr := kernelRegistrationClient.conn.RemoteAddr()
 	d.log.Debug("Registering %s kernel at (remote) address %s with registration payload: %v",
-		kernelRegistrationClient.ContainerType.String(), containerType.String(), registrationPayload)
+		containerType.String(), remoteAddr.String(), registrationPayload.StringFormatted())
 
 	var connInfo *jupyter.ConnectionInfo
 	if d.LocalMode() {
@@ -2084,6 +2101,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		WorkloadId:                   kernelReplicaSpec.WorkloadId,
 		SmrEnabled:                   d.schedulingPolicy.SmrEnabled(),
 		SimulateTrainingUsingSleep:   d.simulateTrainingUsingSleep,
+		PrewarmContainer:             false,
 	}
 
 	// Pass in any information that the kernel would've normally received

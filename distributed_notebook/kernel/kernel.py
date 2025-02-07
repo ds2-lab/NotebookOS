@@ -377,7 +377,7 @@ class DistributedKernel(IPythonKernel):
         config=False
     )
 
-    is_prewarmed_container: Bool = (Bool(False,
+    prewarm_container: Bool = (Bool(False,
                                         help="Indicates whether this Kernel was created to serve as a pre-warm container, "
                                              "or if it was created as an actual kernel container.").
                                     tag(config=True))
@@ -466,15 +466,17 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
 
-        if "is_prewarmed_container" in kwargs:
-            self.is_prewarmed_container = kwargs["is_prewarmed_container"]
+        if "prewarm_container" in kwargs:
+            self.prewarm_container = kwargs["prewarm_container"]
 
         # If we are now, then we were "before" (technically before doesn't exist because this is the c'tor, but still).
-        self.was_prewarmed_container = self.is_prewarmed_container
+        self.was_prewarmed_container = self.prewarm_container
 
-        if self.is_prewarmed_container:
+        if self.prewarm_container:
             self.prewarm_container_id: Optional[str] = self.kernel_id
+            self.log.debug(f'I am a prewarm container with prewarm ID "{self.prewarm_container_id}"')
         else:
+            self.log.debug(f'I am NOT a prewarm container (ID="{self.prewarm_container_id}")')
             self.prewarm_container_id: Optional[str] = None
 
         # Keep track of how many times we generate the 'download' code when generating custom DL training code.
@@ -1063,7 +1065,7 @@ class DistributedKernel(IPythonKernel):
             "nodeName": self.node_name,
             "connection-info": connection_info,
             "workload_id": self.workload_id,
-            "prewarm_container": self.is_prewarmed_container,
+            "prewarm_container": self.prewarm_container,
             "kernel": {
                 "id": self.kernel_id,
                 "session": session_id,
@@ -1099,7 +1101,7 @@ class DistributedKernel(IPythonKernel):
         )
 
         # If we're a pre-warm container, then we ignore everything from the initial registration payload.
-        if self.is_prewarmed_container:
+        if self.prewarm_container:
             return
 
         response_dict = json.loads(response)
@@ -2297,7 +2299,7 @@ class DistributedKernel(IPythonKernel):
         content = parent.get("content", {})
         self.log.debug(f"Received PROMOTION request\n{json.dumps(content, indent=2)}")
 
-        if not self.is_prewarmed_container:
+        if not self.prewarm_container:
             self.log.error(f"We are NOT a pre-warm container...")
             self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container", "")
             return
@@ -2315,7 +2317,7 @@ class DistributedKernel(IPythonKernel):
         self.register_with_local_daemon(self.connection_info, self.kernel_id)
         registration_duration: float = (time.time() - registration_start) * 1.0e3
 
-        self.is_prewarmed_container = False
+        self.prewarm_container = False
 
         if self.prometheus_enabled:
             self.registration_time_milliseconds.observe(registration_duration)
