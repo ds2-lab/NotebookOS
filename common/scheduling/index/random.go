@@ -26,7 +26,7 @@ type RandomClusterIndex struct {
 	log logger.Logger
 	*CallbackManager
 	perm        []int             // The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
-	hosts       []scheduling.Host // The Host instances contained within the RandomClusterIndex.
+	hosts       []scheduling.Host // The host instances contained within the RandomClusterIndex.
 	mu          sync.Mutex
 	freeStart   int32        // The first freed index.
 	seekStart   int32        // The start index of the seek.
@@ -108,7 +108,7 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedRandomIndex)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s to RandomClusterIndex at position %d. Index length: %d.",
+	index.log.Debug("Added host %s to RandomClusterIndex at position %d. Index length: %d.",
 		host.GetID(), i, index.Len())
 	index.len += 1
 
@@ -143,7 +143,7 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	}
 
 	if !host.IsContainedWithinIndex() {
-		index.log.Warn("Host %s thinks it is not contained within any Cluster indices; "+
+		index.log.Warn("host %s thinks it is not contained within any Cluster indices; "+
 			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaRandomIndex, i)
 	}
 
@@ -167,7 +167,7 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	}
 
 	if index.hosts[i].GetID() != host.GetID() {
-		log.Fatalf("Host at index %d of RandomClusterIndex is Host %s; however, we're supposed to remove Host %s...\n",
+		log.Fatalf("host at index %d of RandomClusterIndex is host %s; however, we're supposed to remove host %s...\n",
 			i, index.hosts[i].GetID(), host.GetID())
 	}
 
@@ -210,14 +210,14 @@ func (index *RandomClusterIndex) GetMetrics(_ scheduling.Host) []float64 {
 	return nil
 }
 
-// reshuffle shuffles the Host permutation of the target RandomClusterIndex.
+// reshuffle shuffles the host permutation of the target RandomClusterIndex.
 func (index *RandomClusterIndex) reshuffle() {
 	index.perm = rand.Perm(len(index.hosts))
 	index.seekStart = 0
 	index.numShuffles.Add(1)
 }
 
-// reshuffleIfNecessary will reshuffle the permutation of Host instances of the target RandomClusterIndex
+// reshuffleIfNecessary will reshuffle the permutation of host instances of the target RandomClusterIndex
 // if the RandomClusterIndex is in a state in which a reshuffle is required.
 func (index *RandomClusterIndex) reshuffleIfNecessary() {
 	if index.reshuffleRequired() {
@@ -225,7 +225,7 @@ func (index *RandomClusterIndex) reshuffleIfNecessary() {
 	}
 }
 
-// reshuffleRequired returns true if the RandomClusterIndex should reshuffle its permutation of Host instances.
+// reshuffleRequired returns true if the RandomClusterIndex should reshuffle its permutation of host instances.
 func (index *RandomClusterIndex) reshuffleRequired() bool {
 	return index.seekStart == 0 || index.seekStart >= int32(len(index.perm))
 }
@@ -243,7 +243,7 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 	var host scheduling.Host
 
 	// Keep iterating as long as:
-	// (a) we have not found a Host, and
+	// (a) we have not found a host, and
 	// (b) we've not yet looked at every slot in the index and found that it is blacklisted.
 	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.", len(blacklist), index.Len())
 	for host == nil && hostsSeen < index.Len() {
@@ -280,7 +280,7 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	return ret, pos, err
 }
 
-// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
+// SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
@@ -356,7 +356,7 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
 				hostsMap[candidateHost.GetID()] = candidateHost
 			} else {
-				index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
+				index.log.Debug("host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
 			}
 		} else {
 			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.GetNodeName(), candidateHost.GetID())

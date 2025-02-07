@@ -208,7 +208,7 @@ func (b *RequestBuilder) WithRemoveDestFrame(shouldDestFrameBeRemoved bool) *Req
 // Configuring this option is REQUIRED (i.e., there is no default; it must be configured explicitly.)
 func (b *RequestBuilder) WithJMsgPayload(msg *JupyterMessage) *RequestBuilder {
 	if msg == nil {
-		panic(fmt.Sprintf("Cannot assign nil JMsg payload for request. SourceID: %s. DestID: %s. ConnectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
+		panic(fmt.Sprintf("Cannot assign nil JMsg payload for request. SourceID: %s. DestID: %s. connectionInfo: %v.", b.sourceId, b.destinationId, b.connectionInfo))
 	}
 
 	var (

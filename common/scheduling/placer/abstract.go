@@ -87,7 +87,7 @@ func (placer *AbstractPlacer) getReplicaResourceReserver() replicaResourceReserv
 		if err != nil {
 			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
 			if reserved {
-				panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
+				panic("We successfully reserved resources on a host despite ReserveResources also returning an error...")
 			}
 		}
 
@@ -125,7 +125,7 @@ func (placer *AbstractPlacer) getKernelResourceReserver() kernelResourceReserver
 		if err != nil {
 			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
 			if reserved {
-				panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
+				panic("We successfully reserved resources on a host despite ReserveResources also returning an error...")
 			}
 		}
 
@@ -224,7 +224,7 @@ func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kerne
 	return err
 }
 
-// FindHost returns a single Host instance that can satisfy the resourceSpec.
+// FindHost returns a single host instance that can satisfy the resourceSpec.
 func (placer *AbstractPlacer) FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (scheduling.Host, error) {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
@@ -266,7 +266,7 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, replicaSpec *pro
 // Place atomically places a replica on a host.
 func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	if host == nil {
-		placer.log.Debug("Host cannot be nil when placing a kernel replica...")
+		placer.log.Debug("host cannot be nil when placing a kernel replica...")
 		return nil, scheduling.ErrNilHost
 	}
 
@@ -276,19 +276,19 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 	connInfo, err := host.StartKernelReplica(context.Background(), in)
 
 	if err != nil {
-		placer.log.Error("Host %s (ID=%s) returned an error after trying to start replica %d of kernel %s: %v",
+		placer.log.Error("host %s (ID=%s) returned an error after trying to start replica %d of kernel %s: %v",
 			host.GetNodeName(), host.GetID(), in.ReplicaId, in.Kernel.Id, err)
 
 		return nil, err
 	}
 
 	if connInfo != nil {
-		placer.log.Debug("Host %s (ID=%s) returned the following connection info for replica %d of kernel %s: %v",
+		placer.log.Debug("host %s (ID=%s) returned the following connection info for replica %d of kernel %s: %v",
 			host.GetNodeName(), host.GetID(), in.ReplicaId, in.Kernel.Id, connInfo)
 	} else {
 		placer.log.Error(
 			utils.RedStyle.Render(
-				"Host %s (ID=%s) returned no error and no connection info after trying to start replica %d of kernel %s..."),
+				"host %s (ID=%s) returned no error and no connection info after trying to start replica %d of kernel %s..."),
 			host.GetNodeName(), host.GetID(), in.ReplicaId, in.Kernel.Id)
 
 		return nil, scheduling.ErrNilConnectionInfo
@@ -296,7 +296,7 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 
 	placer.instance.UpdateIndex(host)
 
-	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on Host %s (ID=%s): %v",
+	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on host %s (ID=%s): %v",
 		in.ReplicaId, in.Kernel.Id, host.GetNodeName(), host.GetID(), connInfo)
 
 	return connInfo, err

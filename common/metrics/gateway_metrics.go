@@ -222,7 +222,7 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 	}
 
 	if err := prometheus.Register(m.HostRemoteSyncLatencyMicrosecondsHistogram); err != nil {
-		m.log.Error("Failed to register 'Host Remote Sync Latency Microseconds Histogram' metric because: %v", err)
+		m.log.Error("Failed to register 'host Remote Sync Latency Microseconds Histogram' metric because: %v", err)
 		return err
 	}
 

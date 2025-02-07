@@ -1974,13 +1974,13 @@ func (d *LocalScheduler) registerKernelWithExecReqForwarder(kernel scheduling.Ke
 // This is ONLY used in the Docker-based deployment mode.
 func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	if in == nil {
-		d.log.Error("`gateway.KernelReplicaSpec` argument is nil in call to StartKernelReplica...")
+		d.log.Error("`gateway.kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
 		return nil, ErrNilArgument
 	}
 
 	if in.Kernel == nil {
-		d.log.Error("The `gateway.KernelSpec` field within the gateway.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
-		d.log.Error("gateway.KernelReplicaSpec: %v", in)
+		d.log.Error("The `gateway.KernelSpec` field within the gateway.kernelReplicaSpec argument is nil in call to StartKernelReplica...")
+		d.log.Error("gateway.kernelReplicaSpec: %v", in)
 		return nil, ErrNilArgument
 	}
 
@@ -2826,7 +2826,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 				gid, kernel.ReplicaID(), kernel.ID())
 			reason = domain.YieldInsufficientResourcesAvailable
 		} else if allocationFailedDueToInsufficientResources {
-			d.log.Debug("[gid=%d] There are insufficient resources available for replica %d of kernel %s to train. Available: %s. Required: %s.",
+			d.log.Debug("[gid=%d] There are insufficient resources available for replica %d of kernel %s to train. available: %s. Required: %s.",
 				gid, kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
 			reason = domain.YieldInsufficientResourcesAvailable
 		} else {
@@ -3559,7 +3559,7 @@ func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelRepl
 //		NodeId:          d.id,
 //		NodeName:        d.nodeName,
 //		Address:         d.GetAddress(),
-//		CreatedAt:       timestamppb.New(d.createdAt),
+//		createdAt:       timestamppb.New(d.createdAt),
 //		Containers:      dockerContainers,
 //		SpecCpu:         float32(resourceSpec.CPU()),
 //		SpecMemory:      float32(resourceSpec.MemoryMB()),
@@ -3634,7 +3634,7 @@ func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelRepl
 //	return true, nil
 //}
 //
-//func (d *LocalScheduler) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
+//func (d *LocalScheduler) ReserveResourcesForSpecificReplica(replicaSpec *proto.kernelReplicaSpec, usePendingResources bool) (bool, error) {
 //	err := d.allocationManager.ReserveResources(replicaSpec.ReplicaId, replicaSpec.Kernel.Id,
 //		replicaSpec.ResourceSpec().ToDecimalSpec(), usePendingResources)
 //

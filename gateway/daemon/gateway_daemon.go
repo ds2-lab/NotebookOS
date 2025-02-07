@@ -2328,7 +2328,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		d.log.Debug("Will wait to schedule container(s) for kernel %s until we receive an 'execute_request'.", in.Id)
 
 		// Since we won't be adding any replicas to the kernel right now, we need to assign a value to the
-		// SignatureScheme and Key fields of the ConnectionInfo used by the DistributedKernelClient's server.
+		// SignatureScheme and Key fields of the connectionInfo used by the DistributedKernelClient's server.
 		//
 		// If we skipped this step, then the kernel would not be able to sign messages correctly.
 		kernel.SetSignatureScheme(in.SignatureScheme)

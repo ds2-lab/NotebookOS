@@ -132,7 +132,7 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,startedAt=%v,ResourceSpec=%v,Host=%v]",
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,startedAt=%v,ResourceSpec=%v,host=%v]",
 		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 
@@ -273,7 +273,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 		return err
 	}
 
-	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training on host %s (ID=%s). ResourceSpec: %v. Host resources: %v.",
+	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training on host %s (ID=%s). ResourceSpec: %v. host resources: %v.",
 		c.replicaId, c.id, c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec().String(), c.host.GetResourceCountsAsString())
 
 	return nil
@@ -320,7 +320,7 @@ func (c *Container) ContainerStopped() error {
 	//
 	// IMPORTANT
 	// If I change the order of anything here, then I will need to update DistributedKernelClient::RemoveReplica,
-	// as I manually call Host::ContainerRemoved from DistributedKernelClient::RemoveReplica if
+	// as I manually call host::ContainerRemoved from DistributedKernelClient::RemoveReplica if
 	// Container::ContainerStopped returns either an ErrInvalidStateTransition error or an ErrNilHost error.
 	//
 	// (ErrInvalidStateTransition is returned by Container::transition in the event that an illegal transition

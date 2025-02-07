@@ -1283,7 +1283,7 @@ type VirtualDockerNode struct {
 	Address string `protobuf:"bytes,16,opt,name=address,proto3" json:"address,omitempty"`
 	// CreatedAt is the time that the node was created.
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
-	// Enabled indicates whether the Host is enabled or disabled.
+	// Enabled indicates whether the host is enabled or disabled.
 	Enabled bool `protobuf:"varint,18,opt,name=enabled,proto3" json:"enabled,omitempty"`
 }
 
@@ -2796,7 +2796,7 @@ type HostId struct {
 	unknownFields protoimpl.UnknownFields
 
 	Id            string        `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	NodeName      string        `protobuf:"bytes,2,opt,name=nodeName,proto3" json:"nodeName,omitempty"`  // The name of the Kubernetes node that the Host is running on.
+	NodeName      string        `protobuf:"bytes,2,opt,name=nodeName,proto3" json:"nodeName,omitempty"`  // The name of the Kubernetes node that the host is running on.
 	Existing      bool          `protobuf:"varint,3,opt,name=existing,proto3" json:"existing,omitempty"` // Indicates whether the node is starting for the first time or not.
 	SpecResources *ResourceSpec `protobuf:"bytes,4,opt,name=specResources,proto3" json:"specResources,omitempty"`
 }
@@ -3053,7 +3053,7 @@ func (x *ReconnectToGatewayRequest) GetDelay() bool {
 }
 
 // NodeResourcesSnapshotWithContainers encapsulates a NodeResourcesSnapshot struct as well as information about the
-// Containers that are actively scheduled/running on the Host.
+// Containers that are actively scheduled/running on the host.
 type NodeResourcesSnapshotWithContainers struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -3063,7 +3063,7 @@ type NodeResourcesSnapshotWithContainers struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// ResourceSnapshot is the NodeResourcesSnapshot.
 	ResourceSnapshot *NodeResourcesSnapshot `protobuf:"bytes,2,opt,name=resourceSnapshot,proto3" json:"resourceSnapshot,omitempty"`
-	// Containers encodes the containers that are presently scheduled on the Host.
+	// Containers encodes the containers that are presently scheduled on the host.
 	Containers []*ReplicaInfo `protobuf:"bytes,3,rep,name=containers,proto3" json:"containers,omitempty"`
 }
 
@@ -3732,7 +3732,7 @@ func (x *KernelReplicaSpec) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use KernelReplicaSpec.ProtoReflect.Descriptor instead.
+// Deprecated: Use kernelReplicaSpec.ProtoReflect.Descriptor instead.
 func (*KernelReplicaSpec) Descriptor() ([]byte, []int) {
 	return file_common_proto_gateway_proto_rawDescGZIP(), []int{51}
 }
@@ -4607,7 +4607,7 @@ type KernelRegistrationNotification struct {
 	ConnectionInfo     *KernelConnectionInfo `protobuf:"bytes,1,opt,name=connectionInfo,proto3" json:"connectionInfo,omitempty"`         // Connection information of the kernel.
 	KernelId           string                `protobuf:"bytes,2,opt,name=kernelId,proto3" json:"kernelId,omitempty"`                     // ID of the Kernel.
 	SessionId          string                `protobuf:"bytes,3,opt,name=sessionId,proto3" json:"sessionId,omitempty"`                   // ID of the associated Session.
-	HostId             string                `protobuf:"bytes,4,opt,name=hostId,proto3" json:"hostId,omitempty"`                         // The ID of the LocalDaemonClient associated with this Host. It's basically the ID of the LocalDaemon.
+	HostId             string                `protobuf:"bytes,4,opt,name=hostId,proto3" json:"hostId,omitempty"`                         // The ID of the LocalDaemonClient associated with this host. It's basically the ID of the LocalDaemon.
 	ReplicaId          int32                 `protobuf:"varint,5,opt,name=replicaId,proto3" json:"replicaId,omitempty"`                  // The SMR replica ID.
 	KernelIp           string                `protobuf:"bytes,6,opt,name=kernelIp,proto3" json:"kernelIp,omitempty"`                     // The hostname of the kernel itself (not its LocalDaemon).
 	PodOrContainerName string                `protobuf:"bytes,7,opt,name=podOrContainerName,proto3" json:"podOrContainerName,omitempty"` // The name of the Pod hosting the kernel container.
@@ -6062,7 +6062,7 @@ var file_common_proto_gateway_proto_goTypes = []any{
 	(*NumNodesResponse)(nil),                       // 48: gateway.NumNodesResponse
 	(*VirtualGpuInfo)(nil),                         // 49: gateway.VirtualGpuInfo
 	(*GpuInfo)(nil),                                // 50: gateway.GpuInfo
-	(*KernelReplicaSpec)(nil),                      // 51: gateway.KernelReplicaSpec
+	(*KernelReplicaSpec)(nil),                      // 51: gateway.kernelReplicaSpec
 	(*ResourceSpec)(nil),                           // 52: gateway.ResourceSpec
 	(*KernelId)(nil),                               // 53: gateway.KernelId
 	(*ReplicaInfo)(nil),                            // 54: gateway.ReplicaInfo
@@ -6112,7 +6112,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	44, // 24: gateway.NodeResourcesSnapshot.committedResources:type_name -> gateway.ResourcesSnapshot
 	44, // 25: gateway.NodeResourcesSnapshot.specResources:type_name -> gateway.ResourcesSnapshot
 	69, // 26: gateway.VirtualGpuAllocations.allocations:type_name -> gateway.VirtualGpuAllocations.AllocationsEntry
-	61, // 27: gateway.KernelReplicaSpec.kernel:type_name -> gateway.KernelSpec
+	61, // 27: gateway.kernelReplicaSpec.kernel:type_name -> gateway.KernelSpec
 	54, // 28: gateway.MigrationRequest.targetReplica:type_name -> gateway.ReplicaInfo
 	52, // 29: gateway.KernelSpec.resourceSpec:type_name -> gateway.ResourceSpec
 	62, // 30: gateway.KernelRegistrationNotification.connectionInfo:type_name -> gateway.KernelConnectionInfo
@@ -6159,7 +6159,7 @@ var file_common_proto_gateway_proto_depIdxs = []int32{
 	39, // 71: gateway.KernelErrorReporter.Notify:input_type -> gateway.KernelNotification
 	38, // 72: gateway.LocalGateway.SetID:input_type -> gateway.HostId
 	61, // 73: gateway.LocalGateway.StartKernel:input_type -> gateway.KernelSpec
-	51, // 74: gateway.LocalGateway.StartKernelReplica:input_type -> gateway.KernelReplicaSpec
+	51, // 74: gateway.LocalGateway.StartKernelReplica:input_type -> gateway.kernelReplicaSpec
 	53, // 75: gateway.LocalGateway.GetKernelStatus:input_type -> gateway.KernelId
 	53, // 76: gateway.LocalGateway.KillKernel:input_type -> gateway.KernelId
 	53, // 77: gateway.LocalGateway.StopKernel:input_type -> gateway.KernelId

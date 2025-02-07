@@ -133,9 +133,9 @@ type SchedulerOptions struct {
 	MeanScaleInPerHostSec               float64 `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
 	StdDevScaleInPerHostSec             float64 `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
 
-	MillicpusPerHost int     `name:"millicpus_per_host" json:"millicpus_per_host" yaml:"millicpus_per_host" description:"Amount of allocatable CPU available on each Host, in millicpus (1 millicpu = 1/1000 vCPU)."`
-	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each Host, in megabytes."`
-	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each Host, in gigabytes."`
+	MillicpusPerHost int     `name:"millicpus_per_host" json:"millicpus_per_host" yaml:"millicpus_per_host" description:"Amount of allocatable CPU available on each host, in millicpus (1 millicpu = 1/1000 vCPU)."`
+	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each host, in megabytes."`
+	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each host, in gigabytes."`
 
 	PrewarmingEnabled                 bool `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
 	MaxPrewarmContainers              int  `name:"max_prewarm_containers" json:"max_prewarm_containers" yaml:"max_prewarm_containers"`

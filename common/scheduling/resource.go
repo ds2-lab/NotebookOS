@@ -116,7 +116,7 @@ func (e InsufficientResourcesError) Is(other error) bool {
 
 func (e InsufficientResourcesError) String() string {
 	if e.AvailableResources != nil && e.RequestedResources != nil {
-		return fmt.Sprintf("InsufficientResourcesError[Available=%s,Requested=%s]",
+		return fmt.Sprintf("InsufficientResourcesError[available=%s,Requested=%s]",
 			e.AvailableResources.String(), e.RequestedResources.String())
 	}
 

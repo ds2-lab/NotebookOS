@@ -235,7 +235,7 @@ func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (s
 }
 
 // SeekFrom continues the seek from the position.
-// SeekFrom(start interface{}, metrics ...[]float64) (host scheduling.Host, pos interface{})
+// SeekFrom(start interface{}, metrics ...[]float64) (host scheduling.host, pos interface{})
 
 // SeekMultipleFrom seeks n scheduling.Host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.

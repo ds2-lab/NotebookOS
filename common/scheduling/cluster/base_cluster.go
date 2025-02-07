@@ -24,10 +24,10 @@ import (
 type BaseCluster struct {
 	instance internalCluster
 
-	// DisabledHosts is a map from host ID to *entity.Host containing all the Host instances that are currently set to "off".
+	// DisabledHosts is a map from host ID to *entity.Host containing all the host instances that are currently set to "off".
 	DisabledHosts hashmap.HashMap[string, scheduling.Host]
 
-	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
+	// hosts is a map from host ID to *entity.Host containing all the host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, scheduling.Host]
 
 	// sessions is a map of Sessions.
@@ -69,7 +69,7 @@ type BaseCluster struct {
 	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
 	initialClusterSize int
 
-	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
+	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of host instances we disabled
 	// during the initial connection period.
 	numHostsDisabledDuringInitialConnectionPeriod int
 
@@ -86,7 +86,7 @@ type BaseCluster struct {
 	MeanScaleInPerHost   time.Duration
 	StdDevScaleInPerHost time.Duration
 
-	// hostMutex controls external access to the internal Host mapping.
+	// hostMutex controls external access to the internal host mapping.
 	hostMutex sync.RWMutex
 
 	sessionsMutex sync.RWMutex
@@ -351,12 +351,12 @@ func (c *BaseCluster) Placer() scheduling.Placer {
 	return c.scheduler.Placer()
 }
 
-// ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
+// ReadLockHosts locks the underlying host manager such that no host instances can be added or removed.
 func (c *BaseCluster) ReadLockHosts() {
 	c.hostMutex.RLock()
 }
 
-// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of host instances.
 //
 // The caller must have already acquired the hostMutex or this function will fail panic.
 func (c *BaseCluster) ReadUnlockHosts() {
@@ -387,7 +387,7 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	return nil
 }
 
-// UpdateIndex updates the ClusterIndex that contains the specified Host.
+// UpdateIndex updates the ClusterIndex that contains the specified host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
 	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
 	if categoryMetadata == nil {
@@ -453,7 +453,7 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host scheduling.Host
 	}
 }
 
-// onDisabledHostAdded when a new Host is added to the Cluster in a disabled state,
+// onDisabledHostAdded when a new host is added to the Cluster in a disabled state,
 // meaning that it is intended to be unavailable unless we explicitly scale-out.
 func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 	if host.Enabled() {
@@ -487,7 +487,7 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 			index.Remove(host)
 		} else {
 			// Log level is set to warn because, as of right now, there are never any actual qualifications.
-			c.log.Warn("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+			c.log.Warn("host %s (ID=%s) is not qualified to be added to index '%s'.",
 				host.GetNodeName(), host.GetID(), index.Identifier())
 		}
 
@@ -617,7 +617,7 @@ func (c *BaseCluster) NumReplicas() int {
 	return c.scheduler.Policy().NumReplicas()
 }
 
-// RangeOverHosts executes the provided function on each Host in the Cluster.
+// RangeOverHosts executes the provided function on each host in the Cluster.
 func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) bool) {
 	c.hostMutex.RLock()
 	defer c.hostMutex.RUnlock()
@@ -633,14 +633,14 @@ func (c *BaseCluster) RangeOverSessions(f func(key string, value scheduling.User
 	c.sessions.Range(f)
 }
 
-// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
+// RangeOverDisabledHosts executes the provided function on each disabled host in the Cluster.
 //
 // Importantly, this function does NOT lock the hostsMutex.
 func (c *BaseCluster) RangeOverDisabledHosts(f func(key string, value scheduling.Host) bool) {
 	c.DisabledHosts.Range(f)
 }
 
-// RemoveHost removes the Host with the specified ID.
+// RemoveHost removes the host with the specified ID.
 func (c *BaseCluster) RemoveHost(hostId string) {
 	c.scalingOpMutex.Lock()
 
@@ -655,7 +655,7 @@ func (c *BaseCluster) RemoveHost(hostId string) {
 	}
 }
 
-// NumDisabledHosts returns the number of Host instances in the Cluster that are in the "disabled" state.
+// NumDisabledHosts returns the number of host instances in the Cluster that are in the "disabled" state.
 func (c *BaseCluster) NumDisabledHosts() int {
 	return c.DisabledHosts.Len()
 }
@@ -791,29 +791,29 @@ func (c *BaseCluster) DefaultOnScaleOperationFailed(op scheduling.ScaleOperation
 	}
 }
 
-// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+// MeanScaleOutTime returns the average time to scale-out and add a host to the Cluster.
 func (c *BaseCluster) MeanScaleOutTime() time.Duration {
 	return c.MeanScaleOutPerHost
 }
 
 // StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
-// and add a Host to the Cluster.
+// and add a host to the Cluster.
 func (c *BaseCluster) StdDevScaleOutTime() time.Duration {
 	return c.StdDevScaleOutPerHost
 }
 
-// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+// MeanScaleInTime returns the average time to scale-in and remove a host from the Cluster.
 func (c *BaseCluster) MeanScaleInTime() time.Duration {
 	return c.MeanScaleInPerHost
 }
 
 // StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
-// and remove a Host from the Cluster.
+// and remove a host from the Cluster.
 func (c *BaseCluster) StdDevScaleInTime() time.Duration {
 	return c.StdDevScaleInPerHost
 }
 
-// RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
+// RequestHosts requests n host instances to be launched and added to the Cluster, where n >= 1.
 //
 // If n is 0, then this returns immediately.
 //
@@ -942,7 +942,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	return promise.Resolved(result)
 }
 
-// ReleaseSpecificHosts terminates one or more specific Host instances.
+// ReleaseSpecificHosts terminates one or more specific host instances.
 func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) promise.Promise {
 	n := int32(len(ids))
 	currentNumNodes := int32(c.Len())
@@ -1063,7 +1063,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	return promise.Resolved(result)
 }
 
-// ReleaseHosts terminates n arbitrary Host instances, where n >= 1.
+// ReleaseHosts terminates n arbitrary host instances, where n >= 1.
 //
 // If n is 0, then ReleaseHosts returns immediately.
 //
@@ -1199,7 +1199,7 @@ func (c *BaseCluster) EnableScalingOut() {
 	c.scheduler.Policy().ResourceScalingPolicy().EnableScalingOut()
 }
 
-// ScaleToSize scales the Cluster to the specified number of Host instances.
+// ScaleToSize scales the Cluster to the specified number of host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
@@ -1242,8 +1242,8 @@ func (c *BaseCluster) MetricsProvider() scheduling.MetricsProvider {
 	return c.metricsProvider
 }
 
-// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
-// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
+// NewHostAddedOrConnected should be called by an external entity when a new host connects to the Cluster Gateway.
+// NewHostAddedOrConnected handles the logic of adding the host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.
 func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	c.scalingOpMutex.Lock()
@@ -1259,7 +1259,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 
 		err := host.Disable()
 
-		// As of right now, the only reason Disable will fail/return an error is if the Host is already disabled.
+		// As of right now, the only reason Disable will fail/return an error is if the host is already disabled.
 		if err != nil && !errors.Is(err, scheduling.ErrHostAlreadyDisabled) {
 			c.log.Error("Failed to disable newly-connected host %s (ID=%s) because: %v",
 				host.GetNodeName(), host.GetID(), err)
@@ -1272,7 +1272,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 			host.GetNodeName(), host.GetID())
 		err := c.onDisabledHostAdded(host)
 		if err != nil {
-			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v",
+			c.log.Error("Failed to add disabled host %s (ID=%s) to cluster because: %v",
 				host.GetNodeName(), host.GetID(), err)
 			return err
 		}
@@ -1281,7 +1281,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 		return nil
 	}
 
-	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
+	c.log.Debug("host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
 		host.GetNodeName(), host.GetID())
 
 	c.hostMutex.Lock()
@@ -1297,7 +1297,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	return nil
 }
 
-// GetHost returns the Host with the given ID, if one exists.
+// GetHost returns the host with the given ID, if one exists.
 func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 	return c.hosts.Load(hostId)
 }

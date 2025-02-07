@@ -46,13 +46,12 @@ func DivideWork(n, m int) []int {
 	return result
 }
 
-type PrewarmedContainerUsedCallback func(container *PrewarmedContainer)
-
+// PrewarmedContainerBuilder is a utility struct used to simplify the process of creating PrewarmedContainer structs.
 type PrewarmedContainerBuilder struct {
 	host                             scheduling.Host
 	connectionInfo                   *proto.KernelConnectionInfo
 	kernelReplicaSpec                *proto.KernelReplicaSpec
-	onPrewarmedContainerUsedCallback PrewarmedContainerUsedCallback
+	onPrewarmedContainerUsedCallback scheduling.PrewarmedContainerUsedCallback
 }
 
 func NewPrewarmedContainerBuilder() *PrewarmedContainerBuilder {
@@ -74,68 +73,87 @@ func (b *PrewarmedContainerBuilder) WithKernelReplicaSpec(kernelReplicaSpec *pro
 	return b
 }
 
-func (b *PrewarmedContainerBuilder) WithPrewarmedContainerUsedCallback(callback PrewarmedContainerUsedCallback) *PrewarmedContainerBuilder {
+func (b *PrewarmedContainerBuilder) WithPrewarmedContainerUsedCallback(callback scheduling.PrewarmedContainerUsedCallback) *PrewarmedContainerBuilder {
 	b.onPrewarmedContainerUsedCallback = callback
 	return b
 }
 
 func (b *PrewarmedContainerBuilder) Build() *PrewarmedContainer {
 	container := &PrewarmedContainer{
-		Host:                     b.host,
-		ConnectionInfo:           b.connectionInfo,
-		KernelReplicaSpec:        b.kernelReplicaSpec,
-		CreatedAt:                time.Now(),
+		host:                     b.host,
+		connectionInfo:           b.connectionInfo,
+		kernelReplicaSpec:        b.kernelReplicaSpec,
+		createdAt:                time.Now(),
 		onPrewarmedContainerUsed: b.onPrewarmedContainerUsedCallback,
 	}
 
-	container.Available.Store(true)
+	container.available.Store(true)
 
 	return container
 }
 
+// PrewarmedContainer encapsulates information about a pre-warmed container that exists on a particular Host.
 type PrewarmedContainer struct {
-	Host              scheduling.Host
-	ConnectionInfo    *proto.KernelConnectionInfo
-	KernelReplicaSpec *proto.KernelReplicaSpec
-	CreatedAt         time.Time
-	Available         atomic.Bool
+	host              scheduling.Host
+	connectionInfo    *proto.KernelConnectionInfo
+	kernelReplicaSpec *proto.KernelReplicaSpec
+	createdAt         time.Time
+	available         atomic.Bool
 
-	onPrewarmedContainerUsed func(container *PrewarmedContainer)
+	// onPrewarmedContainerUsed is a callback function to be called by the scheduling.Scheduler if it commits
+	// to using a prewarmed container.
+	onPrewarmedContainerUsed scheduling.PrewarmedContainerUsedCallback
+}
+
+func (p *PrewarmedContainer) Host() scheduling.Host {
+	return p.host
+}
+
+func (p *PrewarmedContainer) KernelConnectionInfo() *proto.KernelConnectionInfo {
+	return p.connectionInfo
+}
+
+func (p *PrewarmedContainer) KernelReplicaSpec() *proto.KernelReplicaSpec {
+	return p.kernelReplicaSpec
+}
+
+func (p *PrewarmedContainer) CreatedAt() time.Time {
+	return p.createdAt
 }
 
 func (p *PrewarmedContainer) IsAvailable() bool {
-	return p.Available.Load()
+	return p.available.Load()
 }
 
 func (p *PrewarmedContainer) SetUnavailable() {
-	p.Available.Store(false)
+	p.available.Store(false)
 }
 
 func (p *PrewarmedContainer) String() string {
 	return fmt.Sprintf("PrewarmContainer[ID=%s,Host=%s,HostId=%s]",
-		p.ID(), p.HostName(), p.HostId())
+		p.kernelReplicaSpec.Kernel.Id, p.host.GetNodeName(), p.host.GetID())
 }
 
 func (p *PrewarmedContainer) Age() time.Duration {
-	return time.Since(p.CreatedAt)
+	return time.Since(p.createdAt)
 }
 
 func (p *PrewarmedContainer) ID() string {
-	return p.KernelReplicaSpec.Kernel.Id
+	return p.kernelReplicaSpec.Kernel.Id
 }
 
 func (p *PrewarmedContainer) HostId() string {
-	return p.Host.GetID()
+	return p.host.GetID()
 }
 
 func (p *PrewarmedContainer) HostName() string {
-	return p.Host.GetNodeName()
+	return p.host.GetNodeName()
 }
 
 // OnPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
 //
 // If this PrewarmedContainer is officially used, then this function should be called.
-func (p *PrewarmedContainer) OnPrewarmedContainerUsed(container *PrewarmedContainer) {
+func (p *PrewarmedContainer) OnPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
 	if p.onPrewarmedContainerUsed != nil {
 		p.onPrewarmedContainerUsed(container)
 	}
@@ -270,14 +288,14 @@ func (p *ContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduling.P
 }
 
 // onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
-func (p *ContainerPrewarmer) onPrewarmedContainerUsed(container *PrewarmedContainer) {
+func (p *ContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
 	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
 		container.ID(), container.HostName(), container.HostId())
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	container.Available.Store(false)
+	container.SetUnavailable()
 
 	containers, ok := p.PrewarmContainersPerHost[container.HostId()]
 	if !ok {

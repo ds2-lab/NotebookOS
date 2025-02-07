@@ -59,9 +59,9 @@ func (c *DockerCluster) NodeType() string {
 	return types.DockerNode
 }
 
-// unsafeDisableHost disables an active Host.
+// unsafeDisableHost disables an active host.
 //
-// If the Host does not exist or is not already disabled, then an error is returned.
+// If the host does not exist or is not already disabled, then an error is returned.
 //
 // Important: this should be called with the DockerCluster's hostMutex already acquired.
 func (c *DockerCluster) unsafeDisableHost(id string) error {
@@ -70,7 +70,7 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 
 	host, loaded := c.hosts.Load(id)
 	if !loaded {
-		// Let's check if the Host even exists.
+		// Let's check if the host even exists.
 		_, exists := c.DisabledHosts.Load(id)
 		if exists {
 			return fmt.Errorf("%w: host \"%s\" is already disabled", scheduling.ErrInvalidHost, id)
@@ -87,8 +87,8 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 	c.log.Debug("Disabling host %s now...", id)
 	if err := host.Disable(); err != nil {
 		// This really shouldn't happen.
-		// This would mean that the Host was in an inconsistent state relative to the Cluster,
-		// as the Host was stored in the wrong map.
+		// This would mean that the host was in an inconsistent state relative to the Cluster,
+		// as the host was stored in the wrong map.
 		panic(err)
 	}
 	c.DisabledHosts.Store(id, host)
@@ -103,9 +103,9 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 	return nil
 }
 
-// unsafeEnableHost enables a disabled Host.
+// unsafeEnableHost enables a disabled host.
 //
-// If the Host does not exist or is not disabled, then an error is returned.
+// If the host does not exist or is not disabled, then an error is returned.
 //
 // Important: this should be called with the DockerCluster's hostMutex already acquired.
 func (c *DockerCluster) unsafeEnableHost(id string) error {
@@ -114,7 +114,7 @@ func (c *DockerCluster) unsafeEnableHost(id string) error {
 
 	disabledHost, loaded := c.DisabledHosts.LoadAndDelete(id)
 	if !loaded {
-		// Let's check if the Host even exists.
+		// Let's check if the host even exists.
 		_, exists := c.hosts.Load(id)
 		if exists {
 			return fmt.Errorf("%w: host \"%s\" is not disabled", scheduling.ErrInvalidHost, id)
@@ -126,8 +126,8 @@ func (c *DockerCluster) unsafeEnableHost(id string) error {
 	c.log.Debug("Enabling host %s now...", id)
 	if err := disabledHost.Enable(true); err != nil {
 		// This really shouldn't happen.
-		// This would mean that the Host was in an inconsistent state relative to the Cluster,
-		// as the Host was stored in the wrong map.
+		// This would mean that the host was in an inconsistent state relative to the Cluster,
+		// as the host was stored in the wrong map.
 		panic(err)
 	}
 	c.hosts.Store(id, disabledHost)
@@ -290,7 +290,7 @@ func (c *DockerCluster) GetScaleInCommand(targetScale int32, targetHosts []strin
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
-	// If no target Host instances were specified, then we need to identify some Host instances ourselves.
+	// If no target host instances were specified, then we need to identify some host instances ourselves.
 	numAffectedNodes := int32(c.hosts.Len()) - targetScale
 
 	c.log.Debug("Searching for %d hosts to terminate for requested scale-in.", numAffectedNodes)
@@ -300,7 +300,7 @@ func (c *DockerCluster) GetScaleInCommand(targetScale int32, targetHosts []strin
 	c.hosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
-			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
+			c.log.Debug("Identified host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
 				host.GetID(), len(targetHosts), numAffectedNodes)
 		}
 

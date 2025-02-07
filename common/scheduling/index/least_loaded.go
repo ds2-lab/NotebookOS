@@ -23,7 +23,7 @@ const (
 type LeastLoadedIndex struct {
 	log logger.Logger
 	*CallbackManager
-	hosts *types.Heap // The Host instances contained within the LeastLoadedIndex.
+	hosts *types.Heap // The host instances contained within the LeastLoadedIndex.
 	mu    sync.Mutex
 }
 
@@ -88,7 +88,7 @@ func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d. Index length: %d.",
+	index.log.Debug("Added host %s (ID=%s) to LeastLoadedIndex at position %d. Index length: %d.",
 		host.GetNodeName(), host.GetID(), idx, index.Len())
 
 	// Invoke callback.
@@ -147,7 +147,7 @@ func (index *LeastLoadedIndex) Remove(host scheduling.Host) {
 	}
 
 	if !host.IsContainedWithinIndex() {
-		index.log.Warn("Host %s thinks it is not contained within any Cluster indices; "+
+		index.log.Warn("host %s thinks it is not contained within any Cluster indices; "+
 			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), LeastLoadedIndexMetadataKey, i)
 	}
 
@@ -183,7 +183,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 	hostsToBeAddedBack := make([]scheduling.Host, 0)
 
 	// Keep iterating as long as:
-	// (a) we have not found a Host, and
+	// (a) we have not found a host, and
 	// (b) we've not yet looked at every slot in the index and found that it is blacklisted.
 	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.",
 		len(blacklist), index.Len())
@@ -196,7 +196,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 		if nextHost != nil {
 			// If the given host is blacklisted, then look for a different host.
 			if ContainsHost(blacklist, host) {
-				index.log.Debug("Host %s (ID=%s) is black-listed. Temporarily removing the host from the index.",
+				index.log.Debug("host %s (ID=%s) is black-listed. Temporarily removing the host from the index.",
 					host.GetNodeName(), host.GetID())
 
 				// Remove the host from the index temporarily so that we don't get it again.
@@ -240,7 +240,7 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 	return host, -1, nil
 }
 
-// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
+// SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
@@ -291,7 +291,7 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 			index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
 			hostsMap[candidateHost.GetID()] = candidateHost
 		} else {
-			index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
+			index.log.Debug("host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
 		}
 
 		// We're done when the length of hostMap is equal to n.

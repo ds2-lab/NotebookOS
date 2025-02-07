@@ -2278,7 +2278,7 @@ func (m *AllocationManager) commitGpuDeviceIds(allocation scheduling.Allocation,
 	availableGpuDevices := m.availableGpuDevices.ToSlice()
 	setDifference, isSubset := utils.SetDifferenceIfSubset(availableGpuDevices, gpuDeviceIds)
 	if !isSubset {
-		m.log.Error("1 or more specified GPU device IDs are unavailable. Available: %v. Specified: %v.",
+		m.log.Error("1 or more specified GPU device IDs are unavailable. available: %v. Specified: %v.",
 			availableGpuDevices, gpuDeviceIds)
 
 		panic("One or more specified GPU device IDs are unavailable.")

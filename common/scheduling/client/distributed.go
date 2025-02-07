@@ -226,7 +226,7 @@ func (c *DistributedKernelClient) ReplicaContainersAreBeingScheduled() bool {
 // RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 // KernelReplica instances of the target Kernel.
 //
-// Specifically, RecordContainerPlacementStarted is called to signal that N viable Host instances have
+// Specifically, RecordContainerPlacementStarted is called to signal that N viable host instances have
 // been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 // of the target Kernel.
 func (c *DistributedKernelClient) RecordContainerPlacementStarted() {
@@ -542,7 +542,7 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 // UpdateResourceSpec updates the ResourceSpec of the kernel, all of its Replica instances, the UserSession
 // of each Replica, and the KernelContainer of each Replica.
 //
-// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
+// It also ensures that the updated ResourceSpec is propagated to the host of each KernelContainer/Replica.
 func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec) error {
 	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
 		c.id, c.spec.ResourceSpec.String(), newSpec.String())
@@ -687,7 +687,7 @@ func (c *DistributedKernelClient) PodOrContainerName(id int32) (string, error) {
 	return replica.GetPodOrContainerName(), nil
 }
 
-// PrepareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
+// PrepareNewReplica determines the replica ID for the new replica and returns the kernelReplicaSpec required to start the replica.
 //
 // Pass -1 for smrNodeId to automatically select the next node ID.
 func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
@@ -776,9 +776,9 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 	}
 
 	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try
-	// to call Host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
+	// to call host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
 	//
-	// So, we'll explicitly try calling Host::ContainerRemoved now, but there's a good chance it'll fail (since there
+	// So, we'll explicitly try calling host::ContainerRemoved now, but there's a good chance it'll fail (since there
 	// was already some sort of issue when we tried to call ContainerStopped).
 	if errors.As(err, &scheduling.ErrInvalidStateTransition) || errors.As(err, &scheduling.ErrNilHost) {
 		host := r.Container().Host()
@@ -787,7 +787,7 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 			r.ReplicaID(), c.ID(), host.GetNodeName(), host.GetID(), r.Container().ResourceSpec())
 		hostContainerRemovalError := host.ContainerRemoved(r.Container())
 		if hostContainerRemovalError != nil {
-			c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v",
+			c.log.Error("Failed to remove scheduling.Container %s-%d from host %s because: %v",
 				r.ID(), r.ReplicaID(), host.GetID(), hostContainerRemovalError)
 
 			// If another error occurred, then we'll join the two together so that they get returned together.
@@ -800,7 +800,7 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 		return host, stopReplicaError
 	}
 
-	r.Container().SetHost(nil) // Set the Host to nil...
+	r.Container().SetHost(nil) // Set the host to nil...
 
 	err = r.Close()
 	if err != nil {
@@ -811,7 +811,7 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 	return host, err
 }
 
-// RemoveReplica removes a kernel peer from the kernel. Returns the Host that the scheduling.KernelReplica was
+// RemoveReplica removes a kernel peer from the kernel. Returns the host that the scheduling.KernelReplica was
 // running on.
 func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.Lock()
@@ -856,19 +856,19 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 			container.ReplicaId(), c.id, err)
 	}
 
-	r.Container().SetHost(nil) // Set the Host to nil...
+	r.Container().SetHost(nil) // Set the host to nil...
 
 	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try
-	// to call Host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
+	// to call host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
 	//
-	// So, we'll explicitly try calling Host::ContainerRemoved now, but there's a good chance it'll fail (since there
+	// So, we'll explicitly try calling host::ContainerRemoved now, but there's a good chance it'll fail (since there
 	// was already some sort of issue when we tried to call ContainerStopped).
 	if errors.As(err, &scheduling.ErrInvalidStateTransition) || errors.As(err, &scheduling.ErrNilHost) {
 		c.log.Debug("Removing container for replica %d of kernel %s from host %s (ID=%s). Container spec: %v.",
 			r.ReplicaID(), c.ID(), host.GetNodeName(), host.GetID(), r.Container().ResourceSpec())
 		hostContainerRemovalError := host.ContainerRemoved(r.Container())
 		if hostContainerRemovalError != nil {
-			c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v",
+			c.log.Error("Failed to remove scheduling.Container %s-%d from host %s because: %v",
 				r.ID(), r.ReplicaID(), host.GetID(), hostContainerRemovalError)
 
 			// If another error occurred, then we'll join the two together so that they get returned together.
@@ -1063,7 +1063,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	return nil
 }
 
-// RemoveReplicaByID removes a kernel peer from the kernel by replica ID. Returns the Host that the
+// RemoveReplicaByID removes a kernel peer from the kernel by replica ID. Returns the host that the
 // scheduling.KernelReplica was running on.
 func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.RLock()
@@ -1900,7 +1900,7 @@ func (c *DistributedKernelClient) ReleasePreCommitedResourcesFromReplica(replica
 
 	host := container.Host()
 	if host == nil {
-		c.log.Warn("Host of container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_reply\" \"%s\"...",
+		c.log.Warn("host of container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_reply\" \"%s\"...",
 			replica.ReplicaID(), c.id, msg.JupyterMessageId())
 		return nil
 	}

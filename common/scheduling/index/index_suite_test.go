@@ -38,8 +38,8 @@ var _ = BeforeSuite(func() {
 })
 
 func createHost(idx int, ctrl *gomock.Controller, cluster scheduling.Cluster, hostSpec *types.DecimalSpec) scheduling.UnitTestingHost {
-	hostId := fmt.Sprintf("Host%d", idx)
-	nodeName := fmt.Sprintf("Host%d", idx)
+	hostId := fmt.Sprintf("host%d", idx)
+	nodeName := fmt.Sprintf("host%d", idx)
 
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
 	Expect(resourceSpoofer).ToNot(BeNil())

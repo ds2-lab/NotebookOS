@@ -1083,7 +1083,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//	host := replica.Host()
 			//
 			//	// Normally this would go through a placer
-			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.kernelReplicaSpec(), !commitResources)
 			//
 			//	if reserved {
 			//		return nil
@@ -1360,7 +1360,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//	host := replica.Host()
 			//
 			//	// Normally this would go through a placer
-			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.kernelReplicaSpec(), !commitResources)
 			//
 			//	if reserved {
 			//		return nil

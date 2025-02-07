@@ -104,7 +104,7 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	// IndexProvider provides the individual indices used by a MultiIndex.
 	IndexProvider Provider[T]
 
-	// HostIdToHostPool is a mapping from Host ID to the Host Pool in which the Host is contained.
+	// HostIdToHostPool is a mapping from host ID to the host Pool in which the host is contained.
 	HostIdToHostPool map[string]*HostPool[T]
 
 	// Size encodes the total number of scheduling.Host instances contained within this MultiIndex.
@@ -296,7 +296,7 @@ func (index *MultiIndex[T]) Remove(host scheduling.Host) {
 			return
 		}
 
-		index.log.Error("Expected Host %s (ID=%s) to be in the FreeHosts queue; "+
+		index.log.Error("Expected host %s (ID=%s) to be in the FreeHosts queue; "+
 			"however, the host was not found when we tried to remove it...",
 			host.GetNodeName(), host.GetID())
 	}
@@ -396,7 +396,7 @@ func (index *MultiIndex[T]) logSeekMultiple(numHosts int, poolNumber int32, host
 	}
 }
 
-// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
+// SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.

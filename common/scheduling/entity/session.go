@@ -398,7 +398,7 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 
 	s.trainingStart = time.Now()
 
-	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
+	s.log.Debug("Container %s began training on host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 
 	return promise.Resolved(s.instance)
 }
@@ -446,7 +446,7 @@ func (s *Session) unsafeTrainingStopped(reason string) promise.Promise {
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
 	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
-	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
+	s.log.Debug("%s has stopped training on host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 	return promise.Resolved(s.instance)
 }
 

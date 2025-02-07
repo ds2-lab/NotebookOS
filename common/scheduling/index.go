@@ -13,7 +13,7 @@ type ClusterIndexQuerier interface {
 	Seek(blacklist []interface{}, metrics ...[]float64) (Host, interface{}, error)
 
 	// SeekFrom continues the seek from the position.
-	// SeekFrom(start interface{}, metrics ...[]float64) (host Host, pos interface{})
+	// SeekFrom(start interface{}, metrics ...[]float64) (host host, pos interface{})
 
 	// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
 	// Pass nil as pos to reset the seek.

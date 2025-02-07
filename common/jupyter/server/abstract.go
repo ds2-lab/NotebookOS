@@ -716,7 +716,7 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 //     and the serve routing will continue to wait for response corresponding to the pending request.
 //  3. Wait for timeout. If the context is not cancellable, a default timeout will be applied.
 //
-// Available options:
+// available options:
 //   - SROptionRemoveDestFrame bool Remove the destination frame from the response.
 //
 // Params:

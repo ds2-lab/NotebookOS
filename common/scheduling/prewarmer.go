@@ -1,9 +1,16 @@
 package scheduling
 
 import (
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"time"
 )
 
+// PrewarmedContainerUsedCallback is a callback function to be called by the scheduling.Scheduler if it commits
+// to using a prewarmed container.
+type PrewarmedContainerUsedCallback func(container PrewarmedContainer)
+
+// ContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
+// these pre-warmed containers, such as how many are available on each scheduling.Host.
 type ContainerPrewarmer interface {
 	// ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
 	// the specified scheduling.Host. The work of provisioning the n containers is distributed amongst several goroutines,
@@ -46,6 +53,8 @@ type ContainerPrewarmer interface {
 	// available on a given scheduling.Host, then more will not be provisioned.
 	MaxPrewarmedContainersPerHost() int
 }
+
+// PrewarmedContainer encapsulates information about a pre-warmed container that exists on a particular Host.
 type PrewarmedContainer interface {
 	String() string
 	Age() time.Duration
@@ -55,4 +64,8 @@ type PrewarmedContainer interface {
 	OnPrewarmedContainerUsed(container PrewarmedContainer)
 	IsAvailable() bool
 	SetUnavailable()
+	Host() Host
+	KernelConnectionInfo() *proto.KernelConnectionInfo
+	KernelReplicaSpec() *proto.KernelReplicaSpec
+	CreatedAt() time.Time
 }
