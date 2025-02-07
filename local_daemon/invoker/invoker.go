@@ -3,6 +3,7 @@ package invoker
 import (
 	"context"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"time"
 
 	"github.com/scusemua/distributed-notebook/common/jupyter"
@@ -42,4 +43,61 @@ type KernelInvoker interface {
 
 	// TimeSinceKernelCreated returns the amount of time that has elapsed since the KernelInvoker created the kernel.
 	TimeSinceKernelCreated() (time.Duration, bool)
+
+	WorkloadId() string
+
+	// SetWorkloadId will panic if the CurrentContainerType of the target KernelInvoker is scheduling.StandardContainer.
+	//
+	// You can only mutate the WorkloadId field of a KernelInvoker struct if the CurrentContainerType of the target
+	// KernelInvoker struct is scheduling.PrewarmContainer.
+	SetWorkloadId(string)
+
+	AssignedGpuDeviceIds() []int32
+
+	// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target KernelInvoker is
+	// scheduling.StandardContainer.
+	//
+	// You can only mutate the AssignedGpuDeviceIds field of a KernelInvoker struct if the CurrentContainerType of the
+	// target KernelInvoker struct is scheduling.PrewarmContainer.
+	SetAssignedGpuDeviceIds([]int32)
+
+	DebugPort() int
+
+	// SetDebugPort will panic if the CurrentContainerType of the target KernelInvoker is scheduling.StandardContainer.
+	//
+	// You can only mutate the DebugPort field of a KernelInvoker struct if the CurrentContainerType of the target
+	// KernelInvoker struct is scheduling.PrewarmContainer.
+	SetDebugPort(int)
+
+	KernelId() string
+
+	// SetKernelId will panic if the CurrentContainerType of the target KernelInvoker is scheduling.StandardContainer.
+	//
+	// You can only mutate the KernelId field of a KernelInvoker struct if the CurrentContainerType of the target
+	// KernelInvoker struct is scheduling.PrewarmContainer.
+	SetKernelId(string)
+
+	// CurrentContainerType is the current scheduling.ContainerType of the container created by the target
+	// KernelInvoker.
+	CurrentContainerType() scheduling.ContainerType
+
+	// OriginalContainerType is the original scheduling.ContainerType of the container created by the target
+	// DockerInvoker.
+	//
+	// OriginalContainerType can be used to determine if the container created by the target KernelInvoker was
+	// originally a scheduling.PrewarmContainer that has since been promoted to a scheduling.StandardContainer.
+	OriginalContainerType() scheduling.ContainerType
+
+	// PromotePrewarmedContainer records within the target KernelInvoker that its container, which must originally have
+	// been a scheduling.PrewarmContainer, is now a scheduling.StandardContainer.
+	//
+	// If the promotion is successful, then PromotePrewarmedContainer returns true.
+	//
+	// If the OriginalContainerType of the target KernelInvoker is KernelInvoker,
+	// then PromotePrewarmedContainer returns false.
+	PromotePrewarmedContainer() bool
+
+	// ContainerIsPrewarm returns true if the CurrentContainerType of the target KernelInvoker is
+	// scheduling.PrewarmContainer.
+	ContainerIsPrewarm() bool
 }

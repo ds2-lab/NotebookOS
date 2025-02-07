@@ -1991,6 +1991,16 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 			fmt.Sprintf("unknown pre-warmed container \"%s\"", prewarmedContainerId))
 	}
 
+	kernelInvoker := d.getInvoker(prewarmedContainer)
+	if kernelInvoker == nil {
+		errorMessage := fmt.Sprint("prewarmed container \"%s\" has nil invoker.", prewarmedContainerId)
+		d.log.Error(errorMessage)
+
+		return nil, status.Error(codes.Internal, errorMessage)
+	}
+
+	kernelInvoker.
+
 	jMsg := test_utils.CreateJupyterMessage(messaging.ControlPromotePrewarmRequest, prewarmedContainerId,
 		prewarmedContainer.ConnectionInfo().Key)
 

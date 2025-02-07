@@ -140,7 +140,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		//	SignatureScheme: "hmac-sha256",
 		//	Key:             kernel3Key,
 		//	ResourceSpec:    kernel3ResourceSpec,
-		//	WorkloadId:      workloadId,
+		//	workloadId:      workloadId,
 		//}
 	)
 

@@ -8370,7 +8370,7 @@ func (mr *MockKernelReplicaMockRecorder) WaitForTrainingToStop() *gomock.Call {
 // WorkloadId mocks base method.
 func (m *MockKernelReplica) WorkloadId() string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WorkloadId")
+	ret := m.ctrl.Call(m, "workloadId")
 	ret0, _ := ret[0].(string)
 	return ret0
 }
@@ -8378,7 +8378,7 @@ func (m *MockKernelReplica) WorkloadId() string {
 // WorkloadId indicates an expected call of WorkloadId.
 func (mr *MockKernelReplicaMockRecorder) WorkloadId() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkloadId", reflect.TypeOf((*MockKernelReplica)(nil).WorkloadId))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "workloadId", reflect.TypeOf((*MockKernelReplica)(nil).WorkloadId))
 }
 
 // WorkloadIdSet mocks base method.

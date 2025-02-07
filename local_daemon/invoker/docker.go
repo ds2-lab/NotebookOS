@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"net/url"
 	"os"
@@ -103,7 +104,7 @@ type DockerInvoker struct {
 	remoteStorage            string               // Type of remote storage, either 'hdfs' or 'redis'
 	dockerStorageBase        string               // Base directory in which the persistent store data is stored.
 	DeploymentMode           types.DeploymentMode // DeploymentMode is the deployment mode of the cluster
-	WorkloadId               string
+	workloadId               string
 
 	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
 	S3Bucket string
@@ -114,7 +115,7 @@ type DockerInvoker struct {
 	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
 	RedisPassword string
 
-	AssignedGpuDeviceIds   []int32 // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	assignedGpuDeviceIds   []int32 // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
 	smrPort                int     // Port used by the SMR cluster.
 	KernelDebugPort        int     // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	electionTimeoutSeconds int     // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
@@ -122,6 +123,12 @@ type DockerInvoker struct {
 
 	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
 	RedisPort int
+
+	// originalContainerType is the original type of the container created by this DockerInvoker
+	originalContainerType scheduling.ContainerType
+
+	// currentContainerType is the current type of the container created by this DockerInvoker
+	currentContainerType scheduling.ContainerType
 
 	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 	RedisDatabase                        int
@@ -257,10 +264,10 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		electionTimeoutSeconds:               opts.ElectionTimeoutSeconds,
 		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
-		WorkloadId:                           opts.WorkloadId,
+		workloadId:                           opts.WorkloadId,
 		SmrEnabled:                           opts.SmrEnabled,
 		SimulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
-		AssignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
+		assignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
 		BindAllGpus:                          opts.BindAllGpus,
 		BindDebugpyPort:                      opts.BindDebugpyPort,
 		SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
@@ -329,7 +336,7 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 	}
 
 	// If no GPU device IDs were specified (and BindAllGpus is false), then we can just return.
-	if len(ivk.AssignedGpuDeviceIds) == 0 {
+	if len(ivk.assignedGpuDeviceIds) == 0 {
 		ivk.log.Warn("The use of real GPUs is enabled; however, no GPU device IDs were specified, " +
 			"and we were not instructed to bind all GPUs...")
 		return ""
@@ -344,12 +351,12 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 
 	// Iterate over all the assigned GPU device IDs, building out the string to include in the GPU command snippet.
 	deviceIdsString := ""
-	for i, deviceId := range ivk.AssignedGpuDeviceIds {
+	for i, deviceId := range ivk.assignedGpuDeviceIds {
 		// Append the GPU device ID to the string.
 		deviceIdsString += fmt.Sprintf("%d", deviceId)
 
 		// If there is going to be another GPU device ID, then we'll append a comma before continuing with the loop.
-		if i < len(ivk.AssignedGpuDeviceIds)-1 {
+		if i < len(ivk.assignedGpuDeviceIds)-1 {
 			deviceIdsString += ","
 		}
 	}
@@ -388,6 +395,14 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	ivk.spec = spec
 	ivk.status = jupyter.KernelStatusInitializing
 	ivk.kernelId = spec.Kernel.Id
+
+	if spec.PrewarmContainer {
+		ivk.originalContainerType = scheduling.PrewarmContainer
+	} else {
+		ivk.originalContainerType = scheduling.StandardContainer
+	}
+
+	ivk.currentContainerType = ivk.originalContainerType
 
 	ivk.log.Debug("[DockerInvoker] Invoking with context now.\n")
 
@@ -766,7 +781,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			DeploymentMode:               ivk.DeploymentMode,
 			SimulateCheckpointingLatency: ivk.simulateCheckpointingLatency,
 			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
-			WorkloadId:                   ivk.WorkloadId,
+			WorkloadId:                   ivk.workloadId,
 			SmrEnabled:                   ivk.SmrEnabled,
 			SimulateTrainingUsingSleep:   ivk.SimulateTrainingUsingSleep,
 		},
@@ -813,4 +828,94 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	}
 
 	return nil
+}
+
+func (ivk *DockerInvoker) WorkloadId() string {
+	return ivk.workloadId
+}
+
+// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetWorkloadId(workloadId string) {
+	ivk.workloadId = workloadId
+}
+
+func (ivk *DockerInvoker) AssignedGpuDeviceIds() []int32 {
+	return ivk.assignedGpuDeviceIds
+}
+
+// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target DockerInvoker is
+// scheduling.StandardContainer.
+//
+// You can only mutate the AssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
+// target DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
+	ivk.assignedGpuDeviceIds = assignedGpuDeviceIds
+}
+
+func (ivk *DockerInvoker) DebugPort() int {
+	return ivk.KernelDebugPort
+}
+
+// SetDebugPort will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the DebugPort field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int) {
+	ivk.KernelDebugPort = kernelDebugPort
+}
+
+func (ivk *DockerInvoker) KernelId() string {
+	return ivk.kernelId
+}
+
+// SetKernelId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the KernelId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetKernelId(kernelId string) {
+	ivk.kernelId = kernelId
+}
+
+// ContainerIsPrewarm returns true if the CurrentContainerType of the target DockerInvoker is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) ContainerIsPrewarm() bool {
+	return ivk.currentContainerType == scheduling.PrewarmContainer
+}
+
+// CurrentContainerType is the current scheduling.ContainerType of the container created by the target DockerInvoker.
+func (ivk *DockerInvoker) CurrentContainerType() scheduling.ContainerType {
+	return ivk.currentContainerType
+}
+
+// OriginalContainerType is the original scheduling.ContainerType of the container created by the target DockerInvoker.
+//
+// OriginalContainerType can be used to determine if the container created by the target DockerInvoker was originally
+// a scheduling.PrewarmContainer that has since been promoted to a scheduling.StandardContainer.
+func (ivk *DockerInvoker) OriginalContainerType() scheduling.ContainerType {
+	return ivk.originalContainerType
+}
+
+// PromotePrewarmedContainer records within the target KernelInvoker that its container, which must originally have
+// been a scheduling.PrewarmContainer, is now a scheduling.StandardContainer.
+//
+// If the promotion is successful, then PromotePrewarmedContainer returns true.
+//
+// If the OriginalContainerType of the target KernelInvoker is KernelInvoker,
+// then PromotePrewarmedContainer returns false.
+func (ivk *DockerInvoker) PromotePrewarmedContainer() bool {
+	// If the container was always a standard container, return false.
+	if ivk.originalContainerType == scheduling.StandardContainer {
+		return false
+	}
+
+	// If the container is already a standard container (and therefore must have already been promoted), return false.
+	if ivk.currentContainerType == scheduling.StandardContainer {
+		return false
+	}
+
+	// Update the current container type and return true.
+	ivk.currentContainerType = scheduling.StandardContainer
+	return true
 }
