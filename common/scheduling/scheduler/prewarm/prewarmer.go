@@ -311,7 +311,7 @@ func (p *ContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.Prewa
 	p.log.Debug("Host %s (ID=%s) is now under capacity (%d). Provisioning %d pre-warm container(s) on host.",
 		containers.Len(), container.HostName(), container.HostId(), numToProvision)
 
-	go p.ProvisionContainers(container.Host, numToProvision)
+	go p.ProvisionContainers(container.Host(), numToProvision)
 
 	return
 }
