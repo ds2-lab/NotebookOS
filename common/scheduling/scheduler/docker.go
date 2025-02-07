@@ -326,8 +326,25 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 	s.log.Debug("Launching replica %d of kernel %s in pre-warmed container \"%s\" on targetHost %s (ID=%s) now.",
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID())
 
-	// TODO: Finish implementing
-	panic("Finish implementing me")
+	// We'll wait up to 5 minutes for the operation to complete.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	spec := &proto.PrewarmedKernelReplicaSpec{
+		KernelReplicaSpec:    replicaSpec,
+		PrewarmedContainerId: container.ID(),
+	}
+
+	replicaConnInfo, err := targetHost.PromotePrewarmedContainer(ctx, spec)
+	if err != nil {
+		s.log.Warn("Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v",
+			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID(), err)
+		return err
+	}
+
+	s.log.Debug("Successfully created replica %d of kernel %s in pre-warmed container on host %s (ID=%s): %v",
+		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), replicaConnInfo)
+	return nil
 }
 
 // scheduleKernelReplicaOnDemand uses the scheduling.Placer to create a new scheduling.KernelContainer on the specified
@@ -338,12 +355,13 @@ func (s *DockerScheduler) scheduleKernelReplicaOnDemand(replicaSpec *proto.Kerne
 
 	replicaConnInfo, err := s.placer.Place(targetHost, replicaSpec)
 	if err != nil {
-		s.log.Warn("Failed to start kernel replica(%s:%d): %v",
-			replicaSpec.Kernel.Id, replicaSpec.ReplicaId, err)
+		s.log.Warn("Failed to start replica %d of kernel %s using on-demand container %s on host %s (ID=%s): %v",
+			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), err)
 		return err
 	}
 
-	s.log.Debug("Received replica connection info after calling placer.Place: %v", replicaConnInfo)
+	s.log.Debug("Successfully placed on-demand container for replica %d of kernel %s on host %s (ID=%s): %v",
+		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), replicaConnInfo)
 	return nil
 }
 
