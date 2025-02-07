@@ -1207,12 +1207,13 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	}
 
 	kernelReplicaSpec := &proto.KernelReplicaSpec{
-		Kernel:       registrationPayload.Kernel,
-		ReplicaId:    registrationPayload.ReplicaId,   // Can get (from config file).
-		NumReplicas:  registrationPayload.NumReplicas, // Can get (from config file).
-		Join:         registrationPayload.Join,        // Can get (from config file).
-		PersistentId: registrationPayload.PersistentId,
-		WorkloadId:   registrationPayload.WorkloadId,
+		Kernel:           registrationPayload.Kernel,
+		ReplicaId:        registrationPayload.ReplicaId,   // Can get (from config file).
+		NumReplicas:      registrationPayload.NumReplicas, // Can get (from config file).
+		Join:             registrationPayload.Join,        // Can get (from config file).
+		PersistentId:     registrationPayload.PersistentId,
+		WorkloadId:       registrationPayload.WorkloadId,
+		PrewarmContainer: registrationPayload.PrewarmContainer,
 	}
 
 	d.log.Debug("%s Kernel \"%s\" has connection info: %v.",
