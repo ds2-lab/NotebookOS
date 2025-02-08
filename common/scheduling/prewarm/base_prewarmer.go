@@ -607,7 +607,7 @@ func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error 
 	spec := &proto.KernelReplicaSpec{
 		Kernel:                    kernelSpec,
 		ReplicaId:                 1,
-		NumReplicas:               1,
+		NumReplicas:               int32(p.Scheduler.Policy().NumReplicas()),
 		Replicas:                  []string{},
 		Join:                      false,
 		WorkloadId:                "",

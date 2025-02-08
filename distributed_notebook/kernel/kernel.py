@@ -476,8 +476,8 @@ class DistributedKernel(IPythonKernel):
             self.prewarm_container_id: Optional[str] = self.kernel_id
             self.log.debug(f'I am a prewarm container with prewarm ID "{self.prewarm_container_id}"')
         else:
-            self.log.debug(f'I am NOT a prewarm container (ID="{self.prewarm_container_id}")')
             self.prewarm_container_id: Optional[str] = None
+            self.log.debug(f'I am NOT a prewarm container (ID="{self.kernel_id}")')
 
         # Keep track of how many times we generate the 'download' code when generating custom DL training code.
         self._get_download_code_called: int = 0

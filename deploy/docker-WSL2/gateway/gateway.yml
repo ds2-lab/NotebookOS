@@ -73,7 +73,7 @@ submit_execute_requests_one_at_a_time: true
 idle_session_reclamation_enabled: true
 idle_session_reclamation_interval_sec: 30
 pretty_print_options: true
-prewarming_enabled: false
+prewarming_enabled: true
 initial_num_containers_per_host: 1
 min_prewarm_containers_per_host: 1
 max_prewarm_containers_per_host: 3
