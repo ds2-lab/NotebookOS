@@ -3107,6 +3107,26 @@ func (mr *MockHostMockRecorder) Priority(session any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Priority", reflect.TypeOf((*MockHost)(nil).Priority), session)
 }
 
+// PromotePrewarmedContainer mocks base method.
+func (m *MockHost) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PromotePrewarmedContainer", varargs...)
+	ret0, _ := ret[0].(*proto.KernelConnectionInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PromotePrewarmedContainer indicates an expected call of PromotePrewarmedContainer.
+func (mr *MockHostMockRecorder) PromotePrewarmedContainer(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmedContainer", reflect.TypeOf((*MockHost)(nil).PromotePrewarmedContainer), varargs...)
+}
+
 // RecomputeSubscribedRatio mocks base method.
 func (m *MockHost) RecomputeSubscribedRatio() decimal.Decimal {
 	m.ctrl.T.Helper()
@@ -4869,6 +4889,26 @@ func (m *MockUnitTestingHost) Priority(session scheduling.UserSession) float64 {
 func (mr *MockUnitTestingHostMockRecorder) Priority(session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Priority", reflect.TypeOf((*MockUnitTestingHost)(nil).Priority), session)
+}
+
+// PromotePrewarmedContainer mocks base method.
+func (m *MockUnitTestingHost) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PromotePrewarmedContainer", varargs...)
+	ret0, _ := ret[0].(*proto.KernelConnectionInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PromotePrewarmedContainer indicates an expected call of PromotePrewarmedContainer.
+func (mr *MockUnitTestingHostMockRecorder) PromotePrewarmedContainer(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmedContainer", reflect.TypeOf((*MockUnitTestingHost)(nil).PromotePrewarmedContainer), varargs...)
 }
 
 // RecomputeSubscribedRatio mocks base method.
@@ -7553,12 +7593,11 @@ func (mr *MockKernelReplicaMockRecorder) Container() *gomock.Call {
 }
 
 // ContainerType mocks base method.
-func (m *MockKernelReplica) ContainerType() (scheduling.ContainerType, bool) {
+func (m *MockKernelReplica) ContainerType() scheduling.ContainerType {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ContainerType")
 	ret0, _ := ret[0].(scheduling.ContainerType)
-	ret1, _ := ret[1].(bool)
-	return ret0, ret1
+	return ret0
 }
 
 // ContainerType indicates an expected call of ContainerType.
@@ -7677,6 +7716,20 @@ func (m *MockKernelReplica) IOPubListenPort() int {
 func (mr *MockKernelReplicaMockRecorder) IOPubListenPort() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IOPubListenPort", reflect.TypeOf((*MockKernelReplica)(nil).IOPubListenPort))
+}
+
+// IOSubSocketPort mocks base method.
+func (m *MockKernelReplica) IOSubSocketPort() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IOSubSocketPort")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// IOSubSocketPort indicates an expected call of IOSubSocketPort.
+func (mr *MockKernelReplicaMockRecorder) IOSubSocketPort() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IOSubSocketPort", reflect.TypeOf((*MockKernelReplica)(nil).IOSubSocketPort))
 }
 
 // InitializeIOForwarder mocks base method.
@@ -7905,17 +7958,17 @@ func (mr *MockKernelReplicaMockRecorder) PersistentID() *gomock.Call {
 }
 
 // PromotePrewarmContainer mocks base method.
-func (m *MockKernelReplica) PromotePrewarmContainer() error {
+func (m *MockKernelReplica) PromotePrewarmContainer(spec *proto.KernelReplicaSpec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PromotePrewarmContainer")
+	ret := m.ctrl.Call(m, "PromotePrewarmContainer", spec)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PromotePrewarmContainer indicates an expected call of PromotePrewarmContainer.
-func (mr *MockKernelReplicaMockRecorder) PromotePrewarmContainer() *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) PromotePrewarmContainer(spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelReplica)(nil).PromotePrewarmContainer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelReplica)(nil).PromotePrewarmContainer), spec)
 }
 
 // ReceivedExecuteReply mocks base method.
@@ -8370,7 +8423,7 @@ func (mr *MockKernelReplicaMockRecorder) WaitForTrainingToStop() *gomock.Call {
 // WorkloadId mocks base method.
 func (m *MockKernelReplica) WorkloadId() string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "workloadId")
+	ret := m.ctrl.Call(m, "WorkloadId")
 	ret0, _ := ret[0].(string)
 	return ret0
 }
@@ -8378,7 +8431,7 @@ func (m *MockKernelReplica) WorkloadId() string {
 // WorkloadId indicates an expected call of WorkloadId.
 func (mr *MockKernelReplicaMockRecorder) WorkloadId() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "workloadId", reflect.TypeOf((*MockKernelReplica)(nil).WorkloadId))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkloadId", reflect.TypeOf((*MockKernelReplica)(nil).WorkloadId))
 }
 
 // WorkloadIdSet mocks base method.
@@ -8708,17 +8761,17 @@ func (mr *MockKernelContainerMockRecorder) PreemptionPriority() *gomock.Call {
 }
 
 // PromotePrewarmContainer mocks base method.
-func (m *MockKernelContainer) PromotePrewarmContainer() error {
+func (m *MockKernelContainer) PromotePrewarmContainer(kernelId string, replicaId int32, spec types.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PromotePrewarmContainer")
+	ret := m.ctrl.Call(m, "PromotePrewarmContainer", kernelId, replicaId, spec)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PromotePrewarmContainer indicates an expected call of PromotePrewarmContainer.
-func (mr *MockKernelContainerMockRecorder) PromotePrewarmContainer() *gomock.Call {
+func (mr *MockKernelContainerMockRecorder) PromotePrewarmContainer(kernelId, replicaId, spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelContainer)(nil).PromotePrewarmContainer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelContainer)(nil).PromotePrewarmContainer), kernelId, replicaId, spec)
 }
 
 // ReplicaId mocks base method.
@@ -12661,4 +12714,28 @@ func (m *MockContainerPrewarmer) Run() {
 func (mr *MockContainerPrewarmerMockRecorder) Run() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockContainerPrewarmer)(nil).Run))
+}
+
+// Stop mocks base method.
+func (m *MockContainerPrewarmer) Stop() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Stop")
+}
+
+// Stop indicates an expected call of Stop.
+func (mr *MockContainerPrewarmerMockRecorder) Stop() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockContainerPrewarmer)(nil).Stop))
+}
+
+// ValidateHostCapacity mocks base method.
+func (m *MockContainerPrewarmer) ValidateHostCapacity(host scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ValidateHostCapacity", host)
+}
+
+// ValidateHostCapacity indicates an expected call of ValidateHostCapacity.
+func (mr *MockContainerPrewarmerMockRecorder) ValidateHostCapacity(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostCapacity", reflect.TypeOf((*MockContainerPrewarmer)(nil).ValidateHostCapacity), host)
 }

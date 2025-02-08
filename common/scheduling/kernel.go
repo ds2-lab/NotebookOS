@@ -384,7 +384,7 @@ type KernelReplica interface {
 	IOSubSocketPort() int
 
 	// ContainerType returns the current ContainerType of the (KernelContainer of the) target KernelReplica.
-	ContainerType() (ContainerType, bool)
+	ContainerType() ContainerType
 
 	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
 	// to a StandardContainer.

@@ -2509,7 +2509,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.metricsProvider,
 		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics,
-		d.SubmitExecuteRequestsOneAtATime)
+		d.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
 
 	err := replica.Validate()
 	if err != nil {
@@ -2809,7 +2809,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.metricsProvider, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics,
-		d.SubmitExecuteRequestsOneAtATime)
+		d.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
 
 	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {

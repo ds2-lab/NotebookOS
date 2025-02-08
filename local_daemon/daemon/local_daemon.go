@@ -90,6 +90,16 @@ type GRPCServerWrapper struct {
 	PurposefullyShutdown bool
 }
 
+// getContainerType is a helper to return the corresponding scheduling.ContainerType based on the value of
+// the PrewarmContainer field of the given proto.KernelReplicaSpec struct.
+func getContainerType(spec *proto.KernelReplicaSpec) scheduling.ContainerType {
+	if spec.PrewarmContainer {
+		return scheduling.PrewarmContainer
+	}
+
+	return scheduling.StandardContainer
+}
+
 // LocalScheduler is the daemon that proxy requests to kernel replicas on local-host.
 //
 // WIP: Replica membership change.
@@ -1087,7 +1097,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		d.numResendAttempts, registrationPayload.PodOrContainerName, registrationPayload.NodeName,
 		d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
 		metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, nil, true)
+		d.kernelRequestResubmissionFailedAfterReconnection, nil, true, getContainerType(kernelReplicaSpec))
 
 	kernelConnectionInfo, err := d.initializeKernelClient(kernelReplicaSpec, connInfo, kernel)
 	if err != nil {
@@ -2409,7 +2419,8 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 		types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
 		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, nil, true)
+		d.kernelRequestResubmissionFailedAfterReconnection, nil, true,
+		getContainerType(in))
 
 	// Register kernel.
 	if in.PrewarmContainer {

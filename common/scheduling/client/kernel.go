@@ -73,7 +73,8 @@ type KernelReplicaClient struct {
 	receivedExecuteRequestReplies hashmap.HashMap[string, *messaging.JupyterMessage] // receivedExecuteRequestReplies is a map from Jupyter message ID (of execute_request messages) to the responses.
 
 	// The Container associated with this KernelReplicaClient.
-	container scheduling.KernelContainer
+	container     scheduling.KernelContainer
+	containerType scheduling.ContainerType
 
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
 	messagingMetricsProvider server.MessagingMetricsProvider
@@ -143,7 +144,8 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
 	messagingMetricsProvider server.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
-	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), submitRequestsOneAtATime bool) *KernelReplicaClient {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), submitRequestsOneAtATime bool,
+	containerType scheduling.ContainerType) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
@@ -178,6 +180,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		connectionRevalidationFailedCallback: connRevalFailedCallback,
 		statisticsUpdaterProvider:            statisticsUpdaterProvider,
 		submitRequestsOneAtATime:             submitRequestsOneAtATime,
+		containerType:                        containerType,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -1448,12 +1451,8 @@ func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.KernelRep
 }
 
 // ContainerType returns the current ContainerType of the (KernelReplicaClient of the) target KernelReplicaClient.
-func (c *KernelReplicaClient) ContainerType() (scheduling.ContainerType, bool) {
-	if c.container == nil {
-		return scheduling.UnknownContainer, false
-	}
-
-	return c.container.ContainerType(), true
+func (c *KernelReplicaClient) ContainerType() scheduling.ContainerType {
+	return c.containerType
 }
 
 // PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
@@ -1465,11 +1464,12 @@ func (c *KernelReplicaClient) PromotePrewarmContainer(spec *proto.KernelReplicaS
 	c.spec = spec.Kernel
 	c.replicaSpec = spec
 	c.id = spec.Kernel.Id
+	c.containerType = scheduling.StandardContainer
 
 	if c.container == nil {
 		return fmt.Errorf("%w: replica %d of kernel \"%s\" does not have a container",
 			entity.ErrInvalidContainer, c.replicaId, c.id)
 	}
 
-	return c.container.PromotePrewarmContainer(spec.Kernel.Id, spec.ReplicaId, spec.ResourceSpec().ToDecimalSpec())
+	return c.container.PrewarmContainerPromoted(spec.Kernel.Id, spec.ReplicaId, spec.ResourceSpec().ToDecimalSpec())
 }

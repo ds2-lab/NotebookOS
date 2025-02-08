@@ -34,13 +34,10 @@ type Container struct {
 	interactivePriorityBase float64
 	replicaId               int32        // The SMR node ID of the kernel replica running within the Container.
 	executions              atomic.Int32 // The number of training events processed by the Container.
-
-	containerType scheduling.ContainerType
 }
 
 // NewContainer creates and returns a new *Container.
-func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host,
-	kernelIp string, containerType scheduling.ContainerType) *Container {
+func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host, kernelIp string) *Container {
 
 	id := session.ID()
 	container := &Container{
@@ -54,7 +51,6 @@ func NewContainer(session scheduling.UserSession, kernelReplica scheduling.Kerne
 		spec:           types.ToDecimalSpec(session.ResourceSpec()),
 		startedAt:      time.Now(),
 		addr:           kernelIp,
-		containerType:  containerType,
 	}
 
 	container.executions.Store(0)
@@ -358,18 +354,16 @@ func (c *Container) NumTrainingEventsProcessed() int {
 
 // ContainerType returns the current ContainerType of the Container.
 func (c *Container) ContainerType() scheduling.ContainerType {
-	return c.containerType
+	return c.KernelReplica.ContainerType()
 }
 
-// PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
+// PrewarmContainerPromoted is used to promote a scheduling.KernelContainer whose ContainerType is
 // scheduling.PrewarmContainer to a scheduling.StandardContainer.
-func (c *Container) PromotePrewarmContainer(kernelId string, replicaId int32, spec types.Spec) error {
-	if c.containerType != scheduling.PrewarmContainer {
+func (c *Container) PrewarmContainerPromoted(kernelId string, replicaId int32, spec types.Spec) error {
+	if c.KernelReplica.ContainerType() != scheduling.PrewarmContainer {
 		return fmt.Errorf("%w: cannot promote container for replica %d of kernel %s as it is of type '%s'",
-			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.containerType.String())
+			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.KernelReplica.ContainerType().String())
 	}
-
-	c.containerType = scheduling.StandardContainer
 
 	c.replicaId = replicaId
 	c.spec = types.ToDecimalSpec(spec)
