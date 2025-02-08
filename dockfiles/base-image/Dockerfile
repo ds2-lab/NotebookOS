@@ -252,7 +252,7 @@ VOLUME /var/lib/docker
 EXPOSE 2375 2376
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils vim -y 
+RUN apt-get update && apt-get install iputils-ping dnsutils vim curl -y
 
 USER hostuser
 

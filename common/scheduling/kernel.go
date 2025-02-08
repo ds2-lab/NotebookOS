@@ -383,6 +383,9 @@ type KernelReplica interface {
 	// IOSubSocketPort return the Port of the IO Socket of the target KernelReplica's client.
 	IOSubSocketPort() int
 
+	// WasPrewarmContainer returns true if the target KernelReplicaClient was originally a pre-warmed container.
+	WasPrewarmContainer() bool
+
 	// ContainerType returns the current ContainerType of the (KernelContainer of the) target KernelReplica.
 	ContainerType() ContainerType
 

@@ -76,6 +76,9 @@ type KernelReplicaClient struct {
 	container     scheduling.KernelContainer
 	containerType scheduling.ContainerType
 
+	// wasPrewarmContainer is true if the KernelReplicaClient was originally of type scheduling.PrewarmContainer.
+	wasPrewarmContainer bool
+
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
 	messagingMetricsProvider server.MessagingMetricsProvider
 
@@ -181,6 +184,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		statisticsUpdaterProvider:            statisticsUpdaterProvider,
 		submitRequestsOneAtATime:             submitRequestsOneAtATime,
 		containerType:                        containerType,
+		wasPrewarmContainer:                  containerType == scheduling.PrewarmContainer,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -1453,6 +1457,11 @@ func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.KernelRep
 // ContainerType returns the current ContainerType of the (KernelReplicaClient of the) target KernelReplicaClient.
 func (c *KernelReplicaClient) ContainerType() scheduling.ContainerType {
 	return c.containerType
+}
+
+// WasPrewarmContainer returns true if the target KernelReplicaClient was originally a pre-warmed container.
+func (c *KernelReplicaClient) WasPrewarmContainer() bool {
+	return c.wasPrewarmContainer
 }
 
 // PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is

@@ -1303,8 +1303,10 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		PrewarmContainer:   registrationPayload.PrewarmContainer,
 	}
 
+	// If the kernel client was originally a prewarm container, then there won't be a notification because the
+	// container will have been created a while ago.
 	var dockerContainerId string
-	if d.DockerMode() {
+	if d.DockerMode() && !kernel.WasPrewarmContainer() {
 		containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
 		dockerContainerId = containerStartedNotification.FullContainerId
 
