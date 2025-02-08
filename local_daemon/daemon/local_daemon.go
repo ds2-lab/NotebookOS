@@ -1089,7 +1089,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, nil, true)
 
-	kernelConnectionInfo, err := d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
+	kernelConnectionInfo, err := d.initializeKernelClient(kernelReplicaSpec, connInfo, kernel)
 	if err != nil {
 		errorMessage := fmt.Sprintf("Failed to initialize replica %d of kernel %s because: %v",
 			registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err)
@@ -1928,23 +1928,25 @@ func (d *LocalScheduler) LocalMode() bool {
 // Initialize a kernel client for a new kernel.
 // Initialize shell/IO forwarders, validate the connection with the kernel (which includes connecting to the ZMQ sockets), etc.
 // If there's an error at any point during the initialization process, then the kernel connection/client is closed and an error is returned.
-func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel *client.KernelReplicaClient) (*proto.KernelConnectionInfo, error) {
+func (d *LocalScheduler) initializeKernelClient(in *proto.KernelReplicaSpec, connInfo *jupyter.ConnectionInfo, kernel *client.KernelReplicaClient) (*proto.KernelConnectionInfo, error) {
+	kernelId := in.Kernel.Id
+
 	shell := d.router.Socket(messaging.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		var err error
 		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
-			d.log.Error("Failed to initialize shell forwarder (ZMQ shell socket) for kernel %s because: %v", id, err)
+			d.log.Error("Failed to initialize shell forwarder (ZMQ shell socket) for kernel %s because: %v", kernelId, err)
 			d.closeKernel(kernel, "failed initializing shell forwarder")
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
-		d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", id)
+		d.log.Debug("Successfully initialized shell forwarder for kernel \"%s\"", kernelId)
 	}
 
 	iopub, err := kernel.InitializeIOForwarder()
 	if err != nil {
-		d.log.Error("Failed to initialize IO forwarder (ZMQ IO Pub socket) for kernel %s because: %v", id, err)
+		d.log.Error("Failed to initialize IO forwarder (ZMQ IO Pub socket) for kernel %s because: %v", kernelId, err)
 		d.closeKernel(kernel, "failed initializing io forwarder")
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -1957,7 +1959,7 @@ func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.Con
 	}
 
 	if err := kernel.Validate(); err != nil {
-		d.log.Error("Failed to validate connection with new kernel %s because: %v", id, err)
+		d.log.Error("Failed to validate connection with new kernel %s because: %v", kernelId, err)
 		d.closeKernel(kernel, "validation error")
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -1984,7 +1986,11 @@ func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.Con
 		Key:             connInfo.Key,
 	}
 
-	d.log.Info("kernel %s started: %v", id, info)
+	if in.PrewarmContainer {
+		d.log.Info("Pre-warmed kernel %s started: %v", kernelId, info)
+	} else {
+		d.log.Info("Standard kernel %s started: %v", kernelId, info)
+	}
 
 	return info, nil
 }
@@ -2014,7 +2020,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, ErrNilArgument
 	}
 
-	prewarmedContainer, loaded := d.prewarmKernels.Load(prewarmedContainerId)
+	prewarmedKernelClient, loaded := d.prewarmKernels.Load(prewarmedContainerId)
 	if !loaded {
 		d.log.Error("Unknown pre-warmed container specified: \"%s\"", prewarmedContainerId)
 
@@ -2022,7 +2028,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 			fmt.Sprintf("unknown pre-warmed container \"%s\"", prewarmedContainerId))
 	}
 
-	kernelInvoker := d.getInvoker(prewarmedContainer)
+	kernelInvoker := d.getInvoker(prewarmedKernelClient)
 	if kernelInvoker == nil {
 		errorMessage := fmt.Sprintf("prewarmed container \"%s\" has nil invoker", prewarmedContainerId)
 		d.log.Error(errorMessage)
@@ -2044,7 +2050,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	}
 
 	// Promote the container (with respect to the scheduling.KernelReplica and scheduling.Container).
-	err := prewarmedContainer.PromotePrewarmContainer(kernelReplicaSpec)
+	err := prewarmedKernelClient.PromotePrewarmContainer(kernelReplicaSpec)
 	if err != nil && !errors.Is(err, entity.ErrInvalidContainer) /* It's fine if it doesn't have a container */ {
 		d.log.Error("Failed to promote prewarmed container (with respect to the KernelReplicaClient): %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2155,11 +2161,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	}
 
 	// Send the "promote_prewarm_request" message to the kernel, which will prompt it to re-register.
-	err = prewarmedContainer.RequestWithHandler(ctx, "Forwarding", messaging.ControlMessage, jMsg, nil, wg.Done)
+	err = prewarmedKernelClient.RequestWithHandler(ctx, "Forwarding", messaging.ControlMessage, jMsg, nil, wg.Done)
 	if err != nil {
-		d.log.Error("Promotion of prewarmed container \"%s\" failed: %v", prewarmedContainer, err)
+		d.log.Error("Promotion of prewarmed container \"%s\" failed: %v", prewarmedKernelClient, err)
 		d.log.Error("Failed to create replica %d of kernel \"%s\" using pre-warmed container \"%s\".",
-			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, prewarmedContainer)
+			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, prewarmedKernelClient)
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -2167,17 +2173,17 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	// Remove the entry from the "prewarmed" mapping...
 	d.prewarmKernels.Delete(prewarmedContainerId)
 	// ... and add a new entry to the standard kernel replica mapping.
-	d.kernels.Store(kernelReplicaSpec.Kernel.Id, prewarmedContainer)
+	d.kernels.Store(kernelReplicaSpec.Kernel.Id, prewarmedKernelClient)
 
 	// Unregister the prewarmed kernel replica client with the execute request forwarder...
 	d.executeRequestForwarder.UnregisterKernel(prewarmedContainerId)
 	// ... and re-register the kernel replica client under its new kernel ID.
-	d.registerKernelWithExecReqForwarder(prewarmedContainer)
+	d.registerKernelWithExecReqForwarder(prewarmedKernelClient)
 
 	// Retrieve the shell socket.
 	var shellSocket *messaging.Socket
 	if d.schedulerDaemonOptions.DirectServer {
-		shellSocket = prewarmedContainer.Socket(messaging.ShellMessage)
+		shellSocket = prewarmedKernelClient.Socket(messaging.ShellMessage)
 	} else {
 		shellSocket = d.router.Socket(messaging.ShellMessage)
 	}
@@ -2189,8 +2195,8 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		ShellPort:       int32(shellSocket.Port),
 		StdinPort:       int32(d.router.Socket(messaging.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(messaging.HBMessage).Port),
-		IopubPort:       int32(prewarmedContainer.IOPubListenPort()),
-		IosubPort:       int32(prewarmedContainer.IOSubSocketPort()),
+		IopubPort:       int32(prewarmedKernelClient.IOPubListenPort()),
+		IosubPort:       int32(prewarmedKernelClient.IOSubSocketPort()),
 		SignatureScheme: kernelReplicaSpec.Kernel.SignatureScheme,
 		Key:             kernelReplicaSpec.Kernel.Key,
 	}
@@ -2412,7 +2418,7 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 		d.kernels.Store(kernel.ID(), kernel)
 	}
 
-	info, err := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
+	info, err := d.initializeKernelClient(in, connInfo, kernel)
 	if err != nil {
 		d.log.Error("Failed to initialize replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
 		return nil, status.Error(codes.Internal, err.Error())
