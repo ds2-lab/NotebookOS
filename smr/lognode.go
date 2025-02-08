@@ -466,7 +466,7 @@ func (node *LogNode) ServeHttpDebug() {
 		if err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", node.httpDebugPort), nil); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Failed to serve HTTP debug server on port %d because: %v\n",
 				node.httpDebugPort, err)
-			
+
 			log.Fatal("ListenAndServe: ", err)
 		}
 	}()

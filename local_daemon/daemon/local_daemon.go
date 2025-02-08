@@ -2048,11 +2048,19 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, errorMessage)
 	}
 
+	// Set to a more standard value if the port is just invalid.
+	if kernelReplicaSpec.DockerModeKernelDebugPort <= 1023 {
+		kernelReplicaSpec.DockerModeKernelDebugPort = -1
+	}
+
 	// Update fields of the KernelInvoker.
 	kernelInvoker.SetWorkloadId(kernelReplicaSpec.WorkloadId)
 	kernelInvoker.SetAssignedGpuDeviceIds(kernelReplicaSpec.Kernel.ResourceSpec.GpuDeviceIds)
 	kernelInvoker.SetDebugPort(kernelReplicaSpec.DockerModeKernelDebugPort)
 	kernelInvoker.SetKernelId(kernelReplicaSpec.Kernel.Id)
+
+	// Store the debug port.
+	d.kernelDebugPorts.Store(kernelReplicaSpec.Kernel.Id, int(kernelReplicaSpec.DockerModeKernelDebugPort))
 
 	// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
 	promoted := kernelInvoker.PromotePrewarmedContainer()
@@ -2113,6 +2121,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		SMRNodeID:                    int(kernelReplicaSpec.ReplicaId),
 		SMRNodes:                     replicas,
 		SMRJoin:                      kernelReplicaSpec.Join,
+		SMRPort:                      d.smrPort,
 		RegisterWithLocalDaemon:      true,
 		LocalDaemonAddr:              hostname,
 		RemoteStorageEndpoint:        d.remoteStorageEndpoint,

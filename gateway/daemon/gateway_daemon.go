@@ -972,7 +972,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		msg   zmq4.Msg
 		err   error
 	)
-	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.Sessions()[0])
+	// frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.Sessions()[0])
+	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.ID())
 
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
 	var requestTrace *proto.RequestTrace

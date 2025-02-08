@@ -141,7 +141,7 @@ SMR_LEAD_TASK: str = "smr_lead_task"
 LEADER_KEY: str = "__LEADER__"
 
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
-smr_port_default = 10000
+smr_port_default = 8080
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
 err_failed_to_lead_execution = ExecutionYieldError("Failed to lead the execution.")
 err_invalid_request = RuntimeError("Invalid request.")
@@ -465,6 +465,7 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
+        self.synclog: Optional[SyncLog] = None
 
         if "prewarm_container" in kwargs:
             self.prewarm_container = kwargs["prewarm_container"]
@@ -884,6 +885,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info('Session ID: "%s"' % session_id)
         self.log.info('Kernel ID: "%s"' % self.kernel_id)
         self.log.info('Pod name: "%s"' % self.pod_name)
+        self.log.info("SMR port: '%d'" % self.smr_port)
         self.log.info('RemoteStorage hostname: "%s"' % self.remote_storage_hostname)
 
         if self.remote_storage_hostname == "":
@@ -4957,7 +4959,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog: SyncLog = RaftLog(
+                self.synclog = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -5020,7 +5022,7 @@ class DistributedKernel(IPythonKernel):
                 raise ValueError(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
 
             assert remote_storage_provider is not None
-            self.synclog: SyncLog = RemoteStorageLog(
+            self.synclog = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,
