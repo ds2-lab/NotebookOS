@@ -807,7 +807,7 @@ func (c *KernelReplicaClient) ShellListenPort() int {
 }
 
 func (c *KernelReplicaClient) IOPubListenPort() int {
-	return c.client.GetSocketPort(messaging.IOMessage)
+	return c.iopub.Port
 }
 
 // YieldNextExecutionRequest takes note that we should yield the next execution request.
