@@ -115,12 +115,12 @@ class RaftLog(object):
         self.log.info("Creating RaftNode %d now." % node_id)
 
         if debug_port <= 1023 or debug_port >= 65535:
-            if debug_port == -1:
+            if debug_port < 0:
                 self.log.warning(
                     "Debug port specified as -1. Golang HTTP debug server will be disabled."
                 )
             else:
-                raise ValueError("Invalid debug port specified.")
+                raise ValueError(f"Invalid debug port specified: {debug_port}")
 
         self._kernel_id = kernel_id
 

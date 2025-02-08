@@ -1246,6 +1246,23 @@ class DistributedKernel(IPythonKernel):
             debugpy.breakpoint()
             self.log.debug("Should have broken on the previous line!")
 
+    def persistent_store_initialized_callback(self, f: futures.Future):
+        """
+        Simple callback to print a message when the initialization of the persistent store completes.
+        """
+        if f.done():
+            self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
+            return
+
+        if f.cancelled():
+            self.log.error("Initialization of Persistent Store on-start has been cancelled...")
+
+        try:
+            self.log.error(f"Initialization of Persistent Store apparently "
+                           f"raised an exception: {f.exception()}")
+        except:  # noqa
+            self.log.error("No exception associated with cancelled initialization of Persistent Store.")
+
     def start(self):
         self.log.info(
             'DistributedKernel is starting. Persistent ID = "%s"' % self.persistent_id
@@ -1261,24 +1278,6 @@ class DistributedKernel(IPythonKernel):
                 and self.persistent_id is not None
         ):
             assert isinstance(self.persistent_id, str)
-
-            def init_persistent_store_done_callback(f: futures.Future):
-                """
-                Simple callback to print a message when the initialization of the persistent store completes.
-                """
-                if f.done():
-                    self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
-                    return
-
-                if f.cancelled():
-                    self.log.error("Initialization of Persistent Store on-start has been cancelled...")
-
-                try:
-                    self.log.error(f"Initialization of Persistent Store apparently "
-                                   f"raised an exception: {f.exception()}")
-                except:  # noqa
-                    self.log.error("No exception associated with cancelled initialization of Persistent Store.")
-
             self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. "
                            f"Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
             self.init_persistent_store_on_start_future: futures.Future = (
@@ -1288,7 +1287,7 @@ class DistributedKernel(IPythonKernel):
                 )
             )
             self.init_persistent_store_on_start_future.add_done_callback(
-                init_persistent_store_done_callback
+                self.persistent_store_initialized_callback
             )
         else:
             self.log.warning("Will NOT be initializing Persistent Store on start, "
@@ -2342,6 +2341,17 @@ class DistributedKernel(IPythonKernel):
 
         if self.prometheus_enabled:
             self.registration_time_milliseconds.observe(registration_duration)
+
+        # Call start now that we're no longer a prewarm container.
+        self.init_persistent_store_on_start_future: futures.Future = (
+            asyncio.run_coroutine_threadsafe(
+                self.init_persistent_store_on_start(self.persistent_id),
+                self.control_thread.io_loop.asyncio_loop,
+            )
+        )
+        self.init_persistent_store_on_start_future.add_done_callback(
+            self.persistent_store_initialized_callback
+        )
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent, -1
@@ -4947,7 +4957,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog: RaftLog = RaftLog(
+                self.synclog: SyncLog = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -5010,7 +5020,7 @@ class DistributedKernel(IPythonKernel):
                 raise ValueError(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
 
             assert remote_storage_provider is not None
-            self.synclog: RemoteStorageLog = RemoteStorageLog(
+            self.synclog: SyncLog = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,
