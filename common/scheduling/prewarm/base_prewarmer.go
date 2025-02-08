@@ -191,9 +191,6 @@ type BaseContainerPrewarmer struct {
 	// being provisioned on that scheduling.Host.
 	NumPrewarmContainersProvisioningPerHost map[string]*atomic.Int32
 
-	// Scheduler is a reference to the scheduling.Scheduler.
-	Scheduler scheduling.Scheduler
-
 	// Cluster is a reference to the scheduling.Cluster.
 	Cluster scheduling.Cluster
 
@@ -214,7 +211,6 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerC
 		NumPrewarmContainersProvisioningPerHost: make(map[string]*atomic.Int32),
 		stopChan:                                make(chan struct{}, 1),
 		Cluster:                                 cluster,
-		Scheduler:                               cluster.Scheduler(),
 		Config:                                  configuration,
 	}
 
@@ -607,7 +603,7 @@ func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error 
 	spec := &proto.KernelReplicaSpec{
 		Kernel:                    kernelSpec,
 		ReplicaId:                 1,
-		NumReplicas:               int32(p.Scheduler.Policy().NumReplicas()),
+		NumReplicas:               int32(p.Cluster.Scheduler().Policy().NumReplicas()),
 		Replicas:                  []string{},
 		Join:                      false,
 		WorkloadId:                "",

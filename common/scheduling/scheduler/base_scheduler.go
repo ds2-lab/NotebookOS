@@ -164,6 +164,39 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
+	b.buildPrewarmPolicy(clusterScheduler)
+
+	if b.options.GpuPollIntervalSeconds <= 0 {
+		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
+	}
+
+	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
+		clusterScheduler.log.Debug("Scheduling Configuration:")
+		clusterScheduler.log.Debug("GpusPerHost: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
+		clusterScheduler.log.Debug("ScalingFactor: %.2f",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingFactor)
+		clusterScheduler.log.Debug("ScalingLimit: %.2f",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingLimit)
+		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce)
+		clusterScheduler.log.Debug("ScalingIntervalSec: %.3f",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
+		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
+			clusterScheduler.schedulingPolicy.SupportsPredictiveAutoscaling())
+		clusterScheduler.log.Debug("ScalingBufferSize: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingBufferSize)
+		clusterScheduler.log.Debug("GPU Refresh Interval: %v",
+			clusterScheduler.remoteSynchronizationInterval)
+		clusterScheduler.log.Debug("Scheduling policy: %s",
+			clusterScheduler.schedulingPolicy.Name())
+	}
+
+	return clusterScheduler
+}
+
+// buildPrewarmPolicy is called by Build and specifically configures/creates the prewarming policy.
+func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseScheduler) {
 	prewarmerConfig := &prewarm.PrewarmerConfig{
 		InitialPrewarmedContainersPerHost: b.initialNumContainersPerHost,
 		MaxPrewarmedContainersPerHost:     b.options.MaxPrewarmContainersPerHost,
@@ -196,6 +229,12 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig)
 				clusterScheduler.prewarmer = prewarmer
 			}
+		case scheduling.NoMaintenance.String():
+			{
+				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
+				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
+				clusterScheduler.prewarmer = prewarmer
+			}
 		case "":
 			{
 				clusterScheduler.log.Warn("No pre-warming policy specified. Using default (i.e., none).")
@@ -208,34 +247,6 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 			}
 		}
 	}
-
-	if b.options.GpuPollIntervalSeconds <= 0 {
-		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
-	}
-
-	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		clusterScheduler.log.Debug("Scheduling Configuration:")
-		clusterScheduler.log.Debug("GpusPerHost: %d",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
-		clusterScheduler.log.Debug("ScalingFactor: %.2f",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingFactor)
-		clusterScheduler.log.Debug("ScalingLimit: %.2f",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingLimit)
-		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce)
-		clusterScheduler.log.Debug("ScalingIntervalSec: %.3f",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
-		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
-			clusterScheduler.schedulingPolicy.SupportsPredictiveAutoscaling())
-		clusterScheduler.log.Debug("ScalingBufferSize: %d",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingBufferSize)
-		clusterScheduler.log.Debug("GPU Refresh Interval: %v",
-			clusterScheduler.remoteSynchronizationInterval)
-		clusterScheduler.log.Debug("Scheduling policy: %s",
-			clusterScheduler.schedulingPolicy.Name())
-	}
-
-	return clusterScheduler
 }
 
 type BaseScheduler struct {

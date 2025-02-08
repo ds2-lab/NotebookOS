@@ -77,4 +77,5 @@ prewarming_enabled: true
 initial_num_containers_per_host: 1
 min_prewarm_containers_per_host: 1
 max_prewarm_containers_per_host: 3
-prewarming_policy: maintain_minimum_capacity
+prewarming_policy: no_maintenance
+# maintain_minimum_capacity

@@ -2084,10 +2084,16 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	replicas := kernelReplicaSpec.Replicas
+	if replicas == nil {
+		// Empty for now.
+		replicas = make([]string, d.schedulingPolicy.NumReplicas())
+	}
+
 	distributedKernelConfig := &jupyter.DistributedKernelConfig{
 		StorageBase:                  d.dockerStorageBase,
 		SMRNodeID:                    int(kernelReplicaSpec.ReplicaId),
-		SMRNodes:                     kernelReplicaSpec.Replicas,
+		SMRNodes:                     replicas,
 		SMRJoin:                      kernelReplicaSpec.Join,
 		RegisterWithLocalDaemon:      true,
 		LocalDaemonAddr:              hostname,
@@ -2158,9 +2164,6 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// Wait for the response to be received.
-	wg.Wait()
-
 	// Remove the entry from the "prewarmed" mapping...
 	d.prewarmKernels.Delete(prewarmedContainerId)
 	// ... and add a new entry to the standard kernel replica mapping.
@@ -2171,11 +2174,19 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	// ... and re-register the kernel replica client under its new kernel ID.
 	d.registerKernelWithExecReqForwarder(prewarmedContainer)
 
+	// Retrieve the shell socket.
+	var shellSocket *messaging.Socket
+	if d.schedulerDaemonOptions.DirectServer {
+		shellSocket = prewarmedContainer.Socket(messaging.ShellMessage)
+	} else {
+		shellSocket = d.router.Socket(messaging.ShellMessage)
+	}
+
 	info := &proto.KernelConnectionInfo{
 		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(messaging.ControlMessage).Port),
-		ShellPort:       int32(prewarmedContainer.Socket(messaging.ShellMessage).Port),
+		ShellPort:       int32(shellSocket.Port),
 		StdinPort:       int32(d.router.Socket(messaging.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(messaging.HBMessage).Port),
 		IopubPort:       int32(prewarmedContainer.IOPubListenPort()),
@@ -2186,6 +2197,12 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
+
+	// Wait for the response to be received.
+	//
+	// We must place this Wait call after sending the info over the channel because the kernel will (re)register
+	// with its Local Scheduler before sending a response back to us.
+	wg.Wait()
 
 	if d.prometheusManager != nil {
 		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()

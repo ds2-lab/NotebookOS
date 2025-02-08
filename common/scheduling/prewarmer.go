@@ -6,9 +6,21 @@ import (
 )
 
 const (
-	PreWarmerInterval                    = time.Second * 5
+	PreWarmerInterval = time.Second * 5
+
+	// MaintainMinCapacity attempts to maintain the minimum number of prewarmed containers on each Host in the Cluster.
 	MaintainMinCapacity PrewarmingPolicy = "maintain_minimum_capacity"
-	LittleLawCapacity   PrewarmingPolicy = "little_law_capacity"
+
+	// LittleLawCapacity creates prewarmed containers in accordance with [Little's Law].
+	//
+	// [Little's Law]: https://en.wikipedia.org/wiki/Little%27s_law
+	LittleLawCapacity PrewarmingPolicy = "little_law_capacity"
+
+	// NoMaintenance specifies that there should be no maintenance of the warm container pool, and that the only
+	// warm containers should be those that are created initially.
+	//
+	// NoMaintenance is primarily used for testing or debugging and is not necessarily intended for use in production.
+	NoMaintenance PrewarmingPolicy = "no_maintenance"
 )
 
 type PrewarmingPolicy string

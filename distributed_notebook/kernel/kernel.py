@@ -1100,11 +1100,27 @@ class DistributedKernel(IPythonKernel):
             f"{time.time() - start_time} seconds. Response payload: {str(response)}"
         )
 
-        # If we're a pre-warm container, then we ignore everything from the initial registration payload.
+        response_dict = json.loads(response)
+
+        # If we're a pre-warm container, then we ignore everything from the initial registration payload
+        # except for the "message ACKs" configuration.
         if self.prewarm_container:
+            if "message_acknowledgements_enabled" in response_dict:
+                self.message_acknowledgements_enabled = bool(
+                    response_dict["message_acknowledgements_enabled"]
+                )
+
+                if self.message_acknowledgements_enabled:
+                    self.log.debug("Message acknowledgements are enabled.")
+                else:
+                    self.log.debug("Message acknowledgements are disabled.")
+            else:
+                self.log.warning(
+                    'No "message_acknowledgements_enabled" entry in response from local daemon.'
+                )
+
             return
 
-        response_dict = json.loads(response)
         self.smr_node_id: int = response_dict["smr_node_id"]
         self.hostname = response_dict["hostname"]
 
