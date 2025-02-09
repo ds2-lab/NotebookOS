@@ -59,6 +59,7 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		WithKernelProvider(kernelProvider).
 		WithNotificationBroker(notificationBroker).
 		WithInitialNumContainersPerHost(opts.InitialNumContainersPerHost).
+		WithMetricsProvider(cluster.MetricsProvider()).
 		WithOptions(opts).Build()
 
 	dockerScheduler := &DockerScheduler{

@@ -1,4 +1,4 @@
-package scheduling_test
+package prewarm_test
 
 import (
 	"github.com/Scusemua/go-utils/config"
@@ -9,6 +9,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+func TestPrewarm(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Prewarm Suite")
+}
 
 var (
 	debugLoggingEnabled = false
@@ -25,8 +30,3 @@ var _ = BeforeSuite(func() {
 		config.LogLevel = logger.LOG_LEVEL_ALL
 	}
 })
-
-func TestScheduling(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Scheduling Suite")
-}

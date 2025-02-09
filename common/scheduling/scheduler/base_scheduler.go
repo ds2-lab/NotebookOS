@@ -73,6 +73,7 @@ type baseSchedulerBuilder struct {
 	hostSpec                    types.Spec
 	kernelProvider              KernelProvider
 	notificationBroker          NotificationBroker
+	metricsProvider             scheduling.MetricsProvider
 	activeExecutionProvider     scheduling.ActiveExecutionProvider
 	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from Options if not specified.
 	initialNumContainersPerHost int
@@ -105,6 +106,11 @@ func (b *baseSchedulerBuilder) WithHostSpec(hostSpec types.Spec) *baseSchedulerB
 
 func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy SchedulingPolicy) *baseSchedulerBuilder {
 	b.schedulingPolicy = schedulingPolicy
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithMetricsProvider(provider scheduling.MetricsProvider) *baseSchedulerBuilder {
+	b.metricsProvider = provider
 	return b
 }
 
@@ -214,7 +220,7 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 					MinPrewarmedContainersPerHost: b.options.MinPrewarmContainersPerHost,
 				}
 
-				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig)
+				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case scheduling.LittleLawCapacity.String():
@@ -227,19 +233,19 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 					Lambda:          0,
 				}
 
-				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig)
+				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case scheduling.NoMaintenance.String():
 			{
 				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
-				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
+				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case "":
 			{
 				clusterScheduler.log.Warn("No pre-warming policy specified. Using default (i.e., none).")
-				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig)
+				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		default:

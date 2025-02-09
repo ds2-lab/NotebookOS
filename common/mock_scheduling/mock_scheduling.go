@@ -1594,6 +1594,18 @@ func (mr *MockMetricsProviderMockRecorder) AddNumSendAttemptsRequiredObservation
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddNumSendAttemptsRequiredObservation", reflect.TypeOf((*MockMetricsProvider)(nil).AddNumSendAttemptsRequiredObservation), acksRequired, nodeId, nodeType, socketType, jupyterMessageType)
 }
 
+// DecrementNumActiveExecutions mocks base method.
+func (m *MockMetricsProvider) DecrementNumActiveExecutions() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DecrementNumActiveExecutions")
+}
+
+// DecrementNumActiveExecutions indicates an expected call of DecrementNumActiveExecutions.
+func (mr *MockMetricsProviderMockRecorder) DecrementNumActiveExecutions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementNumActiveExecutions", reflect.TypeOf((*MockMetricsProvider)(nil).DecrementNumActiveExecutions))
+}
+
 // DecrementResourceCountsForRemovedHost mocks base method.
 func (m *MockMetricsProvider) DecrementResourceCountsForRemovedHost(host metrics.Host) {
 	m.ctrl.T.Helper()
@@ -1690,6 +1702,18 @@ func (mr *MockMetricsProviderMockRecorder) GetScaleOutLatencyMillisecondsHistogr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScaleOutLatencyMillisecondsHistogram", reflect.TypeOf((*MockMetricsProvider)(nil).GetScaleOutLatencyMillisecondsHistogram))
 }
 
+// IncrementNumActiveExecutions mocks base method.
+func (m *MockMetricsProvider) IncrementNumActiveExecutions() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncrementNumActiveExecutions")
+}
+
+// IncrementNumActiveExecutions indicates an expected call of IncrementNumActiveExecutions.
+func (mr *MockMetricsProviderMockRecorder) IncrementNumActiveExecutions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementNumActiveExecutions", reflect.TypeOf((*MockMetricsProvider)(nil).IncrementNumActiveExecutions))
+}
+
 // IncrementNumTrainingEventsCompletedCounterVec mocks base method.
 func (m *MockMetricsProvider) IncrementNumTrainingEventsCompletedCounterVec() {
 	m.ctrl.T.Helper()
@@ -1712,6 +1736,20 @@ func (m *MockMetricsProvider) IncrementResourceCountsForNewHost(host metrics.Hos
 func (mr *MockMetricsProviderMockRecorder) IncrementResourceCountsForNewHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementResourceCountsForNewHost", reflect.TypeOf((*MockMetricsProvider)(nil).IncrementResourceCountsForNewHost), host)
+}
+
+// NumActiveExecutions mocks base method.
+func (m *MockMetricsProvider) NumActiveExecutions() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumActiveExecutions")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// NumActiveExecutions indicates an expected call of NumActiveExecutions.
+func (mr *MockMetricsProviderMockRecorder) NumActiveExecutions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumActiveExecutions", reflect.TypeOf((*MockMetricsProvider)(nil).NumActiveExecutions))
 }
 
 // PrometheusMetricsEnabled mocks base method.
@@ -9291,6 +9329,18 @@ func (mr *MockStatisticsProviderMockRecorder) AddNumSendAttemptsRequiredObservat
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddNumSendAttemptsRequiredObservation", reflect.TypeOf((*MockStatisticsProvider)(nil).AddNumSendAttemptsRequiredObservation), acksRequired, nodeId, nodeType, socketType, jupyterMessageType)
 }
 
+// DecrementNumActiveExecutions mocks base method.
+func (m *MockStatisticsProvider) DecrementNumActiveExecutions() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DecrementNumActiveExecutions")
+}
+
+// DecrementNumActiveExecutions indicates an expected call of DecrementNumActiveExecutions.
+func (mr *MockStatisticsProviderMockRecorder) DecrementNumActiveExecutions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementNumActiveExecutions", reflect.TypeOf((*MockStatisticsProvider)(nil).DecrementNumActiveExecutions))
+}
+
 // DecrementResourceCountsForRemovedHost mocks base method.
 func (m *MockStatisticsProvider) DecrementResourceCountsForRemovedHost(host metrics.Host) {
 	m.ctrl.T.Helper()
@@ -9387,6 +9437,18 @@ func (mr *MockStatisticsProviderMockRecorder) GetScaleOutLatencyMillisecondsHist
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScaleOutLatencyMillisecondsHistogram", reflect.TypeOf((*MockStatisticsProvider)(nil).GetScaleOutLatencyMillisecondsHistogram))
 }
 
+// IncrementNumActiveExecutions mocks base method.
+func (m *MockStatisticsProvider) IncrementNumActiveExecutions() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncrementNumActiveExecutions")
+}
+
+// IncrementNumActiveExecutions indicates an expected call of IncrementNumActiveExecutions.
+func (mr *MockStatisticsProviderMockRecorder) IncrementNumActiveExecutions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementNumActiveExecutions", reflect.TypeOf((*MockStatisticsProvider)(nil).IncrementNumActiveExecutions))
+}
+
 // IncrementNumTrainingEventsCompletedCounterVec mocks base method.
 func (m *MockStatisticsProvider) IncrementNumTrainingEventsCompletedCounterVec() {
 	m.ctrl.T.Helper()
@@ -9409,6 +9471,20 @@ func (m *MockStatisticsProvider) IncrementResourceCountsForNewHost(host metrics.
 func (mr *MockStatisticsProviderMockRecorder) IncrementResourceCountsForNewHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementResourceCountsForNewHost", reflect.TypeOf((*MockStatisticsProvider)(nil).IncrementResourceCountsForNewHost), host)
+}
+
+// NumActiveExecutions mocks base method.
+func (m *MockStatisticsProvider) NumActiveExecutions() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumActiveExecutions")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// NumActiveExecutions indicates an expected call of NumActiveExecutions.
+func (mr *MockStatisticsProviderMockRecorder) NumActiveExecutions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumActiveExecutions", reflect.TypeOf((*MockStatisticsProvider)(nil).NumActiveExecutions))
 }
 
 // PrometheusMetricsEnabled mocks base method.
