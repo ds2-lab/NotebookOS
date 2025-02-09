@@ -73,6 +73,7 @@ type baseSchedulerBuilder struct {
 	hostSpec                    types.Spec
 	kernelProvider              KernelProvider
 	notificationBroker          NotificationBroker
+	activeExecutionProvider     scheduling.ActiveExecutionProvider
 	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from Options if not specified.
 	initialNumContainersPerHost int
 	options                     *scheduling.SchedulerOptions

@@ -197,6 +197,8 @@ type BaseContainerPrewarmer struct {
 	// Config encapsulates the configuration of the BaseContainerPrewarmer.
 	Config *PrewarmerConfig
 
+	metricsProvider scheduling.MetricsProvider
+
 	stopChan chan struct{}
 
 	mu  sync.Mutex
@@ -204,12 +206,13 @@ type BaseContainerPrewarmer struct {
 }
 
 // NewContainerPrewarmer creates a new BaseContainerPrewarmer struct and returns a pointer to it.
-func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerConfig) *BaseContainerPrewarmer {
+func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerConfig, metricsProvider scheduling.MetricsProvider) *BaseContainerPrewarmer {
 	warmer := &BaseContainerPrewarmer{
 		AllPrewarmContainers:                    make(map[string]scheduling.PrewarmedContainer),
 		PrewarmContainersPerHost:                make(map[string]*queue.ThreadsafeFifo[scheduling.PrewarmedContainer]),
 		NumPrewarmContainersProvisioningPerHost: make(map[string]*atomic.Int32),
 		stopChan:                                make(chan struct{}, 1),
+		metricsProvider:                         metricsProvider,
 		Cluster:                                 cluster,
 		Config:                                  configuration,
 	}
@@ -217,6 +220,11 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerC
 	config.InitLogger(&warmer.log, warmer)
 
 	return warmer
+}
+
+// PoolSize returns the total number of prewarmed containers available.
+func (p *BaseContainerPrewarmer) PoolSize() int {
+	return len(p.AllPrewarmContainers)
 }
 
 // Run creates a separate goroutine in which the BaseContainerPrewarmer maintains the overall capacity/availability of
@@ -581,7 +589,7 @@ func (p *BaseContainerPrewarmer) provisionContainers(host scheduling.Host, n int
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error {
-	p.log.Debug("Provisioning pre-warmed container on host %s.", host.GetNodeName())
+	p.log.Debug("Provisioning 1 new pre-warmed container on host %s.", host.GetNodeName())
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
 	defer cancel()

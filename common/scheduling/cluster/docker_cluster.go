@@ -12,6 +12,78 @@ import (
 	"time"
 )
 
+type DockerClusterBuilder struct {
+	hostSpec                  types.Spec
+	placer                    scheduling.Placer
+	hostMapper                scheduler.HostMapper
+	kernelProvider            scheduler.KernelProvider
+	clusterMetricsProvider    scheduling.MetricsProvider
+	notificationBroker        scheduler.NotificationBroker
+	schedulingPolicy          internalSchedulingPolicy
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
+	opts                      *scheduling.SchedulerOptions
+}
+
+func (b *DockerClusterBuilder) WithHostSpec(hostSpec types.Spec) *DockerClusterBuilder {
+	b.hostSpec = hostSpec
+	return b
+}
+
+func (b *DockerClusterBuilder) WithPlacer(placer scheduling.Placer) *DockerClusterBuilder {
+	b.placer = placer
+	return b
+}
+
+func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduler.HostMapper) *DockerClusterBuilder {
+	b.hostMapper = hostMapper
+	return b
+}
+
+func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduler.KernelProvider) *DockerClusterBuilder {
+	b.kernelProvider = kernelProvider
+	return b
+}
+
+func (b *DockerClusterBuilder) WithClusterMetricsProvider(clusterMetricsProvider scheduling.MetricsProvider) *DockerClusterBuilder {
+	b.clusterMetricsProvider = clusterMetricsProvider
+	return b
+}
+
+func (b *DockerClusterBuilder) WithNotificationBroker(notificationBroker scheduler.NotificationBroker) *DockerClusterBuilder {
+	b.notificationBroker = notificationBroker
+	return b
+}
+
+func (b *DockerClusterBuilder) WithSchedulingPolicy(schedulingPolicy internalSchedulingPolicy) *DockerClusterBuilder {
+	b.schedulingPolicy = schedulingPolicy
+	return b
+}
+
+func (b *DockerClusterBuilder) WithStatisticsUpdaterProvider(statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *DockerClusterBuilder {
+	b.statisticsUpdaterProvider = statisticsUpdaterProvider
+	return b
+}
+
+func (b *DockerClusterBuilder) WithOpts(opts *scheduling.SchedulerOptions) *DockerClusterBuilder {
+	b.opts = opts
+	return b
+}
+
+func (b *DockerClusterBuilder) Build() *DockerCluster {
+	baseCluster := newBaseCluster(b.opts, b.placer, b.clusterMetricsProvider, "DockerCluster", b.statisticsUpdaterProvider)
+
+	dockerCluster := &DockerCluster{
+		BaseCluster: baseCluster,
+	}
+
+	dockerCluster.scheduler = scheduler.GetDockerScheduler(dockerCluster, b.placer, b.hostMapper, b.hostSpec,
+		b.kernelProvider, b.notificationBroker, b.schedulingPolicy, b.opts)
+	baseCluster.instance = dockerCluster
+	baseCluster.initRatioUpdater()
+
+	return dockerCluster
+}
+
 // DockerCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
 // locally, and scaling-up and down sometimes involves simulation steps in which nodes are not actually deleted,
 // but simply toggled "off" and "on".
@@ -35,7 +107,7 @@ func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper 
 		BaseCluster: baseCluster,
 	}
 
-	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
+	dockerCluster.scheduler = scheduler.GetDockerScheduler(dockerCluster, placer, hostMapper, hostSpec,
 		kernelProvider, notificationBroker, schedulingPolicy, opts)
 	baseCluster.instance = dockerCluster
 	baseCluster.initRatioUpdater()

@@ -81,6 +81,9 @@ type CallbackProvider interface {
 
 	// DecrementNumActiveExecutions decrements the global counter of the number of active executions.
 	DecrementNumActiveExecutions()
+
+	// NumActiveExecutions returns the global number of active executions.
+	NumActiveExecutions() int32
 }
 
 // CreateReplicaContainersAttempt is similar to kernelDescheduleAttempt, but CreateReplicaContainersAttempt is used

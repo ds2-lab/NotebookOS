@@ -5907,3 +5907,8 @@ func (d *ClusterGatewayImpl) IncrementNumActiveExecutions() {
 func (d *ClusterGatewayImpl) DecrementNumActiveExecutions() {
 	d.numActiveTrainings.Add(-1)
 }
+
+// NumActiveExecutions returns the global number of active executions.
+func (d *ClusterGatewayImpl) NumActiveExecutions() int32 {
+	return d.numActiveTrainings.Load()
+}

@@ -23,8 +23,10 @@ type MinCapacityPrewarmer struct {
 }
 
 // NewMinCapacityPrewarmer creates a new MinCapacityPrewarmer struct and returns a pointer to it.
-func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapacityPrewarmerConfig) *MinCapacityPrewarmer {
-	base := NewContainerPrewarmer(cluster, configuration.PrewarmerConfig)
+func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapacityPrewarmerConfig,
+	metricsProvider scheduling.MetricsProvider) *MinCapacityPrewarmer {
+	
+	base := NewContainerPrewarmer(cluster, configuration.PrewarmerConfig, metricsProvider)
 
 	warmer := &MinCapacityPrewarmer{
 		BaseContainerPrewarmer: base,
