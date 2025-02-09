@@ -105,22 +105,6 @@ type ExecutionManager struct {
 	// executionIndicesToExecutions is a mapping from ExecutionIndex to *Execution.
 	executionIndicesToExecutions map[int32]*Execution
 
-	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
-	notificationCallback scheduling.NotificationCallback
-
-	// executionFailedCallback is a callback for when execution fails (such as all replicas proposing 'YIELD').
-	executionFailedCallback scheduling.ExecutionFailedCallback
-
-	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each scheduling.Kernel and
-	// subsequently the scheduling.Kernel's ExecutionManager.
-	//
-	// When a scheduling.Kernel receives a notification that a kernel has started execution user-submitted code,
-	// the scheduling.Kernel will check if its ActiveExecution struct has the original "sent-at" timestamp
-	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
-	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
-	// so that a relevant Prometheus metric can be updated.
-	executionLatencyCallback scheduling.ExecutionLatencyCallback
-
 	// NumReplicas is how many replicas the Kernel has.
 	NumReplicas int
 
@@ -189,14 +173,16 @@ type ExecutionManager struct {
 	//
 	// Having an active training prevents a Kernel from being idle-reclaimed.
 	hasActiveTraining atomic.Bool
+
+	// callbackProvider provides a number of important callbacks.
+	callbackProvider scheduling.CallbackProvider
 }
 
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
-func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCallback scheduling.ExecutionFailedCallback,
-	notifyCallback scheduling.NotificationCallback, latencyCallback scheduling.ExecutionLatencyCallback,
-	statsProvider scheduling.StatisticsProvider) *ExecutionManager {
+func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvider scheduling.StatisticsProvider,
+	callbackProvider scheduling.CallbackProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{
 		activeExecutions:             make(map[string]*Execution),
@@ -211,9 +197,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 		submittedExecutionIndex:      -1,
 		activeExecutionIndex:         -1,
 		completedExecutionIndex:      -1,
-		executionFailedCallback:      execFailCallback,
-		notificationCallback:         notifyCallback,
-		executionLatencyCallback:     latencyCallback,
+		callbackProvider:             callbackProvider,
 		statisticsProvider:           statsProvider,
 	}
 
@@ -277,6 +261,10 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 	m.submittedExecutionIndex = executionIndex
 	m.lastTrainingSubmittedAt = time.Now()
 
+	if m.callbackProvider != nil {
+		m.callbackProvider.IncrementNumActiveExecutions()
+	}
+
 	return nil
 }
 
@@ -317,7 +305,11 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 }
 
 func (m *ExecutionManager) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
-	return m.executionFailedCallback
+	if m.callbackProvider == nil {
+		return nil
+	}
+
+	return m.callbackProvider.ExecutionFailedCallback
 }
 
 // LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
@@ -434,7 +426,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 		//
 		// If it returns an error, then we'll join that error with the YIELD errors, and return them all together.
 		m.mu.Unlock()
-		handlerError := m.executionFailedCallback(m.Kernel, executeRequestMsg)
+		handlerError := m.callbackProvider.ExecutionFailedCallback(m.Kernel, executeRequestMsg)
 		if handlerError != nil {
 			allErrors := append([]error{handlerError}, yieldErrors...)
 			return errors.Join(allErrors...)
@@ -584,6 +576,10 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 		// No longer waiting for "execute_reply" for most-recently-submitted "execute_request".
 		m.hasActiveTraining.Store(false)
+
+		if m.callbackProvider != nil {
+			m.callbackProvider.DecrementNumActiveExecutions()
+		}
 	} else {
 		// The "execute_reply" that we received is... for an old "execute_reply" message?
 		// This generally shouldn't happen.
@@ -936,7 +932,7 @@ func (m *ExecutionManager) processExecutionStartLatency(activeExecution scheduli
 
 		// Record metrics in Prometheus.
 		if activeExecution.HasValidWorkloadId() {
-			m.executionLatencyCallback(latency, activeExecution.GetWorkloadId(), m.Kernel.ID())
+			m.callbackProvider.ExecutionLatencyCallback(latency, activeExecution.GetWorkloadId(), m.Kernel.ID())
 		} else {
 			m.log.Warn("Execution for \"execute_request\" \"%s\" had \"sent-at\" timestamp, but no workload ID...",
 				activeExecution.GetExecuteRequestMessageId())
@@ -948,11 +944,11 @@ func (m *ExecutionManager) processExecutionStartLatency(activeExecution scheduli
 }
 
 func (m *ExecutionManager) sendNotification(title string, content string, typ messaging.NotificationType, useSeparateGoroutine bool) {
-	if m.notificationCallback != nil {
+	if m.callbackProvider != nil && m.callbackProvider.NotificationCallback != nil {
 		if useSeparateGoroutine {
-			go m.notificationCallback(title, content, typ)
+			go m.callbackProvider.NotificationCallback(title, content, typ)
 		} else {
-			m.notificationCallback(title, content, typ)
+			m.callbackProvider.NotificationCallback(title, content, typ)
 		}
 	}
 }

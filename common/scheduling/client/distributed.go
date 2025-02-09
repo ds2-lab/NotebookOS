@@ -142,14 +142,18 @@ type DistributedKernelClient struct {
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
 type DistributedKernelClientProvider struct{}
 
+//func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+//	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+//	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
+//	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+
 // NewDistributedKernelClient creates a new DistributedKernelClient struct and returns
 // a pointer to it in the form of an AbstractDistributedKernelClient interface.
 func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
 
-	kernel := &DistributedKernelClient{
+	kernelClient := &DistributedKernelClient{
 		id:           spec.Id,
 		persistentId: persistentId,
 		debugMode:    debugMode,
@@ -167,25 +171,24 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:               jupyter.KernelStatusInitializing,
-		notificationCallback: notificationCallback,
+		notificationCallback: callbackProvider.NotificationCallback,
 		spec:                 spec,
 		replicas:             make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
 		targetNumReplicas:    int32(numReplicas),
 		cleaned:              make(chan struct{}),
 	}
-	kernel.nextNodeId.Store(int32(numReplicas + 1))
-	kernel.BaseServer = kernel.server.Server()
-	kernel.SessionManager = NewSessionManager(spec.Session)
-	kernel.busyStatus = NewAggregateKernelStatus(kernel, numReplicas)
-	kernel.log = kernel.server.Log
+	kernelClient.nextNodeId.Store(int32(numReplicas + 1))
+	kernelClient.BaseServer = kernelClient.server.Server()
+	kernelClient.SessionManager = NewSessionManager(spec.Session)
+	kernelClient.busyStatus = NewAggregateKernelStatus(kernelClient, numReplicas)
+	kernelClient.log = kernelClient.server.Log
 
-	temporaryKernelReplicaClient := &TemporaryKernelReplicaClient{kernel}
-	kernel.temporaryKernelReplicaClient = temporaryKernelReplicaClient
+	temporaryKernelReplicaClient := &TemporaryKernelReplicaClient{kernelClient}
+	kernelClient.temporaryKernelReplicaClient = temporaryKernelReplicaClient
 
-	kernel.ExecutionManager = NewExecutionManager(kernel, numReplicas, executionFailedCallback, notificationCallback,
-		executionLatencyCallback, statisticsProvider)
+	kernelClient.ExecutionManager = NewExecutionManager(kernelClient, numReplicas, statisticsProvider, callbackProvider)
 
-	return kernel
+	return kernelClient
 }
 
 // IsIdleReclaimed returns true if the DistributedKernelClient has been idle reclaimed.

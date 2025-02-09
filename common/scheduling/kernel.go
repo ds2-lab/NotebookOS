@@ -62,6 +62,27 @@ type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.Jupyter
 
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
+type CallbackProvider interface {
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
+	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
+	// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
+	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+	// so that a relevant Prometheus metric can be updated.
+	ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string)
+
+	// ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
+	ExecutionFailedCallback(c Kernel, executeRequestMsg *messaging.JupyterMessage) error
+
+	NotificationCallback(title string, content string, notificationType messaging.NotificationType)
+
+	// IncrementNumActiveExecutions increments the global counter of the number of active executions.
+	IncrementNumActiveExecutions()
+
+	// DecrementNumActiveExecutions decrements the global counter of the number of active executions.
+	DecrementNumActiveExecutions()
+}
+
 // CreateReplicaContainersAttempt is similar to kernelDescheduleAttempt, but CreateReplicaContainersAttempt is used
 // to keep track of a kernel whose kernel replicas and kernel containers are being created, rather than removed.
 type CreateReplicaContainersAttempt interface {

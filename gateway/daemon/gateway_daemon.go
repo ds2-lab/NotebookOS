@@ -104,11 +104,32 @@ var (
 
 type GatewayDaemonConfig func(ClusterGateway)
 
+type DistributedClientBuilder interface {
+	WithContext(ctx context.Context) DistributedClientBuilder
+	WithSpec(spec *proto.KernelSpec) DistributedClientBuilder
+	WithNumReplicas(numReplicas int) DistributedClientBuilder
+	WithHostId(hostId string) DistributedClientBuilder
+	WithConnectionInfo(connectionInfo *jupyter.ConnectionInfo) DistributedClientBuilder
+	WithPersistentId(persistentId string) DistributedClientBuilder
+	WithDebugMode(debugMode bool) DistributedClientBuilder
+	WithExecutionFailedCallback(callback scheduling.ExecutionFailedCallback) DistributedClientBuilder
+	WithExecutionLatencyCallback(callback scheduling.ExecutionLatencyCallback) DistributedClientBuilder
+	WithStatisticsProvider(provider scheduling.StatisticsProvider) DistributedClientBuilder
+	WithNotificationCallback(callback scheduling.NotificationCallback) DistributedClientBuilder
+	BuildKernel() scheduling.Kernel
+}
+
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-		executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-		statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+		statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
+
+	//NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+	//	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+	//	executionFailedCallback scheduling.ExecutionFailedCallback, ExecutionLatencyCallback scheduling.ExecutionLatencyCallback,
+	//	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+
+	// GetBuilder() DistributedClientBuilder
 }
 
 // kernelDescheduleAttempt encapsulates an attempt to deschedule (i.e., remove all replicas/containers of)
@@ -412,6 +433,9 @@ type ClusterGatewayImpl struct {
 
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
+
+	// numActiveTrainings is the cluster-wide number of active training events.
+	numActiveTrainings atomic.Int32
 
 	// IdleSessionReclamationEnabled if a flag that, when true, instructs the system to consider sessions to be idle
 	// and eligible for "reclamation" after IdleSessionReclamationInterval elapses. When a session is reclaimed, its
@@ -1539,10 +1563,10 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 	d.notifyDashboardOfError("Connection to kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 }
 
-// executionFailed is a callback to be executed if all replicas propose "YIELD".
+// ExecutionFailedCallback is a callback to be executed if all replicas propose "YIELD".
 //
 // The passed message is the "execute_reply" or "yield_reply".
-func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
+func (d *ClusterGatewayImpl) ExecutionFailedCallback(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
 	return d.executionFailedCallback(c, msg)
 }
 
@@ -1751,6 +1775,10 @@ func (d *ClusterGatewayImpl) gandivaV4FailureHandler(_ scheduling.Kernel, _ *mes
 	panic("The 'GANDIVA' scheduling policy is not yet supported.")
 }
 
+func (d *ClusterGatewayImpl) NotificationCallback(notificationName string, notificationMessage string, typ messaging.NotificationType) {
+	d.notifyDashboard(notificationName, notificationMessage, typ)
+}
+
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
 	if d.clusterDashboard != nil {
 		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
@@ -1877,9 +1905,12 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 
 	// Initialize kernel with new context.
+	//kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
+	//	d.connectionOptions, uuid.NewString(), d.DebugMode, d.ExecutionFailedCallback, d.ExecutionLatencyCallback,
+	//	d.metricsProvider, d.notifyDashboard)
+
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
-		d.connectionOptions, uuid.NewString(), d.DebugMode, d.executionFailed, d.executionLatencyCallback,
-		d.metricsProvider, d.notifyDashboard)
+		d.connectionOptions, uuid.NewString(), d.DebugMode, d.metricsProvider, d)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
@@ -4639,7 +4670,7 @@ func (d *ClusterGatewayImpl) ClusterAge(_ context.Context, _ *proto.Void) (*prot
 	return &proto.ClusterAgeResponse{Age: d.createdAt.UnixMilli()}, nil
 }
 
-func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
+func (d *ClusterGatewayImpl) ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
 	milliseconds := float64(latency.Milliseconds())
 
 	if d.metricsProvider.PrometheusMetricsEnabled() {
@@ -5865,4 +5896,14 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 		stats.NumSeenSessions, stats.NumRunningSessions, stats.NumNonTerminatedSessions, stats.NumTrainingSessions, stats.NumIdleSessions, stats.NumStoppedSessions)
 	d.log.Debug("NumHosts: %d, NumDisabledHosts: %d, NumEmptyHosts: %d",
 		stats.Hosts, stats.NumDisabledHosts, stats.NumEmptyHosts)
+}
+
+// IncrementNumActiveExecutions increments the global counter of the number of active executions.
+func (d *ClusterGatewayImpl) IncrementNumActiveExecutions() {
+	d.numActiveTrainings.Add(1)
+}
+
+// DecrementNumActiveExecutions decrements the global counter of the number of active executions.
+func (d *ClusterGatewayImpl) DecrementNumActiveExecutions() {
+	d.numActiveTrainings.Add(-1)
 }

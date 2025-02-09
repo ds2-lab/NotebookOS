@@ -8420,6 +8420,20 @@ func (mr *MockKernelReplicaMockRecorder) WaitForTrainingToStop() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForTrainingToStop", reflect.TypeOf((*MockKernelReplica)(nil).WaitForTrainingToStop))
 }
 
+// WasPrewarmContainer mocks base method.
+func (m *MockKernelReplica) WasPrewarmContainer() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WasPrewarmContainer")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// WasPrewarmContainer indicates an expected call of WasPrewarmContainer.
+func (mr *MockKernelReplicaMockRecorder) WasPrewarmContainer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WasPrewarmContainer", reflect.TypeOf((*MockKernelReplica)(nil).WasPrewarmContainer))
+}
+
 // WorkloadId mocks base method.
 func (m *MockKernelReplica) WorkloadId() string {
 	m.ctrl.T.Helper()
@@ -8760,18 +8774,18 @@ func (mr *MockKernelContainerMockRecorder) PreemptionPriority() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreemptionPriority", reflect.TypeOf((*MockKernelContainer)(nil).PreemptionPriority))
 }
 
-// PromotePrewarmContainer mocks base method.
-func (m *MockKernelContainer) PromotePrewarmContainer(kernelId string, replicaId int32, spec types.Spec) error {
+// PrewarmContainerPromoted mocks base method.
+func (m *MockKernelContainer) PrewarmContainerPromoted(kernelId string, replicaId int32, spec types.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PromotePrewarmContainer", kernelId, replicaId, spec)
+	ret := m.ctrl.Call(m, "PrewarmContainerPromoted", kernelId, replicaId, spec)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// PromotePrewarmContainer indicates an expected call of PromotePrewarmContainer.
-func (mr *MockKernelContainerMockRecorder) PromotePrewarmContainer(kernelId, replicaId, spec any) *gomock.Call {
+// PrewarmContainerPromoted indicates an expected call of PrewarmContainerPromoted.
+func (mr *MockKernelContainerMockRecorder) PrewarmContainerPromoted(kernelId, replicaId, spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmContainer", reflect.TypeOf((*MockKernelContainer)(nil).PromotePrewarmContainer), kernelId, replicaId, spec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrewarmContainerPromoted", reflect.TypeOf((*MockKernelContainer)(nil).PrewarmContainerPromoted), kernelId, replicaId, spec)
 }
 
 // ReplicaId mocks base method.
