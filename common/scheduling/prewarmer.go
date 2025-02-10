@@ -33,9 +33,37 @@ func (p PrewarmingPolicy) String() string {
 // to using a prewarmed container.
 type PrewarmedContainerUsedCallback func(container PrewarmedContainer)
 
+// ContainerPool maintains a collection of (pre)warmed containers.
+type ContainerPool interface {
+	// Len returns the total number of prewarmed containers available within the target ContainerPool.
+	//
+	// Len is ultimately just an alias for PoolSize.
+	Len() int
+
+	// HostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as well
+	// as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
+	HostLen(host Host) (curr int, provisioning int)
+
+	// InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
+	// conclusion of the 'initial connection period'.
+	InitialPrewarmedContainersPerHost() int
+
+	// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
+	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
+	// below this quantity, then a new pre-warmed container will be provisioned.
+	MinPrewarmedContainersPerHost() int
+
+	// MaxPrewarmedContainersPerHost returns the maximum number of pre-warmed containers that should be provisioned on any
+	// given scheduling.Host at any given time. If there are MaxPrewarmedContainersPerHost pre-warmed containers
+	// available on a given scheduling.Host, then more will not be provisioned.
+	MaxPrewarmedContainersPerHost() int
+}
+
 // ContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
 // these pre-warmed containers, such as how many are available on each scheduling.Host.
 type ContainerPrewarmer interface {
+	ContainerPool
+
 	// Run creates a separate goroutine in which the ContainerPrewarmer maintains the overall capacity/availability of
 	// pre-warmed containers in accordance with ContainerPrewarmer's policy for doing so.
 	Run()
@@ -66,20 +94,6 @@ type ContainerPrewarmer interface {
 	// ProvisionInitialPrewarmContainers returns the number of pre-warmed containers that were created as well as the
 	// maximum number that were supposed to be created (if no errors were to occur).
 	ProvisionInitialPrewarmContainers() (created int32, target int32)
-
-	// InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
-	// conclusion of the 'initial connection period'.
-	InitialPrewarmedContainersPerHost() int
-
-	// MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
-	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
-	// below this quantity, then a new pre-warmed container will be provisioned.
-	MinPrewarmedContainersPerHost() int
-
-	// MaxPrewarmedContainersPerHost returns the maximum number of pre-warmed containers that should be provisioned on any
-	// given scheduling.Host at any given time. If there are MaxPrewarmedContainersPerHost pre-warmed containers
-	// available on a given scheduling.Host, then more will not be provisioned.
-	MaxPrewarmedContainersPerHost() int
 
 	// ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
 	// ContainerPrewarmer's policy.

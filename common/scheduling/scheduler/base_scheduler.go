@@ -239,13 +239,13 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 		case scheduling.NoMaintenance.String():
 			{
 				clusterScheduler.log.Warn("Using \"%s\" pre-warming policy.", b.options.PrewarmingPolicy)
-				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig, b.metricsProvider)
+				prewarmer := prewarm.NewBaseContainerPrewarmer(b.cluster, prewarmerConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case "":
 			{
 				clusterScheduler.log.Warn("No pre-warming policy specified. Using default (i.e., none).")
-				prewarmer := prewarm.NewContainerPrewarmer(b.cluster, prewarmerConfig, b.metricsProvider)
+				prewarmer := prewarm.NewBaseContainerPrewarmer(b.cluster, prewarmerConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		default:

@@ -1831,6 +1831,26 @@ func (mr *MockLocalGatewayClientMockRecorder) PrepareToMigrate(ctx, in any, opts
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareToMigrate", reflect.TypeOf((*MockLocalGatewayClient)(nil).PrepareToMigrate), varargs...)
 }
 
+// PromotePrewarmedContainer mocks base method.
+func (m *MockLocalGatewayClient) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PromotePrewarmedContainer", varargs...)
+	ret0, _ := ret[0].(*proto.KernelConnectionInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PromotePrewarmedContainer indicates an expected call of PromotePrewarmedContainer.
+func (mr *MockLocalGatewayClientMockRecorder) PromotePrewarmedContainer(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmedContainer", reflect.TypeOf((*MockLocalGatewayClient)(nil).PromotePrewarmedContainer), varargs...)
+}
+
 // ReconnectToGateway mocks base method.
 func (m *MockLocalGatewayClient) ReconnectToGateway(ctx context.Context, in *proto.ReconnectToGatewayRequest, opts ...grpc.CallOption) (*proto.Void, error) {
 	m.ctrl.T.Helper()
@@ -2208,6 +2228,21 @@ func (m *MockLocalGatewayServer) PrepareToMigrate(arg0 context.Context, arg1 *pr
 func (mr *MockLocalGatewayServerMockRecorder) PrepareToMigrate(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareToMigrate", reflect.TypeOf((*MockLocalGatewayServer)(nil).PrepareToMigrate), arg0, arg1)
+}
+
+// PromotePrewarmedContainer mocks base method.
+func (m *MockLocalGatewayServer) PromotePrewarmedContainer(arg0 context.Context, arg1 *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PromotePrewarmedContainer", arg0, arg1)
+	ret0, _ := ret[0].(*proto.KernelConnectionInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PromotePrewarmedContainer indicates an expected call of PromotePrewarmedContainer.
+func (mr *MockLocalGatewayServerMockRecorder) PromotePrewarmedContainer(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePrewarmedContainer", reflect.TypeOf((*MockLocalGatewayServer)(nil).PromotePrewarmedContainer), arg0, arg1)
 }
 
 // ReconnectToGateway mocks base method.

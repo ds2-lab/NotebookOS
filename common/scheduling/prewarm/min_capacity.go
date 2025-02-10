@@ -25,8 +25,8 @@ type MinCapacityPrewarmer struct {
 // NewMinCapacityPrewarmer creates a new MinCapacityPrewarmer struct and returns a pointer to it.
 func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapacityPrewarmerConfig,
 	metricsProvider scheduling.MetricsProvider) *MinCapacityPrewarmer {
-	
-	base := NewContainerPrewarmer(cluster, configuration.PrewarmerConfig, metricsProvider)
+
+	base := NewBaseContainerPrewarmer(cluster, configuration.PrewarmerConfig, metricsProvider)
 
 	warmer := &MinCapacityPrewarmer{
 		BaseContainerPrewarmer: base,
@@ -77,18 +77,18 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	count, countWithProvisioning := p.unsafeNumContainersOnHost(host, true)
-	numProvisioning := countWithProvisioning - count
+	count, provisioning := p.unsafeHostLen(host)
+	combined := count + provisioning
 
 	// Check if we're satisfying the minimum capacity constraint. If we are, then we can return.
-	if countWithProvisioning >= p.Config.MinPrewarmedContainersPerHost {
+	if combined >= p.Config.MinPrewarmedContainersPerHost {
 		return
 	}
 
 	// Calculate how many containers we need to provision on this host.
-	numToProvision := p.Config.MinPrewarmedContainersPerHost - countWithProvisioning
+	numToProvision := p.Config.MinPrewarmedContainersPerHost - combined
 	p.log.Debug("Host %s (ID=%s) is under capacity (current=%d, provisioning=%d, min=%d). Provisioning %d pre-warm container(s) on host.",
-		host.GetNodeName(), host.GetID(), count, numProvisioning, p.Config.MinPrewarmedContainersPerHost, numToProvision)
+		host.GetNodeName(), host.GetID(), count, provisioning, p.Config.MinPrewarmedContainersPerHost, numToProvision)
 
 	// Provision the containers in a separate goroutine.
 	go p.ProvisionContainers(host, numToProvision)

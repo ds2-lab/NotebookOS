@@ -174,6 +174,14 @@ type PrewarmerConfig struct {
 	MaxPrewarmedContainersPerHost int
 }
 
+// NewPrewarmerConfig creates a new PrewarmerConfig struct and returns a pointer to it.
+func NewPrewarmerConfig(initialCapacity, maxCapacity int) *PrewarmerConfig {
+	return &PrewarmerConfig{
+		InitialPrewarmedContainersPerHost: initialCapacity,
+		MaxPrewarmedContainersPerHost:     maxCapacity,
+	}
+}
+
 // BaseContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
 // these pre-warmed containers, such as how many are available on each scheduling.Host.
 type BaseContainerPrewarmer struct {
@@ -205,8 +213,8 @@ type BaseContainerPrewarmer struct {
 	log logger.Logger
 }
 
-// NewContainerPrewarmer creates a new BaseContainerPrewarmer struct and returns a pointer to it.
-func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerConfig, metricsProvider scheduling.MetricsProvider) *BaseContainerPrewarmer {
+// NewBaseContainerPrewarmer creates a new BaseContainerPrewarmer struct and returns a pointer to it.
+func NewBaseContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerConfig, metricsProvider scheduling.MetricsProvider) *BaseContainerPrewarmer {
 	warmer := &BaseContainerPrewarmer{
 		AllPrewarmContainers:                    make(map[string]scheduling.PrewarmedContainer),
 		PrewarmContainersPerHost:                make(map[string]*queue.ThreadsafeFifo[scheduling.PrewarmedContainer]),
@@ -222,7 +230,33 @@ func NewContainerPrewarmer(cluster scheduling.Cluster, configuration *PrewarmerC
 	return warmer
 }
 
+// Len returns the total number of prewarmed containers available.
+//
+// Len is ultimately just an alias for PoolSize.
+func (p *BaseContainerPrewarmer) Len() int {
+	return p.PoolSize()
+}
+
+// HostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as well
+// as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
+func (p *BaseContainerPrewarmer) HostLen(host scheduling.Host) (curr int, provisioning int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	curr, provisioning = p.unsafeHostLen(host)
+	return
+}
+
+// Size returns the total number of prewarmed containers available.
+//
+// Size is ultimately just an alias for PoolSize.
+func (p *BaseContainerPrewarmer) Size() int {
+	return p.PoolSize()
+}
+
 // PoolSize returns the total number of prewarmed containers available.
+//
+// Size and Len are ultimately just aliases for PoolSize.
 func (p *BaseContainerPrewarmer) PoolSize() int {
 	return len(p.AllPrewarmContainers)
 }
@@ -460,32 +494,9 @@ func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
 	return 0
 }
 
-// numContainersOnHost returns the number of pre-warmed containers on the specified scheduling.Host, with a second
-// parameter enabling the specification of whether to include containers that are being provisioned (but are not yet
-// created) in that count.
-//
-// The first quantity returned by numContainersOnHost is the number without provisioning.
-//
-// If `includeProvisioning` is specified as true, then the second quantity will be the number with provisioning.
-//
-// If `includeProvisioning` is specified as false, then the second quantity will be -1.
-func (p *BaseContainerPrewarmer) numContainersOnHost(host scheduling.Host, includeProvisioning bool) (int, int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return p.unsafeNumContainersOnHost(host, includeProvisioning)
-}
-
-// unsafeNumContainersOnHost returns the number of pre-warmed containers on the specified scheduling.Host, with a
-// second parameter enabling the specification of whether to include containers that are being provisioned (but are not
-// yet created) in that count.
-//
-// The first quantity returned by unsafeNumContainersOnHost is the number without provisioning.
-//
-// If `includeProvisioning` is specified as true, then the second quantity will be the number with provisioning.
-//
-// If `includeProvisioning` is specified as false, then the second quantity will be -1.
-func (p *BaseContainerPrewarmer) unsafeNumContainersOnHost(host scheduling.Host, includeProvisioning bool) (int, int) {
+// unsafeHostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as
+// well as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
+func (p *BaseContainerPrewarmer) unsafeHostLen(host scheduling.Host) (int, int) {
 	containers, loaded := p.PrewarmContainersPerHost[host.GetID()]
 	if !loaded {
 		containers = queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
@@ -494,11 +505,6 @@ func (p *BaseContainerPrewarmer) unsafeNumContainersOnHost(host scheduling.Host,
 
 	currentNum := containers.Len()
 
-	// If we aren't supposed to include the containers being provisioned too, then just return `currentNum`.
-	if !includeProvisioning {
-		return currentNum, -1
-	}
-
 	numProvisioning, ok := p.NumPrewarmContainersProvisioningPerHost[host.GetID()]
 	if !ok {
 		tmp := atomic.Int32{}
@@ -506,7 +512,7 @@ func (p *BaseContainerPrewarmer) unsafeNumContainersOnHost(host scheduling.Host,
 		p.NumPrewarmContainersProvisioningPerHost[host.GetID()] = numProvisioning
 	}
 
-	return currentNum, int(numProvisioning.Load()) + currentNum
+	return currentNum, int(numProvisioning.Load())
 }
 
 // decrementProvisioning decrements the counter of the number of pre-warmed containers currently being provisioned

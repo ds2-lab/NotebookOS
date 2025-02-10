@@ -124,7 +124,7 @@ type LittlesLawPrewarmer struct {
 func NewLittlesLawPrewarmer(cluster scheduling.Cluster, configuration *LittlesLawPrewarmerConfig,
 	metricsProvider scheduling.MetricsProvider) *LittlesLawPrewarmer {
 
-	base := NewContainerPrewarmer(cluster, configuration.PrewarmerConfig, metricsProvider)
+	base := NewBaseContainerPrewarmer(cluster, configuration.PrewarmerConfig, metricsProvider)
 
 	warmer := &LittlesLawPrewarmer{
 		BaseContainerPrewarmer: base,
