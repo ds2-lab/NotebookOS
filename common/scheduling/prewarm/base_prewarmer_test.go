@@ -309,8 +309,8 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 				created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-				Expect(created).To(Equal(int32(numHosts)))
-				Expect(target).To(Equal(int32(numHosts)))
+				Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+				Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 				Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 
 				By("Not being in the 'running' state initially")
@@ -371,8 +371,8 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 				created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-				Expect(created).To(Equal(int32(numHosts)))
-				Expect(target).To(Equal(int32(numHosts)))
+				Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+				Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 				Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 
 				By("Not being in the 'running' state initially")
@@ -387,7 +387,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 					Expect(err).To(BeNil())
 				}()
 
-				Eventually(prewarmer.IsRunning, time.Millisecond*1000, time.Millisecond*100).Should(BeTrue())
+				Eventually(prewarmer.IsRunning, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 				Expect(prewarmer.IsRunning()).To(BeTrue())
 
@@ -406,7 +406,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 					Expect(err).To(BeNil())
 				}()
 
-				Eventually(prewarmer.IsRunning, time.Millisecond*1000, time.Millisecond*100).Should(BeTrue())
+				Eventually(prewarmer.IsRunning, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 				Expect(prewarmer.IsRunning()).To(BeTrue())
 
@@ -417,6 +417,31 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 				Expect(prewarmer.IsRunning()).To(BeFalse())
 			})
+		})
+
+		It("Will return an error when requesting a prewarm container from a host with no prewarm containers", func() {
+			numHosts := 3
+			initialCapacity := 0
+			maxCapacity := 2
+
+			createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+			By("Correctly provisioning the initial round of prewarm containers")
+
+			hosts, _ := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).To(BeNil())
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
+			}
 		})
 
 		Context("Initial Capacity", func() {
@@ -481,8 +506,8 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 				created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-				Expect(created).To(Equal(int32(numHosts)))
-				Expect(target).To(Equal(int32(numHosts)))
+				Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+				Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 
 				Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 			})

@@ -216,6 +216,10 @@ type BaseContainerPrewarmer struct {
 	// receive a value at the end of each iteration of its Run method.
 	GuardChannel chan struct{}
 
+	// totalNumProvisioning is the total number of prewarm containers being provisioned across all scheduling.Host
+	// instances in the scheduling.Cluster.
+	totalNumProvisioning atomic.Int32
+
 	// metricsProvider provides access to some metrics necessary for certain implementations of X,
 	// such as the number of active executions.
 	metricsProvider scheduling.MetricsProvider
@@ -291,6 +295,8 @@ func (p *BaseContainerPrewarmer) Run() error {
 		return ErrAlreadyRunning
 	}
 
+	p.log.Debug("Started running.")
+
 	for {
 		select {
 		case <-p.stopChan:
@@ -311,7 +317,9 @@ func (p *BaseContainerPrewarmer) Run() error {
 		}
 
 		if p.GuardChannel != nil {
+			p.log.Debug("Polling on GuardChannel")
 			<-p.GuardChannel
+			p.log.Debug("Received value from GuardChannel")
 		} else {
 			time.Sleep(scheduling.PreWarmerInterval)
 		}
@@ -353,7 +361,7 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 	// but we'll still return an error, as we'll have no containers available.
 	if !loaded {
 		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable, UnknownHost].",
-			host.GetNodeName(), host.GetID(), containers.Len())
+			host.GetNodeName(), host.GetID())
 
 		fifo := queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
 		p.PrewarmContainersPerHost[host.GetID()] = fifo
@@ -562,6 +570,12 @@ func (p *BaseContainerPrewarmer) MinPrewarmedContainersPerHost() int {
 	return 0
 }
 
+// TotalNumProvisioning returns the total number of prewarm containers being provisioned across all scheduling.Host
+// instances in the scheduling.Cluster.
+func (p *BaseContainerPrewarmer) TotalNumProvisioning() int32 {
+	return p.totalNumProvisioning.Load()
+}
+
 // unsafeHostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as
 // well as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
 func (p *BaseContainerPrewarmer) unsafeHostLen(host scheduling.Host) (int, int) {
@@ -608,8 +622,11 @@ func (p *BaseContainerPrewarmer) unsafeDecrementProvisioning(n int32, host sched
 		p.NumPrewarmContainersProvisioningPerHost[host.GetID()] = numProvisioning
 	}
 
+	val := n * -1
+
 	// Decrement the counter.
-	numProvisioning.Add(n * -1)
+	numProvisioning.Add(val)
+	p.totalNumProvisioning.Add(val)
 }
 
 // recordProvisioning atomically records that n prewarmed containers are being provisioned on the specified
@@ -629,6 +646,7 @@ func (p *BaseContainerPrewarmer) recordProvisioning(n int32, host scheduling.Hos
 
 	// Increment the counter.
 	numProvisioning.Add(n)
+	p.totalNumProvisioning.Add(n)
 }
 
 // onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
