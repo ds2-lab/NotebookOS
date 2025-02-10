@@ -3494,9 +3494,10 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 
 	// Demote.
 	err = kernel.DemoteStandardContainer(prewarmContainerId)
-	if err != nil {
+	if err != nil && !errors.Is(err, entity.ErrInvalidContainer) {
+		// Because this is happening in the LocalScheduler, we expect to receive an entity.ErrInvalidContainer error.
 		d.log.Error("Failed to demote replica %d of kernel \"%s\" to %s container with ID=\"%s\" because: %v",
-			prevReplicaId, prevKernelId, prewarmContainerId, err)
+			prevReplicaId, prevKernelId, scheduling.PrewarmContainer, prewarmContainerId, err)
 
 		return err
 	}
