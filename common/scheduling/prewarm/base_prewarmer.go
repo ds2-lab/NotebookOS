@@ -483,6 +483,13 @@ func (p *BaseContainerPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	}
 }
 
+// ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
+func (p *BaseContainerPrewarmer) ValidatePoolCapacity() {
+	if p.instance != nil {
+		p.instance.ValidatePoolCapacity()
+	}
+}
+
 // MinPrewarmedContainersPerHost returns the minimum number of pre-warmed containers that should be available on any
 // given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
 // below this quantity, then a new pre-warmed container will be provisioned.

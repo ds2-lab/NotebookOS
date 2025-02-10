@@ -377,7 +377,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 							localGatewayClient.
 								EXPECT().
 								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
-								Times(3).
+								Times(initialCapacity).
 								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
 									GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
 										host.GetNodeName(), host.GetID())

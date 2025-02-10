@@ -52,22 +52,27 @@ func (p *MinCapacityPrewarmer) Run() {
 		default:
 		}
 
-		hosts := make([]scheduling.Host, 0, p.Cluster.Len())
-		p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
-			hosts = append(hosts, host)
-			return true
-		})
-
-		for _, host := range hosts {
-			// Skip disabled hosts.
-			if !host.Enabled() {
-				continue
-			}
-
-			p.ValidateHostCapacity(host)
-		}
+		p.ValidatePoolCapacity()
 
 		time.Sleep(scheduling.PreWarmerInterval)
+	}
+}
+
+// ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
+func (p *MinCapacityPrewarmer) ValidatePoolCapacity() {
+	hosts := make([]scheduling.Host, 0, p.Cluster.Len())
+	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
+		hosts = append(hosts, host)
+		return true
+	})
+
+	for _, host := range hosts {
+		// Skip disabled hosts.
+		if !host.Enabled() {
+			continue
+		}
+
+		p.ValidateHostCapacity(host)
 	}
 }
 

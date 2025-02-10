@@ -12710,6 +12710,21 @@ func (m *MockContainerPrewarmer) EXPECT() *MockContainerPrewarmerMockRecorder {
 	return m.recorder
 }
 
+// HostLen mocks base method.
+func (m *MockContainerPrewarmer) HostLen(host scheduling.Host) (int, int) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HostLen", host)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(int)
+	return ret0, ret1
+}
+
+// HostLen indicates an expected call of HostLen.
+func (mr *MockContainerPrewarmerMockRecorder) HostLen(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostLen", reflect.TypeOf((*MockContainerPrewarmer)(nil).HostLen), host)
+}
+
 // InitialPrewarmedContainersPerHost mocks base method.
 func (m *MockContainerPrewarmer) InitialPrewarmedContainersPerHost() int {
 	m.ctrl.T.Helper()
@@ -12764,20 +12779,6 @@ func (m *MockContainerPrewarmer) MinPrewarmedContainersPerHost() int {
 func (mr *MockContainerPrewarmerMockRecorder) MinPrewarmedContainersPerHost() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MinPrewarmedContainersPerHost", reflect.TypeOf((*MockContainerPrewarmer)(nil).MinPrewarmedContainersPerHost))
-}
-
-// PoolSize mocks base method.
-func (m *MockContainerPrewarmer) PoolSize() int {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PoolSize")
-	ret0, _ := ret[0].(int)
-	return ret0
-}
-
-// PoolSize indicates an expected call of PoolSize.
-func (mr *MockContainerPrewarmerMockRecorder) PoolSize() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PoolSize", reflect.TypeOf((*MockContainerPrewarmer)(nil).PoolSize))
 }
 
 // ProvisionContainer mocks base method.
@@ -12864,20 +12865,6 @@ func (mr *MockContainerPrewarmerMockRecorder) Run() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockContainerPrewarmer)(nil).Run))
 }
 
-// Size mocks base method.
-func (m *MockContainerPrewarmer) Size() int {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Size")
-	ret0, _ := ret[0].(int)
-	return ret0
-}
-
-// Size indicates an expected call of Size.
-func (mr *MockContainerPrewarmerMockRecorder) Size() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Size", reflect.TypeOf((*MockContainerPrewarmer)(nil).Size))
-}
-
 // Stop mocks base method.
 func (m *MockContainerPrewarmer) Stop() {
 	m.ctrl.T.Helper()
@@ -12902,6 +12889,18 @@ func (mr *MockContainerPrewarmerMockRecorder) ValidateHostCapacity(host any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostCapacity", reflect.TypeOf((*MockContainerPrewarmer)(nil).ValidateHostCapacity), host)
 }
 
+// ValidatePoolCapacity mocks base method.
+func (m *MockContainerPrewarmer) ValidatePoolCapacity() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ValidatePoolCapacity")
+}
+
+// ValidatePoolCapacity indicates an expected call of ValidatePoolCapacity.
+func (mr *MockContainerPrewarmerMockRecorder) ValidatePoolCapacity() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidatePoolCapacity", reflect.TypeOf((*MockContainerPrewarmer)(nil).ValidatePoolCapacity))
+}
+
 // MockContainerPool is a mock of ContainerPool interface.
 type MockContainerPool struct {
 	ctrl     *gomock.Controller
@@ -12924,6 +12923,21 @@ func NewMockContainerPool(ctrl *gomock.Controller) *MockContainerPool {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockContainerPool) EXPECT() *MockContainerPoolMockRecorder {
 	return m.recorder
+}
+
+// HostLen mocks base method.
+func (m *MockContainerPool) HostLen(host scheduling.Host) (int, int) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HostLen", host)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(int)
+	return ret0, ret1
+}
+
+// HostLen indicates an expected call of HostLen.
+func (mr *MockContainerPoolMockRecorder) HostLen(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostLen", reflect.TypeOf((*MockContainerPool)(nil).HostLen), host)
 }
 
 // InitialPrewarmedContainersPerHost mocks base method.
@@ -12980,32 +12994,4 @@ func (m *MockContainerPool) MinPrewarmedContainersPerHost() int {
 func (mr *MockContainerPoolMockRecorder) MinPrewarmedContainersPerHost() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MinPrewarmedContainersPerHost", reflect.TypeOf((*MockContainerPool)(nil).MinPrewarmedContainersPerHost))
-}
-
-// PoolSize mocks base method.
-func (m *MockContainerPool) PoolSize() int {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PoolSize")
-	ret0, _ := ret[0].(int)
-	return ret0
-}
-
-// PoolSize indicates an expected call of PoolSize.
-func (mr *MockContainerPoolMockRecorder) PoolSize() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PoolSize", reflect.TypeOf((*MockContainerPool)(nil).PoolSize))
-}
-
-// Size mocks base method.
-func (m *MockContainerPool) Size() int {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Size")
-	ret0, _ := ret[0].(int)
-	return ret0
-}
-
-// Size indicates an expected call of Size.
-func (mr *MockContainerPoolMockRecorder) Size() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Size", reflect.TypeOf((*MockContainerPool)(nil).Size))
 }

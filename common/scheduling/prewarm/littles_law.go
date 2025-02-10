@@ -158,7 +158,7 @@ func (p *LittlesLawPrewarmer) Run() {
 	}
 }
 
-// ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the system.
+// ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
 func (p *LittlesLawPrewarmer) ValidatePoolCapacity() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -242,7 +242,7 @@ func (p *LittlesLawPrewarmer) ValidatePoolCapacity() {
 // ContainerPrewarmer's policy.
 func (p *LittlesLawPrewarmer) ValidateHostCapacity(_ scheduling.Host) {
 	p.log.Warn("ValidateHostCapacity called for LittlesLawPrewarmer.")
-	p.log.Warn("LittlesLawPrewarmer uses ValidatePoolCapacity.")
+	p.log.Warn("LittlesLawPrewarmer only uses ValidatePoolCapacity.")
 	// No-op.
 }
 

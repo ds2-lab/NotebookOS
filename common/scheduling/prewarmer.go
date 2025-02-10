@@ -99,6 +99,9 @@ type ContainerPrewarmer interface {
 	// ContainerPrewarmer's policy.
 	ValidateHostCapacity(host Host)
 
+	// ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
+	ValidatePoolCapacity()
+
 	// Stop instructs the ContainerPrewarmer to stop.
 	Stop()
 }
