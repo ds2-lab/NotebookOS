@@ -93,6 +93,9 @@ type ContainerPrewarmer interface {
 	// via the RequestPrewarmedContainer method, but ended up being unused, and so it can simply be put back into the pool.
 	ReturnUnusedPrewarmContainer(container PrewarmedContainer) error
 
+	// ReturnUsedPrewarmContainer is used to return a used pre-warmed container so that it may be reused in the future.
+	ReturnUsedPrewarmContainer(container PrewarmedContainer) error
+
 	// RequestPrewarmedContainer is used to request a pre-warm container on a particular host.
 	//
 	// RequestPrewarmedContainer is explicitly thread safe (i.e., it uses a mutex).
@@ -126,6 +129,7 @@ type PrewarmedContainer interface {
 	HostId() string
 	HostName() string
 	OnPrewarmedContainerUsed()
+	GetOnPrewarmedContainerUsed() PrewarmedContainerUsedCallback
 	IsAvailable() bool
 	SetUnavailable()
 	Host() Host

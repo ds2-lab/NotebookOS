@@ -20,6 +20,7 @@ var (
 	ErrPrewarmedContainerRegistrationFailure = errors.New("could not register the specified prewarmed container")
 	ErrPrewarmedContainerAlreadyRegistered   = errors.New("a prewarmed container with the same ID is already registered")
 	ErrPrewarmedContainerAlreadyUsed         = errors.New("the prewarmed container has already been used")
+	ErrPrewarmedContainerUnused              = errors.New("the prewarmed container has not yet been used")
 	ErrNoPrewarmedContainersAvailable        = errors.New("there are no prewarmed containers available on the specified host")
 	ErrAlreadyRunning                        = errors.New("the prewarmer is already running")
 	ErrFailedToStop                          = errors.New("the prewarmer failed to stop cleanly")
@@ -161,6 +162,11 @@ func (p *PrewarmedContainer) OnPrewarmedContainerUsed() {
 	if p.onPrewarmedContainerUsed != nil {
 		p.onPrewarmedContainerUsed(p)
 	}
+}
+
+// GetOnPrewarmedContainerUsed returns the callback to execute when a pre-warmed container is used.
+func (p *PrewarmedContainer) GetOnPrewarmedContainerUsed() scheduling.PrewarmedContainerUsedCallback {
+	return p.onPrewarmedContainerUsed
 }
 
 // PrewarmerConfig encapsulates configuration information/parameters of a scheduling.ContainerPrewarmer implementation.
@@ -421,6 +427,29 @@ func (p *BaseContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduli
 		p.log.Error("Returned prewarmed container %s is marked as having been used.", container.ID())
 		return fmt.Errorf("%w: container \"%s\"", ErrPrewarmedContainerAlreadyUsed, container.ID())
 	}
+
+	return p.unsafeRegisterPrewarmedContainer(container)
+}
+
+// ReturnUsedPrewarmContainer is used to return a used pre-warmed container so that it may be reused in the future.
+func (p *BaseContainerPrewarmer) ReturnUsedPrewarmContainer(usedContainer scheduling.PrewarmedContainer) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.log.Debug("Container returned after being used [%v]", usedContainer.String())
+
+	if usedContainer.IsAvailable() {
+		p.log.Error("Returned prewarmed usedContainer %s is marked as never having been used.", usedContainer.ID())
+		return fmt.Errorf("%w: usedContainer \"%s\"", ErrPrewarmedContainerUnused, usedContainer.ID())
+	}
+
+	// Re-create the container so that the "IsAvailable" field is set to true.
+	container := NewPrewarmedContainerBuilder().
+		WithHost(usedContainer.Host()).
+		WithPrewarmedContainerUsedCallback(usedContainer.GetOnPrewarmedContainerUsed()).
+		WithKernelReplicaSpec(usedContainer.KernelReplicaSpec()).
+		WithKernelConnectionInfo(usedContainer.KernelConnectionInfo()).
+		Build()
 
 	return p.unsafeRegisterPrewarmedContainer(container)
 }

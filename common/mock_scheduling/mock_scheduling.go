@@ -12578,6 +12578,20 @@ func (mr *MockPrewarmedContainerMockRecorder) CreatedAt() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatedAt", reflect.TypeOf((*MockPrewarmedContainer)(nil).CreatedAt))
 }
 
+// GetOnPrewarmedContainerUsed mocks base method.
+func (m *MockPrewarmedContainer) GetOnPrewarmedContainerUsed() scheduling.PrewarmedContainerUsedCallback {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOnPrewarmedContainerUsed")
+	ret0, _ := ret[0].(scheduling.PrewarmedContainerUsedCallback)
+	return ret0
+}
+
+// GetOnPrewarmedContainerUsed indicates an expected call of GetOnPrewarmedContainerUsed.
+func (mr *MockPrewarmedContainerMockRecorder) GetOnPrewarmedContainerUsed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOnPrewarmedContainerUsed", reflect.TypeOf((*MockPrewarmedContainer)(nil).GetOnPrewarmedContainerUsed))
+}
+
 // Host mocks base method.
 func (m *MockPrewarmedContainer) Host() scheduling.Host {
 	m.ctrl.T.Helper()
@@ -12893,6 +12907,20 @@ func (m *MockContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduli
 func (mr *MockContainerPrewarmerMockRecorder) ReturnUnusedPrewarmContainer(container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnUnusedPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnUnusedPrewarmContainer), container)
+}
+
+// ReturnUsedPrewarmContainer mocks base method.
+func (m *MockContainerPrewarmer) ReturnUsedPrewarmContainer(container scheduling.PrewarmedContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReturnUsedPrewarmContainer", container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReturnUsedPrewarmContainer indicates an expected call of ReturnUsedPrewarmContainer.
+func (mr *MockContainerPrewarmerMockRecorder) ReturnUsedPrewarmContainer(container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnUsedPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnUsedPrewarmContainer), container)
 }
 
 // Run mocks base method.

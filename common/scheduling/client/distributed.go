@@ -1265,7 +1265,7 @@ func (c *DistributedKernelClient) getRequestContext(ctx context.Context, typ mes
 // each replica will want to add its own unique request trace to the messaging.JupyterMessage.
 func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targetReplica scheduling.KernelReplica,
 	jMsg *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedSem *semaphore.Weighted,
-	numResponsesSoFar *atomic.Int32, respHandler scheduling.KernelReplicaMessageHandler) error {
+	numResponsesSoFar *atomic.Int32, numResponsesExpected int, respHandler scheduling.KernelReplicaMessageHandler) error {
 
 	c.log.Debug("Sending %v '%s' message '%s' to replica %d of kernel '%s' on host %s (ID=%s) now.",
 		typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), targetReplica.ReplicaID(),
@@ -1281,8 +1281,8 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 
 		if numResponsesSoFar != nil {
 			numResp := numResponsesSoFar.Add(1)
-			c.log.Debug("Received %d response(s) to %s '%s' message '%s' request so far.",
-				numResp, typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
+			c.log.Debug("Received %d/%d response(s) to %s '%s' message '%s' request so far.",
+				numResp, numResponsesExpected, typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
 		}
 	}
 
@@ -1474,7 +1474,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// If there's just a single replica, then send the message to that one replica.
 	if len(replicas) == 1 {
 		return c.sendRequestToReplica(replicaCtx, replicas[0], jupyterMessages[0], typ,
-			nil, nil, responseHandler)
+			nil, nil, 1, responseHandler)
 	}
 
 	// Note: we do NOT need to create a barrier where the replicas all wait until they've each clone the
@@ -1505,7 +1505,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		go func() {
 			err := c.sendRequestToReplica(replicaCtx, replica, msg, typ, respReceivedSemaphore, &numResponsesSoFar,
-				responseHandler)
+				numResponsesExpected, responseHandler)
 
 			if err != nil {
 				errorChannel <- err

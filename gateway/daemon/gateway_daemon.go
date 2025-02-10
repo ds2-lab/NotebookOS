@@ -5157,9 +5157,10 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 		if err != nil {
 			d.log.Error("Failed to reset kernel \"%s\": %v", kernel.ID(), err)
 		}
+	} else {
+		// We only remove the replicas if we aren't going to reuse the containers.
+		_ = d.removeAllReplicasOfKernel(kernel, true, false)
 	}
-
-	_ = d.removeAllReplicasOfKernel(kernel, true, false)
 }
 
 // resetKernelReply is used by the ClusterGatewayImpl's resetKernel and processResetKernelReplies methods.
@@ -5332,7 +5333,7 @@ func (d *ClusterGatewayImpl) processResetKernelReplies(replies []*resetKernelRep
 			WithPrewarmedContainerUsedCallback(nil).
 			Build()
 
-		err = prewarmer.ReturnUnusedPrewarmContainer(prewarmedContainer)
+		err = prewarmer.ReturnUsedPrewarmContainer(prewarmedContainer)
 		if err != nil {
 			d.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
 			errs = append(errs, err)
