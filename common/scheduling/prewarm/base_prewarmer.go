@@ -20,6 +20,9 @@ var (
 	ErrPrewarmedContainerAlreadyRegistered   = errors.New("a prewarmed container with the same ID is already registered")
 	ErrPrewarmedContainerAlreadyUsed         = errors.New("the prewarmed container has already been used")
 	ErrNoPrewarmedContainersAvailable        = errors.New("there are no prewarmed containers available on the specified host")
+	ErrAlreadyRunning                        = errors.New("the prewarmer is already running")
+	ErrFailedToStop                          = errors.New("the prewarmer failed to stop cleanly")
+	ErrNotRunning                            = errors.New("the prewarmer is not running")
 )
 
 // DivideWork divides the work of creating n containers between m workers.
@@ -185,6 +188,9 @@ func NewPrewarmerConfig(initialCapacity, maxCapacity int) *PrewarmerConfig {
 // BaseContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
 // these pre-warmed containers, such as how many are available on each scheduling.Host.
 type BaseContainerPrewarmer struct {
+	// instance is the scheduling.ContainerPrewarmer struct that may be promoting this BaseContainerPrewarmer struct.
+	// Methods with logic specific to each unique implementation of scheduling.ContainerPrewarmer are called on the
+	// instance field rather than executed directly by the BaseContainerPrewarmer struct.
 	instance scheduling.ContainerPrewarmer
 
 	// AllPrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
@@ -205,9 +211,20 @@ type BaseContainerPrewarmer struct {
 	// Config encapsulates the configuration of the BaseContainerPrewarmer.
 	Config *PrewarmerConfig
 
+	// GuardChannel is a channel used during unit tests that can be assigned to a scheduling.ContainerPrewarmer.
+	// If the GuardChannel is non-nil, then the scheduling.ContainerPrewarmer will poll the channel, waiting to
+	// receive a value at the end of each iteration of its Run method.
+	GuardChannel chan struct{}
+
+	// metricsProvider provides access to some metrics necessary for certain implementations of X,
+	// such as the number of active executions.
 	metricsProvider scheduling.MetricsProvider
 
+	// stopChan is used to signal to the goroutine executing the Run method that it should stop and exit.
 	stopChan chan struct{}
+
+	// running ensures that only one goroutine can execute the Run method at a time.
+	running atomic.Int32
 
 	mu  sync.Mutex
 	log logger.Logger
@@ -219,7 +236,7 @@ func NewBaseContainerPrewarmer(cluster scheduling.Cluster, configuration *Prewar
 		AllPrewarmContainers:                    make(map[string]scheduling.PrewarmedContainer),
 		PrewarmContainersPerHost:                make(map[string]*queue.ThreadsafeFifo[scheduling.PrewarmedContainer]),
 		NumPrewarmContainersProvisioningPerHost: make(map[string]*atomic.Int32),
-		stopChan:                                make(chan struct{}, 1),
+		stopChan:                                make(chan struct{}),
 		metricsProvider:                         metricsProvider,
 		Cluster:                                 cluster,
 		Config:                                  configuration,
@@ -263,18 +280,56 @@ func (p *BaseContainerPrewarmer) PoolSize() int {
 
 // Run creates a separate goroutine in which the BaseContainerPrewarmer maintains the overall capacity/availability of
 // pre-warmed containers in accordance with BaseContainerPrewarmer's policy for doing so.
-func (p *BaseContainerPrewarmer) Run() {
-	if p.instance == nil {
-		p.log.Warn("No specific 'Warm Container Pool' maintenance strategy configured.")
-		return
+//
+// If another thread is executing the Run method, then Run will return an error. Only one goroutine may execute
+// the Run method at a time.
+func (p *BaseContainerPrewarmer) Run() error {
+	if !p.running.CompareAndSwap(0, 1) {
+		p.log.Warn("Cannot run prewarmer as already running")
+		return ErrAlreadyRunning
 	}
 
-	p.instance.Run()
+	for {
+		select {
+		case <-p.stopChan:
+			{
+				if !p.running.CompareAndSwap(1, 0) {
+					p.log.Warn("Prewarmer failed to stop cleanly")
+					return ErrFailedToStop
+				}
+
+				p.log.Debug("Prewarmer stopped.")
+				return nil
+			}
+		default:
+		}
+
+		if p.instance != nil {
+			p.ValidatePoolCapacity()
+		}
+
+		if p.GuardChannel != nil {
+			<-p.GuardChannel
+		} else {
+			time.Sleep(scheduling.PreWarmerInterval)
+		}
+	}
 }
 
 // Stop instructs the ContainerPrewarmer to stop.
-func (p *BaseContainerPrewarmer) Stop() {
+//
+// Stop will block until the notification to stop has been receiving by the goroutine running the Run method.
+func (p *BaseContainerPrewarmer) Stop() error {
+	if p.running.Load() == 0 {
+		p.log.Warn("Prewarmer is not running.")
+
+		return errors.Join(ErrFailedToStop, ErrNotRunning)
+	}
+
+	p.log.Debug("Stopping...")
 	p.stopChan <- struct{}{}
+
+	return nil
 }
 
 // RequestPrewarmedContainer is used to request a pre-warm container on a particular host.

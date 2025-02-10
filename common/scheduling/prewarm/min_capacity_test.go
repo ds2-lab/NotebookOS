@@ -262,6 +262,10 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 		})
 
+		It("Will correctly maintain the size of the warm container pool", func() {
+
+		})
+
 		Context("Initial Capacity", func() {
 			It("Will correctly initialize the pool with 1 pre-warmed container per host", func() {
 				numHosts := 3
@@ -327,7 +331,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				Expect(created).To(Equal(int32(numHosts)))
 				Expect(target).To(Equal(int32(numHosts)))
 
-				Expect(prewarmer.Len()).To(Equal(3))
+				Expect(prewarmer.Len()).To(Equal(initialCapacity * numHosts))
 			})
 
 			It("Will correctly initialize the pool with 3 pre-warmed containers per host", func() {

@@ -267,6 +267,73 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 		})
 
+		It("Will correctly maintain the size of the warm container pool", func() {
+			numHosts := 2
+			initialCapacity := 1
+			averageDur := time.Second * 2
+			averageIat := time.Second * 2
+			maxCapacity := 2
+
+			createAndInitializePrewarmer(initialCapacity, maxCapacity, averageDur, averageIat)
+
+			By("Correctly provisioning the initial round of prewarm containers")
+
+			hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+			Expect(len(hosts)).To(Equal(numHosts))
+			Expect(len(localGatewayClients)).To(Equal(numHosts))
+
+			mockCluster.
+				EXPECT().
+				RangeOverHosts(gomock.Any()).
+				Times(1).
+				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+					for idx, host := range hosts {
+						connInfo := &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}
+
+						localGatewayClient := localGatewayClients[idx]
+						localGatewayClient.
+							EXPECT().
+							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+							Times(1).
+							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								return connInfo, nil
+							})
+
+						f(host.GetID(), host)
+					}
+				})
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts)))
+			Expect(target).To(Equal(int32(numHosts)))
+
+			Expect(prewarmer.Len()).To(Equal(initialCapacity * numHosts))
+
+			By("Provisioning additional pre-warm containers according to the Little's Law policy")
+
+			littlesLawPrewarmer, ok := prewarmer.(*prewarm.LittlesLawPrewarmer)
+			Expect(ok).To(BeTrue())
+			Expect(littlesLawPrewarmer).ToNot(BeNil())
+
+			guardChan := make(chan struct{})
+			littlesLawPrewarmer.GuardChannel = guardChan
+
+			littlesLawPrewarmer.Run()
+		})
+
 		Context("Initial Capacity", func() {
 			It("Will correctly initialize the pool with 1 pre-warmed container per host", func() {
 				numHosts := 3

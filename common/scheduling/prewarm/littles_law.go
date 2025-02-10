@@ -141,22 +141,26 @@ func NewLittlesLawPrewarmer(cluster scheduling.Cluster, configuration *LittlesLa
 
 // Run creates a separate goroutine in which the LittlesLawPrewarmer maintains the overall capacity/availability of
 // pre-warmed containers in accordance with LittlesLawPrewarmer's policy for doing so.
-func (p *LittlesLawPrewarmer) Run() {
-	for {
-		select {
-		case <-p.stopChan:
-			{
-				p.log.Debug("Stopping.")
-				return
-			}
-		default:
-		}
-
-		p.ValidatePoolCapacity()
-
-		time.Sleep(scheduling.PreWarmerInterval)
-	}
-}
+//func (p *LittlesLawPrewarmer) Run() {
+//	for {
+//		select {
+//		case <-p.stopChan:
+//			{
+//				p.log.Debug("Stopping.")
+//				return
+//			}
+//		default:
+//		}
+//
+//		p.ValidatePoolCapacity()
+//
+//		if p.GuardChannel != nil {
+//			<-p.GuardChannel
+//		} else {
+//			time.Sleep(scheduling.PreWarmerInterval)
+//		}
+//	}
+//}
 
 // ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
 func (p *LittlesLawPrewarmer) ValidatePoolCapacity() {

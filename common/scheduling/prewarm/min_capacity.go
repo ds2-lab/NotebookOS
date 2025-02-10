@@ -2,7 +2,6 @@ package prewarm
 
 import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"time"
 )
 
 type MinCapacityPrewarmerConfig struct {
@@ -41,22 +40,22 @@ func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapac
 
 // Run creates a separate goroutine in which the MinCapacityPrewarmer maintains the overall capacity/availability of
 // pre-warmed containers in accordance with MinCapacityPrewarmer's policy for doing so.
-func (p *MinCapacityPrewarmer) Run() {
-	for {
-		select {
-		case <-p.stopChan:
-			{
-				p.log.Debug("Stopping.")
-				return
-			}
-		default:
-		}
-
-		p.ValidatePoolCapacity()
-
-		time.Sleep(scheduling.PreWarmerInterval)
-	}
-}
+//func (p *MinCapacityPrewarmer) Run() {
+//	for {
+//		select {
+//		case <-p.stopChan:
+//			{
+//				p.log.Debug("Stopping.")
+//				return
+//			}
+//		default:
+//		}
+//
+//		p.ValidatePoolCapacity()
+//
+//		time.Sleep(scheduling.PreWarmerInterval)
+//	}
+//}
 
 // ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
 func (p *MinCapacityPrewarmer) ValidatePoolCapacity() {
