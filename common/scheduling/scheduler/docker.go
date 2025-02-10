@@ -346,6 +346,7 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 		return err
 	}
 
+	container.OnPrewarmedContainerUsed()
 	s.log.Debug("Successfully created replica %d of kernel %s in pre-warmed container on host %s (ID=%s): %v",
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), replicaConnInfo)
 	return nil
