@@ -387,7 +387,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 					Expect(err).To(BeNil())
 				}()
 
-				Eventually(prewarmer.IsRunning, time.Second*2, time.Millisecond*250).Should(BeTrue())
+				Eventually(prewarmer.IsRunning, time.Millisecond*1500, time.Millisecond*100).Should(BeTrue())
 
 				Expect(prewarmer.IsRunning()).To(BeTrue())
 
@@ -406,7 +406,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 					Expect(err).To(BeNil())
 				}()
 
-				Eventually(prewarmer.IsRunning, time.Second*2, time.Millisecond*250).Should(BeTrue())
+				Eventually(prewarmer.IsRunning, time.Millisecond*1500, time.Millisecond*100).Should(BeTrue())
 
 				Expect(prewarmer.IsRunning()).To(BeTrue())
 
