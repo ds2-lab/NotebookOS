@@ -647,8 +647,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
+				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+				&clusterGateway.numActiveTrainings)
+
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
 			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -1476,8 +1478,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
+				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+				&clusterGateway.numActiveTrainings)
+
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
 			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -2287,11 +2291,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			//kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
 			//	clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.ExecutionFailedCallback, clusterGateway.ExecutionLatencyCallback,
-			//	clusterGateway.metricsProvider, clusterGateway.notifyDashboard)
+			//	clusterGateway.MetricsProvider, clusterGateway.notifyDashboard)
 
 			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(),
 				mockedKernelSpec, 3, clusterGateway.id, clusterGateway.connectionOptions, uuid.NewString(),
-				clusterGateway.DebugMode, clusterGateway.metricsProvider, clusterGateway)
+				clusterGateway.DebugMode, clusterGateway.MetricsProvider, clusterGateway)
 
 			shellSocket, err := kernel.InitializeShellForwarder(clusterGateway.kernelShellHandler)
 			Expect(err).To(BeNil())
@@ -3012,8 +3016,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
@@ -3144,8 +3148,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
@@ -3222,8 +3226,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
@@ -3472,8 +3476,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					})
 					config.InitLogger(&clusterGateway.log, clusterGateway)
 
-					Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-					Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+					Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+					Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 					Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(initialClusterSize))
 					Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(initialConnectionTime))
 					Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
@@ -3701,8 +3705,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 			})
 
 			AfterEach(func() {

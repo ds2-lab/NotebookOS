@@ -4,6 +4,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-var _ = Describe("BasePrewarmer", func() {
+var _ = Describe("Base Prewarmer Tests", func() {
 
 })

@@ -159,6 +159,31 @@ type Policy interface {
 	// resource request of an existing/scheduled kernel after it has already been created, or if the
 	// initial resource request/allocation is static and cannot be changed after the kernel is created.
 	SupportsDynamicResourceAdjustments() bool
+
+	// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
+	SelectReplicaForMigration(kernel Kernel) (KernelReplica, error)
+
+	// FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
+	// pre-designated as the leader of a code execution.
+	//
+	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+	// will fight amongst themselves to determine the leader.
+	//
+	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+	//
+	// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+	// been ruled out.
+	//
+	// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+	// updated (in cases where dynamic resource requests are supported) such that the current
+	// resource spec reflects the requirements for this code execution. That is, the logic of
+	// selecting a replica now depends upon the kernel's resource request correctly specifying
+	// the requirements. If the requirements were to change after selection a replica, then
+	// that could invalidate the selection.
+	FindReadyReplica(kernel Kernel, executionId string) (KernelReplica, error)
 }
 
 // IdleSessionReclamationPolicy defines how the scheduling policy handles idle sessions.

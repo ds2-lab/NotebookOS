@@ -6,7 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"go.uber.org/atomic"
+	"sync/atomic"
 )
 
 var (

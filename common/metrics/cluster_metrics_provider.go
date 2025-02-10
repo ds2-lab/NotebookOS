@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"sync/atomic"
 	"time"
 )
 
@@ -43,17 +44,20 @@ type ClusterMetricsProvider struct {
 	prometheusMetricsEnabled   bool
 
 	log logger.Logger
+
+	numActiveExecutions *atomic.Int32
 }
 
 func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNodeProvider,
 	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics)),
-	incrResHost func(Host), decrResHost func(Host)) *ClusterMetricsProvider {
+	incrResHost func(Host), decrResHost func(Host), numActiveExecutions *atomic.Int32) *ClusterMetricsProvider {
 	provider := &ClusterMetricsProvider{
 		gatewayPrometheusManager:                      nil,
 		prometheusMetricsEnabled:                      false,
 		updateClusterStatsCallback:                    updateClusterStatsCallback,
 		incrementResourceCountsForNewHostCallback:     incrResHost,
 		decrementResourceCountsForRemovedHostCallback: decrResHost,
+		numActiveExecutions:                           numActiveExecutions,
 	}
 
 	config.InitLogger(&provider.log, provider)
@@ -65,6 +69,18 @@ func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNode
 	}
 
 	return provider
+}
+
+func (p *ClusterMetricsProvider) IncrementNumActiveExecutions() {
+	p.numActiveExecutions.Add(1)
+}
+
+func (p *ClusterMetricsProvider) DecrementNumActiveExecutions() {
+	p.numActiveExecutions.Add(-1)
+}
+
+func (p *ClusterMetricsProvider) NumActiveExecutions() int32 {
+	return p.numActiveExecutions.Load()
 }
 
 func (p *ClusterMetricsProvider) StartGatewayPrometheusManager() error {

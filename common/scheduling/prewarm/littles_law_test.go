@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-var _ = Describe("LittlesLaw", func() {
+var _ = Describe("LittlesLaw Prewarmer Tests", func() {
 	It("Will correctly maintain the minimum capacity", func() {
 
 	})

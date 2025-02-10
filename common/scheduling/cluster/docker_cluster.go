@@ -19,7 +19,7 @@ type DockerClusterBuilder struct {
 	kernelProvider            scheduler.KernelProvider
 	clusterMetricsProvider    scheduling.MetricsProvider
 	notificationBroker        scheduler.NotificationBroker
-	schedulingPolicy          internalSchedulingPolicy
+	schedulingPolicy          scheduling.Policy
 	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
 	opts                      *scheduling.SchedulerOptions
 }
@@ -54,7 +54,7 @@ func (b *DockerClusterBuilder) WithNotificationBroker(notificationBroker schedul
 	return b
 }
 
-func (b *DockerClusterBuilder) WithSchedulingPolicy(schedulingPolicy internalSchedulingPolicy) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithSchedulingPolicy(schedulingPolicy scheduling.Policy) *DockerClusterBuilder {
 	b.schedulingPolicy = schedulingPolicy
 	return b
 }
@@ -98,7 +98,7 @@ type DockerCluster struct {
 // by the Cluster for scheduling decisions.
 func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
-	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
+	schedulingPolicy scheduling.Policy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerCluster", statisticsUpdaterProvider)

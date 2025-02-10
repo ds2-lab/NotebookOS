@@ -15,11 +15,11 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 

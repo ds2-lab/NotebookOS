@@ -41,7 +41,7 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
 func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
 	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
-	notificationBroker scheduler.NotificationBroker, schedulingPolicy internalSchedulingPolicy,
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
 	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster", statisticsUpdaterProvider)

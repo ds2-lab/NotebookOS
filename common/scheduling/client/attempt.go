@@ -3,10 +3,10 @@ package client
 import (
 	"errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"go.uber.org/atomic"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
