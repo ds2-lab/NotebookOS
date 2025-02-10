@@ -191,3 +191,37 @@ type ConfigFile struct {
 func (c ConfigFile) String() string {
 	return c.DistributedKernelConfig.String()
 }
+
+// KernelConnectionInfoFromJupyterConnectionInfo creates a KernelConnectionInfo struct from the given
+// jupyter.ConnectionInfo struct.
+func KernelConnectionInfoFromJupyterConnectionInfo(info *ConnectionInfo) *proto.KernelConnectionInfo {
+	return &proto.KernelConnectionInfo{
+		Ip:              info.IP,
+		Transport:       info.Transport,
+		ControlPort:     int32(info.ControlPort),
+		ShellPort:       int32(info.ShellPort),
+		StdinPort:       int32(info.StdinPort),
+		HbPort:          int32(info.HBPort),
+		IopubPort:       int32(info.IOPubPort),
+		IosubPort:       int32(info.IOSubPort),
+		SignatureScheme: info.SignatureScheme,
+		Key:             info.Key,
+	}
+}
+
+// KernelConnectionInfoToJupyterConnectionInfo converts the given KernelConnectionInfo struct to a
+// jupyter.ConnectionInfo struct.
+func KernelConnectionInfoToJupyterConnectionInfo(info *proto.KernelConnectionInfo) *ConnectionInfo {
+	return &ConnectionInfo{
+		IP:              info.Ip,
+		Transport:       info.Transport,
+		ControlPort:     int(info.ControlPort),
+		ShellPort:       int(info.ShellPort),
+		StdinPort:       int(info.StdinPort),
+		HBPort:          int(info.HbPort),
+		IOPubPort:       int(info.IopubPort),
+		IOSubPort:       int(info.IosubPort),
+		SignatureScheme: info.SignatureScheme,
+		Key:             info.Key,
+	}
+}

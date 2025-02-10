@@ -1017,7 +1017,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 
 		//startTimeUnixMilliseconds := in.CreatedAtTimestamp.AsTime().UnixMicro()
 		//endTimeUnixMilliseconds := receivedAt.UnixMicro()
-		//requestTrace.Traces = append(requestTrace.Traces, &proto.Trace{
+		//reqTrace.Traces = append(reqTrace.Traces, &proto.Trace{
 		//	Id:                   uuid.NewString(),
 		//	Name:                 "dashboard_to_gateway",
 		//	StartTimeUnixMicro:   startTimeUnixMilliseconds,
@@ -1075,12 +1075,15 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 
 			requestTrace.ReplicaId = from.ReplicaID()
 
-			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v. Request trace: %s.",
-				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime), msg.RequestTrace.String())
+			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/%d replies. Time elapsed: %v. Request trace: %s.",
+				typ.String(), from.String(), msgId, latestNumRepliesReceived, kernel.Size(), time.Since(startTime),
+				msg.RequestTrace.String())
+
 			respChan <- requestTrace
 		} else {
-			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/3 replies. Time elapsed: %v.",
-				typ.String(), from.String(), msgId, latestNumRepliesReceived, time.Since(startTime))
+			d.log.Debug("Received %s ping_reply from %s for message \"%s\". Received %d/%d replies. Time elapsed: %v.",
+				typ.String(), from.String(), msgId, latestNumRepliesReceived, kernel.Size(), time.Since(startTime))
+
 			respChan <- struct{}{}
 		}
 
@@ -1090,7 +1093,9 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	jMsg := messaging.NewJupyterMessage(&msg)
 	err = kernel.RequestWithHandler(ctx, "Forwarding", socketType, jMsg, responseHandler, nil)
 	if err != nil {
-		d.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v", socketType.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
+		d.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v",
+			socketType.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
+
 		return &proto.Pong{
 			Id:            kernelId,
 			Success:       false,
@@ -1111,15 +1116,15 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		select {
 		case <-ctx.Done():
 			{
-				err := ctx.Err()
+				ctxError := ctx.Err()
 
 				var errorMessage string
-				if err != nil {
-					errorMessage = fmt.Sprintf("'ping-kernel' %v request for kernel %s failed after receiving %d/3 replies for ping message \"%s\": %v",
-						socketType.String(), kernelId, numRepliesReceived.Load(), msgId, err)
+				if ctxError != nil {
+					errorMessage = fmt.Sprintf("%v 'ping-kernel' request for kernel %s failed after receiving %d/%d replies: %v",
+						socketType.String(), kernelId, numRepliesReceived.Load(), kernel.Size(), ctxError)
 				} else {
-					errorMessage = fmt.Sprintf("'ping-kernel' %v request for kernel %s timed-out after receiving %d/3 replies for ping message \"%s\".",
-						socketType.String(), kernelId, numRepliesReceived.Load(), msgId)
+					errorMessage = fmt.Sprintf("%v 'ping-kernel' request for kernel %s timed-out after receiving %d/%d replies.",
+						socketType.String(), kernelId, numRepliesReceived.Load(), kernel.Size())
 				}
 				d.log.Error(errorMessage)
 
@@ -1132,9 +1137,9 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 			}
 		case v := <-respChan:
 			{
-				requestTrace, ok := v.(*proto.RequestTrace)
+				reqTrace, ok := v.(*proto.RequestTrace)
 				if ok {
-					requestTraces = append(requestTraces, requestTrace)
+					requestTraces = append(requestTraces, reqTrace)
 				}
 			}
 		}
@@ -1143,20 +1148,8 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	// Include the "ReplySentByGateway" entry, since we're returning the response via gRPC,
 	// and thus it won't be added automatically by the ZMQ-forwarder server.
 	replySentByGateway := time.Now().UnixMilli()
-	for _, requestTrace := range requestTraces {
-		// traces := reqTrace.Traces
-		// lastTrace := traces[len(traces) - 1]
-
-		//reqTrace.Traces = append(reqTrace.Traces, &proto.Trace{
-		//	Id:                   uuid.NewString(),
-		//	Name:                 "gateway_to_dashboard",
-		//	StartTimeUnixMicro:   replySentByGateway.UnixMicro(),
-		//	EndTimeUnixMicro:     -1,
-		//	StartTimestamp:       timestamppb.New(replySentByGateway),
-		//	EndTimestamp:         nil,
-		//	DurationMicroseconds: -1,
-		//})
-		requestTrace.ReplySentByGateway = replySentByGateway
+	for _, reqTrace := range requestTraces {
+		reqTrace.ReplySentByGateway = replySentByGateway
 	}
 
 	d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
@@ -2172,7 +2165,8 @@ func (d *ClusterGatewayImpl) sendStatusMessage(kernel scheduling.Kernel, executi
 		err   error
 		msgId = uuid.NewString()
 	)
-	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageIdAndIdentity(msgId, "status", kernel.ID(), "status")
+	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageIdAndIdentity(msgId,
+		messaging.IOStatusMessage, kernel.ID(), messaging.IOStatusMessage)
 
 	content := map[string]string{
 		"execution_state": executionState,
@@ -5159,45 +5153,194 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 		d.log.Debug("Reusing warm kernel container.")
 
 		// Send 'reset' request.
-		prewarmedContainer, err := d.resetKernel(kernel, true)
+		err := d.resetKernel(kernel, true)
 		if err != nil {
 			d.log.Error("Failed to reset kernel \"%s\": %v", kernel.ID(), err)
-			return
-		}
-
-		if prewarmedContainer == nil {
-			d.log.Error("Did not receive valid PrewarmedContainer struct after resetting kernel \"%s\"...", kerenl.ID())
-			return
-		}
-
-		prewarmer := d.Scheduler().ContainerPrewarmer()
-		if prewarmer == nil {
-			d.log.Warn("Container Prewarmer is nil...")
-			return
-		}
-
-		err = prewarmer.ReturnUnusedPrewarmContainer(prewarmedContainer)
-		if err != nil {
-			d.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
 		}
 	}
 
 	_ = d.removeAllReplicasOfKernel(kernel, true, false)
 }
 
-// resetKernel sends a "reset_kernel_request" to the specified kernel.
-func (d *ClusterGatewayImpl) resetKernel(kernel scheduling.Kernel, revertToPrewarm bool) (scheduling.PrewarmedContainer, error) {
-	d.log.Debug("Preparing to send \"reset_kernel_request\" to kernel \"%s\" with revertToPrewarm=%v.",
-		kernel.ID(), revertToPrewarm)
+// resetKernelReply is used by the ClusterGatewayImpl's resetKernel and processResetKernelReplies methods.
+//
+// resetKernelReply associates a particular scheduling.KernelReplica with a "reset_kernel_reply" message.
+type resetKernelReply struct {
+	KernelReplica scheduling.KernelReplica
+	Reply         *messaging.JupyterMessage
+}
 
-	prewarmedContainer := prewarm.NewPrewarmedContainerBuilder().
-		WithHost(nil).
-		WithKernelConnectionInfo(nil).
-		WithKernelReplicaSpec(nil).
-		WithPrewarmedContainerUsedCallback(nil).
-		Build()
+// resetKernel sends a "reset_kernel_request" to the specified kernel. This message instructs the kernel to, at a
+// minimum, completely wipe its user namespace, removing all user-defined data/variables.
+//
+// The "reset_kernel_request" may also instruct the kernel replica to revert to a scheduling.PrewarmContainer (or to
+// become a scheduling.PrewarmContainer, if it had never been one before).
+func (d *ClusterGatewayImpl) resetKernel(kernel scheduling.Kernel, revertToPrewarm bool) error {
+	d.log.Debug("Preparing to send \"%s\" to kernel \"%s\" with revertToPrewarm=%v.",
+		messaging.ControlResetKernelRequest, kernel.ID(), revertToPrewarm)
 
-	return prewarmedContainer, nil
+	msgId := uuid.NewString()
+	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messaging.ControlResetKernelRequest, kernel.ID())
+
+	content := map[string]interface{}{
+		"revert_to_prewarm": revertToPrewarm,
+	}
+
+	err := frames.EncodeContent(&content)
+	if err != nil {
+		d.log.Error("Failed to encode content of IOPub status message for kernel \"%s\": %v", kernel.ID(), err)
+		return err
+	}
+
+	var msg zmq4.Msg
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	if err != nil {
+		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
+			kernel.ID(), kernel.ConnectionInfo().SignatureScheme, err)
+		return ErrFailedToVerifyMessage
+	}
+
+	respChan := make(chan *resetKernelReply, d.NumReplicas())
+	startTime := time.Now()
+	numRepliesReceived := atomic.Int32{}
+
+	responseHandler := func(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+		latestNumRepliesReceived := numRepliesReceived.Add(1)
+
+		// Notify that all replies have been received.
+		d.log.Debug("Received %s \"%s\" from %s for message \"%s\". Received %d/%d replies. Time elapsed: %v.",
+			typ.String(), messaging.ControlResetKernelReply, from.String(), msgId, latestNumRepliesReceived, kernel.Size(),
+			time.Since(startTime))
+
+		resp := &resetKernelReply{
+			KernelReplica: from.(scheduling.KernelReplica),
+			Reply:         msg,
+		}
+
+		respChan <- resp
+
+		return nil
+	}
+
+	jMsg := messaging.NewJupyterMessage(&msg)
+	msgTyp := messaging.ControlMessage
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	err = kernel.RequestWithHandler(ctx, "Forwarding", msgTyp, jMsg, responseHandler, nil)
+	if err != nil {
+		d.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v",
+			msgTyp.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
+		return err
+	}
+
+	replies := make([]*resetKernelReply, 0, kernel.Size())
+	for numRepliesReceived.Load() < int32(d.NumReplicas()) {
+		select {
+		case <-ctx.Done():
+			{
+				ctxError := ctx.Err()
+
+				nRepliesReceived := numRepliesReceived.Load()
+
+				var errorMessage string
+				if ctxError != nil {
+					errorMessage = fmt.Sprintf("%v '%s' request for kernel '%s' failed after receiving %d/%d replies: %v",
+						msgTyp.String(), jMsg.JupyterMessageId(), kernel.ID(), nRepliesReceived, kernel.Size(), ctxError)
+				} else {
+					errorMessage = fmt.Sprintf("%v '%s' request for kernel '%s' timed-out after receiving %d/%d replies.",
+						msgTyp.String(), jMsg.JupyterMessageId(), kernel.ID(), nRepliesReceived, kernel.Size())
+				}
+				d.log.Error(errorMessage)
+
+				err = types.ErrRequestTimedOut
+
+				// If we received any replies, then we'll process the ones that we did receive.
+				if len(replies) > 0 {
+					processReplyErr := d.processResetKernelReplies(replies)
+					if processReplyErr != nil {
+						d.log.Error("Error while processing the %d reply/replies we did receive while resetting kernel \"%s\": %v",
+							nRepliesReceived, kernel.ID(), processReplyErr)
+						err = errors.Join(err, processReplyErr)
+					}
+				}
+
+				return err
+			}
+		case resp := <-respChan:
+			{
+				replies = append(replies, resp)
+			}
+		}
+	}
+
+	return d.processResetKernelReplies(replies)
+}
+
+// processResetKernelReplies is called by resetKernel to process the replies send by the kernel replicas.
+func (d *ClusterGatewayImpl) processResetKernelReplies(replies []*resetKernelReply) error {
+	prewarmer := d.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		d.log.Warn("Container Prewarmer is nil...")
+		return nil
+	}
+
+	errs := make([]error, 0, len(replies))
+	for _, reply := range replies {
+		msg := reply.Reply
+		replica := reply.KernelReplica
+
+		host := replica.Host()
+		if host == nil {
+			d.log.Error("Replica %d of kernel \"%s\" has a nil Host...", replica.ReplicaID(), replica.ID())
+			errs = append(errs, scheduling.ErrNilHost)
+			continue
+		}
+
+		var content map[string]interface{}
+		err := msg.JupyterFrames.DecodeContent(&content)
+		if err != nil {
+			d.log.Error("Failed to decode content of \"%s\" message from replica %d of kernel \"%s\": %v",
+				msg.JupyterMessageType(), replica.ReplicaID(), replica.ID(), err)
+			errs = append(errs, err)
+			continue
+		}
+
+		var kernelId string
+		val, loaded := content["kernel_id"]
+		if loaded {
+			kernelId = val.(string)
+		} else {
+			kernelId = replica.ID()
+		}
+
+		kernelReplicaSpec := replica.KernelReplicaSpec()
+		kernelReplicaSpec.Kernel.Id = kernelId
+
+		prewarmedContainer := prewarm.NewPrewarmedContainerBuilder().
+			WithHost(host).
+			WithKernelConnectionInfo(jupyter.KernelConnectionInfoFromJupyterConnectionInfo(replica.ConnectionInfo())).
+			WithKernelReplicaSpec(kernelReplicaSpec).
+			WithPrewarmedContainerUsedCallback(nil).
+			Build()
+
+		err = prewarmer.ReturnUnusedPrewarmContainer(prewarmedContainer)
+		if err != nil {
+			d.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) == 1 {
+		return errs[0]
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
 // kernelReplicaResponseForwarder is used as the response handler for a variety of requests/forwarded messages.
