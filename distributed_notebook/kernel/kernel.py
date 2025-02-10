@@ -2328,13 +2328,39 @@ class DistributedKernel(IPythonKernel):
             "kernel_id": self.kernel_id,
         }, True
 
-    async def __revert_to_prewarm(self, kernel_id: Optional[str] = None) -> Tuple[dict, bool]:
+    def __get_prewarm_container_id(self, prewarm_container_id: Optional[str])->str:
+        """
+        Returns the previous prewarm container ID used by this kernel, or generates a new one if there is no valid
+        previous prewarm container ID.
+
+        :param prewarm_container_id: value to use as the prewarm container ID (if it is non-nil and non-empty).
+        """
+        if prewarm_container_id is not None and prewarm_container_id != "":
+            self.log.debug(f'Using supplied prewarm container ID: "{prewarm_container_id}"')
+            return prewarm_container_id
+
+        if not self.was_prewarmed_container or not hasattr(self, "prewarm_container_id"):
+            prewarm_container_id = str(uuid.uuid4())
+            self.log.debug(f'Generated new prewarm container ID: "{prewarm_container_id}"')
+            return prewarm_container_id
+
+        if self.prewarm_container_id is None or self.prewarm_container_id == "":
+            prewarm_container_id = str(uuid.uuid4())
+            self.log.debug(f'Generated new prewarm container ID: "{prewarm_container_id}"')
+            return prewarm_container_id
+
+        self.log.debug(f'Reusing previous new prewarm container ID: "{self.prewarm_container_id}"')
+        return self.prewarm_container_id
+
+    async def __revert_to_prewarm(self, prewarm_container_id: Optional[str] = None) -> Tuple[dict, bool]:
         """
         Revert to prewarm mode.
 
-        :param kernel_id: prewarm kernel ID to use. If unspecified, then a random ID will be generated.
+        :param prewarm_container_id: prewarm kernel ID to use. If unspecified, then a random ID will be generated.
         """
-        self.log.warning(f"Reverting to PREWARM mode. KernelID={kernel_id}.")
+        self.log.debug(f"Reverting to PREWARM mode.")
+
+        prewarm_container_id = self.__get_prewarm_container_id(prewarm_container_id)
 
         # When using RaftLog, we must first stop the SyncLog (RaftLog) before copying the data directory.
         #
@@ -2362,12 +2388,17 @@ class DistributedKernel(IPythonKernel):
         self.synchronizer = None
         self.synclog = None
 
+        self.smr_node_id = 0
+        self.kernel_id = prewarm_container_id
+        self.prewarm_container_id = prewarm_container_id
+        self.was_prewarmed_container = True
+
         self.__reset_user_namespace_state()
 
         return {
             "status": "ok",
-            "id": self.smr_node_id,
-            "kernel_id": self.kernel_id,
+            "id": 0,
+            "kernel_id": prewarm_container_id,
         }, True
 
     async def reset_kernel_request(self, stream, ident, parent):
@@ -2385,7 +2416,7 @@ class DistributedKernel(IPythonKernel):
         # If we're supposed to revert to prewarm, then do that.
         # Otherwise, we'll just reset the user namespace.
         if revert_to_prewarm:
-            reply_content, ok = await self.__revert_to_prewarm(kernel_id = kernel_id)
+            reply_content, ok = await self.__revert_to_prewarm(prewarm_container_id= kernel_id)
         else:
             reply_content, ok = self.__reset_user_namespace_state()
 
