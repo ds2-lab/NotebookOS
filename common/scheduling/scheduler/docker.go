@@ -322,10 +322,13 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 		panic("Invalid arguments to scheduling kernel replica prewarm (container.Host() != targetHost).")
 	}
 
-	if !container.IsAvailable() {
-		s.log.Error("Pre-warmed container \"%s\" has already been used...", container.ID())
-		return prewarm.ErrPrewarmedContainerAlreadyUsed
-	}
+	// Commented out:
+	// We mark containers as unavailable/used as soon as they're returned by the RequestPrewarmedContainer method.
+	//
+	//if !container.IsAvailable() {
+	//	s.log.Error("Pre-warmed container \"%s\" has already been used...", container.ID())
+	//	return prewarm.ErrPrewarmedContainerAlreadyUsed
+	//}
 
 	s.log.Debug("Launching replica %d of kernel %s in pre-warmed container \"%s\" on targetHost %s (ID=%s) now.",
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID())
