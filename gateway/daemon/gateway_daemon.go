@@ -13,6 +13,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
 	"golang.org/x/sync/semaphore"
@@ -592,6 +593,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.policyKey = scheduling.FcfsBatch
 			clusterGateway.log.Debug("Using the 'FCFS Batch' scheduling policy.")
 			clusterGateway.executionFailedCallback = clusterGateway.fcfsBatchSchedulingFailureHandler
+		}
+	case string(scheduling.MiddleGround):
+		{
+			clusterGateway.policyKey = scheduling.MiddleGround
+			clusterGateway.log.Debug("Using the 'Middle Ground' scheduling policy.")
+			clusterGateway.executionFailedCallback = clusterGateway.middleGroundSchedulingFailureHandler
 		}
 	case string(scheduling.Reservation):
 		{
@@ -1590,6 +1597,16 @@ func (d *ClusterGatewayImpl) defaultFailureHandler(_ scheduling.Kernel, _ *messa
 func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
 	d.log.Warn("There is no failure handler for the FCFS Batch scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the FCFS Batch policy; cannot handle error")
+}
+
+// middleGroundSchedulingFailureHandler is invoked when an "execute_request" cannot be processed when using the FCFS
+// Batch scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
+func (d *ClusterGatewayImpl) middleGroundSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
+	d.log.Warn("There is no failure handler for the 'Middle Ground' scheduling policy.")
+	return fmt.Errorf("there is no failure handler for the 'Middle Ground policy; cannot handle error")
 }
 
 // reservationSchedulingFailureHandler is invoked when an "execute_request" cannot be processed when using the
@@ -5131,21 +5148,56 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 
 	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
+	kernel, loaded := d.kernels.Load(from.ID())
+	if !loaded {
+		d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
+		return
+	}
+
 	// For the "middle ground" policy, we return the kernel's container to the warm container pool.
 	if d.Scheduler().Policy().ReuseWarmContainers() {
 		d.log.Debug("Reusing warm kernel container.")
 
-		// TODO: Implement me.
-		panic("Not implemented.")
+		// Send 'reset' request.
+		prewarmedContainer, err := d.resetKernel(kernel, true)
+		if err != nil {
+			d.log.Error("Failed to reset kernel \"%s\": %v", kernel.ID(), err)
+			return
+		}
+
+		if prewarmedContainer == nil {
+			d.log.Error("Did not receive valid PrewarmedContainer struct after resetting kernel \"%s\"...", kerenl.ID())
+			return
+		}
+
+		prewarmer := d.Scheduler().ContainerPrewarmer()
+		if prewarmer == nil {
+			d.log.Warn("Container Prewarmer is nil...")
+			return
+		}
+
+		err = prewarmer.ReturnUnusedPrewarmContainer(prewarmedContainer)
+		if err != nil {
+			d.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
+		}
 	}
 
-	kernel, loaded := d.kernels.Load(from.ID())
-	if loaded {
-		_ = d.removeAllReplicasOfKernel(kernel, true, false)
-		return
-	}
+	_ = d.removeAllReplicasOfKernel(kernel, true, false)
+}
 
-	d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
+// resetKernel sends a "reset_kernel_request" to the specified kernel.
+func (d *ClusterGatewayImpl) resetKernel(kernel scheduling.Kernel, revertToPrewarm bool) (scheduling.PrewarmedContainer, error) {
+	d.log.Debug("Preparing to send \"reset_kernel_request\" to kernel \"%s\" with revertToPrewarm=%v.",
+		kernel.ID(), revertToPrewarm)
+
+	prewarmedContainer := prewarm.NewPrewarmedContainerBuilder().
+		WithHost(nil).
+		WithKernelConnectionInfo(nil).
+		WithKernelReplicaSpec(nil).
+		WithPrewarmedContainerUsedCallback(nil).
+		Build()
+
+	return prewarmedContainer, nil
 }
 
 // kernelReplicaResponseForwarder is used as the response handler for a variety of requests/forwarded messages.

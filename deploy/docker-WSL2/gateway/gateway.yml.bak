@@ -58,7 +58,7 @@ acks_enabled: false
 checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
 initial-cluster-size: 12
-initial-connection-period: 60
+initial-connection-period: 20
 election_timeout_seconds: 3
 simulate_checkpointing_latency: true
 mean_scale_out_per_host_sec: 15
@@ -71,4 +71,11 @@ use_real_gpus: false
 assign_kernel_debug_ports: false
 submit_execute_requests_one_at_a_time: true
 idle_session_reclamation_enabled: true
-idle_session_reclamation_interval_sec: 10
+idle_session_reclamation_interval_sec: 90
+pretty_print_options: true
+prewarming_enabled: true
+initial_num_containers_per_host: 1
+min_prewarm_containers_per_host: 1
+max_prewarm_containers_per_host: 3
+prewarming_policy: maintain_minimum_capacity
+# prewarming_policy: no_maintenance
