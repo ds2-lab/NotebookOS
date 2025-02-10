@@ -43,10 +43,10 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 	)
 
 	// createAndInitializePrewarmer initializes the existing prewarmer variable defined above.
-	createAndInitializePrewarmer := func(initialCapacity, minCapacity, maxCapacity int) {
+	createAndInitializePrewarmer := func(initSize, minSize, maxSize int) {
 		prewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
-			PrewarmerConfig:               prewarm.NewPrewarmerConfig(initialCapacity, maxCapacity),
-			MinPrewarmedContainersPerHost: minCapacity,
+			PrewarmerConfig:               prewarm.NewPrewarmerConfig(initSize, maxSize, 0 /* Default of 5sec will be used */),
+			MinPrewarmedContainersPerHost: minSize,
 		}
 
 		prewarmer = prewarm.NewMinCapacityPrewarmer(mockCluster, prewarmerConfig, mockMetricsProvider)

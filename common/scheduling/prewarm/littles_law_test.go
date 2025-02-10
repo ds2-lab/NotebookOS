@@ -43,9 +43,9 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 	)
 
 	// createAndInitializePrewarmer initializes the existing prewarmer variable defined above.
-	createAndInitializePrewarmer := func(initialCapacity, maxCapacity int, avgDur time.Duration, avgIatEventsPerSec float64) {
+	createAndInitializePrewarmer := func(initSize, maxSize int, avgDur time.Duration, avgIatEventsPerSec float64) {
 		prewarmerConfig := &prewarm.LittlesLawPrewarmerConfig{
-			PrewarmerConfig: prewarm.NewPrewarmerConfig(initialCapacity, maxCapacity),
+			PrewarmerConfig: prewarm.NewPrewarmerConfig(initSize, maxSize, 0 /* Default of 5sec will be used */),
 			W:               avgDur,
 			Lambda:          avgIatEventsPerSec,
 		}
@@ -433,10 +433,15 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			// Done provisioning.
-			for i := 0; i < numHosts; i++ {
-				curr, prov := prewarmer.HostLen(hosts[i])
+			for _, host := range hosts {
+				curr, prov := prewarmer.HostLen(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
+
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(err).To(BeNil())
+				Expect(container).ToNot(BeNil())
+				Expect(container.Host()).To(Equal(host))
 			}
 
 			// Request container from Host #1.

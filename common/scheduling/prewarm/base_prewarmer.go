@@ -182,10 +182,13 @@ type PrewarmerConfig struct {
 }
 
 // NewPrewarmerConfig creates a new PrewarmerConfig struct and returns a pointer to it.
-func NewPrewarmerConfig(initialCapacity, maxCapacity int) *PrewarmerConfig {
+func NewPrewarmerConfig(initialCapacity, maxCapacity int, intervalSec float64) *PrewarmerConfig {
+	interval := time.Millisecond * time.Duration(intervalSec*1000.0)
+
 	return &PrewarmerConfig{
 		InitialPrewarmedContainersPerHost: initialCapacity,
 		MaxPrewarmedContainersPerHost:     maxCapacity,
+		Interval:                          interval,
 	}
 }
 

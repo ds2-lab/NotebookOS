@@ -204,10 +204,8 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 
 // buildPrewarmPolicy is called by Build and specifically configures/creates the prewarming policy.
 func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseScheduler) {
-	prewarmerConfig := &prewarm.PrewarmerConfig{
-		InitialPrewarmedContainersPerHost: b.initialNumContainersPerHost,
-		MaxPrewarmedContainersPerHost:     b.options.MaxPrewarmContainersPerHost,
-	}
+	prewarmerConfig := prewarm.NewPrewarmerConfig(b.initialNumContainersPerHost, b.options.MaxPrewarmContainersPerHost,
+		b.options.PrewarmRunIntervalSec)
 
 	if b.options.PrewarmingEnabled {
 		switch b.options.PrewarmingPolicy {

@@ -12649,15 +12649,15 @@ func (mr *MockPrewarmedContainerMockRecorder) KernelReplicaSpec() *gomock.Call {
 }
 
 // OnPrewarmedContainerUsed mocks base method.
-func (m *MockPrewarmedContainer) OnPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
+func (m *MockPrewarmedContainer) OnPrewarmedContainerUsed() {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "OnPrewarmedContainerUsed", container)
+	m.ctrl.Call(m, "OnPrewarmedContainerUsed")
 }
 
 // OnPrewarmedContainerUsed indicates an expected call of OnPrewarmedContainerUsed.
-func (mr *MockPrewarmedContainerMockRecorder) OnPrewarmedContainerUsed(container any) *gomock.Call {
+func (mr *MockPrewarmedContainerMockRecorder) OnPrewarmedContainerUsed() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPrewarmedContainerUsed", reflect.TypeOf((*MockPrewarmedContainer)(nil).OnPrewarmedContainerUsed), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPrewarmedContainerUsed", reflect.TypeOf((*MockPrewarmedContainer)(nil).OnPrewarmedContainerUsed))
 }
 
 // SetUnavailable mocks base method.

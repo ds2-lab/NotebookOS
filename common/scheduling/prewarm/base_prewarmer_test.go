@@ -44,8 +44,8 @@ var _ = Describe("Base Prewarmer Tests", func() {
 	)
 
 	// createAndInitializePrewarmer initializes the existing prewarmer variable defined above.
-	createAndInitializePrewarmer := func(initialCapacity, maxCapacity int) {
-		prewarmerConfig := prewarm.NewPrewarmerConfig(initialCapacity, maxCapacity)
+	createAndInitializePrewarmer := func(initSize, maxSize int) {
+		prewarmerConfig := prewarm.NewPrewarmerConfig(initSize, maxSize, 0 /* Default of 5sec will be used */)
 		prewarmer = prewarm.NewBaseContainerPrewarmer(mockCluster, prewarmerConfig, mockMetricsProvider)
 	}
 
@@ -354,6 +354,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				container, err := prewarmer.RequestPrewarmedContainer(host)
 				Expect(container).ToNot(BeNil())
 				Expect(err).To(BeNil())
+				Expect(container.Host()).To(Equal(host))
 
 				containers = append(containers, container)
 			}
@@ -377,6 +378,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				container, err := prewarmer.RequestPrewarmedContainer(host)
 				Expect(container).ToNot(BeNil())
 				Expect(err).To(BeNil())
+				Expect(container.Host()).To(Equal(host))
 
 				containers = append(containers, container)
 			}
@@ -399,6 +401,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				container, err := prewarmer.RequestPrewarmedContainer(host)
 				Expect(container).ToNot(BeNil())
 				Expect(err).To(BeNil())
+				Expect(container.Host()).To(Equal(host))
 
 				containers = append(containers, container)
 			}
