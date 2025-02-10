@@ -402,6 +402,9 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 	p.log.Debug(utils.LightGreenStyle.Render("✓ Pre-warm container request fulfilled [Host %s (ID=%s), Remaining=%d]."),
 		host.GetNodeName(), host.GetID(), containers.Len())
 
+	prewarmedContainer.SetUnavailable()
+	delete(p.AllPrewarmContainers, prewarmedContainer.ID())
+
 	return prewarmedContainer, nil
 }
 
@@ -666,11 +669,11 @@ func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.P
 	p.log.Debug(utils.LightPurpleStyle.Render("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being used."),
 		container.ID(), container.HostName(), container.HostId())
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	container.SetUnavailable()
-	delete(p.AllPrewarmContainers, container.ID())
+	//p.mu.Lock()
+	//defer p.mu.Unlock()
+	//
+	//container.SetUnavailable()
+	//delete(p.AllPrewarmContainers, container.ID())
 
 	return
 }

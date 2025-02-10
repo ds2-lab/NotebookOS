@@ -348,6 +348,9 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 			By("Returning containers when they are requested (and they are available)")
 
+			currSize := numHosts * initialCapacity
+			Expect(prewarmer.Len()).To(Equal(currSize))
+
 			// Request the containers
 			containers := make([]scheduling.PrewarmedContainer, 0, len(hosts))
 			for _, host := range hosts {
@@ -355,18 +358,13 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				Expect(container).ToNot(BeNil())
 				Expect(err).To(BeNil())
 				Expect(container.Host()).To(Equal(host))
-
 				containers = append(containers, container)
+				currSize -= 1
 			}
-
-			currSize := numHosts * initialCapacity
-			Expect(prewarmer.Len()).To(Equal(currSize))
 
 			// Mark the containers as used
 			for _, container := range containers {
 				container.OnPrewarmedContainerUsed()
-
-				currSize -= 1
 				Expect(prewarmer.Len()).To(Equal(currSize))
 			}
 
@@ -380,6 +378,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				Expect(err).To(BeNil())
 				Expect(container.Host()).To(Equal(host))
 
+				currSize -= 1
 				containers = append(containers, container)
 			}
 
@@ -389,7 +388,6 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			for _, container := range containers {
 				container.OnPrewarmedContainerUsed()
 
-				currSize -= 1
 				Expect(prewarmer.Len()).To(Equal(currSize))
 			}
 
@@ -403,6 +401,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				Expect(err).To(BeNil())
 				Expect(container.Host()).To(Equal(host))
 
+				currSize -= 1
 				containers = append(containers, container)
 			}
 
@@ -411,8 +410,6 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			// Mark the containers as used
 			for _, container := range containers {
 				container.OnPrewarmedContainerUsed()
-
-				currSize -= 1
 				Expect(prewarmer.Len()).To(Equal(currSize))
 			}
 
