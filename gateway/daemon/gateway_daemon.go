@@ -5212,8 +5212,15 @@ func (d *ClusterGatewayImpl) resetKernel(kernel scheduling.Kernel, revertToPrewa
 			typ.String(), messaging.ControlResetKernelReply, from.String(), msgId, latestNumRepliesReceived, kernel.Size(),
 			time.Since(startTime))
 
+		var replica scheduling.KernelReplica
+
+		id := from.ReplicaID()
+		if id >= 1 {
+			replica, _ = kernel.GetReplicaByID(id)
+		}
+
 		resp := &resetKernelReply{
-			KernelReplica: from.(scheduling.KernelReplica),
+			KernelReplica: replica,
 			Reply:         msg,
 		}
 

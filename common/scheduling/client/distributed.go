@@ -35,6 +35,7 @@ type ReplicaKernelInfo struct {
 	replica scheduling.KernelReplicaInfo
 }
 
+// ReplicaID returns the SMR node ID of the associated KernelReplica.
 func (r *ReplicaKernelInfo) ReplicaID() int32 {
 	return r.replica.ReplicaID()
 }
