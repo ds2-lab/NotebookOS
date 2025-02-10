@@ -43,11 +43,11 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 	)
 
 	// createAndInitializePrewarmer initializes the existing prewarmer variable defined above.
-	createAndInitializePrewarmer := func(initialCapacity, maxCapacity int, averageDuration, averageIAT time.Duration) {
+	createAndInitializePrewarmer := func(initialCapacity, maxCapacity int, avgDur time.Duration, avgIatEventsPerSec float64) {
 		prewarmerConfig := &prewarm.LittlesLawPrewarmerConfig{
 			PrewarmerConfig: prewarm.NewPrewarmerConfig(initialCapacity, maxCapacity),
-			W:               averageDuration,
-			Lambda:          averageIAT,
+			W:               avgDur,
+			Lambda:          avgIatEventsPerSec,
 		}
 
 		prewarmer = prewarm.NewLittlesLawPrewarmer(mockCluster, prewarmerConfig, mockMetricsProvider)
@@ -88,7 +88,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			initialCapacity := 1
 			minCapacity := 0
 			averageDur := time.Second * 2
-			averageIat := time.Second * 2
+			averageIat := 2.0
 			maxCapacity := 2
 
 			By("Being created or instantiated correctly")
@@ -125,7 +125,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			initialCapacity := 1
 			minCapacity := 0
 			averageDur := time.Second * 1
-			averageIat := time.Second * 1
+			averageIat := 1.0
 			maxCapacity := 2
 
 			By("Being created or instantiated correctly")
@@ -271,8 +271,8 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			numHosts := 2
 			initialCapacity := 1
 			averageDur := time.Second * 2
-			averageIat := time.Second * 2
-			maxCapacity := 2
+			averageIat := 2.0
+			maxCapacity := 4
 
 			createAndInitializePrewarmer(initialCapacity, maxCapacity, averageDur, averageIat)
 
@@ -317,8 +317,8 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 			created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-			Expect(created).To(Equal(int32(numHosts)))
-			Expect(target).To(Equal(int32(numHosts)))
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 
 			Expect(prewarmer.Len()).To(Equal(initialCapacity * numHosts))
 
@@ -331,7 +331,119 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			guardChan := make(chan struct{})
 			littlesLawPrewarmer.GuardChannel = guardChan
 
-			littlesLawPrewarmer.Run()
+			var preRunWg, postRunWg sync.WaitGroup
+
+			// Set up mocked calls for next iteration of the Run method.
+			prepareNextRunIter := func(numActiveExec int32) {
+				postRunWg.Add(numHosts)
+				preRunWg.Add(numHosts)
+
+				Expect(mockMetricsProvider.EXPECT().NumActiveExecutions().Times(1).Return(numActiveExec))
+
+				mockCluster.
+					EXPECT().
+					RangeOverHosts(gomock.Any()).
+					Times(1).
+					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+						for _, host := range hosts {
+							preRunWg.Done()
+							f(host.GetID(), host)
+							postRunWg.Done()
+						}
+					})
+			}
+
+			prepareNextRunIter(0)
+
+			// Used to block the calls to StartKernelReplica until we allow them through.
+			var startKernelWg sync.WaitGroup
+			startKernelWg.Add(1)
+
+			// Prepare calls.
+			for i := 0; i < numHosts; i++ {
+				localGatewayClients[i].
+					EXPECT().
+					StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+					Times(1).
+					DoAndReturn(
+						func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+							time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+							n := 128
+
+							startKernelWg.Wait()
+
+							return &proto.KernelConnectionInfo{
+								Ip:              fmt.Sprintf("10.%d.%d.%d", i, rand.Intn(n), rand.Intn(n)),
+								Transport:       "tcp",
+								ControlPort:     9000,
+								ShellPort:       9001,
+								StdinPort:       9002,
+								HbPort:          9003,
+								IopubPort:       9004,
+								IosubPort:       9005,
+								SignatureScheme: jupyter.JupyterSignatureScheme,
+								Key:             uuid.NewString(),
+							}, nil
+						})
+			}
+
+			go func() {
+				defer GinkgoRecover()
+				err := prewarmer.Run()
+				Expect(err).To(BeNil())
+			}()
+
+			// Wait for prewarmer to begin running.
+			Eventually(prewarmer.IsRunning, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
+
+			// Wait for prewarmer to call StartKernelReplica on each host.
+			preRunWg.Wait()
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				return prewarmer.TotalNumProvisioning() > 0
+			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				for i := 0; i < numHosts; i++ {
+					curr, prov := prewarmer.HostLen(hosts[i])
+
+					if curr != 1 {
+						return false
+					}
+
+					if prov != 1 {
+						return false
+					}
+				}
+
+				return true
+			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
+
+			// Let the calls to StartKernelReplica through.
+			startKernelWg.Done()
+
+			// Wait for calls to StartKernelReplica and whatnot to finish.
+			postRunWg.Wait()
+
+			// This should occur more or less immediately.
+			Eventually(func() bool {
+				return prewarmer.Len() == 4
+			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
+
+			// Done provisioning.
+			for i := 0; i < numHosts; i++ {
+				curr, prov := prewarmer.HostLen(hosts[i])
+				Expect(curr).To(Equal(2))
+				Expect(prov).To(Equal(0))
+			}
+
+			// Request container from Host #1.
+			container, err := prewarmer.RequestPrewarmedContainer(hosts[1])
+			Expect(err).To(BeNil())
+			Expect(container).ToNot(BeNil())
+			Expect(container.Host()).To(Equal(hosts[1]))
 		})
 
 		Context("Initial Capacity", func() {
@@ -340,7 +452,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				initialCapacity := 1
 				minCapacity := 0
 				averageDur := time.Second * 1
-				averageIat := time.Second * 1
+				averageIat := 1.0
 				maxCapacity := 2
 
 				By("Being created or instantiated correctly")
@@ -398,8 +510,8 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 				created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-				Expect(created).To(Equal(int32(numHosts)))
-				Expect(target).To(Equal(int32(numHosts)))
+				Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+				Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 
 				Expect(prewarmer.Len()).To(Equal(3))
 			})
@@ -409,7 +521,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				initialCapacity := 4
 				minCapacity := 0
 				averageDur := time.Second * 1
-				averageIat := time.Second * 1
+				averageIat := 1.0
 				maxCapacity := 4
 
 				By("Being created or instantiated correctly")

@@ -73,6 +73,10 @@ type ContainerPrewarmer interface {
 	// the Run method at a time.
 	Run() error
 
+	// TotalNumProvisioning returns the total number of prewarm containers being provisioned across all scheduling.Host
+	// instances in the scheduling.Cluster.
+	TotalNumProvisioning() int32
+
 	// ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
 	// the specified scheduling.Host. The work of provisioning the n containers is distributed amongst several goroutines,
 	// the number of which depends upon the size of n.
@@ -121,7 +125,7 @@ type PrewarmedContainer interface {
 	ID() string
 	HostId() string
 	HostName() string
-	OnPrewarmedContainerUsed(container PrewarmedContainer)
+	OnPrewarmedContainerUsed()
 	IsAvailable() bool
 	SetUnavailable()
 	Host() Host

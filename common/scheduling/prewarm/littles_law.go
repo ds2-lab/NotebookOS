@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math"
 	"sync"
 	"time"
@@ -94,9 +95,10 @@ type LittlesLawPrewarmerConfig struct {
 	//
 	// For policies in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent, W will be roughly equal
 	// to the average duration of a single training event.
-	W time.Duration
+	W time.Duration `json:"w"`
 
-	// Lambda is the long-term, average effective arrival rate of scheduling.KernelContainer instances in the system.
+	// Lambda is the long-term, average effective arrival rate of scheduling.KernelContainer instances in the system
+	// whose units are events/second.
 	//
 	// Just like the W parameter, the value of Lambda will vary depending upon the scheduling.Policy that is used.
 	//
@@ -106,7 +108,7 @@ type LittlesLawPrewarmerConfig struct {
 	// For policies in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent, W will be roughly
 	// equal to the average inter-arrival time of training events (with respect to the entire scheduling.Cluster,
 	// rather than with respect to a single scheduling.UserSession or scheduling.Kernel).
-	Lambda time.Duration
+	Lambda float64 `json:"lambda"`
 }
 
 // LittlesLawPrewarmer creates prewarmed containers in accordance with [Little's Law].
@@ -134,33 +136,15 @@ func NewLittlesLawPrewarmer(cluster scheduling.Cluster, configuration *LittlesLa
 	base.instance = warmer
 	warmer.instance = warmer
 
-	warmer.TargetPoolSize = int32(math.Ceil(float64(configuration.Lambda * configuration.W)))
+	warmer.TargetPoolSize = int32(math.Ceil(configuration.Lambda * configuration.W.Seconds()))
+
+	if warmer.TargetPoolSize < 0 {
+		panic(fmt.Sprintf("Invalid target pool size computed by Little's Law Prewarmer: %d. Lambda: %.4f events/second, W: %.4f seconds.",
+			warmer.TargetPoolSize, configuration.Lambda, configuration.W.Seconds()))
+	}
 
 	return warmer
 }
-
-// Run creates a separate goroutine in which the LittlesLawPrewarmer maintains the overall capacity/availability of
-// pre-warmed containers in accordance with LittlesLawPrewarmer's policy for doing so.
-//func (p *LittlesLawPrewarmer) Run() {
-//	for {
-//		select {
-//		case <-p.stopChan:
-//			{
-//				p.log.Debug("Stopping.")
-//				return
-//			}
-//		default:
-//		}
-//
-//		p.ValidatePoolCapacity()
-//
-//		if p.GuardChannel != nil {
-//			<-p.GuardChannel
-//		} else {
-//			time.Sleep(scheduling.PreWarmerInterval)
-//		}
-//	}
-//}
 
 // ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
 func (p *LittlesLawPrewarmer) ValidatePoolCapacity() {
@@ -199,11 +183,17 @@ func (p *LittlesLawPrewarmer) ValidatePoolCapacity() {
 		return true
 	})
 
-	totalSize := numActiveExecutions + int32(p.PoolSize()) + numProvisioning
+	poolSize := int32(p.PoolSize())
+	totalSize := numActiveExecutions + poolSize + numProvisioning
 
 	if totalSize >= p.TargetPoolSize {
+		p.log.Debug("ActiveExec: %d, PoolSize: %d, Prov: %d, Target: %d. %s",
+			numActiveExecutions, poolSize, numProvisioning, p.TargetPoolSize, utils.GreenStyle.Render("[✓]"))
 		return
 	}
+
+	p.log.Debug("ActiveExec: %d, PoolSize: %d, Prov: %d, Target: %d. %s",
+		numActiveExecutions, poolSize, numProvisioning, p.TargetPoolSize, utils.RedStyle.Render("[✗]"))
 
 	numToCreate := p.TargetPoolSize - totalSize
 	p.log.Debug("Need to create %d new prewarmed containers (curr=%d, target=%d).",

@@ -12895,6 +12895,20 @@ func (mr *MockContainerPrewarmerMockRecorder) Stop() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockContainerPrewarmer)(nil).Stop))
 }
 
+// TotalNumProvisioning mocks base method.
+func (m *MockContainerPrewarmer) TotalNumProvisioning() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TotalNumProvisioning")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// TotalNumProvisioning indicates an expected call of TotalNumProvisioning.
+func (mr *MockContainerPrewarmerMockRecorder) TotalNumProvisioning() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TotalNumProvisioning", reflect.TypeOf((*MockContainerPrewarmer)(nil).TotalNumProvisioning))
+}
+
 // ValidateHostCapacity mocks base method.
 func (m *MockContainerPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	m.ctrl.T.Helper()

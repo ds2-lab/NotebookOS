@@ -328,8 +328,8 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 				created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
-				Expect(created).To(Equal(int32(numHosts)))
-				Expect(target).To(Equal(int32(numHosts)))
+				Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+				Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 
 				Expect(prewarmer.Len()).To(Equal(initialCapacity * numHosts))
 			})

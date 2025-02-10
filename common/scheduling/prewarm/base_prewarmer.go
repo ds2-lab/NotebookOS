@@ -156,9 +156,9 @@ func (p *PrewarmedContainer) HostName() string {
 // OnPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
 //
 // If this PrewarmedContainer is officially used, then this function should be called.
-func (p *PrewarmedContainer) OnPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
+func (p *PrewarmedContainer) OnPrewarmedContainerUsed() {
 	if p.onPrewarmedContainerUsed != nil {
-		p.onPrewarmedContainerUsed(container)
+		p.onPrewarmedContainerUsed(p)
 	}
 }
 
