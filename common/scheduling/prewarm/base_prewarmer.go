@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"golang.org/x/net/context"
 	"sync"
 	"sync/atomic"
@@ -361,7 +362,7 @@ func (p *BaseContainerPrewarmer) Stop() error {
 //
 // RequestPrewarmedContainer is explicitly thread safe (i.e., it uses a mutex).
 func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host) (scheduling.PrewarmedContainer, error) {
-	p.log.Debug("Received request[Host %s (ID=%s)].", host.GetNodeName(), host.GetID())
+	//p.log.Debug("Received request[Host %s (ID=%s)].", host.GetNodeName(), host.GetID())
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -371,7 +372,7 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 	// If there is no queue associated with the specified host, then we'll create the queue,
 	// but we'll still return an error, as we'll have no containers available.
 	if !loaded {
-		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable, UnknownHost].",
+		p.log.Debug(utils.LightOrangeStyle.Render("✗ Pre-warm container request rejected [Host %s (ID=%s), NoneAvailable, UnknownHost]."),
 			host.GetNodeName(), host.GetID())
 
 		fifo := queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
@@ -383,8 +384,8 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 
 	// Check if there are simply no pre-warmed containers available.
 	if containers.Len() == 0 {
-		p.log.Debug("Request rejected[Host %s (ID=%s), NoneAvailable].",
-			host.GetNodeName(), host.GetID(), containers.Len())
+		p.log.Debug(utils.LightOrangeStyle.Render("✗ Pre-warm container request rejected [Host %s (ID=%s), NoneAvailable]."),
+			host.GetNodeName(), host.GetID())
 
 		return nil, fmt.Errorf("%w: host \"%s\" (ID=\"%s\")",
 			ErrNoPrewarmedContainersAvailable, host.GetNodeName(), host.GetID())
@@ -398,7 +399,7 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 		panic("Expected to receive valid, non-nil pre-warmed container.")
 	}
 
-	p.log.Debug("Request fulfilled[Host %s (ID=%s), Remaining=%d].",
+	p.log.Debug(utils.LightGreenStyle.Render("✓ Pre-warm container request fulfilled [Host %s (ID=%s), Remaining=%d]."),
 		host.GetNodeName(), host.GetID(), containers.Len())
 
 	return prewarmedContainer, nil
@@ -662,7 +663,7 @@ func (p *BaseContainerPrewarmer) recordProvisioning(n int32, host scheduling.Hos
 
 // onPrewarmedContainerUsed is a callback to execute when a pre-warmed container is used.
 func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.PrewarmedContainer) {
-	p.log.Debug("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being.",
+	p.log.Debug(utils.LightPurpleStyle.Render("Pre-warmed container \"%s\" from host \"%s\" (ID=\"%s\") is being used."),
 		container.ID(), container.HostName(), container.HostId())
 
 	p.mu.Lock()
