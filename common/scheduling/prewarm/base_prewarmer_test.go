@@ -436,6 +436,15 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
 			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 
+			// First time, the hosts aren't even "registered" yet
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).To(BeNil())
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
+			}
+
+			// This time, the hosts are registered, but they still have no containers
 			for _, host := range hosts {
 				container, err := prewarmer.RequestPrewarmedContainer(host)
 				Expect(container).To(BeNil())
