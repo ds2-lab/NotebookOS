@@ -105,22 +105,6 @@ type ExecutionManager struct {
 	// executionIndicesToExecutions is a mapping from ExecutionIndex to *Execution.
 	executionIndicesToExecutions map[int32]*Execution
 
-	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
-	notificationCallback scheduling.NotificationCallback
-
-	// executionFailedCallback is a callback for when execution fails (such as all replicas proposing 'YIELD').
-	executionFailedCallback scheduling.ExecutionFailedCallback
-
-	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each scheduling.Kernel and
-	// subsequently the scheduling.Kernel's ExecutionManager.
-	//
-	// When a scheduling.Kernel receives a notification that a kernel has started execution user-submitted code,
-	// the scheduling.Kernel will check if its ActiveExecution struct has the original "sent-at" timestamp
-	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
-	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
-	// so that a relevant Prometheus metric can be updated.
-	executionLatencyCallback scheduling.ExecutionLatencyCallback
-
 	// NumReplicas is how many replicas the Kernel has.
 	NumReplicas int
 
@@ -180,14 +164,25 @@ type ExecutionManager struct {
 	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
 	// in terms of what the client is doing/submitting.
 	completedExecutionIndex int32
+
+	// hasActiveTraining is true if the associated Kernel has an active training -- meaning that the Kernel has
+	// submitted an "execute_request" and is still awaiting a response.
+	//
+	// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+	// It simply means that an execution has been submitted to the Kernel.
+	//
+	// Having an active training prevents a Kernel from being idle-reclaimed.
+	hasActiveTraining atomic.Bool
+
+	// callbackProvider provides a number of important callbacks.
+	callbackProvider scheduling.CallbackProvider
 }
 
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
-func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCallback scheduling.ExecutionFailedCallback,
-	notifyCallback scheduling.NotificationCallback, latencyCallback scheduling.ExecutionLatencyCallback,
-	statsProvider scheduling.StatisticsProvider) *ExecutionManager {
+func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvider scheduling.StatisticsProvider,
+	callbackProvider scheduling.CallbackProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{
 		activeExecutions:             make(map[string]*Execution),
@@ -202,9 +197,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 		submittedExecutionIndex:      -1,
 		activeExecutionIndex:         -1,
 		completedExecutionIndex:      -1,
-		executionFailedCallback:      execFailCallback,
-		notificationCallback:         notifyCallback,
-		executionLatencyCallback:     latencyCallback,
+		callbackProvider:             callbackProvider,
 		statisticsProvider:           statsProvider,
 	}
 
@@ -264,8 +257,13 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 		return err
 	}
 
+	m.hasActiveTraining.Store(true)
 	m.submittedExecutionIndex = executionIndex
 	m.lastTrainingSubmittedAt = time.Now()
+
+	if m.callbackProvider != nil {
+		m.callbackProvider.IncrementNumActiveExecutions()
+	}
 
 	return nil
 }
@@ -307,7 +305,11 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 }
 
 func (m *ExecutionManager) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
-	return m.executionFailedCallback
+	if m.callbackProvider == nil {
+		return nil
+	}
+
+	return m.callbackProvider.ExecutionFailedCallback
 }
 
 // LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
@@ -424,7 +426,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 		//
 		// If it returns an error, then we'll join that error with the YIELD errors, and return them all together.
 		m.mu.Unlock()
-		handlerError := m.executionFailedCallback(m.Kernel, executeRequestMsg)
+		handlerError := m.callbackProvider.ExecutionFailedCallback(m.Kernel, executeRequestMsg)
 		if handlerError != nil {
 			allErrors := append([]error{handlerError}, yieldErrors...)
 			return errors.Join(allErrors...)
@@ -550,24 +552,37 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// Store the execution in the "finished" map.
 	m.finishedExecutions[executeRequestId] = activeExecution
 
-	if m.statisticsProvider != nil && m.statisticsProvider.PrometheusMetricsEnabled() {
-		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
-	}
-
+	// If our statistics provider field is non-nil, then we'll update some statistics.
 	if m.statisticsProvider != nil {
+		// If prometheus metrics are enabled, then we'll also update some prometheus metrics.
+		if m.statisticsProvider.PrometheusMetricsEnabled() {
+			m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
+		}
+
 		m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 			statistics.CompletedTrainings += 1
 			statistics.NumIdleSessions += 1
 		})
 	}
 
+	// If the execution index is equal to the submitted execution index, then that means that the "execute_reply" that
+	// we just received is in response to the most-recently-submitted "execute_request" message.
 	if activeExecution.ExecutionIndex == m.submittedExecutionIndex {
 		m.log.Debug("Received \"execute_reply\" for execution \"%s\" with index=%d matching last-submitted execution's index. 'Completed' execution index %d → %d.",
 			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
 		m.lastTrainingEndedAt = time.Now()
+
+		// No longer waiting for "execute_reply" for most-recently-submitted "execute_request".
+		m.hasActiveTraining.Store(false)
+
+		if m.callbackProvider != nil {
+			m.callbackProvider.DecrementNumActiveExecutions()
+		}
 	} else {
+		// The "execute_reply" that we received is... for an old "execute_reply" message?
+		// This generally shouldn't happen.
 		m.log.Warn("Received \"execute_reply\" for execution \"%s\" with index=%d; however, latest submitted execution has index=%d.",
 			executeRequestId, activeExecution.ExecutionIndex, m.submittedExecutionIndex)
 
@@ -579,6 +594,11 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		}
 	}
 
+	// Similar to the above -- if the execution index of the "execute_reply" does not match the most up-to-date
+	// execution index that the ExecutionManager is aware of, then something is wrong (potentially).
+	//
+	// In particular, if we're configured to send "execute_request" messages one-at-a-time, then this definitely
+	// should not happen.
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
 		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)
@@ -912,7 +932,7 @@ func (m *ExecutionManager) processExecutionStartLatency(activeExecution scheduli
 
 		// Record metrics in Prometheus.
 		if activeExecution.HasValidWorkloadId() {
-			m.executionLatencyCallback(latency, activeExecution.GetWorkloadId(), m.Kernel.ID())
+			m.callbackProvider.ExecutionLatencyCallback(latency, activeExecution.GetWorkloadId(), m.Kernel.ID())
 		} else {
 			m.log.Warn("Execution for \"execute_request\" \"%s\" had \"sent-at\" timestamp, but no workload ID...",
 				activeExecution.GetExecuteRequestMessageId())
@@ -924,11 +944,11 @@ func (m *ExecutionManager) processExecutionStartLatency(activeExecution scheduli
 }
 
 func (m *ExecutionManager) sendNotification(title string, content string, typ messaging.NotificationType, useSeparateGoroutine bool) {
-	if m.notificationCallback != nil {
+	if m.callbackProvider != nil && m.callbackProvider.NotificationCallback != nil {
 		if useSeparateGoroutine {
-			go m.notificationCallback(title, content, typ)
+			go m.callbackProvider.NotificationCallback(title, content, typ)
 		} else {
-			m.notificationCallback(title, content, typ)
+			m.callbackProvider.NotificationCallback(title, content, typ)
 		}
 	}
 }
@@ -959,4 +979,15 @@ func (m *ExecutionManager) getExecuteRequestForResubmission(executeReply *messag
 		executeRequestId, execution.ExecutionIndex, execution.JupyterMessage.StringFormatted())
 
 	return execution.JupyterMessage, nil
+}
+
+// HasActiveTraining returns true if the target DistributedKernelClient has an active training -- meaning that the
+// Kernel has submitted an "execute_request" and is still awaiting a response.
+//
+// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+// It simply means that an execution has been submitted to the Kernel.
+//
+// Having an active training prevents a Kernel from being idle-reclaimed.
+func (m *ExecutionManager) HasActiveTraining() bool {
+	return m.hasActiveTraining.Load()
 }

@@ -1,6 +1,6 @@
 package queue
 
-// Fifo implements a first-in first-out (FIFO) queue.
+// ThreadsafeFifo implements a first-in first-out (FIFO) queue.
 type Fifo[T any] struct {
 	elements []T
 }
@@ -19,19 +19,19 @@ func NewFifo[T any](initialSize int) *Fifo[T] {
 
 // NewFifoFromSlice creates a new Queue struct from the specified slice.
 func NewFifoFromSlice[T any](arr []T) *Fifo[T] {
-	// Create a slice for the new Fifo.
+	// Create a slice for the new ThreadsafeFifo.
 	elements := make([]T, len(arr))
 
 	// Copy the elements from the given slice into the elements slice.
 	copy(elements, arr)
 
-	// Create and return the Fifo queue.
+	// Create and return the ThreadsafeFifo queue.
 	return &Fifo[T]{
 		elements: elements,
 	}
 }
 
-// ToSlice returns a copy of the target Fifo as a []T.
+// ToSlice returns a copy of the target ThreadsafeFifo as a []T.
 func (q *Fifo[T]) ToSlice() []T {
 	slice := make([]T, q.Len())
 	copy(slice, q.elements)
@@ -48,7 +48,7 @@ func (q *Fifo[T]) Enqueue(elem T) {
 // If the target element is found and removed, then it will be returned along with the boolean flag "true".
 //
 // If the target element is not found, then "false" is returned, along with the 'zero' value for the type parameter
-// of the target Fifo.
+// of the target ThreadsafeFifo.
 func (q *Fifo[T]) Remove(target T, eq func(t1 T, t2 T) bool) (T, bool) {
 	for idx, elem := range q.elements {
 		if eq(target, elem) {

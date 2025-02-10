@@ -36,7 +36,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 					SimulateTrainingUsingSleep: false,
 					BindAllGpus:                false,
 					BindGPUs:                   true,
-					AssignedGpuDeviceIds:       []int32{deviceId},
+					assignedGpuDeviceIds:       []int32{deviceId},
 				}
 
 				target := fmt.Sprintf(" --gpus 'device=%d'", deviceId)
@@ -53,7 +53,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 				SimulateTrainingUsingSleep: false,
 				BindAllGpus:                false,
 				BindGPUs:                   true,
-				AssignedGpuDeviceIds:       deviceIds,
+				assignedGpuDeviceIds:       deviceIds,
 			}
 
 			target := fmt.Sprintf(" --gpus 'device=%d,%d,%d'", deviceIds[0], deviceIds[1], deviceIds[2])
@@ -69,7 +69,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 				SimulateTrainingUsingSleep: false,
 				BindAllGpus:                false,
 				BindGPUs:                   true,
-				AssignedGpuDeviceIds:       deviceIds,
+				assignedGpuDeviceIds:       deviceIds,
 			}
 
 			target := " --gpus 'device=0,1,2,3,4,5,6,7'"

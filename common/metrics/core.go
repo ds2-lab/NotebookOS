@@ -72,6 +72,10 @@ type basePrometheusManager struct {
 	// running are still counted in this metric.
 	TotalNumKernelsCounterVec *prometheus.CounterVec
 
+	TotalNumPrewarmContainersUsedVec            *prometheus.CounterVec
+	TotalNumPrewarmContainersCreatedCounterVec  *prometheus.CounterVec
+	TotalNumStandardContainersCreatedCounterVec *prometheus.CounterVec
+
 	// NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
 	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec
 
@@ -266,6 +270,21 @@ func (m *basePrometheusManager) initializeMetrics() error {
 		Name:      "sessions_total",
 		Help:      "Total number of kernel replicas to have ever been scheduled/created",
 	}, []string{"node_type", "node_id"})
+	m.TotalNumPrewarmContainersUsedVec = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "prewarm_containers_used",
+		Help:      "Total number of kernel replicas to have ever been scheduled/created",
+	}, []string{"node_id"})
+	m.TotalNumPrewarmContainersCreatedCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "prewarm_containers_created",
+		Help:      "Total number of kernel replicas to have ever been scheduled/created",
+	}, []string{"node_id"})
+	m.TotalNumStandardContainersCreatedCounterVec = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "distributed_cluster",
+		Name:      "standard_containers_created",
+		Help:      "Total number of kernel replicas to have ever been scheduled/created",
+	}, []string{"node_id"})
 
 	// Create/define message-related metrics.
 

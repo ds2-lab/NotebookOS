@@ -43,6 +43,7 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 		WithSchedulingPolicy(schedulingPolicy).
 		WithKernelProvider(kernelProvider).
 		WithNotificationBroker(notificationBroker).
+		WithMetricsProvider(cluster.MetricsProvider()).
 		WithOptions(opts).Build()
 
 	kubernetesScheduler := &KubernetesScheduler{
@@ -151,7 +152,7 @@ func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, kernel s
 	if err != nil {
 		s.log.Error("Error encountered while attempting to create the Kubernetes TransactionResources for Session %s: %v",
 			kernel.ID(), err)
-		
+
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 

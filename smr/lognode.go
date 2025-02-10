@@ -256,7 +256,9 @@ func CreateBytes(len byte) []byte {
 // To shut down, close proposeC and read errorC.
 //
 // The store_path is used as the actual data directory.
-func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteStorage string, shouldLoadDataFromRemoteStorage bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int, deploymentMode string) *LogNode {
+func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteStorage string, shouldLoadDataFromRemoteStorage bool,
+	peerAddresses []string, peerIDs []int, join bool, httpDebugPort int, deploymentMode string) *LogNode {
+
 	defer finalize()
 	_, _ = fmt.Fprintf(os.Stderr, "Creating a new LogNode [version %v].\n", VersionText)
 
@@ -451,8 +453,8 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 }
 
 func (node *LogNode) ServeHttpDebug() {
-	if node.httpDebugPort == -1 {
-		node.logger.Warn("Debug port is -1. HTTP debug server is disabled.")
+	if node.httpDebugPort < 0 {
+		node.logger.Warn("Debug port is negative. HTTP debug server is disabled.")
 		return
 	}
 
@@ -462,7 +464,9 @@ func (node *LogNode) ServeHttpDebug() {
 		log.Printf("Serving debug HTTP server on port %d.\n", node.httpDebugPort)
 
 		if err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", node.httpDebugPort), nil); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Failed to serve HTTP debug server on port %d because: %v\n", node.httpDebugPort, err)
+			_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Failed to serve HTTP debug server on port %d because: %v\n",
+				node.httpDebugPort, err)
+
 			log.Fatal("ListenAndServe: ", err)
 		}
 	}()

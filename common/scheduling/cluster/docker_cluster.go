@@ -12,6 +12,78 @@ import (
 	"time"
 )
 
+type DockerClusterBuilder struct {
+	hostSpec                  types.Spec
+	placer                    scheduling.Placer
+	hostMapper                scheduler.HostMapper
+	kernelProvider            scheduler.KernelProvider
+	clusterMetricsProvider    scheduling.MetricsProvider
+	notificationBroker        scheduler.NotificationBroker
+	schedulingPolicy          scheduling.Policy
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
+	opts                      *scheduling.SchedulerOptions
+}
+
+func (b *DockerClusterBuilder) WithHostSpec(hostSpec types.Spec) *DockerClusterBuilder {
+	b.hostSpec = hostSpec
+	return b
+}
+
+func (b *DockerClusterBuilder) WithPlacer(placer scheduling.Placer) *DockerClusterBuilder {
+	b.placer = placer
+	return b
+}
+
+func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduler.HostMapper) *DockerClusterBuilder {
+	b.hostMapper = hostMapper
+	return b
+}
+
+func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduler.KernelProvider) *DockerClusterBuilder {
+	b.kernelProvider = kernelProvider
+	return b
+}
+
+func (b *DockerClusterBuilder) WithClusterMetricsProvider(clusterMetricsProvider scheduling.MetricsProvider) *DockerClusterBuilder {
+	b.clusterMetricsProvider = clusterMetricsProvider
+	return b
+}
+
+func (b *DockerClusterBuilder) WithNotificationBroker(notificationBroker scheduler.NotificationBroker) *DockerClusterBuilder {
+	b.notificationBroker = notificationBroker
+	return b
+}
+
+func (b *DockerClusterBuilder) WithSchedulingPolicy(schedulingPolicy scheduling.Policy) *DockerClusterBuilder {
+	b.schedulingPolicy = schedulingPolicy
+	return b
+}
+
+func (b *DockerClusterBuilder) WithStatisticsUpdaterProvider(statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *DockerClusterBuilder {
+	b.statisticsUpdaterProvider = statisticsUpdaterProvider
+	return b
+}
+
+func (b *DockerClusterBuilder) WithOpts(opts *scheduling.SchedulerOptions) *DockerClusterBuilder {
+	b.opts = opts
+	return b
+}
+
+func (b *DockerClusterBuilder) Build() *DockerCluster {
+	baseCluster := newBaseCluster(b.opts, b.placer, b.clusterMetricsProvider, "DockerCluster", b.statisticsUpdaterProvider)
+
+	dockerCluster := &DockerCluster{
+		BaseCluster: baseCluster,
+	}
+
+	dockerCluster.scheduler = scheduler.GetDockerScheduler(dockerCluster, b.placer, b.hostMapper, b.hostSpec,
+		b.kernelProvider, b.notificationBroker, b.schedulingPolicy, b.opts)
+	baseCluster.instance = dockerCluster
+	baseCluster.initRatioUpdater()
+
+	return dockerCluster
+}
+
 // DockerCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
 // locally, and scaling-up and down sometimes involves simulation steps in which nodes are not actually deleted,
 // but simply toggled "off" and "on".
@@ -26,7 +98,7 @@ type DockerCluster struct {
 // by the Cluster for scheduling decisions.
 func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
-	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
+	schedulingPolicy scheduling.Policy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerCluster", statisticsUpdaterProvider)
@@ -35,7 +107,7 @@ func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper 
 		BaseCluster: baseCluster,
 	}
 
-	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
+	dockerCluster.scheduler = scheduler.GetDockerScheduler(dockerCluster, placer, hostMapper, hostSpec,
 		kernelProvider, notificationBroker, schedulingPolicy, opts)
 	baseCluster.instance = dockerCluster
 	baseCluster.initRatioUpdater()
@@ -59,9 +131,9 @@ func (c *DockerCluster) NodeType() string {
 	return types.DockerNode
 }
 
-// unsafeDisableHost disables an active Host.
+// unsafeDisableHost disables an active host.
 //
-// If the Host does not exist or is not already disabled, then an error is returned.
+// If the host does not exist or is not already disabled, then an error is returned.
 //
 // Important: this should be called with the DockerCluster's hostMutex already acquired.
 func (c *DockerCluster) unsafeDisableHost(id string) error {
@@ -70,7 +142,7 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 
 	host, loaded := c.hosts.Load(id)
 	if !loaded {
-		// Let's check if the Host even exists.
+		// Let's check if the host even exists.
 		_, exists := c.DisabledHosts.Load(id)
 		if exists {
 			return fmt.Errorf("%w: host \"%s\" is already disabled", scheduling.ErrInvalidHost, id)
@@ -87,8 +159,8 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 	c.log.Debug("Disabling host %s now...", id)
 	if err := host.Disable(); err != nil {
 		// This really shouldn't happen.
-		// This would mean that the Host was in an inconsistent state relative to the Cluster,
-		// as the Host was stored in the wrong map.
+		// This would mean that the host was in an inconsistent state relative to the Cluster,
+		// as the host was stored in the wrong map.
 		panic(err)
 	}
 	c.DisabledHosts.Store(id, host)
@@ -103,9 +175,9 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 	return nil
 }
 
-// unsafeEnableHost enables a disabled Host.
+// unsafeEnableHost enables a disabled host.
 //
-// If the Host does not exist or is not disabled, then an error is returned.
+// If the host does not exist or is not disabled, then an error is returned.
 //
 // Important: this should be called with the DockerCluster's hostMutex already acquired.
 func (c *DockerCluster) unsafeEnableHost(id string) error {
@@ -114,7 +186,7 @@ func (c *DockerCluster) unsafeEnableHost(id string) error {
 
 	disabledHost, loaded := c.DisabledHosts.LoadAndDelete(id)
 	if !loaded {
-		// Let's check if the Host even exists.
+		// Let's check if the host even exists.
 		_, exists := c.hosts.Load(id)
 		if exists {
 			return fmt.Errorf("%w: host \"%s\" is not disabled", scheduling.ErrInvalidHost, id)
@@ -126,8 +198,8 @@ func (c *DockerCluster) unsafeEnableHost(id string) error {
 	c.log.Debug("Enabling host %s now...", id)
 	if err := disabledHost.Enable(true); err != nil {
 		// This really shouldn't happen.
-		// This would mean that the Host was in an inconsistent state relative to the Cluster,
-		// as the Host was stored in the wrong map.
+		// This would mean that the host was in an inconsistent state relative to the Cluster,
+		// as the host was stored in the wrong map.
 		panic(err)
 	}
 	c.hosts.Store(id, disabledHost)
@@ -290,7 +362,7 @@ func (c *DockerCluster) GetScaleInCommand(targetScale int32, targetHosts []strin
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
 
-	// If no target Host instances were specified, then we need to identify some Host instances ourselves.
+	// If no target host instances were specified, then we need to identify some host instances ourselves.
 	numAffectedNodes := int32(c.hosts.Len()) - targetScale
 
 	c.log.Debug("Searching for %d hosts to terminate for requested scale-in.", numAffectedNodes)
@@ -300,7 +372,7 @@ func (c *DockerCluster) GetScaleInCommand(targetScale int32, targetHosts []strin
 	c.hosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
-			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
+			c.log.Debug("Identified host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
 				host.GetID(), len(targetHosts), numAffectedNodes)
 		}
 

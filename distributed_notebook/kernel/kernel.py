@@ -141,7 +141,7 @@ SMR_LEAD_TASK: str = "smr_lead_task"
 LEADER_KEY: str = "__LEADER__"
 
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
-smr_port_default = 10000
+smr_port_default = 8080
 err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
 err_failed_to_lead_execution = ExecutionYieldError("Failed to lead the execution.")
 err_invalid_request = RuntimeError("Invalid request.")
@@ -377,6 +377,11 @@ class DistributedKernel(IPythonKernel):
         config=False
     )
 
+    prewarm_container: Bool = (Bool(False,
+                                        help="Indicates whether this Kernel was created to serve as a pre-warm container, "
+                                             "or if it was created as an actual kernel container.").
+                                    tag(config=True))
+
     # Indicates whether we should embed Election metadata in "execute_reply" messages.
     include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
 
@@ -418,6 +423,7 @@ class DistributedKernel(IPythonKernel):
             "prepare_to_migrate_request",
             "stop_running_training_code_request",
             "ping_kernel_ctrl_request",
+            "promote_prewarm_request",
         ]
 
         self.msg_types = [
@@ -459,6 +465,20 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
+        self.synclog: Optional[SyncLog] = None
+
+        if "prewarm_container" in kwargs:
+            self.prewarm_container = kwargs["prewarm_container"]
+
+        # If we are now, then we were "before" (technically before doesn't exist because this is the c'tor, but still).
+        self.was_prewarmed_container = self.prewarm_container
+
+        if self.prewarm_container:
+            self.prewarm_container_id: Optional[str] = self.kernel_id
+            self.log.debug(f'I am a prewarm container with prewarm ID "{self.prewarm_container_id}"')
+        else:
+            self.prewarm_container_id: Optional[str] = None
+            self.log.debug(f'I am NOT a prewarm container (ID="{self.kernel_id}")')
 
         # Keep track of how many times we generate the 'download' code when generating custom DL training code.
         self._get_download_code_called: int = 0
@@ -865,6 +885,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info('Session ID: "%s"' % session_id)
         self.log.info('Kernel ID: "%s"' % self.kernel_id)
         self.log.info('Pod name: "%s"' % self.pod_name)
+        self.log.info("SMR port: '%d'" % self.smr_port)
         self.log.info('RemoteStorage hostname: "%s"' % self.remote_storage_hostname)
 
         if self.remote_storage_hostname == "":
@@ -881,23 +902,35 @@ class DistributedKernel(IPythonKernel):
         )
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
-        self.persistent_store_cv = asyncio.Condition()
+        self.persistent_store_cv: asyncio.Condition = asyncio.Condition()
+
+        # preparing_to_migrate_cv is used when handling shutdown requests.
+        #
+        # Specifically, the control thread needs to wait to shut the kernel down until the important state
+        # is safely persisted to remote storage.
+        #
+        # This condition variable is used to wait until that completes, and to signal that it has completed.
+        self.preparing_to_migrate_cv: asyncio.Condition = asyncio.Condition()
+
+        # preparing_to_migrate is a flag indicating that the kernel is preparing to migrate and should not
+        # be shutdown, as important state needs to be checkpointed first.
+        self.preparing_to_migrate: bool = False
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
 
-        connection_info: dict[str, Any] = {}
+        self.connection_info: dict[str, Any] = {}
         try:
             if len(connection_file_path) > 0:
                 with open(connection_file_path, "r") as connection_file:
-                    connection_info = json.load(connection_file)
+                    self.connection_info = json.load(connection_file)
         except Exception as ex:
             self.log.error(
                 'Failed to obtain connection info from file "%s" because: %s'
                 % (connection_file_path, str(ex))
             )
 
-        self.log.info("Connection info: %s" % str(connection_info))
+        self.log.info("Connection info: %s" % str(self.connection_info))
 
         # Allow setting env variable to prevent registration altogether.
         skip_registration_override: bool = (
@@ -906,7 +939,7 @@ class DistributedKernel(IPythonKernel):
 
         if self.should_register_with_local_daemon and not skip_registration_override:
             registration_start: float = time.time()
-            self.register_with_local_daemon(connection_info, session_id)
+            self.register_with_local_daemon(self.connection_info, session_id)
             registration_duration: float = (time.time() - registration_start) * 1.0e3
 
             if self.prometheus_enabled:
@@ -1034,6 +1067,7 @@ class DistributedKernel(IPythonKernel):
             "nodeName": self.node_name,
             "connection-info": connection_info,
             "workload_id": self.workload_id,
+            "prewarm_container": self.prewarm_container,
             "kernel": {
                 "id": self.kernel_id,
                 "session": session_id,
@@ -1069,6 +1103,26 @@ class DistributedKernel(IPythonKernel):
         )
 
         response_dict = json.loads(response)
+
+        # If we're a pre-warm container, then we ignore everything from the initial registration payload
+        # except for the "message ACKs" configuration.
+        if self.prewarm_container:
+            if "message_acknowledgements_enabled" in response_dict:
+                self.message_acknowledgements_enabled = bool(
+                    response_dict["message_acknowledgements_enabled"]
+                )
+
+                if self.message_acknowledgements_enabled:
+                    self.log.debug("Message acknowledgements are enabled.")
+                else:
+                    self.log.debug("Message acknowledgements are disabled.")
+            else:
+                self.log.warning(
+                    'No "message_acknowledgements_enabled" entry in response from local daemon.'
+                )
+
+            return
+
         self.smr_node_id: int = response_dict["smr_node_id"]
         self.hostname = response_dict["hostname"]
 
@@ -1194,6 +1248,23 @@ class DistributedKernel(IPythonKernel):
             debugpy.breakpoint()
             self.log.debug("Should have broken on the previous line!")
 
+    def persistent_store_initialized_callback(self, f: futures.Future):
+        """
+        Simple callback to print a message when the initialization of the persistent store completes.
+        """
+        if f.done():
+            self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
+            return
+
+        if f.cancelled():
+            self.log.error("Initialization of Persistent Store on-start has been cancelled...")
+
+        try:
+            self.log.error(f"Initialization of Persistent Store apparently "
+                           f"raised an exception: {f.exception()}")
+        except:  # noqa
+            self.log.error("No exception associated with cancelled initialization of Persistent Store.")
+
     def start(self):
         self.log.info(
             'DistributedKernel is starting. Persistent ID = "%s"' % self.persistent_id
@@ -1209,24 +1280,6 @@ class DistributedKernel(IPythonKernel):
                 and self.persistent_id is not None
         ):
             assert isinstance(self.persistent_id, str)
-
-            def init_persistent_store_done_callback(f: futures.Future):
-                """
-                Simple callback to print a message when the initialization of the persistent store completes.
-                """
-                if f.done():
-                    self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
-                    return
-
-                if f.cancelled():
-                    self.log.error("Initialization of Persistent Store on-start has been cancelled...")
-
-                try:
-                    self.log.error(f"Initialization of Persistent Store apparently "
-                                   f"raised an exception: {f.exception()}")
-                except:  # noqa
-                    self.log.error("No exception associated with cancelled initialization of Persistent Store.")
-
             self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. "
                            f"Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
             self.init_persistent_store_on_start_future: futures.Future = (
@@ -1236,7 +1289,7 @@ class DistributedKernel(IPythonKernel):
                 )
             )
             self.init_persistent_store_on_start_future.add_done_callback(
-                init_persistent_store_done_callback
+                self.persistent_store_initialized_callback
             )
         else:
             self.log.warning("Will NOT be initializing Persistent Store on start, "
@@ -2250,6 +2303,72 @@ class DistributedKernel(IPythonKernel):
 
         if self.prometheus_enabled:
             self.execute_request_latency.observe(duration_ms)
+
+    async def promote_prewarm_request(self, stream, ident, parent):
+        """
+        Handle requests to promote ourselves to a standard container.
+
+        :param stream:
+        :param ident:
+        :param parent:
+        :return:
+        """
+        content = parent.get("content", {})
+        self.log.debug(f"Received PROMOTION request\n{json.dumps(content, indent=2)}")
+
+        if not self.prewarm_container:
+            self.log.error(f"We are NOT a pre-warm container...")
+            self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container", "")
+            return
+
+        self.log.debug(f'Replacing old prewarm ID "{self.kernel_id}" with new kernel ID "{content["kernel_id"]}"')
+
+        self.kernel_id: str = content["kernel_id"]
+        distributed_kernel_config: Dict[str, Any] = content["distributed_kernel_config"]
+
+        for key, value in distributed_kernel_config.items():
+            if hasattr(self, key):
+                self.log.debug(f"Assigning field '{key}' to value of type "
+                               f"'{type(value).__name__}': '{value}'.")
+                setattr(self, key, value)
+            else:
+                self.log.warning(f"Payload has unmatched field '{key}' with "
+                                 f"value of type '{type(value).__name__}': '{value}'.")
+
+        self.prewarm_container = False
+
+        registration_start: float = time.time()
+        self.register_with_local_daemon(self.connection_info, self.kernel_id)
+        registration_duration: float = (time.time() - registration_start) * 1.0e3
+
+        if self.prometheus_enabled:
+            self.registration_time_milliseconds.observe(registration_duration)
+
+        # Call start now that we're no longer a prewarm container.
+        self.init_persistent_store_on_start_future: futures.Future = (
+            asyncio.run_coroutine_threadsafe(
+                self.init_persistent_store_on_start(self.persistent_id),
+                self.control_thread.io_loop.asyncio_loop,
+            )
+        )
+        self.init_persistent_store_on_start_future.add_done_callback(
+            self.persistent_store_initialized_callback
+        )
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "promote_prewarm_reply",
+            {"timestamp": time.time()},
+            parent,
+            metadata={},
+            buffers=buffers,
+            ident=ident,
+        )
+
+        self.log.debug(f'Sent "promote_prewarm_reply" message: {reply_msg}')
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """Respond to a 'ping kernel' Control request."""
@@ -3658,6 +3777,17 @@ class DistributedKernel(IPythonKernel):
             self.kernel_id,
         )
 
+        # Make sure we're not (still) preparing to migrate.
+        # If we are, then we need to wait to ensure that all important state is checkpointed to remote storage.
+        async with self.preparing_to_migrate_cv:
+            while self.preparing_to_migrate:
+                self.log.warning("We are currently preparing to migrate. "
+                                 "Will wait until migration completes before shutting down.")
+
+                self.preparing_to_migrate_cv.wait()
+
+            self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
+
         if self.synchronizer:
             self.log.info("Closing the Synchronizer.")
             self.synchronizer.close()
@@ -3907,7 +4037,17 @@ class DistributedKernel(IPythonKernel):
                 )
                 await self.persistent_store_cv.wait()
 
-        content, success = await self.prepare_to_migrate()
+        async with self.preparing_to_migrate_cv:
+            self.preparing_to_migrate = True
+
+        try:
+            content, success = await self.prepare_to_migrate()
+        finally:
+            # Regardless of what happens up above, we need to flip the value of the self.preparing_to_migrate flag
+            # back to false and notify anybody waiting on the condition variable.
+            async with self.preparing_to_migrate_cv:
+                self.preparing_to_migrate = False
+                self.preparing_to_migrate_cv.notify_all()
 
         if not success:
             self.log.error("Failed to prepare to migrate...")
@@ -4819,7 +4959,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog: RaftLog = RaftLog(
+                self.synclog = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -4882,7 +5022,7 @@ class DistributedKernel(IPythonKernel):
                 raise ValueError(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
 
             assert remote_storage_provider is not None
-            self.synclog: RemoteStorageLog = RemoteStorageLog(
+            self.synclog = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,

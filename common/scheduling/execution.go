@@ -109,6 +109,15 @@ type ExecutionManager interface {
 	// ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
 	// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
 	ExecutionIndexIsLarger(executionIndex int32) bool
+
+	// HasActiveTraining returns true if the target DistributedKernelClient has an active training -- meaning that the
+	// Kernel has submitted an "execute_request" and is still awaiting a response.
+	//
+	// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+	// It simply means that an execution has been submitted to the Kernel.
+	//
+	// Having an active training prevents a Kernel from being idle-reclaimed.
+	HasActiveTraining() bool
 }
 
 type Execution interface {

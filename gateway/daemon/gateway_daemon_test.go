@@ -165,10 +165,14 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 	p.expectedKernels[kernelId] = kernel
 }
 
+//func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+//	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+//	executionFailedCallback scheduling.ExecutionFailedCallback, ExecutionLatencyCallback scheduling.ExecutionLatencyCallback,
+//	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+
 func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
 		return kernel
@@ -284,8 +288,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
 		kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
 
-		executionManager := client.NewExecutionManager(kernel, numReplicas, clusterGateway.executionFailed,
-			nil, nil, nil)
+		executionManager := client.NewExecutionManager(kernel, numReplicas, nil, clusterGateway)
 		kernel.EXPECT().GetExecutionManager().AnyTimes().Return(executionManager)
 
 		return kernel, kernelSpec
@@ -644,8 +647,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
+				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+				&clusterGateway.numActiveTrainings)
+
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
 			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -684,8 +689,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			cluster.EXPECT().Close().AnyTimes()
 
-			executionManager := client.NewExecutionManager(kernel, schedulingPolicy.NumReplicas(),
-				clusterGateway.executionFailed, nil, nil, nil)
+			executionManager := client.NewExecutionManager(kernel, schedulingPolicy.NumReplicas(), nil, clusterGateway)
 			kernel.EXPECT().GetExecutionManager().AnyTimes().Return(executionManager)
 
 			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) error {
@@ -1083,7 +1087,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//	host := replica.Host()
 			//
 			//	// Normally this would go through a placer
-			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.kernelReplicaSpec(), !commitResources)
 			//
 			//	if reserved {
 			//		return nil
@@ -1360,7 +1364,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//	host := replica.Host()
 			//
 			//	// Normally this would go through a placer
-			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.kernelReplicaSpec(), !commitResources)
 			//
 			//	if reserved {
 			//		return nil
@@ -1474,8 +1478,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
+				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+				&clusterGateway.numActiveTrainings)
+
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
 			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -2283,9 +2289,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 		It("Will correctly return an error to the client when a migration fails and an 'execute_request' cannot be handled", func() {
 			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
-			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
-				clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.executionFailed, clusterGateway.executionLatencyCallback,
-				clusterGateway.metricsProvider, clusterGateway.notifyDashboard)
+			//kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
+			//	clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.ExecutionFailedCallback, clusterGateway.ExecutionLatencyCallback,
+			//	clusterGateway.MetricsProvider, clusterGateway.notifyDashboard)
+
+			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(),
+				mockedKernelSpec, 3, clusterGateway.id, clusterGateway.connectionOptions, uuid.NewString(),
+				clusterGateway.DebugMode, clusterGateway.MetricsProvider, clusterGateway)
 
 			shellSocket, err := kernel.InitializeShellForwarder(clusterGateway.kernelShellHandler)
 			Expect(err).To(BeNil())
@@ -3006,10 +3016,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
-				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
-				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
+				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
 				cluster := clusterGateway.cluster
@@ -3138,10 +3148,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
-				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
-				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
+				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
 			})
 		})
@@ -3216,10 +3226,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
-				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
-				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
+				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
 				dockerCluster = clusterGateway.cluster
@@ -3466,10 +3476,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					})
 					config.InitLogger(&clusterGateway.log, clusterGateway)
 
-					Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-					Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
-					Expect(clusterGateway.initialClusterSize).To(Equal(initialClusterSize))
-					Expect(clusterGateway.initialConnectionPeriod).To(Equal(initialConnectionTime))
+					Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+					Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+					Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(initialClusterSize))
+					Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(initialConnectionTime))
 					Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
 					dockerCluster = clusterGateway.cluster
@@ -3695,8 +3705,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
-				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.MetricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 			})
 
 			AfterEach(func() {

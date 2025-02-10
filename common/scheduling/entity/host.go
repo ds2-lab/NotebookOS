@@ -152,13 +152,13 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 		return nil, infoErr
 	}
 
-	// Create a Host struct populated with a few key fields.
-	// This Host will be used to "restore" the existing Host struct.
-	// That is, the existing Host struct will replace its values for these fields
-	// with the values of this new Host struct.
+	// Create a host struct populated with a few key fields.
+	// This host will be used to "restore" the existing host struct.
+	// That is, the existing host struct will replace its values for these fields
+	// with the values of this new host struct.
 	//
 	// The most important is probably the LocalGatewayClient, as that ensures that the
-	// existing Host struct has a new, valid connection to the remote Local Daemon.
+	// existing host struct has a new, valid connection to the remote Local Daemon.
 	host := &Host{
 		ID:                          confirmedId.Id,
 		resourceSpec:                infoResponse.SpecResources.ToDecimalSpec(),
@@ -186,7 +186,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 	// If error is now non-nil, either because there was an explicit error or because the response was invalid,
 	// then the host scheduler creation failed, and we return nil and the error.
 	if err != nil {
-		log.Printf(utils.OrangeStyle.Render("Error while creating new Host with ID=\"%s\": %v\n"), id, err)
+		log.Printf(utils.OrangeStyle.Render("Error while creating new host with ID=\"%s\": %v\n"), id, err)
 		return nil, err
 	}
 
@@ -197,7 +197,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 
 	// If the ID we received back is different, then this is most likely a host that already exists.
 	if confirmedId.Id != id {
-		log.Printf("[INFO] Confirmed ID and specified ID for new Host differ. "+
+		log.Printf("[INFO] Confirmed ID and specified ID for new host differ. "+
 			"Confirmed ID: \"%s\". Specified ID: \"%s\".\n", confirmedId.Id, id)
 
 		// The ID we passed does not equal the ID we received back.
@@ -212,7 +212,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		return newHostForRestoration(localGatewayClient, confirmedId, numReplicasPerKernel) // millicpus, memMb, vramGb,
 	}
 
-	// Create the ResourceSpec defining the HostResources available on the Host.
+	// Create the ResourceSpec defining the HostResources available on the host.
 	resourceSpec := confirmedId.SpecResources.ToDecimalSpec()
 
 	host := &Host{
@@ -224,7 +224,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		numReplicasPerKernel:        numReplicasPerKernel,
 		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
 		metricsProvider:             metricsProvider,
-		log:                         config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
+		log:                         config.GetLogger(fmt.Sprintf("host %s ", confirmedId.NodeName)),
 		containers:                  hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
 		trainingContainers:          make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
 		penalties:                   make([]cachedPenalty, int(resourceSpec.GPU())),
@@ -319,12 +319,12 @@ func (h *Host) SetSubscriptionQuerier(querier SubscriptionQuerier) {
 // scheduling operations and thus cannot be excluded at this time.
 func (h *Host) ExcludeFromScheduling() bool {
 	if numOperationsConsideringHost := h.isBeingConsideredForScheduling.Load(); numOperationsConsideringHost > 0 {
-		h.log.Debug("Host %s (ID=%s) cannot be excluded from consideration from scheduling operations as it is "+
+		h.log.Debug("host %s (ID=%s) cannot be excluded from consideration from scheduling operations as it is "+
 			"already being considered by %d scheduling operation(s).", h.NodeName, h.ID, numOperationsConsideringHost)
 		return false
 	}
 
-	h.log.Debug("Host %s (ID=%s) is now precluded from being considered for scheduling.", h.NodeName, h.ID)
+	h.log.Debug("host %s (ID=%s) is now precluded from being considered for scheduling.", h.NodeName, h.ID)
 	h.excludedFromScheduling.Store(true)
 	return true
 }
@@ -346,7 +346,7 @@ func (h *Host) IncludeForScheduling() error {
 	}
 
 	h.excludedFromScheduling.Store(false)
-	h.log.Debug("Host %s (ID=%s) will be included for consideration in scheduling operations again.", h.NodeName, h.ID)
+	h.log.Debug("host %s (ID=%s) will be included for consideration in scheduling operations again.", h.NodeName, h.ID)
 	return nil
 }
 
@@ -390,7 +390,7 @@ func (h *Host) ConsiderForScheduling() bool {
 	}
 
 	numOperationsConsideringHost := h.isBeingConsideredForScheduling.Add(1)
-	h.log.Debug("Host %s (ID=%s) is being considered in a scheduling operation (%d).",
+	h.log.Debug("host %s (ID=%s) is being considered in a scheduling operation (%d).",
 		h.NodeName, h.ID, numOperationsConsideringHost)
 	return true
 }
@@ -824,7 +824,7 @@ func (h *Host) Enabled() bool {
 // If the Host is already enabled, then this returns an error.
 func (h *Host) Enable(includeInScheduling bool) error {
 	if h.enabled {
-		// Even if we're already enabled, we should still call Host::IncludeForScheduling if the includeInScheduling
+		// Even if we're already enabled, we should still call host::IncludeForScheduling if the includeInScheduling
 		// argument was passed as true.
 		if includeInScheduling {
 			_ = h.IncludeForScheduling()
@@ -989,7 +989,7 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	defer h.schedulingMutex.Unlock()
 
 	if _, ok := h.containers.Load(container.ContainerID()); !ok {
-		h.log.Error("Cannot remove specified Container for replica %d of kernel %s from Host. Container is not on specified Host.",
+		h.log.Error("Cannot remove specified Container for replica %d of kernel %s from host. Container is not on specified host.",
 			container.ReplicaId(), container.KernelID())
 		return fmt.Errorf("%w: cannot find container for replica %d of kernel %s on host %s (ID=%s) for removal",
 			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
@@ -1253,7 +1253,7 @@ func (h *Host) GetSpecificReplicaOfKernel(kernelId string, replicaId int32) sche
 }
 
 func (h *Host) String() string {
-	return fmt.Sprintf("Host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.ID, h.NodeName, h.Addr, h.resourceSpec.String())
+	return fmt.Sprintf("host[ID=%s,Name=%s,Addr=%s,Spec=%s]", h.ID, h.NodeName, h.Addr, h.resourceSpec.String())
 }
 
 func (h *Host) GetConnectionState() connectivity.State {
@@ -1398,7 +1398,7 @@ type UnitTestingHost struct {
 // NewUnitTestingHost creates a new UnitTestingHost struct wrapping the given Host and returns a pointer to the
 // new UnitTestingHost struct.
 func NewUnitTestingHost(host *Host) *UnitTestingHost {
-	// Wrap the Host's allocation manager in a scheduling.UnitTestingAllocationManager.
+	// Wrap the host's allocation manager in a scheduling.UnitTestingAllocationManager.
 	host.allocationManager = resource.NewUnitTestingAllocationManager(host.allocationManager)
 
 	return &UnitTestingHost{

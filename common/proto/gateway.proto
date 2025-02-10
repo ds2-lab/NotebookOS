@@ -609,6 +609,10 @@ service LocalGateway {
   // StartKernelReplica starts a kernel replica on the local host.
   rpc StartKernelReplica(KernelReplicaSpec) returns (KernelConnectionInfo) {}
 
+  // PromotePrewarmedContainer is similar to StartKernelReplica, except that PromotePrewarmedContainer launches the new
+  // kernel using an existing, pre-warmed container that is already available on this host.
+  rpc PromotePrewarmedContainer(PrewarmedKernelReplicaSpec) returns (KernelConnectionInfo) {}
+
   // GetKernelStatus returns the status of a kernel.
   rpc GetKernelStatus(KernelId) returns (KernelStatus) {}
 
@@ -683,6 +687,11 @@ message LocalDaemonInfo {
   ResourceSpec specResources = 1;
   string gpuSchedulerId = 2;
   string localDaemonId = 3;
+}
+
+message PrewarmedKernelReplicaSpec {
+  KernelReplicaSpec kernelReplicaSpec = 1;
+  string prewarmedContainerId = 2;
 }
 
 // ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.
@@ -796,6 +805,7 @@ message KernelReplicaSpec {
   optional string persistentId = 6;
   int32 dockerModeKernelDebugPort = 7;
   string workloadId = 8;
+  bool prewarmContainer = 9;
 }
 
 message ResourceSpec {
@@ -903,6 +913,7 @@ message KernelRegistrationNotification {
   int32 gpu = 12; // Number of GPUs.
   string dockerContainerId=13; // Docker ID of the container. Only populated in Docker mode.
   string notificationId = 14;
+  bool prewarmContainer = 15;
 }
 
 // Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.
@@ -913,6 +924,7 @@ message KernelRegistrationNotificationResponse {
   ResourceSpec resourceSpec = 4;
   bool shouldReadDataFromRemoteStorage = 5;
   optional string persistentId = 6;
+  bool prewarmContainer = 7;
   // optional string dataDirectory = 6;
   // int32 dockerKernelDebugPort = 7;
 }

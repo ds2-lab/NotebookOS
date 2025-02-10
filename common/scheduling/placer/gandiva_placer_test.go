@@ -402,7 +402,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 
 		By("Returning the correct host after further resource adjustments have occurred")
 
-		// Artificially increase the resources available on Host #1.
+		// Artificially increase the resources available on host #1.
 		releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2), dockerCluster, []int{8, 9})
 
 		kernel3Id := uuid.NewString()

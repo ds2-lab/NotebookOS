@@ -52,6 +52,8 @@ var (
 		MeanScaleInPerHostSec:         10,
 		StdDevScaleInPerHostSec:       1,
 		AssignKernelDebugPorts:        false,
+		PrewarmingEnabled:             true,
+		MaxPrewarmContainersPerHost:   -1,
 	}
 
 	DefaultFcfsSchedulerOptions = &SchedulerOptions{
@@ -97,6 +99,8 @@ var (
 		MeanScaleInPerHostSec:         10,
 		StdDevScaleInPerHostSec:       1,
 		AssignKernelDebugPorts:        false,
+		PrewarmingEnabled:             false,
+		MaxPrewarmContainersPerHost:   -1,
 	}
 )
 
@@ -118,6 +122,7 @@ type SchedulerOptions struct {
 	ScalingBufferSize                   int     `name:"scaling-buffer-size"               json:"scaling-buffer-size"              yaml:"scaling-buffer-size"                        description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
 	MinimumNumNodes                     int     `name:"min_cluster_nodes"                 json:"min_cluster_nodes"                yaml:"min_cluster_nodes"                        description:"The minimum number of Cluster nodes we must have available at any time."`
 	MaximumNumNodes                     int     `name:"max_cluster_nodes"                 json:"max_cluster_nodes"                yaml:"max_cluster_nodes"                        description:"The maximum number of Cluster nodes we must have available at any time. If this is < 0, then it is unbounded."`
+	InitialClusterSize                  int     `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many Local Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
 	GpuPollIntervalSeconds              int     `name:"gpu_poll_interval"                 json:"gpu_poll_interval"                yaml:"gpu_poll_interval"                        description:"How frequently the Cluster Gateway should poll the Local Daemons for updated GPU information."`
 	MaxSubscribedRatio                  float64 `name:"max-subscribed-ratio"              json:"max-subscribed-ratio"             yaml:"max-subscribed-ratio"                        description:"Maximum subscribed ratio."`
 	ExecutionTimeSamplingWindow         int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
@@ -128,9 +133,21 @@ type SchedulerOptions struct {
 	MeanScaleInPerHostSec               float64 `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
 	StdDevScaleInPerHostSec             float64 `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
 
-	MillicpusPerHost int     `name:"millicpus_per_host" json:"millicpus_per_host" yaml:"millicpus_per_host" description:"Amount of allocatable CPU available on each Host, in millicpus (1 millicpu = 1/1000 vCPU)."`
-	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each Host, in megabytes."`
-	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each Host, in gigabytes."`
+	MillicpusPerHost int     `name:"millicpus_per_host" json:"millicpus_per_host" yaml:"millicpus_per_host" description:"Amount of allocatable CPU available on each host, in millicpus (1 millicpu = 1/1000 vCPU)."`
+	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each host, in megabytes."`
+	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each host, in gigabytes."`
+
+	PrewarmingEnabled           bool    `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
+	MinPrewarmContainersPerHost int     `name:"min_prewarm_containers_per_host" json:"min_prewarm_containers_per_host" yaml:"min_prewarm_containers_per_host"`
+	MaxPrewarmContainersPerHost int     `name:"max_prewarm_containers_per_host" json:"max_prewarm_containers_per_host" yaml:"max_prewarm_containers_per_host"`
+	InitialNumContainersPerHost int     `name:"initial_num_containers_per_host" json:"initial_num_containers_per_host" yaml:"initial_num_containers_per_host"`
+	PrewarmRunIntervalSec       float64 `name:"prewarm_run_interval_sec" json:"prewarm_run_interval_sec" yaml:"prewarm_run_interval_sec"`
+
+	// PrewarmingPolicy indicates the policy to use to maintain the pool of warm containers.
+	// Valid options include "maintain_minimum_capacity" and "little_law_capacity".
+	PrewarmingPolicy string `name:"prewarming_policy" json:"prewarming_policy" yaml:"prewarming_policy"`
+
+	InitialClusterConnectionPeriodSec int `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all Local Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
 
 	PredictiveAutoscalingEnabled bool `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the Cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
 

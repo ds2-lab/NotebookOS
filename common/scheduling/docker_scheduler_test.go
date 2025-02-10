@@ -399,7 +399,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						for j := 0; j < 3; j++ {
 							host := hosts[j]
 
-							//fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n",
+							//fmt.Printf("Cluster subscribed ratio: %f, host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n",
 							//	dockerCluster.SubscriptionRatio(), host.GetNodeName(), host.GetID(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 
 							err := host.AddToPendingResources(decimalSpec)
@@ -407,7 +407,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 							dockerCluster.Scheduler().UpdateRatio(true)
 
-							//fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n\n",
+							//fmt.Printf("Cluster subscribed ratio: %f, host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n\n",
 							//	dockerCluster.SubscriptionRatio(), host.GetNodeName(), host.GetID(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 						}
 					}
@@ -707,7 +707,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(candidates).ToNot(BeNil())
 
 					for _, candidate := range candidates {
-						fmt.Printf("Host %s resources: %s\n", candidate.GetID(), candidate.GetResourceCountsAsString())
+						fmt.Printf("host %s resources: %s\n", candidate.GetID(), candidate.GetResourceCountsAsString())
 						Expect(candidate.IdleResources().GPUs.IsZero()).To(BeTrue())
 					}
 
@@ -991,7 +991,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					targetGatewayClient := localGatewayClients[5]
 					Expect(targetGatewayClient).ToNot(BeNil())
 					targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec, gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-						fmt.Printf("StartKernelReplica called on LocalGateway #%d with KernelReplicaSpec:\n%v\n", 5, in)
+						fmt.Printf("StartKernelReplica called on LocalGateway #%d with kernelReplicaSpec:\n%v\n", 5, in)
 
 						return &proto.KernelConnectionInfo{
 							Ip:              "10.0.0.1",
@@ -1456,7 +1456,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				candidateHosts, err := dockerScheduler.FindCandidateHosts(3, bigKernelSpec)
 				Expect(err).To(BeNil())
-				GinkgoWriter.Printf("Found candidate: Host %s (ID=%s)\n",
+				GinkgoWriter.Printf("Found candidate: host %s (ID=%s)\n",
 					candidateHosts[0].GetNodeName(), candidateHosts[0].GetID())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
@@ -1478,7 +1478,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				Expect(err).To(BeNil())
 				Expect(hostBatch).ToNot(BeNil())
 				Expect(len(hostBatch)).To(Equal(1))
-				GinkgoWriter.Printf("Found candidate: Host %s (ID=%s)\n",
+				GinkgoWriter.Printf("Found candidate: host %s (ID=%s)\n",
 					hostBatch[0].GetNodeName(), hostBatch[0].GetID())
 				Expect(hostBatch[0]).To(Equal(bigHost2))
 				candidateHosts = append(candidateHosts, hostBatch...)

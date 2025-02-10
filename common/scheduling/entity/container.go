@@ -24,7 +24,6 @@ type Container struct {
 	host    scheduling.Host        // The Host on which the Container is currently scheduled.
 
 	spec *types.DecimalSpec
-	// lastSpec *types.DecimalSpec
 
 	id                             string                    // The kernel ID of the Container.
 	containerState                 scheduling.ContainerState // The current state of the Container.
@@ -37,12 +36,9 @@ type Container struct {
 	executions              atomic.Int32 // The number of training events processed by the Container.
 }
 
-type PlaceholderContainer struct {
-	*Container
-}
-
 // NewContainer creates and returns a new *Container.
 func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host, kernelIp string) *Container {
+
 	id := session.ID()
 	container := &Container{
 		KernelReplica:  kernelReplica,
@@ -131,7 +127,7 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,startedAt=%v,ResourceSpec=%v,Host=%v]",
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,startedAt=%v,ResourceSpec=%v,host=%v]",
 		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 
@@ -242,7 +238,7 @@ func (c *Container) UpdateResourceSpec(spec *types.DecimalSpec) {
 
 // ScaleOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
 // last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
-// potential training task plus the sum of the preemption priorities of the pre-emptible tasks.
+// potential training task plus the sum of the preemption priorities of the preemptible tasks.
 //
 // SOP(h) = Last Rescheduling Clock + Freq(h) * IP(h) + SUM PP(h').
 // To schedule out a potential task, we need to weight benefits of migration(IP) and penalty of preempting running task(s) if stay(PP).
@@ -272,7 +268,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 		return err
 	}
 
-	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training on host %s (ID=%s). ResourceSpec: %v. Host resources: %v.",
+	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training on host %s (ID=%s). ResourceSpec: %v. host resources: %v.",
 		c.replicaId, c.id, c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec().String(), c.host.GetResourceCountsAsString())
 
 	return nil
@@ -319,7 +315,7 @@ func (c *Container) ContainerStopped() error {
 	//
 	// IMPORTANT
 	// If I change the order of anything here, then I will need to update DistributedKernelClient::RemoveReplica,
-	// as I manually call Host::ContainerRemoved from DistributedKernelClient::RemoveReplica if
+	// as I manually call host::ContainerRemoved from DistributedKernelClient::RemoveReplica if
 	// Container::ContainerStopped returns either an ErrInvalidStateTransition error or an ErrNilHost error.
 	//
 	// (ErrInvalidStateTransition is returned by Container::transition in the event that an illegal transition
@@ -354,4 +350,24 @@ func (c *Container) ContainerStopped() error {
 // This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
 func (c *Container) NumTrainingEventsProcessed() int {
 	return c.numTrainingEventsProcessed
+}
+
+// ContainerType returns the current ContainerType of the Container.
+func (c *Container) ContainerType() scheduling.ContainerType {
+	return c.KernelReplica.ContainerType()
+}
+
+// PrewarmContainerPromoted is used to promote a scheduling.KernelContainer whose ContainerType is
+// scheduling.PrewarmContainer to a scheduling.StandardContainer.
+func (c *Container) PrewarmContainerPromoted(kernelId string, replicaId int32, spec types.Spec) error {
+	if c.KernelReplica.ContainerType() != scheduling.PrewarmContainer {
+		return fmt.Errorf("%w: cannot promote container for replica %d of kernel %s as it is of type '%s'",
+			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.KernelReplica.ContainerType().String())
+	}
+
+	c.replicaId = replicaId
+	c.spec = types.ToDecimalSpec(spec)
+	c.id = kernelId
+
+	return nil
 }

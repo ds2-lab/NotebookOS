@@ -33,5 +33,6 @@ var (
 	// ErrInvalidOperation indicates that adding or subtracting the specified HostResources to/from the internal resource
 	// counts of a HostResources struct would result in an invalid/illegal resource count within that HostResources struct,
 	// such as a negative quantity for cpus, gpus, or memory.
-	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
+	ErrInvalidOperation         = errors.New("the requested resource operation would result in an invalid resource count")
+	ErrContainerPromotionFailed = errors.New("failed to promote container")
 )

@@ -39,7 +39,7 @@ type Provider struct {
 	KernelProvider         scheduler.KernelProvider     // Required.
 	ClusterMetricsProvider scheduling.MetricsProvider   // Optional.
 	NotificationBroker     scheduler.NotificationBroker // Optional.
-	SchedulingPolicy       internalSchedulingPolicy     // Optional, will be extracted from Options if not specified.
+	SchedulingPolicy       scheduling.Policy            // Optional, will be extracted from Options if not specified.
 	KubeClient             scheduling.KubeClient        // Required for Kubernetes clusters. Ignored for others.
 
 	log                       logger.Logger
@@ -74,7 +74,7 @@ func (b *Provider) WithPlacer(sp scheduling.Placer) *Provider {
 	return b
 }
 
-func (b *Provider) WithSchedulingPolicy(sp internalSchedulingPolicy) *Provider {
+func (b *Provider) WithSchedulingPolicy(sp scheduling.Policy) *Provider {
 	b.SchedulingPolicy = sp
 	return b
 }
@@ -155,7 +155,7 @@ func (b *Provider) Validate() error {
 			return err
 		}
 
-		b.SchedulingPolicy = schedulingPolicy.(internalSchedulingPolicy)
+		b.SchedulingPolicy = schedulingPolicy
 	}
 
 	b.log.Debug("Successfully validated arguments for %s cluster.", b.ClusterType.String())

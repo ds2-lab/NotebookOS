@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
@@ -23,10 +24,10 @@ import (
 type BaseCluster struct {
 	instance internalCluster
 
-	// DisabledHosts is a map from host ID to *entity.Host containing all the Host instances that are currently set to "off".
+	// DisabledHosts is a map from host ID to *entity.Host containing all the host instances that are currently set to "off".
 	DisabledHosts hashmap.HashMap[string, scheduling.Host]
 
-	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
+	// hosts is a map from host ID to *entity.Host containing all the host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, scheduling.Host]
 
 	// sessions is a map of Sessions.
@@ -59,6 +60,19 @@ type BaseCluster struct {
 	numSuccessfulScaleInOps  int
 	numSuccessfulScaleOutOps int
 
+	// The initial size of the cluster.
+	// If more than this many Local Daemons connect during the 'initial connection period',
+	// then the extra nodes will be disabled until a scale-out event occurs.
+	//
+	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialClusterSize int
+
+	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of host instances we disabled
+	// during the initial connection period.
+	numHostsDisabledDuringInitialConnectionPeriod int
+
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
 
@@ -72,7 +86,7 @@ type BaseCluster struct {
 	MeanScaleInPerHost   time.Duration
 	StdDevScaleInPerHost time.Duration
 
-	// hostMutex controls external access to the internal Host mapping.
+	// hostMutex controls external access to the internal host mapping.
 	hostMutex sync.RWMutex
 
 	sessionsMutex sync.RWMutex
@@ -91,6 +105,16 @@ type BaseCluster struct {
 	maximumCapacity int32
 
 	closed atomic.Bool
+
+	// The initial connection period is the time immediately after the Cluster Gateway begins running during
+	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
+	// where N is the initial cluster size, then those extra daemons will be disabled.
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialConnectionPeriod time.Duration
+
+	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
+	inInitialConnectionPeriod atomic.Bool
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
@@ -117,6 +141,8 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		StdDevScaleOutPerHost:     time.Millisecond * time.Duration(opts.StdDevScaleOutPerHostSec*1000),
 		MeanScaleInPerHost:        time.Millisecond * time.Duration(opts.MeanScaleInPerHostSec*1000),
 		StdDevScaleInPerHost:      time.Millisecond * time.Duration(opts.StdDevScaleInPerHostSec*1000),
+		initialClusterSize:        opts.InitialClusterSize,
+		initialConnectionPeriod:   time.Second * time.Duration(opts.InitialClusterConnectionPeriodSec),
 	}
 	cluster.closed.Store(false)
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
@@ -143,7 +169,71 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		panic(err)
 	}
 
+	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
+	// setting inInitialConnectionPeriod to true and creating a goroutine to eventually set inInitialConnectionPeriod
+	// to false if the feature is enabled in the first place.
+	if cluster.initialClusterSize >= 0 {
+		cluster.inInitialConnectionPeriod.Store(true)
+
+		go cluster.handleInitialConnectionPeriod()
+	} else {
+		cluster.log.Debug("Initial Cluster Size specified as negative number (%d). "+
+			"Disabling 'initial connection period' feature.", cluster.initialClusterSize)
+		cluster.inInitialConnectionPeriod.Store(false) // It defaults to false, so this is unnecessary.
+	}
+
 	return cluster
+}
+
+// handleInitialConnectionPeriod first waits for the "initial connection period" to elapse, after which it sets the
+// ClusterGatewayImpl's inInitialConnectionPeriod field to false.
+//
+// After that, handleInitialConnectionPeriod invokes the ProvisionInitialPrewarmContainers method of the
+// scheduling.ContainerPrewarmer (if one exists).
+func (c *BaseCluster) handleInitialConnectionPeriod() {
+	c.log.Debug("Initial Connection Period will end in %v.", c.initialConnectionPeriod)
+
+	time.Sleep(c.initialConnectionPeriod)
+
+	c.inInitialConnectionPeriod.Store(false)
+
+	c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+		c.initialConnectionPeriod, c.Len())
+
+	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
+	prewarmer := c.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		c.log.Debug("No ContainerPrewarmer available.")
+		return
+	}
+
+	if c.opts.InitialNumContainersPerHost == 0 {
+		c.log.Debug("Not supposed to pre-warm any containers per host.")
+		return
+	}
+
+	c.log.Debug("Triggering initial pre-warming of %d container(s) on each connected host.",
+		c.opts.InitialNumContainersPerHost)
+
+	created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+	// If we were supposed to create some number of containers, and we created none, then that's problematic.
+	if created == 0 && target > 0 {
+		c.log.Error("Created 0/%d pre-warm containers...", created, target)
+		panic(fmt.Sprintf("Something is wrong. Failed to create any pre-warmed containers (target=%d).", target))
+	}
+
+	// Start the prewarmer when we return.
+	defer prewarmer.Run()
+
+	// If the target was 0, then return immediately to avoid printing the unnecessary log message below.
+	// We deferred `prewarmer.Run()`, so that'll run when we return.
+	if target == 0 {
+		return
+	}
+
+	c.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	// We deferred `prewarmer.Run()`, so that'll run when we return.
 }
 
 func (c *BaseCluster) initRatioUpdater() {
@@ -275,12 +365,12 @@ func (c *BaseCluster) Placer() scheduling.Placer {
 	return c.scheduler.Placer()
 }
 
-// ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
+// ReadLockHosts locks the underlying host manager such that no host instances can be added or removed.
 func (c *BaseCluster) ReadLockHosts() {
 	c.hostMutex.RLock()
 }
 
-// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of host instances.
 //
 // The caller must have already acquired the hostMutex or this function will fail panic.
 func (c *BaseCluster) ReadUnlockHosts() {
@@ -311,7 +401,7 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	return nil
 }
 
-// UpdateIndex updates the ClusterIndex that contains the specified Host.
+// UpdateIndex updates the ClusterIndex that contains the specified host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
 	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
 	if categoryMetadata == nil {
@@ -377,7 +467,7 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host scheduling.Host
 	}
 }
 
-// onDisabledHostAdded when a new Host is added to the Cluster in a disabled state,
+// onDisabledHostAdded when a new host is added to the Cluster in a disabled state,
 // meaning that it is intended to be unavailable unless we explicitly scale-out.
 func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 	if host.Enabled() {
@@ -411,7 +501,7 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 			index.Remove(host)
 		} else {
 			// Log level is set to warn because, as of right now, there are never any actual qualifications.
-			c.log.Warn("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+			c.log.Warn("host %s (ID=%s) is not qualified to be added to index '%s'.",
 				host.GetNodeName(), host.GetID(), index.Identifier())
 		}
 
@@ -541,7 +631,7 @@ func (c *BaseCluster) NumReplicas() int {
 	return c.scheduler.Policy().NumReplicas()
 }
 
-// RangeOverHosts executes the provided function on each Host in the Cluster.
+// RangeOverHosts executes the provided function on each host in the Cluster.
 func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) bool) {
 	c.hostMutex.RLock()
 	defer c.hostMutex.RUnlock()
@@ -557,14 +647,14 @@ func (c *BaseCluster) RangeOverSessions(f func(key string, value scheduling.User
 	c.sessions.Range(f)
 }
 
-// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
+// RangeOverDisabledHosts executes the provided function on each disabled host in the Cluster.
 //
 // Importantly, this function does NOT lock the hostsMutex.
 func (c *BaseCluster) RangeOverDisabledHosts(f func(key string, value scheduling.Host) bool) {
 	c.DisabledHosts.Range(f)
 }
 
-// RemoveHost removes the Host with the specified ID.
+// RemoveHost removes the host with the specified ID.
 func (c *BaseCluster) RemoveHost(hostId string) {
 	c.scalingOpMutex.Lock()
 
@@ -579,7 +669,7 @@ func (c *BaseCluster) RemoveHost(hostId string) {
 	}
 }
 
-// NumDisabledHosts returns the number of Host instances in the Cluster that are in the "disabled" state.
+// NumDisabledHosts returns the number of host instances in the Cluster that are in the "disabled" state.
 func (c *BaseCluster) NumDisabledHosts() int {
 	return c.DisabledHosts.Len()
 }
@@ -715,29 +805,29 @@ func (c *BaseCluster) DefaultOnScaleOperationFailed(op scheduling.ScaleOperation
 	}
 }
 
-// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+// MeanScaleOutTime returns the average time to scale-out and add a host to the Cluster.
 func (c *BaseCluster) MeanScaleOutTime() time.Duration {
 	return c.MeanScaleOutPerHost
 }
 
 // StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
-// and add a Host to the Cluster.
+// and add a host to the Cluster.
 func (c *BaseCluster) StdDevScaleOutTime() time.Duration {
 	return c.StdDevScaleOutPerHost
 }
 
-// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+// MeanScaleInTime returns the average time to scale-in and remove a host from the Cluster.
 func (c *BaseCluster) MeanScaleInTime() time.Duration {
 	return c.MeanScaleInPerHost
 }
 
 // StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
-// and remove a Host from the Cluster.
+// and remove a host from the Cluster.
 func (c *BaseCluster) StdDevScaleInTime() time.Duration {
 	return c.StdDevScaleInPerHost
 }
 
-// RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
+// RequestHosts requests n host instances to be launched and added to the Cluster, where n >= 1.
 //
 // If n is 0, then this returns immediately.
 //
@@ -866,7 +956,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	return promise.Resolved(result)
 }
 
-// ReleaseSpecificHosts terminates one or more specific Host instances.
+// ReleaseSpecificHosts terminates one or more specific host instances.
 func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) promise.Promise {
 	n := int32(len(ids))
 	currentNumNodes := int32(c.Len())
@@ -987,7 +1077,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	return promise.Resolved(result)
 }
 
-// ReleaseHosts terminates n arbitrary Host instances, where n >= 1.
+// ReleaseHosts terminates n arbitrary host instances, where n >= 1.
 //
 // If n is 0, then ReleaseHosts returns immediately.
 //
@@ -1123,7 +1213,7 @@ func (c *BaseCluster) EnableScalingOut() {
 	c.scheduler.Policy().ResourceScalingPolicy().EnableScalingOut()
 }
 
-// ScaleToSize scales the Cluster to the specified number of Host instances.
+// ScaleToSize scales the Cluster to the specified number of host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
@@ -1166,19 +1256,37 @@ func (c *BaseCluster) MetricsProvider() scheduling.MetricsProvider {
 	return c.metricsProvider
 }
 
-// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
-// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
+// NewHostAddedOrConnected should be called by an external entity when a new host connects to the Cluster Gateway.
+// NewHostAddedOrConnected handles the logic of adding the host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.
 func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
+
+	// If we're still in the "initial connection period" and we already have all the hosts we're supposed to have,
+	// then we'll disable this host before registering it.
+	if c.inInitialConnectionPeriod.Load() && c.Len() >= c.initialClusterSize {
+		c.numHostsDisabledDuringInitialConnectionPeriod += 1
+		c.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
+			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",
+			c.Len(), host.GetNodeName(), host.GetID(), c.numHostsDisabledDuringInitialConnectionPeriod)
+
+		err := host.Disable()
+
+		// As of right now, the only reason Disable will fail/return an error is if the host is already disabled.
+		if err != nil && !errors.Is(err, scheduling.ErrHostAlreadyDisabled) {
+			c.log.Error("Failed to disable newly-connected host %s (ID=%s) because: %v",
+				host.GetNodeName(), host.GetID(), err)
+			return err
+		}
+	}
 
 	if !host.Enabled() {
 		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.",
 			host.GetNodeName(), host.GetID())
 		err := c.onDisabledHostAdded(host)
 		if err != nil {
-			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v",
+			c.log.Error("Failed to add disabled host %s (ID=%s) to cluster because: %v",
 				host.GetNodeName(), host.GetID(), err)
 			return err
 		}
@@ -1187,7 +1295,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 		return nil
 	}
 
-	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
+	c.log.Debug("host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
 		host.GetNodeName(), host.GetID())
 
 	c.hostMutex.Lock()
@@ -1203,7 +1311,7 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	return nil
 }
 
-// GetHost returns the Host with the given ID, if one exists.
+// GetHost returns the host with the given ID, if one exists.
 func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 	return c.hosts.Load(hostId)
 }

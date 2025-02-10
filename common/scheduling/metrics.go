@@ -33,9 +33,21 @@ type PrometheusMetricsProvider interface {
 	PrometheusMetricsEnabled() bool
 }
 
+type ActiveExecutionProvider interface {
+	// IncrementNumActiveExecutions increments the global counter of the number of active executions.
+	IncrementNumActiveExecutions()
+
+	// DecrementNumActiveExecutions decrements the global counter of the number of active executions.
+	DecrementNumActiveExecutions()
+
+	// NumActiveExecutions returns the global number of active executions.
+	NumActiveExecutions() int32
+}
+
 type MetricsProvider interface {
 	PrometheusMetricsProvider
 	server.MessagingMetricsProvider
+	ActiveExecutionProvider
 
 	// IncrementResourceCountsForNewHost is intended to be called when a Host is added to the Cluster.
 	// IncrementResourceCountsForNewHost will increment the ClusterStatistics' resource counts

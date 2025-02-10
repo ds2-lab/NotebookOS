@@ -7,7 +7,7 @@ import (
 
 // ModificationCallback is a callback that can be registered on an index.
 // Registered IndexChangedCallback instances are invoked when their associated action occurs,
-// such as adding or removing a Host to/from the associated index.
+// such as adding or removing a host to/from the associated index.
 type ModificationCallback func(scheduling.Host)
 
 type CallbackManager struct {

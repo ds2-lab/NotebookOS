@@ -46,6 +46,10 @@ distributed_notebook_s3_bucket: "distributed-notebook-storage"
 distributed_notebook_aws_region: "us-east-1"
 distributed_notebook_idle_session_reclamation_enabled: true
 distributed_notebook_idle_session_reclamation_interval_sec: 1800
+distributed_notebook_prewarming_enabled: true
+distributed_notebook_min_prewarm_containers_per_host: 1
+distributed_notebook_max_prewarm_containers_per_host: 3
+distributed_notebook_prewarming_policy: maintain_minimum_capacity
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: redis

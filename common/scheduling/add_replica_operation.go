@@ -81,7 +81,7 @@ func (op *AddReplicaOperation) DataDirectory() string {
 
 // ToString
 func (op *AddReplicaOperation) String() string {
-	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,CreatedAt=%v,Completed=%v,NewPodName=%s,"+
+	return fmt.Sprintf("AddReplicaOperation[ID=%s,KernelID=%s,ReplicaID=%d,createdAt=%v,Completed=%v,NewPodName=%s,"+
 		"PersistentID=%s,NewPodOrContainerStarted=%v,NewPodOrContainerName=%s,NewReplicaRegistered=%v,NewReplicaJoinedSmr=%v]",
 		op.id, op.kernelId, op.smrNodeId, op.createdAt, op.Completed(), op.podOrContainerName, op.persistentId,
 		op.podOrContainerStarted, op.podOrContainerName, op.replicaRegistered, op.replicaJoinedSMR)
@@ -212,7 +212,7 @@ func (op *AddReplicaOperation) SetReplicaRegistered() error {
 	return nil
 }
 
-// KernelSpec Returns the *gateway.KernelReplicaSpec for the new replica that is created during the add operation.
+// KernelSpec Returns the *gateway.kernelReplicaSpec for the new replica that is created during the add operation.
 func (op *AddReplicaOperation) KernelSpec() *proto.KernelReplicaSpec {
 	return op.spec
 }

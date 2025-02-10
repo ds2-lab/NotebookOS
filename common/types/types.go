@@ -18,6 +18,10 @@ const (
 
 type DeploymentMode string
 
+func (d DeploymentMode) String() string {
+	return string(d)
+}
+
 type Contextable interface {
 	Context() context.Context
 	SetContext(context.Context)

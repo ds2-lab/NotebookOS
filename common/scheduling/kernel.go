@@ -62,6 +62,30 @@ type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.Jupyter
 
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
+type CallbackProvider interface {
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
+	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
+	// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
+	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+	// so that a relevant Prometheus metric can be updated.
+	ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string)
+
+	// ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
+	ExecutionFailedCallback(c Kernel, executeRequestMsg *messaging.JupyterMessage) error
+
+	NotificationCallback(title string, content string, notificationType messaging.NotificationType)
+
+	// IncrementNumActiveExecutions increments the global counter of the number of active executions.
+	IncrementNumActiveExecutions()
+
+	// DecrementNumActiveExecutions decrements the global counter of the number of active executions.
+	DecrementNumActiveExecutions()
+
+	// NumActiveExecutions returns the global number of active executions.
+	NumActiveExecutions() int32
+}
+
 // CreateReplicaContainersAttempt is similar to kernelDescheduleAttempt, but CreateReplicaContainersAttempt is used
 // to keep track of a kernel whose kernel replicas and kernel containers are being created, rather than removed.
 type CreateReplicaContainersAttempt interface {
@@ -260,6 +284,15 @@ type Kernel interface {
 	// training ended.
 	LastTrainingEndedAt() time.Time
 
+	// HasActiveTraining returns true if the target Kernel has an active training -- meaning that the Kernel has
+	// submitted an "execute_request" and is still awaiting a response.
+	//
+	// Having an "active" training does not necessarily mean that the Kernel is running code right now.
+	// It simply means that an execution has been submitted to the Kernel.
+	//
+	// Having an active training prevents a Kernel from being idle-reclaimed.
+	HasActiveTraining() bool
+
 	// IsTraining returns true if one of the target Kernel's KernelReplica instances is actively training.
 	IsTraining() bool
 
@@ -272,13 +305,13 @@ type Kernel interface {
 	// BeginSchedulingReplicaContainers will return false and nil.
 	BeginSchedulingReplicaContainers() (bool, CreateReplicaContainersAttempt)
 
-	// PlacementBeganSchedulingReplicaContainers is called while scheduling the KernelContainer instances for the
+	// RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 	// KernelReplica instances of the target Kernel.
 	//
 	// Specifically, PlacementBeganSchedulingReplicaContainers is called to signal that N viable Host instances have
 	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 	// of the target Kernel.
-	ContainerPlacementStarted()
+	RecordContainerPlacementStarted()
 }
 
 type KernelReplica interface {
@@ -371,4 +404,16 @@ type KernelReplica interface {
 	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
+	// IOSubSocketPort return the Port of the IO Socket of the target KernelReplica's client.
+	IOSubSocketPort() int
+
+	// WasPrewarmContainer returns true if the target KernelReplicaClient was originally a pre-warmed container.
+	WasPrewarmContainer() bool
+
+	// ContainerType returns the current ContainerType of the (KernelContainer of the) target KernelReplica.
+	ContainerType() ContainerType
+
+	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
+	// to a StandardContainer.
+	PromotePrewarmContainer(spec *proto.KernelReplicaSpec) error
 }

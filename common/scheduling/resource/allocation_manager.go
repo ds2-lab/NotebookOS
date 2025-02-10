@@ -226,7 +226,7 @@ type AllocationManager struct {
 	// by this AllocationManager.
 	resourceManager *Manager
 
-	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
+	// availableGpuDevices is a queue.ThreadsafeFifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
 	metricsManager *metrics.LocalDaemonPrometheusManager
@@ -2278,7 +2278,7 @@ func (m *AllocationManager) commitGpuDeviceIds(allocation scheduling.Allocation,
 	availableGpuDevices := m.availableGpuDevices.ToSlice()
 	setDifference, isSubset := utils.SetDifferenceIfSubset(availableGpuDevices, gpuDeviceIds)
 	if !isSubset {
-		m.log.Error("1 or more specified GPU device IDs are unavailable. Available: %v. Specified: %v.",
+		m.log.Error("1 or more specified GPU device IDs are unavailable. available: %v. Specified: %v.",
 			availableGpuDevices, gpuDeviceIds)
 
 		panic("One or more specified GPU device IDs are unavailable.")

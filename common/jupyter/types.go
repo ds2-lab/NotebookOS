@@ -167,6 +167,10 @@ type DistributedKernelConfig struct {
 	SimulateWriteAfterExecOnCriticalPath bool                 `json:"simulate_write_after_execute_on_critical_path"` // Should the simulated network write after executing code be on the critical path?
 	SmrEnabled                           bool                 `json:"smr_enabled"`
 	SimulateTrainingUsingSleep           bool                 `json:"simulate_training_using_sleep"`
+
+	// PrewarmContainer indicates that the registering Kernel was created to be a pre-warmed container,
+	// and not directly for use when a specific Kernel that has already been created by a user.
+	PrewarmContainer bool `json:"prewarm_container"`
 }
 
 func (c DistributedKernelConfig) String() string {

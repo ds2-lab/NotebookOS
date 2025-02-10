@@ -101,6 +101,9 @@ type KernelScheduler interface {
 	// the requirements. If the requirements were to change after selection a replica, then
 	// that could invalidate the selection.
 	FindReadyReplica(kernel Kernel, executionId string) (KernelReplica, error)
+
+	// ContainerPrewarmer returns the ContainerPrewarmer used by the BaseScheduler.
+	ContainerPrewarmer() ContainerPrewarmer
 }
 
 type HostScheduler interface {

@@ -103,8 +103,8 @@ func (placer *GandivaPlacer) NumHostsInIndex() int {
 	return placer.Len()
 }
 
-// findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
-// on each Host until either the requested number of Host instances has been found, or until all Host
+// findHosts iterates over the host instances in the index, attempting to reserve the requested resources
+// on each host until either the requested number of host instances has been found, or until all host
 // instances have been checked.
 func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.KernelSpec, numHosts int, forTraining bool,
 	metrics ...[]float64) ([]scheduling.Host, error) {
@@ -130,7 +130,7 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 	return hosts, err
 }
 
-// FindHost returns a single Host instance that can satisfy the resourceSpec.
+// FindHost returns a single host instance that can satisfy the resourceSpec.
 func (placer *GandivaPlacer) findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
 	metrics ...[]float64) (scheduling.Host, error) {
 

@@ -1779,6 +1779,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.KernelReplicaSpec.SerializeToString,
                 response_deserializer=gateway__pb2.KernelConnectionInfo.FromString,
                 _registered_method=True)
+        self.PromotePrewarmedContainer = channel.unary_unary(
+                '/gateway.LocalGateway/PromotePrewarmedContainer',
+                request_serializer=gateway__pb2.PrewarmedKernelReplicaSpec.SerializeToString,
+                response_deserializer=gateway__pb2.KernelConnectionInfo.FromString,
+                _registered_method=True)
         self.GetKernelStatus = channel.unary_unary(
                 '/gateway.LocalGateway/GetKernelStatus',
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
@@ -1887,6 +1892,14 @@ class LocalGatewayServicer(object):
 
     def StartKernelReplica(self, request, context):
         """StartKernelReplica starts a kernel replica on the local host.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PromotePrewarmedContainer(self, request, context):
+        """PromotePrewarmedContainer is similar to StartKernelReplica, except that PromotePrewarmedContainer launches the new
+        kernel using an existing, pre-warmed container that is already available on this host.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -2040,6 +2053,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'StartKernelReplica': grpc.unary_unary_rpc_method_handler(
                     servicer.StartKernelReplica,
                     request_deserializer=gateway__pb2.KernelReplicaSpec.FromString,
+                    response_serializer=gateway__pb2.KernelConnectionInfo.SerializeToString,
+            ),
+            'PromotePrewarmedContainer': grpc.unary_unary_rpc_method_handler(
+                    servicer.PromotePrewarmedContainer,
+                    request_deserializer=gateway__pb2.PrewarmedKernelReplicaSpec.FromString,
                     response_serializer=gateway__pb2.KernelConnectionInfo.SerializeToString,
             ),
             'GetKernelStatus': grpc.unary_unary_rpc_method_handler(
@@ -2209,6 +2227,33 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/StartKernelReplica',
             gateway__pb2.KernelReplicaSpec.SerializeToString,
+            gateway__pb2.KernelConnectionInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PromotePrewarmedContainer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/PromotePrewarmedContainer',
+            gateway__pb2.PrewarmedKernelReplicaSpec.SerializeToString,
             gateway__pb2.KernelConnectionInfo.FromString,
             options,
             channel_credentials,

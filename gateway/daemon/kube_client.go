@@ -410,7 +410,7 @@ func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	c.log.Debug("Creating Kubernetes resources for kernel %s [Session: %s].", kernel.Id, kernel.Session)
 
-	// Prepare the *jupyter.ConnectionInfo.
+	// Prepare the *jupyter.connectionInfo.
 	connectionInfo, err := c.prepareConnectionFileContents(kernel)
 	if err != nil {
 		c.log.Error("Error while preparing connection file: %v.\n", err)
@@ -479,7 +479,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // }
 
 // // TODO(Ben): Will need some sort of concurrency control -- like if we try to migrate two replicas at once, then we'd need to account for this.
-// func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.distributedKernelClientImpl, targetSmrNodeId int32, newSpec *gateway.KernelReplicaSpec) (string, error) {
+// func (c *BasicKubeClient) InitiateKernelMigration(ctx context.Context, targetClient *client.distributedKernelClientImpl, targetSmrNodeId int32, newSpec *gateway.kernelReplicaSpec) (string, error) {
 // 	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
 // }
 
@@ -1506,6 +1506,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 			RemoteStorage:           c.remoteStorage,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         "", // This is only used in Docker mode.
+			PrewarmContainer:        spec.PrewarmContainer,
 		},
 	}
 	if spec.PersistentId != nil {

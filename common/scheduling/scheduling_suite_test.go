@@ -20,13 +20,13 @@ func init() {
 	}
 }
 
-func TestScheduling(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Scheduling Suite")
-}
-
 var _ = BeforeSuite(func() {
 	if debugLoggingEnabled {
 		config.LogLevel = logger.LOG_LEVEL_ALL
 	}
 })
+
+func TestScheduling(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Scheduling Suite")
+}
