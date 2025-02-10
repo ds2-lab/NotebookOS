@@ -4116,7 +4116,7 @@ func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *mes
 	// Validate that the message is of the proper type.
 	if jMsg.JupyterMessageType() != messaging.ShellExecuteRequest {
 		return fmt.Errorf("%w: expected message of type \"%s\"; however, message \"%s\" targeting kernel \"%s\" is of type \"%s\"",
-			client.ErrInvalidMessage, messaging.ShellExecuteRequest, jMsg.JupyterMessageId(), targetReplica.ID(), jMsg.JupyterMessageType())
+			client.ErrInvalidExecuteRegistrationMessage, messaging.ShellExecuteRequest, jMsg.JupyterMessageId(), targetReplica.ID(), jMsg.JupyterMessageType())
 	}
 
 	// Deserialize the message's metadata frame into a dictionary.

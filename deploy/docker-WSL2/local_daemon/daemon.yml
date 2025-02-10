@@ -32,7 +32,7 @@ notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 scheduler-http-port: 8078
 idle-session-reclamation-policy: none
-scheduling-policy: fcfs-batch
+scheduling-policy: middle-ground
 # scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72

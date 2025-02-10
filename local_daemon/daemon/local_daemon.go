@@ -3394,20 +3394,16 @@ func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaIn
 		return nil
 	}
 
-	if typ == messaging.ShellMessage {
-		// _, header, offset, err := jupyter.HeaderFromMsg(msg)
-		// if err != nil {
-		// 	d.log.Error("Failed to extract header from %v message for kernel %s because: %v", typ, from.ID(), err)
-		// } else if header.MsgType == messaging.ShellExecuteReply {
-		// 	d.processExecuteReply(msg, from, offset)
-		// }
-
-		if msg.JupyterMessageType() == messaging.ShellExecuteReply {
-			err := d.processExecuteReply(msg, from)
-			if err != nil {
-				d.log.Error("Error while processing 'execute_reply' message from %s: %v", from.String(), err)
-				return err
-			}
+	if typ == messaging.ShellMessage && msg.JupyterMessageType() == messaging.ShellExecuteReply {
+		err := d.processExecuteReply(msg, from)
+		if err != nil {
+			d.log.Error("Error while processing 'execute_reply' message from %s: %v", from.String(), err)
+			return err
+		}
+	} else if typ == messaging.ControlMessage && msg.JupyterMessageType() == messaging.ControlResetKernelReply {
+		err := d.processResetKernelReply(from.(scheduling.KernelReplica), msg)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -3437,6 +3433,83 @@ func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaIn
 	}
 
 	return nil // Will be nil on success.
+}
+
+// processResetKernelReply processes a "kernel_reset_reply" message from the given kernel.
+func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+	d.log.Debug("Received control \"%s\" message from replica %d of kernel \"%s\".",
+		msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
+
+	// Decode the message's content.
+	var content map[string]interface{}
+	err := msg.JupyterFrames.DecodeContent(&content)
+	if err != nil {
+		d.log.Error("Unable to decode content of control \"%s\" message from replica %d of kernel \"%s\": %v",
+			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID(), err)
+		return err
+	}
+
+	// If there's no "status" etry in the request body, then that's a problem. There should be.
+	val, ok := content["status"]
+	if !ok {
+		d.log.Error("Unexpected response for control \"%s\" message from replica %d of kernel \"%s\": %v",
+			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID(), msg.JupyterFrames.StringFormatted())
+		return fmt.Errorf("unexpected response body for control \"%s\" message from replica %d of kernel \"%s\"",
+			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
+	}
+
+	respStatus := val.(string)
+
+	// If there was an error, then we'll just stop processing and forward the response.
+	if respStatus != messaging.MessageStatusOK {
+		// TODO: Do we want to do anything in response to the error? For now, we don't.
+		d.log.Warn("Received control \"%s\" from replica %d of kernel \"%s\" with error in body: %v",
+			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID(), msg.JupyterFrames.StringFormatted())
+		return nil
+	}
+
+	val, _ = content["prewarm_container"]
+	isPrewarmContainer := val.(bool)
+
+	// If the container was not converted to a pre-warm container, then we can just return.
+	if !isPrewarmContainer {
+		d.log.Debug("Replica %d of kernel \"%s\" is still a %v container -- only the user namespace was reset.",
+			kernel.ReplicaID(), kernel.ID(), scheduling.StandardContainer)
+		return nil
+	}
+
+	prewarmContainerId := content["kernel_id"].(string)
+	d.log.Debug("Replica %d of kernel \"%s\" was converted to a %s container with ID=\"%s\".",
+		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
+
+	// Update the mappings.
+	d.kernels.Delete(kernel.ID())
+	d.prewarmKernels.Store(prewarmContainerId, kernel.(*client.KernelReplicaClient))
+
+	prevReplicaId := kernel.ReplicaID()
+	prevKernelId := kernel.ID()
+
+	// Demote.
+	err = kernel.DemoteStandardContainer(prewarmContainerId)
+	if err != nil {
+		d.log.Error("Failed to demote replica %d of kernel \"%s\" to %s container with ID=\"%s\" because: %v",
+			prevReplicaId, prevKernelId, prewarmContainerId, err)
+
+		return err
+	}
+
+	// Release any resources.
+	// TODO: I suspect there are cases where the resources will have already been released.
+	// 		 In those cases, this should not be an error.
+	err = d.allocationManager.ReplicaEvicted(prevReplicaId, prevKernelId)
+	if err != nil {
+		d.log.Error("AllocationManager failed to release resources with now-demoted replica %d of kernel \"%s\" (prewarm ID=\"%s\"): %v",
+			prevReplicaId, prevKernelId, prewarmContainerId, err)
+
+		return err
+	}
+
+	return nil
 }
 
 func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, frames *messaging.JupyterFrames, _ *messaging.JupyterMessage) error {

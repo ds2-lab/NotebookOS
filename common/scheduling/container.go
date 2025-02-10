@@ -76,6 +76,10 @@ type KernelContainer interface {
 	// to a StandardContainer.
 	PrewarmContainerPromoted(kernelId string, replicaId int32, spec types.Spec) error
 
+	// StandardContainerDemoted is used to demote a KernelContainer whose ContainerType is StandardContainer
+	// to a PrewarmContainer.
+	StandardContainerDemoted(prewarmContainerId string) error
+
 	// SetHost sets the scheduling.Host of the Container.
 	SetHost(host Host)
 

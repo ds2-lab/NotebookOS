@@ -2414,6 +2414,7 @@ class DistributedKernel(IPythonKernel):
             "status": "ok",
             "id": 0,
             "kernel_id": prewarm_container_id,
+            "prewarm_container": True,
         }, True
 
     async def reset_kernel_request(self, stream, ident, parent):
@@ -2432,8 +2433,16 @@ class DistributedKernel(IPythonKernel):
         # Otherwise, we'll just reset the user namespace.
         if revert_to_prewarm:
             reply_content, ok = await self.__revert_to_prewarm(prewarm_container_id= kernel_id)
+
+            # Make sure this entry is present.
+            if ok:
+                reply_content["prewarm_container"] = True
         else:
             reply_content, ok = await self.__reset_user_namespace_state()
+
+            # Make sure this entry is present.
+            if ok:
+                reply_content["prewarm_container"] = False
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent, -1

@@ -247,7 +247,7 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
+func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
@@ -277,7 +277,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
+func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
 	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err
@@ -368,6 +368,20 @@ func (c *Container) PrewarmContainerPromoted(kernelId string, replicaId int32, s
 	c.replicaId = replicaId
 	c.spec = types.ToDecimalSpec(spec)
 	c.id = kernelId
+
+	return nil
+}
+
+// StandardContainerDemoted is used to demote a KernelContainer whose ContainerType is StandardContainer
+// to a PrewarmContainer.
+func (c *Container) StandardContainerDemoted(prewarmContainerId string) error {
+	if c.KernelReplica.ContainerType() != scheduling.StandardContainer {
+		return fmt.Errorf("%w: cannot demote container for replica %d of kernel %s as it is of type '%s'",
+			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.KernelReplica.ContainerType().String())
+	}
+
+	c.replicaId = 0
+	c.id = prewarmContainerId
 
 	return nil
 }

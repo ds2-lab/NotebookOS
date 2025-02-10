@@ -19,7 +19,7 @@ import (
 // or a "yield_request" message.
 func validateRequest(msg *messaging.JupyterMessage) error {
 	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
-		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidMessage, msg.JupyterMessageType())
+		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidExecuteRegistrationMessage, msg.JupyterMessageType())
 	}
 
 	return nil
@@ -29,7 +29,7 @@ func validateRequest(msg *messaging.JupyterMessage) error {
 func validateReply(msg *messaging.JupyterMessage) error {
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
 		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
-			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
+			ErrInvalidExecuteRegistrationMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
 	}
 
 	return nil
@@ -443,7 +443,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessage, kernelReplica scheduling.KernelReplica) error {
 	if msg.JupyterMessageType() != messaging.MessageTypeSMRLeadTask {
 		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
-			ErrInvalidMessage, messaging.MessageTypeSMRLeadTask, msg.JupyterMessageType())
+			ErrInvalidExecuteRegistrationMessage, messaging.MessageTypeSMRLeadTask, msg.JupyterMessageType())
 	}
 
 	m.log.Debug(utils.LightBlueStyle.Render("Received \"%s\" message from %v: %s"),
