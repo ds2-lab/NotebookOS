@@ -437,11 +437,6 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				curr, prov := prewarmer.HostLen(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
-
-				container, err := prewarmer.RequestPrewarmedContainer(host)
-				Expect(err).To(BeNil())
-				Expect(container).ToNot(BeNil())
-				Expect(container.Host()).To(Equal(host))
 			}
 
 			// Request container from Host #1.
@@ -455,20 +450,6 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			currHost1, provHost1 := prewarmer.HostLen(hosts[1])
 			Expect(provHost1).To(Equal(0))
 			Expect(currHost1).To(Equal(1))
-
-			prepareNextRunIter(1) // Set numActiveExec to 1 since we are using a container
-			guardChan <- struct{}{}
-
-			// Wait for prewarmer to call StartKernelReplica on each host.
-			preRunWg.Wait()
-
-			// This should occur immediately, essentially.
-			Eventually(func() bool {
-				return prewarmer.TotalNumProvisioning() > 0
-			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
-
-			// Wait for calls to StartKernelReplica and whatnot to finish.
-			postRunWg.Wait()
 		})
 
 		Context("Initial Capacity", func() {

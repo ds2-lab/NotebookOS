@@ -44,6 +44,10 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 	// createAndInitializePrewarmer initializes the existing prewarmer variable defined above.
 	createAndInitializePrewarmer := func(initSize, minSize, maxSize int) {
+		if maxSize < minSize {
+			panic("Max size is less than min size.")
+		}
+
 		prewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
 			PrewarmerConfig:               prewarm.NewPrewarmerConfig(initSize, maxSize, 0 /* Default of 5sec will be used */),
 			MinPrewarmedContainersPerHost: minSize,
@@ -263,7 +267,350 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 		})
 
 		It("Will correctly maintain the size of the warm container pool", func() {
+			numHosts := 2
+			initialCapacity := 1
+			minCapacity := 2
+			maxCapacity := 4
 
+			mockCluster.EXPECT().Len().AnyTimes().Return(numHosts)
+			createAndInitializePrewarmer(initialCapacity, minCapacity, maxCapacity)
+
+			By("Correctly provisioning the initial round of prewarm containers")
+
+			hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+			Expect(len(hosts)).To(Equal(numHosts))
+			Expect(len(localGatewayClients)).To(Equal(numHosts))
+
+			mockCluster.
+				EXPECT().
+				RangeOverHosts(gomock.Any()).
+				Times(1).
+				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+					for idx, host := range hosts {
+						connInfo := &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}
+
+						localGatewayClient := localGatewayClients[idx]
+						localGatewayClient.
+							EXPECT().
+							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+							Times(1).
+							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								return connInfo, nil
+							})
+
+						f(host.GetID(), host)
+					}
+				})
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
+
+			Expect(prewarmer.Len()).To(Equal(initialCapacity * numHosts))
+
+			By("Provisioning additional pre-warm containers according to the MinCapacity policy")
+
+			minCapacityPrewarmer, ok := prewarmer.(*prewarm.MinCapacityPrewarmer)
+			Expect(ok).To(BeTrue())
+			Expect(minCapacityPrewarmer).ToNot(BeNil())
+
+			guardChan := make(chan struct{})
+			minCapacityPrewarmer.GuardChannel = guardChan
+
+			var preRunWg, postRunWg sync.WaitGroup
+
+			// Set up mocked calls for next iteration of the Run method.
+			prepareNextRunIter := func() {
+				postRunWg.Add(numHosts)
+				preRunWg.Add(numHosts)
+
+				mockCluster.
+					EXPECT().
+					RangeOverHosts(gomock.Any()).
+					Times(1).
+					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+						for _, host := range hosts {
+							preRunWg.Done()
+							f(host.GetID(), host)
+							postRunWg.Done()
+						}
+					})
+			}
+
+			// Used to block the calls to StartKernelReplica until we allow them through.
+			var startKernelWg sync.WaitGroup
+
+			prepareNextRunIter()
+			startKernelWg.Add(1)
+
+			// Prepare calls.
+			for i := 0; i < numHosts; i++ {
+				localGatewayClients[i].
+					EXPECT().
+					StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+					Times(1).
+					DoAndReturn(
+						func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+							time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+							n := 128
+
+							startKernelWg.Wait()
+
+							return &proto.KernelConnectionInfo{
+								Ip:              fmt.Sprintf("10.%d.%d.%d", i, rand.Intn(n), rand.Intn(n)),
+								Transport:       "tcp",
+								ControlPort:     9000,
+								ShellPort:       9001,
+								StdinPort:       9002,
+								HbPort:          9003,
+								IopubPort:       9004,
+								IosubPort:       9005,
+								SignatureScheme: jupyter.JupyterSignatureScheme,
+								Key:             uuid.NewString(),
+							}, nil
+						})
+			}
+
+			go func() {
+				defer GinkgoRecover()
+				err := prewarmer.Run()
+				Expect(err).To(BeNil())
+			}()
+
+			// Wait for prewarmer to begin running.
+			Eventually(prewarmer.IsRunning, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
+
+			// Wait for prewarmer to call StartKernelReplica on each prov.
+			preRunWg.Wait()
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				return prewarmer.TotalNumProvisioning() > 0
+			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				for i := 0; i < numHosts; i++ {
+					curr, prov := prewarmer.HostLen(hosts[i])
+
+					if curr != 1 {
+						return false
+					}
+
+					if prov != 1 {
+						return false
+					}
+				}
+
+				return true
+			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
+
+			// Let the calls to StartKernelReplica through.
+			startKernelWg.Done()
+
+			// Wait for calls to StartKernelReplica and whatnot to finish.
+			postRunWg.Wait()
+
+			// This should occur more or less immediately.
+			Eventually(func() bool {
+				return prewarmer.Len() == 4
+			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
+
+			// Done provisioning.
+			for _, host := range hosts {
+				curr, prov := prewarmer.HostLen(host)
+				Expect(curr).To(Equal(2))
+				Expect(prov).To(Equal(0))
+			}
+
+			//////////////////////////////////////////////
+			//////////////////////////////////////////////
+			// Request 1 pre-warm container from Host 1 //
+			//////////////////////////////////////////////
+			//////////////////////////////////////////////
+
+			// Request container from Host #1.
+			container, err := prewarmer.RequestPrewarmedContainer(hosts[1])
+			Expect(err).To(BeNil())
+			Expect(container).ToNot(BeNil())
+			Expect(container.Host()).To(Equal(hosts[1]))
+
+			container.OnPrewarmedContainerUsed()
+			Expect(prewarmer.Len()).To(Equal(3))
+			curr, prov := prewarmer.HostLen(hosts[1])
+			Expect(prov).To(Equal(0))
+			Expect(curr).To(Equal(1))
+
+			prepareNextRunIter()
+			startKernelWg.Add(1)
+			localGatewayClients[1].
+				EXPECT().
+				StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+				Times(1).
+				DoAndReturn(
+					func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+						time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+						n := 128
+
+						startKernelWg.Wait()
+
+						return &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.1.%d.%d", rand.Intn(n), rand.Intn(n)),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}, nil
+					})
+
+			guardChan <- struct{}{}
+
+			preRunWg.Wait()
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				return prewarmer.TotalNumProvisioning() > 0
+			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				curr, prov := prewarmer.HostLen(hosts[1])
+
+				if curr != 1 {
+					return false
+				}
+
+				if prov != 1 {
+					return false
+				}
+
+				return true
+			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
+
+			// Let the calls to StartKernelReplica through.
+			startKernelWg.Done()
+
+			// Wait for calls to StartKernelReplica and whatnot to finish.
+			postRunWg.Wait()
+
+			// This should occur more or less immediately.
+			Eventually(func() bool {
+				return prewarmer.Len() == 4
+			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
+
+			// Done provisioning.
+			for _, host := range hosts {
+				curr, prov := prewarmer.HostLen(host)
+				Expect(curr).To(Equal(2))
+				Expect(prov).To(Equal(0))
+			}
+
+			///////////////////////////////////////////////
+			///////////////////////////////////////////////
+			// Request 2 pre-warm containers from Host 0 //
+			///////////////////////////////////////////////
+			///////////////////////////////////////////////
+
+			// Request 2 containers from Host #1.
+			for i := 0; i < 2; i++ {
+				container, err = prewarmer.RequestPrewarmedContainer(hosts[0])
+				Expect(err).To(BeNil())
+				Expect(container).ToNot(BeNil())
+				Expect(container.Host()).To(Equal(hosts[0]))
+
+				container.OnPrewarmedContainerUsed()
+				Expect(prewarmer.Len()).To(Equal(4 - (i + 1)))
+				curr, prov = prewarmer.HostLen(hosts[0])
+				Expect(prov).To(Equal(0))
+				Expect(curr).To(Equal(2 - (i + 1)))
+			}
+
+			prepareNextRunIter()
+			startKernelWg.Add(1)
+			localGatewayClients[0].
+				EXPECT().
+				StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+				Times(2).
+				DoAndReturn(
+					func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+						time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+						n := 128
+
+						startKernelWg.Wait()
+
+						return &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.0.%d.%d", rand.Intn(n), rand.Intn(n)),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}, nil
+					})
+
+			guardChan <- struct{}{}
+
+			preRunWg.Wait()
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				return prewarmer.TotalNumProvisioning() == 2
+			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
+
+			// This should occur immediately, essentially.
+			Eventually(func() bool {
+				curr, prov := prewarmer.HostLen(hosts[0])
+
+				if curr != 0 {
+					return false
+				}
+
+				if prov != 2 {
+					return false
+				}
+
+				return true
+			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
+
+			// Let the calls to StartKernelReplica through.
+			startKernelWg.Done()
+
+			// Wait for calls to StartKernelReplica and whatnot to finish.
+			postRunWg.Wait()
+
+			// This should occur more or less immediately.
+			Eventually(func() bool {
+				return prewarmer.Len() == 4
+			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
+
+			// Done provisioning.
+			for _, host := range hosts {
+				curr, prov := prewarmer.HostLen(host)
+				Expect(curr).To(Equal(2))
+				Expect(prov).To(Equal(0))
+			}
 		})
 
 		Context("Initial Capacity", func() {
