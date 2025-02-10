@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import faulthandler
 import inspect
 import json
 import logging
-import math
 import os
 import random
 import signal
 import socket
-import sys
-import time
 import traceback
 import typing as t
 import uuid
@@ -20,11 +16,15 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any
+from typing import Union, Optional, Dict, Any, Tuple
 
 import debugpy
+import faulthandler
 import grpc
+import math
 import numpy as np
+import sys
+import time
 import zmq
 from IPython.core.interactiveshell import ExecutionResult
 from ipykernel import jsonutil
@@ -378,9 +378,9 @@ class DistributedKernel(IPythonKernel):
     )
 
     prewarm_container: Bool = (Bool(False,
-                                        help="Indicates whether this Kernel was created to serve as a pre-warm container, "
-                                             "or if it was created as an actual kernel container.").
-                                    tag(config=True))
+                                    help="Indicates whether this Kernel was created to serve as a pre-warm container, "
+                                         "or if it was created as an actual kernel container.").
+                               tag(config=True))
 
     # Indicates whether we should embed Election metadata in "execute_reply" messages.
     include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
@@ -424,6 +424,7 @@ class DistributedKernel(IPythonKernel):
             "stop_running_training_code_request",
             "ping_kernel_ctrl_request",
             "promote_prewarm_request",
+            "reset_kernel_request",
         ]
 
         self.msg_types = [
@@ -2217,7 +2218,6 @@ class DistributedKernel(IPythonKernel):
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(write_time_sec * 1e3)
 
-
         self.synchronizer.clear_sync_time()
         self._remote_checkpointer.storage_provider.clear_statistics()
         self.synclog.clear_restoration_time()
@@ -2304,6 +2304,106 @@ class DistributedKernel(IPythonKernel):
         if self.prometheus_enabled:
             self.execute_request_latency.observe(duration_ms)
 
+    def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
+        """
+        Reset the user namespace.
+        :return:
+        """
+        self.log.warning("Resetting user namespace.")
+
+        prev_size: int = len(self.shell.user_ns)
+
+        # Clear the user namespace
+        self.shell.user_ns.clear()
+
+        # Restore essential built-ins
+        self.shell.init_user_ns()
+
+        self.log.warning(f"The user namespace has been reset. "
+                         f"Removed {len(self.shell.user_ns) - prev_size} variable(s).")
+
+        return {
+            "status": "ok",
+            "id": self.smr_node_id,
+            "kernel_id": self.kernel_id,
+        }, True
+
+    async def __revert_to_prewarm(self, kernel_id: Optional[str] = None) -> Tuple[dict, bool]:
+        """
+        Revert to prewarm mode.
+
+        :param kernel_id: prewarm kernel ID to use. If unspecified, then a random ID will be generated.
+        """
+        self.log.warning(f"Reverting to PREWARM mode. KernelID={kernel_id}.")
+
+        # When using RaftLog, we must first stop the SyncLog (RaftLog) before copying the data directory.
+        #
+        # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
+
+        # Step 1: stop the sync log
+        intermediate_resp, ok = await self.__close_synclog()
+        if not ok:
+            return intermediate_resp, False
+
+        # Step 2: copy the data directory to RemoteStorage
+        intermediate_resp, ok = await self.__write_synclog_data_dir_to_remote_storage()
+        if not ok:
+            await self.__close_synclog_remote_storage_client()
+            return intermediate_resp, False
+
+        # Step 3: close the SyncLog's remote storage client if we haven't done so already.
+        if isinstance(self.synclog, RaftLog):
+            # We'll ignore any errors at this stage.
+            await self.__close_synclog_remote_storage_client()
+
+        self.log.debug("Closing Synchronizer")
+        self.synchronizer.close()
+
+        self.synchronizer = None
+        self.synclog = None
+
+        self.__reset_user_namespace_state()
+
+        return {
+            "status": "ok",
+            "id": self.smr_node_id,
+            "kernel_id": self.kernel_id,
+        }, True
+
+    async def reset_kernel_request(self, stream, ident, parent):
+        """
+        reset_request is used to reset the user namespace/state of the DistributedKernel.
+
+        It can optionally be used to revert a "standard" DistributedKernel back to a "prewarm" DistributedKernel.
+        """
+        content = parent.get("content", {})
+        self.log.debug(f"Received RESET request\n{json.dumps(content, indent=2)}")
+
+        revert_to_prewarm: bool = content.get("revert_to_prewarm", False)
+        kernel_id: Optional[str] = content.get("kernel_id", None)
+
+        # If we're supposed to revert to prewarm, then do that.
+        # Otherwise, we'll just reset the user namespace.
+        if revert_to_prewarm:
+            reply_content, ok = await self.__revert_to_prewarm(kernel_id = kernel_id)
+        else:
+            reply_content, ok = self.__reset_user_namespace_state()
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "reset_kernel_reply",
+            reply_content,
+            parent,
+            metadata={},
+            buffers=buffers,
+            ident=ident,
+        )
+
+        self.log.debug(f'Sent "reset_kernel_reply" message: {reply_msg}')
+
     async def promote_prewarm_request(self, stream, ident, parent):
         """
         Handle requests to promote ourselves to a standard container.
@@ -2318,7 +2418,8 @@ class DistributedKernel(IPythonKernel):
 
         if not self.prewarm_container:
             self.log.error(f"We are NOT a pre-warm container...")
-            self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container", "")
+            self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container",
+                              "")
             return
 
         self.log.debug(f'Replacing old prewarm ID "{self.kernel_id}" with new kernel ID "{content["kernel_id"]}"')
@@ -3852,40 +3953,49 @@ class DistributedKernel(IPythonKernel):
         # time.sleep(2)
         return super().do_shutdown(restart)
 
-    async def prepare_to_migrate(self) -> tuple[dict, bool]:
-        self.log.info(
-            "Preparing for migration of replica %d of kernel %s.",
-            self.smr_node_id,
-            self.kernel_id,
-        )
-
-        # We don't want to remove this node from the SMR raft cluster when we shut down the kernel,
-        # as we're migrating the replica and want to reuse the ID when the raft process resumes
-        # on another node.
-        self.remove_on_shutdown = False
-
-        if not self.synclog:
-            self.log.warning(
-                "We do not have a SyncLog. Nothing to do in order to prepare to migrate..."
+    async def __close_synclog_remote_storage_client(self) -> Tuple[dict, bool]:
+        """
+        Close the remote storage client of the SyncLog.
+        """
+        try:
+            self.synclog.close_remote_storage_client()
+        except Exception as e:
+            self.log.error(
+                "Failed to close the RemoteStorage client within the LogNode."
             )
+            tb: list[str] = traceback.format_exception(e)
+            for frame in tb:
+                self.log.error(frame)
+
+            return gen_error_response(e), False  # "data_directory": waldir_path,
+
+        return {
+            "status": "ok",
+            "id": self.smr_node_id,
+            "kernel_id": self.kernel_id,
+        }, True  # "data_directory": waldir_path,
+
+    async def __close_synclog(self) -> Tuple[dict, bool]:
+        """
+        Close our SyncLog. This will not close the SyncLog's remote storage client if the SyncLog is of
+        type RaftLog. In that case, the remote storage client must be closed explicitly via the
+        DistributedKernel's __close_synclog_remote_storage_client method.
+        """
+        if not self.synclog:
+            self.log.warning("We do not have a SyncLog. Cannot close SyncLog.")
             return {
                 "status": "ok",
                 "id": self.smr_node_id,
                 "kernel_id": self.kernel_id,
-            }, True  # Didn't fail, we just have nothing to migrate.
-        #
-        # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
-        #
-        # According to the official documentation, we must first stop the Raft node before copying the data directory.
+            }, True
 
-        # Step 1: stop the raft node
-        self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
+        self.log.info("Closing the SyncLog now.")
         try:
             self.synclog.close()
 
             self.synclog_stopped = True
             self.log.info(
-                "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now."
+                "SyncLog closed successfully. Writing SyncLog data directory to RemoteStorage now."
             )
         except Exception as e:
             self.log.error(
@@ -3911,23 +4021,21 @@ class DistributedKernel(IPythonKernel):
         # If the SyncLog is not an instance of RaftLog, then we don't have to worry about writing and copying
         # the SyncLog's data directory to remote storage. We can just return now.
         if not isinstance(self.synclog, RaftLog):
-            try:
-                self.synclog.close_remote_storage_client()
-            except Exception as e:
-                self.log.error(
-                    "Failed to close the RemoteStorage client within the LogNode."
-                )
-                tb: list[str] = traceback.format_exception(e)
-                for frame in tb:
-                    self.log.error(frame)
+            self.log.debug(f"SyncLog is of type {type(self.synclog).__name__}. "
+                           f"Closing remote storage client now.")
 
-            return {
-                "status": "ok",
-                "id": self.smr_node_id,
-                "kernel_id": self.kernel_id,
-            }, True  # "data_directory": waldir_path,
+            await self.__close_synclog_remote_storage_client()
 
-        # Step 2: copy the data directory to RemoteStorage
+        return {
+            "status": "ok",
+            "id": self.smr_node_id,
+            "kernel_id": self.kernel_id,
+        }, True
+
+    async def __write_synclog_data_dir_to_remote_storage(self) -> Tuple[dict, bool]:
+        """
+        Write the data directory of the SyncLog to remote storage.
+        """
         try:
             write_start: float = time.time()
 
@@ -3950,12 +4058,18 @@ class DistributedKernel(IPythonKernel):
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(write_duration_ms)
             self.log.info(
-                'Wrote etcd-Raft data directory to RemoteStorage. Path: "%s"'
+                'Wrote SyncLog data directory to RemoteStorage. Path: "%s"'
                 % waldir_path
             )
+
+            return {
+                "status": "ok",
+                "id": self.smr_node_id,
+                "kernel_id": self.kernel_id,
+            }, True  # Didn't fail, we just have nothing to migrate.
         except Exception as e:
             self.log.error(
-                "Failed to write the data directory of replica %d of kernel %s to RemoteStorage: %s",
+                "Failed to write the SyncLog data directory of replica %d of kernel %s to RemoteStorage: %s",
                 self.smr_node_id,
                 self.kernel_id,
                 str(e),
@@ -3966,31 +4080,50 @@ class DistributedKernel(IPythonKernel):
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
             self.report_error(
-                "Failed to Write remote_storage Data Directory", error_message=str(e)
+                "Failed to Write SyncLog Data Directory", error_message=str(e)
             )
-
-            # Attempt to close the RemoteStorage client.
-            self.synclog.close_remote_storage_client()
 
             return gen_error_response(e), False
 
-        try:
-            self.synclog.close_remote_storage_client()
-        except Exception as e:
-            self.log.error(
-                "Failed to close the RemoteStorage client within the LogNode."
-            )
-            tb: list[str] = traceback.format_exception(e)
-            for frame in tb:
-                self.log.error(frame)
+    async def prepare_to_migrate(self) -> Tuple[dict, bool]:
+        self.log.info(
+            "Preparing for migration of replica %d of kernel %s.",
+            self.smr_node_id,
+            self.kernel_id,
+        )
 
-            # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error(
-                f"Failed to Close RemoteStorage Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
-                error_message=str(e),
-            )
+        # We don't want to remove this node from the SMR raft cluster when we shut down the kernel,
+        # as we're migrating the replica and want to reuse the ID when the raft process resumes
+        # on another node.
+        self.remove_on_shutdown = False
 
-            # We don't return an error here, though.
+        if not self.synclog:
+            self.log.warning("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
+            return {
+                "status": "ok",
+                "id": self.smr_node_id,
+                "kernel_id": self.kernel_id,
+            }, True  # Didn't fail, we just have nothing to migrate.
+
+        # When using RaftLog, we must first stop the SyncLog (RaftLog) before copying the data directory.
+        #
+        # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
+
+        # Step 1: stop the sync log
+        intermediate_resp, ok = await self.__close_synclog()
+        if not ok:
+            return intermediate_resp, False
+
+        # Step 2: copy the data directory to RemoteStorage
+        intermediate_resp, ok = await self.__write_synclog_data_dir_to_remote_storage()
+        if not ok:
+            await self.__close_synclog_remote_storage_client()
+            return intermediate_resp, False
+
+        # Step 3: close the SyncLog's remote storage client if we haven't done so already.
+        if isinstance(self.synclog, RaftLog):
+            # We'll ignore any errors at this stage.
+            await self.__close_synclog_remote_storage_client()
 
         return {
             "status": "ok",
