@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	PreWarmerInterval = time.Second * 5
+	DefaultPreWarmerInterval = time.Second * 5
 
 	// MaintainMinCapacity attempts to maintain the minimum number of prewarmed containers on each Host in the Cluster.
 	MaintainMinCapacity PrewarmingPolicy = "maintain_minimum_capacity"

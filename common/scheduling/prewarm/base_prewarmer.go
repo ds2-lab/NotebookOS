@@ -175,6 +175,10 @@ type PrewarmerConfig struct {
 	// If MaxPrewarmedContainersPerHost is negative, then there will be no limit/cap on the number of pre-warmed
 	// containers that can be created on any given scheduling.Host.
 	MaxPrewarmedContainersPerHost int
+
+	// Interval is the frequency at which the scheduling.ContainerPrewarmer should execute each iteration of its
+	// Run method.
+	Interval time.Duration
 }
 
 // NewPrewarmerConfig creates a new PrewarmerConfig struct and returns a pointer to it.
@@ -244,6 +248,10 @@ func NewBaseContainerPrewarmer(cluster scheduling.Cluster, configuration *Prewar
 		metricsProvider:                         metricsProvider,
 		Cluster:                                 cluster,
 		Config:                                  configuration,
+	}
+
+	if configuration.Interval <= 0 {
+		configuration.Interval = scheduling.DefaultPreWarmerInterval
 	}
 
 	config.InitLogger(&warmer.log, warmer)
@@ -321,7 +329,7 @@ func (p *BaseContainerPrewarmer) Run() error {
 			<-p.GuardChannel
 			p.log.Debug("Received value from GuardChannel")
 		} else {
-			time.Sleep(scheduling.PreWarmerInterval)
+			time.Sleep(p.Config.Interval)
 		}
 	}
 }

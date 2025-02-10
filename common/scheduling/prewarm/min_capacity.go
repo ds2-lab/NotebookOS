@@ -53,7 +53,7 @@ func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapac
 //
 //		p.ValidatePoolCapacity()
 //
-//		time.Sleep(scheduling.PreWarmerInterval)
+//		time.Sleep(scheduling.DefaultPreWarmerInterval)
 //	}
 //}
 

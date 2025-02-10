@@ -415,6 +415,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 			By("Not returning any more because they've all been used")
 
+			// Request the containers (but there are none left)
 			for _, host := range hosts {
 				container, err := prewarmer.RequestPrewarmedContainer(host)
 				Expect(container).To(BeNil())
@@ -430,6 +431,9 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				maxCapacity := 2
 
 				createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+				// Set the interval to something small so that we don't have to wait so long.
+				prewarmer.(*prewarm.BaseContainerPrewarmer).Config.Interval = time.Millisecond * 25
 
 				By("Correctly provisioning the initial round of prewarm containers")
 
@@ -492,6 +496,9 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				maxCapacity := 2
 
 				createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+				// Set the interval to something small so that we don't have to wait so long.
+				prewarmer.(*prewarm.BaseContainerPrewarmer).Config.Interval = time.Millisecond * 25
 
 				By("Correctly provisioning the initial round of prewarm containers")
 
