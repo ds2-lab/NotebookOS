@@ -258,8 +258,163 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 		})
 
-		It("Will not maintain the size of the warm container pool", func() {
+		It("Will return an error when requesting a prewarm container from a host with no prewarm containers", func() {
+			numHosts := 3
+			initialCapacity := 0
+			maxCapacity := 2
 
+			createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+			By("Correctly provisioning the initial round of prewarm containers")
+
+			hosts, _ := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
+			// First time, the hosts aren't even "registered" yet
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).To(BeNil())
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
+			}
+
+			// This time, the hosts are registered, but they still have no containers
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).To(BeNil())
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
+			}
+		})
+
+		It("Will correctly return pre-warm containers when they are available", func() {
+			numHosts := 3
+			initialCapacity := 3
+			maxCapacity := 4
+
+			By("Being created or instantiated correctly")
+
+			createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+			hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+
+			mockCluster.
+				EXPECT().
+				RangeOverHosts(gomock.Any()).
+				Times(1).
+				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+					for idx, host := range hosts {
+						connInfo := &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}
+
+						localGatewayClient := localGatewayClients[idx]
+						localGatewayClient.
+							EXPECT().
+							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+							Times(initialCapacity).
+							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
+									host.GetNodeName(), host.GetID())
+
+								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								return connInfo, nil
+							})
+
+						f(host.GetID(), host)
+					}
+				})
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
+
+			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
+			By("Returning containers when they are requested (and they are available)")
+
+			containers := make([]scheduling.PrewarmedContainer, 0, len(hosts))
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).ToNot(BeNil())
+				Expect(err).To(BeNil())
+
+				containers = append(containers, container)
+			}
+
+			currSize := numHosts * initialCapacity
+			Expect(prewarmer.Len()).To(Equal(currSize))
+
+			for _, container := range containers {
+				container.OnPrewarmedContainerUsed()
+
+				currSize -= 1
+				Expect(prewarmer.Len()).To(Equal(currSize))
+			}
+
+			By("Returning containers even after some have been used")
+
+			containers = make([]scheduling.PrewarmedContainer, 0, len(hosts))
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).ToNot(BeNil())
+				Expect(err).To(BeNil())
+
+				containers = append(containers, container)
+			}
+
+			Expect(prewarmer.Len()).To(Equal(currSize))
+
+			for _, container := range containers {
+				container.OnPrewarmedContainerUsed()
+
+				currSize -= 1
+				Expect(prewarmer.Len()).To(Equal(currSize))
+			}
+
+			By("Returning containers even after some more have been used")
+
+			containers = make([]scheduling.PrewarmedContainer, 0, len(hosts))
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).ToNot(BeNil())
+				Expect(err).To(BeNil())
+
+				containers = append(containers, container)
+			}
+
+			Expect(prewarmer.Len()).To(Equal(currSize))
+
+			for _, container := range containers {
+				container.OnPrewarmedContainerUsed()
+
+				currSize -= 1
+				Expect(prewarmer.Len()).To(Equal(currSize))
+			}
+
+			By("Not returning any more because they've all been used")
+
+			for _, host := range hosts {
+				container, err := prewarmer.RequestPrewarmedContainer(host)
+				Expect(container).To(BeNil())
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
+			}
 		})
 
 		Context("Stopping", func() {
@@ -417,40 +572,6 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 				Expect(prewarmer.IsRunning()).To(BeFalse())
 			})
-		})
-
-		It("Will return an error when requesting a prewarm container from a host with no prewarm containers", func() {
-			numHosts := 3
-			initialCapacity := 0
-			maxCapacity := 2
-
-			createAndInitializePrewarmer(initialCapacity, maxCapacity)
-
-			By("Correctly provisioning the initial round of prewarm containers")
-
-			hosts, _ := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
-
-			created, target := prewarmer.ProvisionInitialPrewarmContainers()
-
-			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
-			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
-			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
-
-			// First time, the hosts aren't even "registered" yet
-			for _, host := range hosts {
-				container, err := prewarmer.RequestPrewarmedContainer(host)
-				Expect(container).To(BeNil())
-				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
-			}
-
-			// This time, the hosts are registered, but they still have no containers
-			for _, host := range hosts {
-				container, err := prewarmer.RequestPrewarmedContainer(host)
-				Expect(container).To(BeNil())
-				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, prewarm.ErrNoPrewarmedContainersAvailable)).To(BeTrue())
-			}
 		})
 
 		Context("Initial Capacity", func() {
