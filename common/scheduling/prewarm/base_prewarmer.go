@@ -278,8 +278,10 @@ func (p *BaseContainerPrewarmer) PoolSize() int {
 	return len(p.AllPrewarmContainers)
 }
 
-// Run creates a separate goroutine in which the BaseContainerPrewarmer maintains the overall capacity/availability of
-// pre-warmed containers in accordance with BaseContainerPrewarmer's policy for doing so.
+// Run maintains the overall capacity/availability of pre-warmed containers in accordance with BaseContainerPrewarmer's
+// policy for doing so.
+//
+// Run should be executed within its own goroutine.
 //
 // If another thread is executing the Run method, then Run will return an error. Only one goroutine may execute
 // the Run method at a time.
@@ -316,13 +318,17 @@ func (p *BaseContainerPrewarmer) Run() error {
 	}
 }
 
+// IsRunning returns true if the target ContainerPrewarmer is actively running.
+func (p *BaseContainerPrewarmer) IsRunning() bool {
+	return p.running.Load() > 0
+}
+
 // Stop instructs the ContainerPrewarmer to stop.
 //
 // Stop will block until the notification to stop has been receiving by the goroutine running the Run method.
 func (p *BaseContainerPrewarmer) Stop() error {
-	if p.running.Load() == 0 {
+	if !p.IsRunning() {
 		p.log.Warn("Prewarmer is not running.")
-
 		return errors.Join(ErrFailedToStop, ErrNotRunning)
 	}
 

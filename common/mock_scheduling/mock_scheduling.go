@@ -12739,6 +12739,20 @@ func (mr *MockContainerPrewarmerMockRecorder) InitialPrewarmedContainersPerHost(
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitialPrewarmedContainersPerHost", reflect.TypeOf((*MockContainerPrewarmer)(nil).InitialPrewarmedContainersPerHost))
 }
 
+// IsRunning mocks base method.
+func (m *MockContainerPrewarmer) IsRunning() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsRunning")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsRunning indicates an expected call of IsRunning.
+func (mr *MockContainerPrewarmerMockRecorder) IsRunning() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRunning", reflect.TypeOf((*MockContainerPrewarmer)(nil).IsRunning))
+}
+
 // Len mocks base method.
 func (m *MockContainerPrewarmer) Len() int {
 	m.ctrl.T.Helper()
@@ -12854,9 +12868,11 @@ func (mr *MockContainerPrewarmerMockRecorder) ReturnUnusedPrewarmContainer(conta
 }
 
 // Run mocks base method.
-func (m *MockContainerPrewarmer) Run() {
+func (m *MockContainerPrewarmer) Run() error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Run")
+	ret := m.ctrl.Call(m, "Run")
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // Run indicates an expected call of Run.
@@ -12866,9 +12882,11 @@ func (mr *MockContainerPrewarmerMockRecorder) Run() *gomock.Call {
 }
 
 // Stop mocks base method.
-func (m *MockContainerPrewarmer) Stop() {
+func (m *MockContainerPrewarmer) Stop() error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Stop")
+	ret := m.ctrl.Call(m, "Stop")
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // Stop indicates an expected call of Stop.

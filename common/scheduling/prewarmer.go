@@ -64,8 +64,10 @@ type ContainerPool interface {
 type ContainerPrewarmer interface {
 	ContainerPool
 
-	// Run creates a separate goroutine in which the ContainerPrewarmer maintains the overall capacity/availability of
-	// pre-warmed containers in accordance with ContainerPrewarmer's policy for doing so.
+	// Run maintains the overall capacity/availability of pre-warmed containers in accordance with BaseContainerPrewarmer's
+	// policy for doing so.
+	//
+	// Run should be executed within its own goroutine.
 	//
 	// If another thread is executing the Run method, then Run will return an error. Only one goroutine may execute
 	// the Run method at a time.
@@ -106,7 +108,10 @@ type ContainerPrewarmer interface {
 	ValidatePoolCapacity()
 
 	// Stop instructs the ContainerPrewarmer to stop.
-	Stop()
+	Stop() error
+
+	// IsRunning returns true if the target ContainerPrewarmer is actively running.
+	IsRunning() bool
 }
 
 // PrewarmedContainer encapsulates information about a pre-warmed container that exists on a particular Host.

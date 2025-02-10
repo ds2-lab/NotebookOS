@@ -2,6 +2,7 @@ package prewarm_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
@@ -259,6 +260,163 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 		It("Will not maintain the size of the warm container pool", func() {
 
+		})
+
+		Context("Stopping", func() {
+			It("Will fail to stop if it is not already running", func() {
+				numHosts := 3
+				initialCapacity := 1
+				maxCapacity := 2
+
+				createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+				By("Correctly provisioning the initial round of prewarm containers")
+
+				hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+
+				mockCluster.
+					EXPECT().
+					RangeOverHosts(gomock.Any()).
+					Times(1).
+					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+						for idx, host := range hosts {
+							connInfo := &proto.KernelConnectionInfo{
+								Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+								Transport:       "tcp",
+								ControlPort:     9000,
+								ShellPort:       9001,
+								StdinPort:       9002,
+								HbPort:          9003,
+								IopubPort:       9004,
+								IosubPort:       9005,
+								SignatureScheme: jupyter.JupyterSignatureScheme,
+								Key:             uuid.NewString(),
+							}
+
+							localGatewayClient := localGatewayClients[idx]
+							localGatewayClient.
+								EXPECT().
+								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+								Times(1).
+								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									return connInfo, nil
+								})
+
+							f(host.GetID(), host)
+						}
+					})
+
+				created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+				Expect(created).To(Equal(int32(numHosts)))
+				Expect(target).To(Equal(int32(numHosts)))
+				Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
+				By("Not being in the 'running' state initially")
+
+				Expect(prewarmer.IsRunning()).To(BeFalse())
+
+				By("Returning an error when instructed to stop while not running")
+
+				err := prewarmer.Stop()
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, prewarm.ErrFailedToStop)).To(BeTrue())
+				Expect(errors.Is(err, prewarm.ErrNotRunning)).To(BeTrue())
+			})
+
+			It("Will stop cleanly and correctly", func() {
+				numHosts := 3
+				initialCapacity := 1
+				maxCapacity := 2
+
+				createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+				By("Correctly provisioning the initial round of prewarm containers")
+
+				hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+
+				mockCluster.
+					EXPECT().
+					RangeOverHosts(gomock.Any()).
+					Times(1).
+					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+						for idx, host := range hosts {
+							connInfo := &proto.KernelConnectionInfo{
+								Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+								Transport:       "tcp",
+								ControlPort:     9000,
+								ShellPort:       9001,
+								StdinPort:       9002,
+								HbPort:          9003,
+								IopubPort:       9004,
+								IosubPort:       9005,
+								SignatureScheme: jupyter.JupyterSignatureScheme,
+								Key:             uuid.NewString(),
+							}
+
+							localGatewayClient := localGatewayClients[idx]
+							localGatewayClient.
+								EXPECT().
+								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+								Times(1).
+								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									return connInfo, nil
+								})
+
+							f(host.GetID(), host)
+						}
+					})
+
+				created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+				Expect(created).To(Equal(int32(numHosts)))
+				Expect(target).To(Equal(int32(numHosts)))
+				Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
+				By("Not being in the 'running' state initially")
+
+				Expect(prewarmer.IsRunning()).To(BeFalse())
+
+				By("Entering the 'running' state when instructed to do so")
+
+				go func() {
+					defer GinkgoRecover()
+					err := prewarmer.Run()
+					Expect(err).To(BeNil())
+				}()
+
+				Eventually(prewarmer.IsRunning, time.Second*2, time.Millisecond*250).Should(BeTrue())
+
+				Expect(prewarmer.IsRunning()).To(BeTrue())
+
+				By("Correctly stopping when instructed to do so")
+
+				err := prewarmer.Stop()
+				Expect(err).To(BeNil())
+
+				Expect(prewarmer.IsRunning()).To(BeFalse())
+
+				By("Entering the 'running' state when instructed to do so again")
+
+				go func() {
+					defer GinkgoRecover()
+					err := prewarmer.Run()
+					Expect(err).To(BeNil())
+				}()
+
+				Eventually(prewarmer.IsRunning, time.Second*2, time.Millisecond*250).Should(BeTrue())
+
+				Expect(prewarmer.IsRunning()).To(BeTrue())
+
+				By("Correctly stopping when instructed to do so again")
+
+				err = prewarmer.Stop()
+				Expect(err).To(BeNil())
+
+				Expect(prewarmer.IsRunning()).To(BeFalse())
+			})
 		})
 
 		Context("Initial Capacity", func() {
