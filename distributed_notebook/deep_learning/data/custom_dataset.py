@@ -22,6 +22,13 @@ class CustomDataset(ABC):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+    @abstractmethod
+    def remove_local_files(self):
+        """
+        Remove any local files on disk.
+        """
+        pass
+
     @staticmethod
     @abstractmethod
     def category() -> str:

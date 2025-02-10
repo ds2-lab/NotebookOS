@@ -2304,20 +2304,35 @@ class DistributedKernel(IPythonKernel):
         if self.prometheus_enabled:
             self.execute_request_latency.observe(duration_ms)
 
-    def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
+    async def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
         """
         Reset the user namespace.
         :return:
         """
         self.log.warning("Resetting user namespace.")
 
-        prev_size: int = len(self.shell.user_ns)
+        async with self._user_ns_lock:
+            prev_size: int = len(self.shell.user_ns)
 
-        # Clear the user namespace
-        self.shell.user_ns.clear()
+            # Remove any datasets downloaded to the container's file system.
+            for var_name, var_value in self.shell.user_ns.items():
+                if isinstance(var_value, CustomDataset):
+                    self.log.debug(f'Found custom dataset variable "{var_name}" '
+                                   f'of type "{type(var_value).__name__}" in user namespace.')
 
-        # Restore essential built-ins
-        self.shell.init_user_ns()
+                    var_value.remove_local_files()
+                elif isinstance(var_value, DatasetPointer):
+                    self.log.debug(f'Found custom dataset pointer variable "{var_name}" '
+                                   f'for dataset "{var_value.dataset_name}" in user namespace.')
+
+                    if var_value.dataset is not None:
+                        var_value.dataset.remove_local_files()
+
+            # Clear the user namespace
+            self.shell.user_ns.clear()
+
+            # Restore essential built-ins
+            self.shell.init_user_ns()
 
         self.log.warning(f"The user namespace has been reset. "
                          f"Removed {len(self.shell.user_ns) - prev_size} variable(s).")
@@ -2393,7 +2408,7 @@ class DistributedKernel(IPythonKernel):
         self.prewarm_container_id = prewarm_container_id
         self.was_prewarmed_container = True
 
-        self.__reset_user_namespace_state()
+        await self.__reset_user_namespace_state()
 
         return {
             "status": "ok",
@@ -2418,7 +2433,7 @@ class DistributedKernel(IPythonKernel):
         if revert_to_prewarm:
             reply_content, ok = await self.__revert_to_prewarm(prewarm_container_id= kernel_id)
         else:
-            reply_content, ok = self.__reset_user_namespace_state()
+            reply_content, ok = await self.__reset_user_namespace_state()
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent, -1
