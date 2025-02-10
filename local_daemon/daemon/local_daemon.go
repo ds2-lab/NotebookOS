@@ -3479,7 +3479,7 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 	}
 
 	prewarmContainerId := content["kernel_id"].(string)
-	d.log.Debug("Replica %d of kernel \"%s\" was converted to a %s container with ID=\"%s\".",
+	d.log.Debug("Replica %d of kernel \"%s\" is being converted to a %s container with ID=\"%s\".",
 		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
 
 	// Update the mappings.
@@ -3488,6 +3488,9 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 
 	prevReplicaId := kernel.ReplicaID()
 	prevKernelId := kernel.ID()
+
+	d.log.Debug("Demoting replica %d of kernel \"%s\" to a %s container with ID=\"%s\".",
+		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
 
 	// Demote.
 	err = kernel.DemoteStandardContainer(prewarmContainerId)
@@ -3498,8 +3501,11 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 		return err
 	}
 
+	d.log.Debug("Successfully demoted replica %d of kernel \"%s\" to a %s container with ID=\"%s\".",
+		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
+
 	// Release any resources.
-	// TODO: I suspect there are cases where the resources will have already been released.
+	// TODO: I suspect there are many cases where the resources will have already been released.
 	// 		 In those cases, this should not be an error.
 	err = d.allocationManager.ReplicaEvicted(prevReplicaId, prevKernelId)
 	if err != nil {
