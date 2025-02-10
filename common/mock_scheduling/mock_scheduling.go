@@ -7658,6 +7658,20 @@ func (mr *MockKernelReplicaMockRecorder) Context() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockKernelReplica)(nil).Context))
 }
 
+// DemoteStandardContainer mocks base method.
+func (m *MockKernelReplica) DemoteStandardContainer(prewarmContainerId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DemoteStandardContainer", prewarmContainerId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DemoteStandardContainer indicates an expected call of DemoteStandardContainer.
+func (mr *MockKernelReplicaMockRecorder) DemoteStandardContainer(prewarmContainerId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DemoteStandardContainer", reflect.TypeOf((*MockKernelReplica)(nil).DemoteStandardContainer), prewarmContainerId)
+}
+
 // GetPodOrContainerName mocks base method.
 func (m *MockKernelReplica) GetPodOrContainerName() string {
 	m.ctrl.T.Helper()
@@ -8904,6 +8918,20 @@ func (m *MockKernelContainer) SetHost(host scheduling.Host) {
 func (mr *MockKernelContainerMockRecorder) SetHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelContainer)(nil).SetHost), host)
+}
+
+// StandardContainerDemoted mocks base method.
+func (m *MockKernelContainer) StandardContainerDemoted(prewarmContainerId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StandardContainerDemoted", prewarmContainerId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StandardContainerDemoted indicates an expected call of StandardContainerDemoted.
+func (mr *MockKernelContainerMockRecorder) StandardContainerDemoted(prewarmContainerId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StandardContainerDemoted", reflect.TypeOf((*MockKernelContainer)(nil).StandardContainerDemoted), prewarmContainerId)
 }
 
 // StartedAt mocks base method.
