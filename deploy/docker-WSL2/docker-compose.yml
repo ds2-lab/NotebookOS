@@ -171,28 +171,44 @@ services:
 #      - RENDERING_VIEWPORT_MAX_DEVICE_SCALE_FACTOR=8
 
   node-exporter:
+    container_name: node-exporter
     image: prom/node-exporter
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=node-exporter"
     deploy:
-      mode: global
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=node-exporter"
     ports:
-      - "7125:7125"
+      - "7125:8089"
     command:
-      - --web.listen-address=0.0.0.0:7125
+      - --web.listen-address=0.0.0.0:8089
 
   cadvisor:
+    container_name: cadvisor
     image: gcr.io/cadvisor/cadvisor:latest
+    privileged: true
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=cadvisor"
     deploy:
-      mode: global
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=cadvisor"
     ports:
-      - "7126:7126"
+      - "7126:8089"
     volumes:
       - "/:/rootfs:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
     command:
-      - --publish=7126:7126
-      - --privileged
+      - --port 8089
 
   grafana:
     platform: linux/amd64
