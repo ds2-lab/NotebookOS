@@ -5148,13 +5148,14 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 		return
 	}
 
-	// If this is set to false, then the replicas won't actually be shut down on the Local Scheduler.
-	removalIsNoop := false
+	if !d.Scheduler().Policy().ReuseWarmContainers() {
+		_ = d.removeAllReplicasOfKernel(kernel, true, false, false)
+		return
+	}
 
 	// For the "middle ground" policy, we return the kernel's container to the warm container pool.
 	if d.Scheduler().Policy().ReuseWarmContainers() {
 		d.log.Debug("Reusing warm kernel container.")
-		removalIsNoop = true
 
 		// Send 'reset' request.
 		err := d.resetKernel(kernel, true)
@@ -5162,8 +5163,6 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 			d.log.Error("Failed to reset kernel \"%s\": %v", kernel.ID(), err)
 		}
 	}
-
-	_ = d.removeAllReplicasOfKernel(kernel, true, false, removalIsNoop)
 }
 
 // resetKernelReply is used by the ClusterGatewayImpl's resetKernel and processResetKernelReplies methods.
@@ -5269,7 +5268,7 @@ func (d *ClusterGatewayImpl) resetKernel(kernel scheduling.Kernel, revertToPrewa
 
 				// If we received any replies, then we'll process the ones that we did receive.
 				if len(replies) > 0 {
-					processReplyErr := d.processResetKernelReplies(replies)
+					processReplyErr := d.processResetKernelReplies(kernel, replies)
 					if processReplyErr != nil {
 						d.log.Error("Error while processing the %d reply/replies we did receive while resetting kernel \"%s\": %v",
 							nRepliesReceived, kernel.ID(), processReplyErr)
@@ -5286,16 +5285,19 @@ func (d *ClusterGatewayImpl) resetKernel(kernel scheduling.Kernel, revertToPrewa
 		}
 	}
 
-	return d.processResetKernelReplies(replies)
+	return d.processResetKernelReplies(kernel, replies)
 }
 
 // processResetKernelReplies is called by resetKernel to process the replies send by the kernel replicas.
-func (d *ClusterGatewayImpl) processResetKernelReplies(replies []*resetKernelReply) error {
+func (d *ClusterGatewayImpl) processResetKernelReplies(kernel scheduling.Kernel, replies []*resetKernelReply) error {
 	prewarmer := d.Scheduler().ContainerPrewarmer()
 	if prewarmer == nil {
 		d.log.Warn("Container Prewarmer is nil...")
 		return nil
 	}
+
+	// First, remove the replicas from the kernel.
+	_ = d.removeAllReplicasOfKernel(kernel, true, false, true)
 
 	errs := make([]error, 0, len(replies))
 	for _, reply := range replies {
@@ -5326,9 +5328,6 @@ func (d *ClusterGatewayImpl) processResetKernelReplies(replies []*resetKernelRep
 			kernelId = replica.ID()
 		}
 
-		kernelReplicaSpec := replica.KernelReplicaSpec()
-		kernelReplicaSpec.Kernel.Id = kernelId
-
 		prewarmedContainer := prewarm.NewPrewarmedContainerBuilder().
 			WithHost(host).
 			WithKernelConnectionInfo(jupyter.KernelConnectionInfoFromJupyterConnectionInfo(replica.ConnectionInfo())).
@@ -5339,6 +5338,13 @@ func (d *ClusterGatewayImpl) processResetKernelReplies(replies []*resetKernelRep
 		err = prewarmer.ReturnPrewarmContainer(prewarmedContainer)
 		if err != nil {
 			d.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
+			errs = append(errs, err)
+		}
+
+		err = replica.Close()
+		if err != nil {
+			d.log.Error("Failed to close replica %d of kernel \"%s\" after demoting it to a %v container: %v",
+				replica.ReplicaID(), replica.ID(), scheduling.PrewarmContainer, err)
 			errs = append(errs, err)
 		}
 	}
