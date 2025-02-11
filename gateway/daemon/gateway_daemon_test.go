@@ -4370,9 +4370,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				numKernels := 3
 				numHosts := 3
 
+				replicasAreScheduled := make(map[string]*atomic.Bool)
 				kernels := make(map[string]*mock_scheduling.MockKernel)
 				kernelSpecs := make(map[string]*proto.KernelSpec)
 
+				replicasAreScheduledByIdx := make(map[int]*atomic.Bool)
 				kernelsByIdx := make(map[int]*mock_scheduling.MockKernel)
 				kernelSpecsByIdx := make(map[int]*proto.KernelSpec)
 
@@ -4402,13 +4404,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 							return true, mockCreateReplicaContainersAttempt
 						})
 
-					kernel.EXPECT().ReplicasAreScheduled().Times(1).Return(false)
-
 					kernels[kernelId] = kernel
 					kernelSpecs[kernelId] = kernelSpec
 
 					kernelsByIdx[i] = kernel
 					kernelSpecsByIdx[i] = kernelSpec
+
+					var replicasAreScheduledVar atomic.Bool
+					replicasAreScheduledVar.Store(false)
+					replicasAreScheduled[kernelId] = &replicasAreScheduledVar
+					replicasAreScheduledByIdx[i] = &replicasAreScheduledVar
+
+					kernel.EXPECT().ReplicasAreScheduled().AnyTimes().DoAndReturn(func() bool {
+						return replicasAreScheduledVar.Load()
+					})
 				}
 
 				hosts := make(map[int]scheduling.Host)
@@ -4477,6 +4486,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				for i := 0; i < numKernels; i++ {
 					index := i
 					go func() {
+						defer GinkgoRecover()
+
 						connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpecsByIdx[index])
 						Expect(err).To(BeNil())
 						Expect(connInfo).ToNot(BeNil())
@@ -4639,6 +4650,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				for i := 0; i < numKernels; i++ {
 					kernel := kernelsByIdx[i]
 
+					// This is technically a bit early, but that's OK.
+					replicasAreScheduled[kernel.ID()].Store(true)
+
 					go callSmrReady(1, kernel.ID(), kernel.PersistentID())
 					go callSmrReady(2, kernel.ID(), kernel.PersistentID())
 					go callSmrReady(3, kernel.ID(), kernel.PersistentID())
@@ -4646,7 +4660,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				smrReadyCalled.Wait()
 
-				connInfo := <-startKernelReturnValChan
+				var connInfo *proto.KernelConnectionInfo
+				Eventually(startKernelReturnValChan, time.Second*3, time.Millisecond*100).Should(Receive(&connInfo))
 				Expect(connInfo).ToNot(BeNil())
 
 				go func() {
