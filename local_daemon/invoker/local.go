@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"net"
 	"os"
@@ -33,19 +34,71 @@ const (
 // throttle stop
 // kernel replica is not supported so far. Add if needed.
 type LocalInvoker struct {
-	closedAt  time.Time
+	// closedAt is the time at which the KernelInvoker closed or stopped its kernel.
+	closedAt time.Time
+
+	// createdAt is the time at which the KernelInvoker first created its kernel.
 	createdAt time.Time
 
 	log logger.Logger
+
+	// connInfo is the Jupyter connection info used to connect/communicate with the kernel.
+	connInfo *jupyter.ConnectionInfo
 
 	cmd           *exec.Cmd
 	spec          *proto.KernelReplicaSpec
 	closed        chan struct{}
 	statusChanged StatucChangedHandler
 
-	workloadId string // workloadId is the ID of the workload in which the LocalInvoker's kernel exists
+	// kernelId is the ID of the target kernel.
+	kernelId string
 
+	// workloadId is the ID of the workload in which the LocalInvoker's kernel exists
+	workloadId string
+
+	// id uniquely identifies this Invoker instance.
+	id string
+
+	// remoteStorageEndpoint is the network endpoint of the remote storage.
+	remoteStorageEndpoint string
+
+	// remoteStorage indicates the type of remote storage, either 'hdfs' or 'redis'
+	remoteStorage string
+
+	// DeploymentMode is the deployment mode of the cluster
+	DeploymentMode types.DeploymentMode
+
+	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	S3Bucket string
+
+	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	AwsRegion string
+
+	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	RedisPassword string
+
+	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisPort int
+
+	// SMRPort is the network port used by the SMR cluster.
 	SMRPort int
+
+	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+	RedisDatabase int
+
+	assignedGpuDeviceIds                 []int32 // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	KernelDebugPort                      int32   // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	electionTimeoutSeconds               int     // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
+	prometheusMetricsPort                int     // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
+	simulateCheckpointingLatency         bool    // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
+	simulateWriteAfterExec               bool    // Simulate network write after executing code?
+	simulateWriteAfterExecOnCriticalPath bool    // Should the simulated network write after executing code be on the critical path?
+	SimulateTrainingUsingSleep           bool    // SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	BindGPUs                             bool    // BindGPUs indicates whether we should bind GPUs to the container or not. We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
+	BindAllGpus                          bool    // BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	BindDebugpyPort                      bool    // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	SaveStoppedKernelContainers          bool    // If true, then do not fully remove stopped kernel containers.
+	SmrEnabled                           bool    // SmrEnabled indicates if SMR is enabled.
 
 	status jupyter.KernelStatus
 
