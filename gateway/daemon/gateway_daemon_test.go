@@ -4083,6 +4083,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan2 := make(chan *proto.KernelConnectionInfo)
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
+				kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
+
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
@@ -4385,6 +4387,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					kernelKey := uuid.NewString()
 					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
+					kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
 
 					mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 					mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
