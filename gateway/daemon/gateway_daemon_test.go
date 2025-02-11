@@ -1909,6 +1909,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().GetSession().Return(mockedSession).AnyTimes()
 
 			mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
+			mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
 			mockedKernel.EXPECT().
 				BeginSchedulingReplicaContainers().
