@@ -12,6 +12,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -652,7 +653,8 @@ func (c *KernelReplicaClient) recreateControlSocket() *messaging.Socket {
 		remoteName = fmt.Sprintf("K-kernel-Ctrl[%s]", c.id)
 	}
 
-	newSocket := messaging.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.ControlPort, messaging.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
+	newSocket := messaging.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.ControlPort,
+		messaging.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Control = newSocket
 	c.client.Sockets.All[messaging.ControlMessage] = newSocket
 	return newSocket
@@ -665,12 +667,14 @@ func (c *KernelReplicaClient) WorkloadId() string {
 }
 
 // SetWorkloadId sets the WorkloadId of the KernelReplicaClient.
-func (c *KernelReplicaClient) SetWorkloadId(workloadId string) {
+func (c *KernelReplicaClient) SetWorkloadId(workloadId string) error {
 	if c.workloadIdSet {
-		c.log.Warn("Workload ID has already been set to \"%s\". Will replace it with (possibly identical) new ID: \"%s\"", c.workloadId, workloadId)
+		c.log.Warn("Workload ID has already been set to \"%s\". Will replace it with (possibly identical) new ID: \"%s\"",
+			c.workloadId, workloadId)
 	}
 
 	c.workloadId = workloadId
+	return nil
 }
 
 // WorkloadIdSet returns a flag indicating whether the KernelReplicaClient's workloadId has been assigned a "meaningful" value or not.
@@ -1294,10 +1298,11 @@ func (c *KernelReplicaClient) Close() error {
 			continue
 		}
 
+		// The 'use of closed network connection' error is OK.
 		socketCloseErr := socket.Close()
-		if socketCloseErr != nil {
+		if socketCloseErr != nil && strings.Contains(socketCloseErr.Error(), "use of closed network connection") {
 			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
-				socket.Type.String(), c.replicaId, c.id, err)
+				socket.Type.String(), c.replicaId, c.id, socketCloseErr)
 
 			if err != nil {
 				err = errors.Join(err, socketCloseErr)
@@ -1308,9 +1313,9 @@ func (c *KernelReplicaClient) Close() error {
 	}
 	if c.iopub != nil {
 		ioPubCloseError := c.iopub.Close()
-		if ioPubCloseError != nil {
+		if ioPubCloseError != nil && strings.Contains(ioPubCloseError.Error(), "use of closed network connection") {
 			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
-				c.iopub.Type.String(), c.replicaId, c.id, err)
+				c.iopub.Type.String(), c.replicaId, c.id, ioPubCloseError)
 
 			if err != nil {
 				err = errors.Join(err, ioPubCloseError)

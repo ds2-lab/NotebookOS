@@ -84,6 +84,7 @@ var (
 	ErrDockerContainerCreationFailed = errors.New("failed to create docker container for new kernel")
 	ErrUnexpectedReplicaExpression   = fmt.Errorf("unexpected replica expression, expected url")
 	ErrConfigurationFilesDoNotExist  = errors.New("one or more of the necessary configuration files do not exist on the host's file system")
+	ErrIllegalFieldMutation          = errors.New("cannot mutate specified field of non-prewarm container")
 )
 
 type DockerInvoker struct {
@@ -104,7 +105,6 @@ type DockerInvoker struct {
 	remoteStorage            string               // Type of remote storage, either 'hdfs' or 'redis'
 	dockerStorageBase        string               // Base directory in which the persistent store data is stored.
 	DeploymentMode           types.DeploymentMode // DeploymentMode is the deployment mode of the cluster
-	workloadId               string
 
 	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
 	S3Bucket string
@@ -244,6 +244,9 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
+		LocalInvoker: LocalInvoker{
+			workloadId: opts.WorkloadId,
+		},
 		connInfo:                             connInfo,
 		opts:                                 opts,
 		tempBase:                             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
@@ -264,7 +267,6 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		electionTimeoutSeconds:               opts.ElectionTimeoutSeconds,
 		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
-		workloadId:                           opts.WorkloadId,
 		SmrEnabled:                           opts.SmrEnabled,
 		SimulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
 		assignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
@@ -831,22 +833,6 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	return nil
 }
 
-func (ivk *DockerInvoker) WorkloadId() string {
-	return ivk.workloadId
-}
-
-// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetWorkloadId(workloadId string) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the WorkloadId field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.workloadId = workloadId
-}
-
 func (ivk *DockerInvoker) AssignedGpuDeviceIds() []int32 {
 	return ivk.assignedGpuDeviceIds
 }
@@ -935,4 +921,25 @@ func (ivk *DockerInvoker) PromotePrewarmedContainer() bool {
 	// Update the current container type and return true.
 	ivk.currentContainerType = scheduling.StandardContainer
 	return true
+}
+
+// DemoteStandardContainer records within the target KernelInvoker that its container is now of type
+// scheduling.PrewarmContainer.
+//
+// PRECONDITION: The container of the target KernelInvoker must be of type scheduling.StandardContainer when
+// DemoteStandardContainer is called.
+//
+// If the demotion is successful, then PromotePrewarmedContainer returns nil.
+//
+// DemoteStandardContainer is the inverse of PromotePrewarmedContainer.
+func (ivk *DockerInvoker) DemoteStandardContainer() error {
+	// If the container is already a standard container (and therefore must have already been promoted), return false.
+	if ivk.currentContainerType == scheduling.PrewarmContainer {
+		return fmt.Errorf("%w: container is already of type \"%s\"",
+			scheduling.ErrInvalidContainerType, scheduling.PrewarmContainer)
+	}
+
+	// Update the current container type and return true.
+	ivk.currentContainerType = scheduling.PrewarmContainer
+	return nil
 }

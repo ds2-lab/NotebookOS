@@ -8299,9 +8299,11 @@ func (mr *MockKernelReplicaMockRecorder) SetReplicaID(replicaId any) *gomock.Cal
 }
 
 // SetWorkloadId mocks base method.
-func (m *MockKernelReplica) SetWorkloadId(workloadId string) {
+func (m *MockKernelReplica) SetWorkloadId(workloadId string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetWorkloadId", workloadId)
+	ret := m.ctrl.Call(m, "SetWorkloadId", workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetWorkloadId indicates an expected call of SetWorkloadId.

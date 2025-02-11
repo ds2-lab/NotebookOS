@@ -16,7 +16,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Tuple
+from typing import Union, Optional, Dict, Any, Tuple, Iterable
 
 import debugpy
 import faulthandler
@@ -2309,7 +2309,8 @@ class DistributedKernel(IPythonKernel):
         Reset the user namespace.
         :return:
         """
-        self.log.warning("Resetting user namespace.")
+        self.log.warning(f"Resetting user namespace. Current size: {len(self.shell.user_ns)} variable(s).")
+        previous_var_names: Iterable[str] = list(self.shell.user_ns.keys())
 
         async with self._user_ns_lock:
             prev_size: int = len(self.shell.user_ns)
@@ -2335,7 +2336,7 @@ class DistributedKernel(IPythonKernel):
             self.shell.init_user_ns()
 
         self.log.warning(f"The user namespace has been reset. "
-                         f"Removed {len(self.shell.user_ns) - prev_size} variable(s).")
+                         f"Removed {len(self.shell.user_ns) - prev_size} variable(s): {', '.join(previous_var_names)}")
 
         return {
             "status": "ok",

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"log"
 	"net"
 	"os"
@@ -44,6 +43,8 @@ type LocalInvoker struct {
 	closed        chan struct{}
 	statusChanged StatucChangedHandler
 
+	workloadId string // workloadId is the ID of the workload in which the LocalInvoker's kernel exists
+
 	SMRPort int
 
 	status jupyter.KernelStatus
@@ -52,13 +53,15 @@ type LocalInvoker struct {
 }
 
 func (ivk *LocalInvoker) WorkloadId() string {
-	//TODO implement me
-	panic("implement me")
+	return ivk.workloadId
 }
 
-func (ivk *LocalInvoker) SetWorkloadId(s string) {
-	//TODO implement me
-	panic("implement me")
+// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *LocalInvoker) SetWorkloadId(workloadId string) {
+	ivk.workloadId = workloadId
 }
 
 func (ivk *LocalInvoker) AssignedGpuDeviceIds() []int32 {
@@ -87,26 +90,6 @@ func (ivk *LocalInvoker) KernelId() string {
 }
 
 func (ivk *LocalInvoker) SetKernelId(s string) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ivk *LocalInvoker) CurrentContainerType() scheduling.ContainerType {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ivk *LocalInvoker) OriginalContainerType() scheduling.ContainerType {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ivk *LocalInvoker) PromotePrewarmedContainer() bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (ivk *LocalInvoker) ContainerIsPrewarm() bool {
 	//TODO implement me
 	panic("implement me")
 }

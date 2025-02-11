@@ -2054,7 +2054,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	}
 
 	// Update fields of the KernelInvoker.
-	kernelInvoker.SetWorkloadId(kernelReplicaSpec.WorkloadId)
+	err := kernelInvoker.SetWorkloadId(kernelReplicaSpec.WorkloadId)
+	if err != nil {
+		return nil, err
+	}
+
 	kernelInvoker.SetAssignedGpuDeviceIds(kernelReplicaSpec.Kernel.ResourceSpec.GpuDeviceIds)
 	kernelInvoker.SetDebugPort(kernelReplicaSpec.DockerModeKernelDebugPort)
 	kernelInvoker.SetKernelId(kernelReplicaSpec.Kernel.Id)
@@ -2070,7 +2074,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	}
 
 	// Promote the container (with respect to the scheduling.KernelReplica and scheduling.Container).
-	err := prewarmedKernelClient.PromotePrewarmContainer(kernelReplicaSpec)
+	err = prewarmedKernelClient.PromotePrewarmContainer(kernelReplicaSpec)
 	if err != nil && !errors.Is(err, entity.ErrInvalidContainer) /* It's fine if it doesn't have a container */ {
 		d.log.Error("Failed to promote prewarmed container (with respect to the KernelReplicaClient): %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -3401,7 +3405,7 @@ func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaIn
 			return err
 		}
 	} else if typ == messaging.ControlMessage && msg.JupyterMessageType() == messaging.ControlResetKernelReply {
-		err := d.processResetKernelReply(from.(scheduling.KernelReplica), msg)
+		err := d.processKernelResetReply(from.(scheduling.KernelReplica), msg)
 		if err != nil {
 			return err
 		}
@@ -3435,8 +3439,8 @@ func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaIn
 	return nil // Will be nil on success.
 }
 
-// processResetKernelReply processes a "kernel_reset_reply" message from the given kernel.
-func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+// processKernelResetReply processes a "kernel_reset_reply" message from the given kernel.
+func (d *LocalScheduler) processKernelResetReply(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
 	d.log.Debug("Received control \"%s\" message from replica %d of kernel \"%s\".",
 		msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
 
@@ -3449,7 +3453,7 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 		return err
 	}
 
-	// If there's no "status" etry in the request body, then that's a problem. There should be.
+	// If there's no "status" entry in the request body, then that's a problem. There should be.
 	val, ok := content["status"]
 	if !ok {
 		d.log.Error("Unexpected response for control \"%s\" message from replica %d of kernel \"%s\": %v",
@@ -3489,7 +3493,7 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 	prevReplicaId := kernel.ReplicaID()
 	prevKernelId := kernel.ID()
 
-	d.log.Debug("Demoting replica %d of kernel \"%s\" to a %s container with ID=\"%s\".",
+	d.log.Debug(utils.LightBlueStyle.Render("Demoting replica %d of kernel \"%s\" to a %s container with ID=\"%s\"."),
 		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
 
 	// Demote.
@@ -3502,7 +3506,7 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 		return err
 	}
 
-	d.log.Debug("Successfully demoted replica %d of kernel \"%s\" to a %s container with ID=\"%s\".",
+	d.log.Debug(utils.LightGreenStyle.Render("Successfully demoted replica %d of kernel \"%s\" to a %s container with ID=\"%s\"."),
 		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
 
 	// Release any resources.
@@ -3516,7 +3520,21 @@ func (d *LocalScheduler) processResetKernelReply(kernel scheduling.KernelReplica
 		return err
 	}
 
-	return nil
+	// Attempt to retrieve the kernel's invoker.
+	kernelInvoker := d.getInvoker(kernel)
+	if kernelInvoker == nil {
+		d.log.Warn("Could not retrieve invoker of replica %d of kernel %s...", prevReplicaId, prevKernelId)
+		return nil
+	}
+
+	containerInvoker, ok := kernelInvoker.(invoker.ContainerInvoker)
+	if !ok {
+		// We only use container invokers right now, so print a warning.
+		d.log.Warn("Invoker of replica %d of kernel %s is not a ContainerInvoker...", prevReplicaId, prevKernelId)
+		return nil
+	}
+
+	return containerInvoker.DemoteStandardContainer()
 }
 
 func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, frames *messaging.JupyterFrames, _ *messaging.JupyterMessage) error {

@@ -749,7 +749,7 @@ func (s *AbstractServer) Request(request messaging.Request, socket *messaging.So
 
 	socket.InitPendingReq()
 	reqId := request.RequestId()
-	s.Log.Debug("[gid=%d] %s [socket=%s] is sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.",
+	s.Log.Debug("[gid=%d] %s [socket=%s] sending %s \"%s\" message %s (JupyterID=%s) [remoteSocket=%s]. RequiresACK: %v.",
 		goroutineId, s.Name, socket.Name, socket.Type.String(), jMsg.JupyterMessageType(), request.RequestId(),
 		request.JupyterMessageId(), socket.RemoteName, request.RequiresAck())
 
@@ -1245,9 +1245,12 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			if jMsg.IsAck() {
 				goroutineId := goid.Get()
 
-				firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""), goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
-				secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
-				thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
+				firstPart := fmt.Sprintf(utils.GreenStyle.Render("[gid=%d] [1] Received ACK for %s \"%s\""),
+					goroutineId, socket.Type, jMsg.GetParentHeader().MsgType)
+				secondPart := fmt.Sprintf("%s (JupyterID=%s, ParentJupyterId=%s)",
+					utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()), utils.LightPurpleStyle.Render(jMsg.GetParentHeader().MsgID))
+				thirdPart := fmt.Sprintf(utils.GreenStyle.Render("via local socket %s [remoteSocket=%s]: %v"),
+					socket.Name, socket.RemoteName, jMsg)
 				s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 
 				// Handle the ACK in a separate goroutine and continue.
@@ -1256,7 +1259,8 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			}
 
 			if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream" && jMsg.JupyterMessageType() != "status" && jMsg.JupyterMessageType() != "execute_input") {
-				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
+				s.Log.Debug("[gid=%d] Poller: recv %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").",
+					goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
 
 				if s.DebugMode {
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
@@ -1285,14 +1289,16 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 		// Quit on router closed.
 		case <-s.Ctx.Done():
 			// s.Log.Warn("[gid=%d] Polling is stopping. Router is closed.", goroutineId)
-			s.Log.Debug("[gid=%d] Polling on %s socket %s is stopping. Router is closed.", goroutineId, socket.Type.String(), socket.Name)
+			s.Log.Debug("[gid=%d] Polling on %s socket %s is stopping. Router is closed.",
+				goroutineId, socket.Type.String(), socket.Name)
 			return
 		}
 
 		// Quit on error.
 		if err != nil {
 			// s.Log.Warn("[gid=%d] Polling is stopping. Received error: %v", goroutineId, err)
-			s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping. Received error: %v", goroutineId, socket.Type.String(), socket.Name, err)
+			s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping. Received error: %v",
+				goroutineId, socket.Type.String(), socket.Name, err)
 			return
 		}
 
@@ -1301,7 +1307,8 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			// s.Log.Debug("[gid=%d] %v socket %s is waiting to be instructed to continue.", goroutineId, socket.Type, socket.Name)
 			proceed := <-contd
 			if !proceed {
-				s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping.", goroutineId, socket.Type.String(), socket.Name)
+				s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping.",
+					goroutineId, socket.Type.String(), socket.Name)
 				return
 			}
 			// s.Log.Debug("[gid=%d] %v socket %s has been instructed to continue.", goroutineId, socket.Type, socket.Name)
