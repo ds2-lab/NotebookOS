@@ -1819,6 +1819,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			resourceSpec                          *proto.ResourceSpec
 			activeExecution                       scheduling.Execution
 			host1, host2, host3, host4            scheduling.UnitTestingHost
+			numContainersCreated                  atomic.Int32
 
 			host1Spoofer, host2Spoofer, host3Spoofer, host4Spoofer                             *distNbTesting.ResourceSpoofer
 			localGatewayClient1, localGatewayClient2, localGatewayClient3, localGatewayClient4 *mock_proto.MockLocalGatewayClient
@@ -1829,6 +1830,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				DebugMode: true,
 				Log:       config.GetLogger("TestAbstractServer"),
 			}
+
+			numContainersCreated.Store(0)
 
 			var options *domain.ClusterGatewayOptions
 			err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
@@ -1879,6 +1882,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernel.EXPECT().NumActiveExecutionOperations().Return(0).MaxTimes(1)
 			mockedKernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).AnyTimes()
+			mockedKernel.EXPECT().NumContainersCreated().AnyTimes().DoAndReturn(func() int32 {
+				return numContainersCreated.Load()
+			})
 
 			Expect(mockedKernelSpec).ToNot(BeNil())
 			mockedKernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -2181,6 +2187,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
 				time.Sleep(<-sleepIntervals)
+
+				numContainersCreated.Add(1)
 
 				_, _ = clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
 					KernelId:     kernelId,
@@ -3693,8 +3701,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 		Context("Scheduling Kernels", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			var numContainersCreated atomic.Int32
 
 			BeforeEach(func() {
+				numContainersCreated.Store(0)
+
 				abstractServer = &server.AbstractServer{
 					DebugMode: true,
 					Log:       config.GetLogger("TestAbstractServer"),
@@ -4095,6 +4106,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						return true, mockCreateReplicaContainersAttempt
 					})
 
+				kernel.EXPECT().NumContainersCreated().AnyTimes().DoAndReturn(func() int32 {
+					return numContainersCreated.Load()
+				})
+
 				kernel.EXPECT().ReplicasAreScheduled().Times(2).Return(false)
 
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
@@ -4319,6 +4334,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
 					time.Sleep(<-sleepIntervals)
 
+					numContainersCreated.Add(1)
+
 					_, err := clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
 						KernelId:     kernelId,
 						ReplicaId:    replicaId,
@@ -4370,10 +4387,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				numKernels := 3
 				numHosts := 3
 
+				numContainersCreatedMap := make(map[string]*atomic.Int32)
 				replicasAreScheduled := make(map[string]*atomic.Bool)
 				kernels := make(map[string]*mock_scheduling.MockKernel)
 				kernelSpecs := make(map[string]*proto.KernelSpec)
 
+				numContainersCreatedMapByIdx := make(map[int]*atomic.Int32)
 				replicasAreScheduledByIdx := make(map[int]*atomic.Bool)
 				kernelsByIdx := make(map[int]*mock_scheduling.MockKernel)
 				kernelSpecsByIdx := make(map[int]*proto.KernelSpec)
@@ -4417,6 +4436,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					kernel.EXPECT().ReplicasAreScheduled().AnyTimes().DoAndReturn(func() bool {
 						return replicasAreScheduledVar.Load()
+					})
+
+					var numContainersCreatedForKernel atomic.Int32
+					numContainersCreatedMap[kernelId] = &numContainersCreatedForKernel
+					numContainersCreatedMapByIdx[i] = &numContainersCreatedForKernel
+
+					kernel.EXPECT().NumContainersCreated().AnyTimes().DoAndReturn(func() int32 {
+						return numContainersCreatedMap[kernelId].Load()
 					})
 				}
 
@@ -4627,6 +4654,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
 					time.Sleep(<-sleepIntervals)
+
+					numContainersCreatedMap[kernelId].Add(1)
 
 					_, err := clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
 						KernelId:     kernelId,
