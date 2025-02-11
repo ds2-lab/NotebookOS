@@ -5328,6 +5328,9 @@ func (d *ClusterGatewayImpl) processResetKernelReplies(kernel scheduling.Kernel,
 			kernelId = replica.ID()
 		}
 
+		kernelReplicaSpec := replica.KernelReplicaSpec().Clone()
+		kernelReplicaSpec.Kernel.Id = kernelId
+
 		prewarmedContainer := prewarm.NewPrewarmedContainerBuilder().
 			WithHost(host).
 			WithKernelConnectionInfo(jupyter.KernelConnectionInfoFromJupyterConnectionInfo(replica.ConnectionInfo())).

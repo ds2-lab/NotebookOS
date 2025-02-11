@@ -247,7 +247,7 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
+func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
@@ -277,7 +277,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
+func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
 	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err

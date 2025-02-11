@@ -137,3 +137,27 @@ func (x *KernelSpec) DecimalSpecFromKernelSpec() *types.DecimalSpec {
 		VRam:      decimal.NewFromFloat(float64(x.ResourceSpec.Vram)),
 	}
 }
+
+func (x *KernelReplicaSpec) Clone() *KernelReplicaSpec {
+	kernelSpec := &KernelSpec{
+		Id:              x.Kernel.Id,
+		Session:         x.Kernel.Session,
+		Argv:            x.Kernel.Argv,
+		SignatureScheme: x.Kernel.SignatureScheme,
+		Key:             x.Kernel.Key,
+		ResourceSpec:    x.Kernel.ResourceSpec,
+		WorkloadId:      x.Kernel.WorkloadId,
+	}
+
+	return &KernelReplicaSpec{
+		Kernel:                    kernelSpec,
+		ReplicaId:                 x.ReplicaId,
+		Join:                      x.Join,
+		NumReplicas:               x.NumReplicas,
+		DockerModeKernelDebugPort: x.DockerModeKernelDebugPort,
+		PersistentId:              x.PersistentId,
+		WorkloadId:                x.WorkloadId,
+		Replicas:                  x.Replicas,
+		PrewarmContainer:          x.PrewarmContainer,
+	}
+}
