@@ -2406,6 +2406,7 @@ class DistributedKernel(IPythonKernel):
         self.kernel_id = prewarm_container_id
         self.prewarm_container_id = prewarm_container_id
         self.was_prewarmed_container = True
+        self.prewarm_container = True
 
         await self.__reset_user_namespace_state()
 
@@ -2472,8 +2473,9 @@ class DistributedKernel(IPythonKernel):
 
         if not self.prewarm_container:
             self.log.error(f"We are NOT a pre-warm container...")
-            self.report_error(f"Kernel '{self.kernel_id}' PROMOTION request despite not being a pre-warmed container",
-                              "")
+            self.report_error(f"Kernel '{self.kernel_id}' received a PROMOTION request despite "
+                              f"not being a pre-warmed container",
+                              "See message title.")
             return
 
         self.log.debug(f'Replacing old prewarm ID "{self.kernel_id}" with new kernel ID "{content["kernel_id"]}"')
