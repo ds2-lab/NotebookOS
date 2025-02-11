@@ -57,7 +57,7 @@ func (p *DynamicV3Policy) ValidateCapacity(cluster scheduling.Cluster) {
 //
 // But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
 func (p *DynamicV3Policy) ReuseWarmContainers() bool {
-	return false
+	return true
 }
 
 func (p *DynamicV3Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
