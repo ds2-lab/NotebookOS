@@ -4901,12 +4901,8 @@ class DistributedKernel(IPythonKernel):
                 **constructor_args_state,  # out_features should/will be in this dictionary.
             )
         except Exception as exc:
-            self.log.error(
-                f'Failed to load committed dataset "{pointer.model_name}" because: {exc}'
-            )
-            self.report_error(
-                'Failed to Load Committed Dataset "{pointer.name}"', str(exc)
-            )
+            self.log.error(f'Failed to load committed dataset "{pointer.model_name}" because: {exc}')
+            self.report_error(f'Failed to Load Committed Dataset "{pointer.name}"', str(exc))
             traceback.print_exc()
             return None
 
@@ -4920,43 +4916,29 @@ class DistributedKernel(IPythonKernel):
 
         if existing_variable is not None:
             if isinstance(existing_variable, CustomDataset):
-                self.log.debug(
-                    f'Found existing dataset "{var_name}" in user namespace.'
-                )
+                self.log.debug(f'Found existing dataset "{var_name}" in user namespace.')
 
                 # If they match, then we're done here.
                 # It is necessarily already downloaded by virtue of being one of our Dataset objects.
                 if existing_variable.name == pointer.dataset_name:
                     return None
 
-                self.log.warning(
-                    f'Existing dataset "{var_name}" does not match freshly-committed '
-                    f'dataset "{pointer.dataset_name}".'
-                )
-                self.log.warning(
-                    f"Will overwrite existing {existing_variable.name} dataset "
-                    f"\"{var_name}\" with '{pointer.dataset_name}' dataset."
-                )
+                self.log.warning(f'Existing dataset "{var_name}" does not match freshly-committed '
+                                 f'dataset "{pointer.dataset_name}".')
+                self.log.warning(f"Will overwrite existing {existing_variable.name} dataset "
+                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
             else:
-                self.log.warning(
-                    f'Found existing variable "{var_name}" of type {type(existing_variable).__name__}...'
-                )
-                self.log.warning(
-                    f"Will overwrite existing {type(existing_variable).__name__} variable "
-                    f"\"{var_name}\" with '{pointer.dataset_name}' dataset."
-                )
+                self.log.warning(f'Found existing variable "{var_name}" of type {type(existing_variable).__name__}...')
+                self.log.warning(f"Will overwrite existing {type(existing_variable).__name__} variable "
+                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
 
         try:
             st: float = time.time()
             dataset: CustomDataset = load_dataset(pointer.dataset_description)
             et: float = time.time()
         except Exception as exc:
-            self.log.error(
-                f'Failed to load committed dataset "{pointer.large_object_name}" because: {exc}'
-            )
-            self.report_error(
-                'Failed to Load Committed Dataset "{pointer.name}"', str(exc)
-            )
+            self.log.error(f'Failed to load committed dataset "{pointer.large_object_name}" because: {exc}')
+            self.report_error('Failed to Load Committed Dataset "{pointer.name}"', str(exc))
             traceback.print_exc()
             return None
 
@@ -4965,10 +4947,8 @@ class DistributedKernel(IPythonKernel):
                 session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(dataset.download_duration_sec * 1.0e3)
 
-        self.log.debug(
-            f"Successfully loaded committed dataset \"{pointer.large_object_name}\" (varname='{var_name}') "
-            f"from remote storage in {et - st} seconds."
-        )
+        self.log.debug(f"Successfully loaded committed dataset \"{pointer.large_object_name}\" (varname='{var_name}') "
+                       f"from remote storage in {et - st} seconds.")
         return dataset
 
     def __dataset_committed(self, pointer: DatasetPointer) -> Optional[CustomDataset]:
@@ -4976,10 +4956,8 @@ class DistributedKernel(IPythonKernel):
         Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
         :param pointer: the pointer to the Dataset object.
         """
-        self.log.debug(
-            f'The "{pointer.large_object_name}" dataset (stored in variable '
-            f"'{pointer.user_namespace_variable_name}') was committed."
-        )
+        self.log.debug( f'The "{pointer.large_object_name}" dataset (stored in variable '
+                        f"'{pointer.user_namespace_variable_name}') was committed.")
 
         # If we're catching up, then we'll save a reference to this to be processed later, once
         # we're done catching up so that we have the most up-to-date version of the variable.

@@ -29,6 +29,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             batch_size=4,
+            **kwargs
     ):
         super().__init__(
             root_dir=root_dir,
@@ -42,6 +43,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             max_token_length=max_token_length,
             tokenized_dataset_directory=IMDbLargeMovieReviewTruncated.get_tokenized_dataset_directory(model_name),
             batch_size=batch_size,
+            **kwargs,
         )
 
     @staticmethod

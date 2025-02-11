@@ -8,7 +8,7 @@ from distributed_notebook.logs import ColoredLogFormatter
 from torchvision.datasets.utils import check_integrity
 
 class CustomDataset(ABC):
-    def __init__(self, root_dir: str = "", shuffle: bool = True, num_workers: int = 2):
+    def __init__(self, root_dir: str = "", shuffle: bool = True, num_workers: int = 2, **kwargs):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers

@@ -21,8 +21,9 @@ class CIFAR100(ComputerVisionDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             image_size: int = 224,
+            **kwargs
     ):
-        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers, **kwargs)
 
         self.log.debug(f'Creating {self.dataset_name()} dataset with root directory "{root_dir}", batch size = {batch_size}, '
                        f'shuffle = {shuffle}, number of workers = {num_workers}, '
