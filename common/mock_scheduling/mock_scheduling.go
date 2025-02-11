@@ -12895,32 +12895,18 @@ func (mr *MockContainerPrewarmerMockRecorder) RequestPrewarmedContainer(host any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPrewarmedContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).RequestPrewarmedContainer), host)
 }
 
-// ReturnUnusedPrewarmContainer mocks base method.
-func (m *MockContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduling.PrewarmedContainer) error {
+// ReturnPrewarmContainer mocks base method.
+func (m *MockContainerPrewarmer) ReturnPrewarmContainer(container scheduling.PrewarmedContainer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReturnUnusedPrewarmContainer", container)
+	ret := m.ctrl.Call(m, "ReturnPrewarmContainer", container)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ReturnUnusedPrewarmContainer indicates an expected call of ReturnUnusedPrewarmContainer.
-func (mr *MockContainerPrewarmerMockRecorder) ReturnUnusedPrewarmContainer(container any) *gomock.Call {
+// ReturnPrewarmContainer indicates an expected call of ReturnPrewarmContainer.
+func (mr *MockContainerPrewarmerMockRecorder) ReturnPrewarmContainer(container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnUnusedPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnUnusedPrewarmContainer), container)
-}
-
-// ReturnUsedPrewarmContainer mocks base method.
-func (m *MockContainerPrewarmer) ReturnUsedPrewarmContainer(container scheduling.PrewarmedContainer) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReturnUsedPrewarmContainer", container)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReturnUsedPrewarmContainer indicates an expected call of ReturnUsedPrewarmContainer.
-func (mr *MockContainerPrewarmerMockRecorder) ReturnUsedPrewarmContainer(container any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnUsedPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnUsedPrewarmContainer), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnPrewarmContainer), container)
 }
 
 // Run mocks base method.

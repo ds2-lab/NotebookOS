@@ -893,7 +893,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			// TODO: If this ends up being slow, then we can spawn helper goroutines to handle it.
 			for _, kernel := range kernelsToReclaim {
 				reclamationStartTime := time.Now()
-				err := d.removeAllReplicasOfKernel(kernel, false, true)
+				err := d.removeAllReplicasOfKernel(kernel, false, true, false)
 				if err != nil {
 					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
 				} else {
@@ -5148,19 +5148,22 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 		return
 	}
 
+	// If this is set to false, then the replicas won't actually be shut down on the Local Scheduler.
+	removalIsNoop := false
+
 	// For the "middle ground" policy, we return the kernel's container to the warm container pool.
 	if d.Scheduler().Policy().ReuseWarmContainers() {
 		d.log.Debug("Reusing warm kernel container.")
+		removalIsNoop = true
 
 		// Send 'reset' request.
 		err := d.resetKernel(kernel, true)
 		if err != nil {
 			d.log.Error("Failed to reset kernel \"%s\": %v", kernel.ID(), err)
 		}
-	} else {
-		// We only remove the replicas if we aren't going to reuse the containers.
-		_ = d.removeAllReplicasOfKernel(kernel, true, false)
 	}
+
+	_ = d.removeAllReplicasOfKernel(kernel, true, false, removalIsNoop)
 }
 
 // resetKernelReply is used by the ClusterGatewayImpl's resetKernel and processResetKernelReplies methods.
@@ -5333,7 +5336,7 @@ func (d *ClusterGatewayImpl) processResetKernelReplies(replies []*resetKernelRep
 			WithPrewarmedContainerUsedCallback(nil).
 			Build()
 
-		err = prewarmer.ReturnUsedPrewarmContainer(prewarmedContainer)
+		err = prewarmer.ReturnPrewarmContainer(prewarmedContainer)
 		if err != nil {
 			d.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
 			errs = append(errs, err)
@@ -5374,7 +5377,9 @@ func (d *ClusterGatewayImpl) kernelReplicaResponseForwarder(from scheduling.Kern
 // removeAllReplicasOfKernel is used to de-schedule the replicas of the given kernel without removing the kernel itself.
 //
 // This does not remove the kernel itself.
-func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool, isIdleReclaim bool) error {
+func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool,
+	isIdleReclaim bool, noop bool) error {
+
 	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
 		d.log.Error("Instructed to remove all replicas of kernel \"%s\"; however, another attempt that began %v ago is still in progress...",
 			kernel.ID(), time.Since(descheduleAttempt.StartedAt))
@@ -5392,7 +5397,7 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	doRemoveReplicas := func() error {
 		defer descheduleAttempt.SetDone()
 
-		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false, isIdleReclaim)
+		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, noop, isIdleReclaim)
 	}
 
 	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.
