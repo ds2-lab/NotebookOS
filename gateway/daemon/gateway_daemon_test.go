@@ -92,38 +92,38 @@ var (
 			"execution-time-sampling-window": 10,
 			"migration-time-sampling-window": 10,
 			"scheduler-http-port": 8078,
+			"initial-cluster-size": -1,
+			"initial-connection-period": 0,
 			"common_options": {
-			"gpus-per-host": 8,
-			"deployment_mode": "docker-compose",
-			"using-wsl": true,
-			"docker_network_name": "distributed_cluster_default",
-			"prometheus_interval": 15,
-			"prometheus_port": -1,
-			"num_resend_attempts": 1,
-			"acks_enabled": false,
-			"scheduling-policy": "static",
-			"idle-session-reclamation-policy": "none",
-			"remote-storage-endpoint": "host.docker.internal:10000",
-			"smr-port": 8080,
-			"debug_mode": true,
-			"debug_port": 9996,
-			"simulate_checkpointing_latency": true,
-			"disable_prometheus_metrics_publishing": true
-		}
+				"gpus-per-host": 8,
+				"deployment_mode": "docker-compose",
+				"using-wsl": true,
+				"docker_network_name": "distributed_cluster_default",
+				"prometheus_interval": 15,
+				"prometheus_port": -1,
+				"num_resend_attempts": 1,
+				"acks_enabled": false,
+				"scheduling-policy": "static",
+				"idle-session-reclamation-policy": "none",
+				"remote-storage-endpoint": "host.docker.internal:10000",
+				"smr-port": 8080,
+				"debug_mode": true,
+				"debug_port": 9996,
+				"simulate_checkpointing_latency": true,
+				"disable_prometheus_metrics_publishing": true
+			}
+		},
+		"local-daemon-service-name": "local-daemon-network",
+		"local-daemon-service-port": 8075,
+		"global-daemon-service-name": "daemon-network",
+		"global-daemon-service-port": 0,
+		"kubernetes-namespace": "",
+		"use-stateful-set": false,
+		"notebook-image-name": "scusemua/jupyter-gpu",
+		"notebook-image-tag": "latest",
+		"distributed-cluster-service-port": 8079,
+		"remote-docker-event-aggregator-port": 5821
 	},
-	"local-daemon-service-name": "local-daemon-network",
-	"local-daemon-service-port": 8075,
-	"global-daemon-service-name": "daemon-network",
-	"global-daemon-service-port": 0,
-	"kubernetes-namespace": "",
-	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter-gpu",
-	"notebook-image-tag": "latest",
-	"distributed-cluster-service-port": 8079,
-	"remote-docker-event-aggregator-port": 5821,
-	"initial-cluster-size": -1,
-	"initial-connection-period": 0
-},
 	"port": 8080,
 	"provisioner_port": 8081,
 	"jaeger_addr": "",
@@ -1913,7 +1913,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 			mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
-
 			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
 			mockedKernel.EXPECT().
 				BeginSchedulingReplicaContainers().
@@ -4085,6 +4084,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
+				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
 				kernel.EXPECT().
 					BeginSchedulingReplicaContainers().
@@ -4165,7 +4165,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
 				go func() {
-					// defer GinkgoRecover()
+					defer GinkgoRecover()
 
 					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
 					Expect(err).To(BeNil())
@@ -4387,6 +4387,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 					mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
+					mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 					mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 					kernel.EXPECT().
 						BeginSchedulingReplicaContainers().

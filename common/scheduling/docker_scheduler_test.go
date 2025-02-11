@@ -78,6 +78,8 @@ var (
 			"execution-time-sampling-window": 10,
 			"migration-time-sampling-window": 10,
 			"scheduler-http-port": 8078,
+			"initial-cluster-size": -1,
+			"initial-connection-period": 0,
 			"common_options": {
 				"gpus-per-host": 8,
 				"deployment_mode": "docker-swarm",
@@ -106,9 +108,7 @@ var (
 		"notebook-image-name": "scusemua/jupyter-gpu",
 		"notebook-image-tag": "latest",
 		"distributed-cluster-service-port": 8079,
-		"remote-docker-event-aggregator-port": 5821,
-		"initial-cluster-size": -1,
-		"initial-connection-period": 0
+		"remote-docker-event-aggregator-port": 5821
 	}
 }`
 )
