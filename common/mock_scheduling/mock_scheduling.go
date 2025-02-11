@@ -294,6 +294,20 @@ func (mr *MockClusterMockRecorder) HasActiveScalingOperation() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveScalingOperation", reflect.TypeOf((*MockCluster)(nil).HasActiveScalingOperation))
 }
 
+// IsInInitialConnectionPeriod mocks base method.
+func (m *MockCluster) IsInInitialConnectionPeriod() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsInInitialConnectionPeriod")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsInInitialConnectionPeriod indicates an expected call of IsInInitialConnectionPeriod.
+func (mr *MockClusterMockRecorder) IsInInitialConnectionPeriod() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsInInitialConnectionPeriod", reflect.TypeOf((*MockCluster)(nil).IsInInitialConnectionPeriod))
+}
+
 // Len mocks base method.
 func (m *MockCluster) Len() int {
 	m.ctrl.T.Helper()
@@ -7658,6 +7672,20 @@ func (mr *MockKernelReplicaMockRecorder) Context() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockKernelReplica)(nil).Context))
 }
 
+// DemoteStandardContainer mocks base method.
+func (m *MockKernelReplica) DemoteStandardContainer(prewarmContainerId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DemoteStandardContainer", prewarmContainerId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DemoteStandardContainer indicates an expected call of DemoteStandardContainer.
+func (mr *MockKernelReplicaMockRecorder) DemoteStandardContainer(prewarmContainerId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DemoteStandardContainer", reflect.TypeOf((*MockKernelReplica)(nil).DemoteStandardContainer), prewarmContainerId)
+}
+
 // GetPodOrContainerName mocks base method.
 func (m *MockKernelReplica) GetPodOrContainerName() string {
 	m.ctrl.T.Helper()
@@ -8285,9 +8313,11 @@ func (mr *MockKernelReplicaMockRecorder) SetReplicaID(replicaId any) *gomock.Cal
 }
 
 // SetWorkloadId mocks base method.
-func (m *MockKernelReplica) SetWorkloadId(workloadId string) {
+func (m *MockKernelReplica) SetWorkloadId(workloadId string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetWorkloadId", workloadId)
+	ret := m.ctrl.Call(m, "SetWorkloadId", workloadId)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetWorkloadId indicates an expected call of SetWorkloadId.
@@ -8904,6 +8934,20 @@ func (m *MockKernelContainer) SetHost(host scheduling.Host) {
 func (mr *MockKernelContainerMockRecorder) SetHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelContainer)(nil).SetHost), host)
+}
+
+// StandardContainerDemoted mocks base method.
+func (m *MockKernelContainer) StandardContainerDemoted(prewarmContainerId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StandardContainerDemoted", prewarmContainerId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StandardContainerDemoted indicates an expected call of StandardContainerDemoted.
+func (mr *MockKernelContainerMockRecorder) StandardContainerDemoted(prewarmContainerId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StandardContainerDemoted", reflect.TypeOf((*MockKernelContainer)(nil).StandardContainerDemoted), prewarmContainerId)
 }
 
 // StartedAt mocks base method.
@@ -12550,6 +12594,20 @@ func (mr *MockPrewarmedContainerMockRecorder) CreatedAt() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatedAt", reflect.TypeOf((*MockPrewarmedContainer)(nil).CreatedAt))
 }
 
+// GetOnPrewarmedContainerUsed mocks base method.
+func (m *MockPrewarmedContainer) GetOnPrewarmedContainerUsed() scheduling.PrewarmedContainerUsedCallback {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOnPrewarmedContainerUsed")
+	ret0, _ := ret[0].(scheduling.PrewarmedContainerUsedCallback)
+	return ret0
+}
+
+// GetOnPrewarmedContainerUsed indicates an expected call of GetOnPrewarmedContainerUsed.
+func (mr *MockPrewarmedContainerMockRecorder) GetOnPrewarmedContainerUsed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOnPrewarmedContainerUsed", reflect.TypeOf((*MockPrewarmedContainer)(nil).GetOnPrewarmedContainerUsed))
+}
+
 // Host mocks base method.
 func (m *MockPrewarmedContainer) Host() scheduling.Host {
 	m.ctrl.T.Helper()
@@ -12853,18 +12911,18 @@ func (mr *MockContainerPrewarmerMockRecorder) RequestPrewarmedContainer(host any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPrewarmedContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).RequestPrewarmedContainer), host)
 }
 
-// ReturnUnusedPrewarmContainer mocks base method.
-func (m *MockContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduling.PrewarmedContainer) error {
+// ReturnPrewarmContainer mocks base method.
+func (m *MockContainerPrewarmer) ReturnPrewarmContainer(container scheduling.PrewarmedContainer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReturnUnusedPrewarmContainer", container)
+	ret := m.ctrl.Call(m, "ReturnPrewarmContainer", container)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ReturnUnusedPrewarmContainer indicates an expected call of ReturnUnusedPrewarmContainer.
-func (mr *MockContainerPrewarmerMockRecorder) ReturnUnusedPrewarmContainer(container any) *gomock.Call {
+// ReturnPrewarmContainer indicates an expected call of ReturnPrewarmContainer.
+func (mr *MockContainerPrewarmerMockRecorder) ReturnPrewarmContainer(container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnUnusedPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnUnusedPrewarmContainer), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReturnPrewarmContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).ReturnPrewarmContainer), container)
 }
 
 // Run mocks base method.

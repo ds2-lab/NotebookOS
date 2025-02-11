@@ -30,7 +30,7 @@ RUN chmod -R 777 /home/jovyan/.cache/
 RUN chown -R jovyan /home/jovyan/.cache/
 
 # Install distributed_notebook module.
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install /distributed_notebook/distributed_notebook
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install -e /distributed_notebook/distributed_notebook
 
 # Install kernel
 RUN cd /distributed_notebook \

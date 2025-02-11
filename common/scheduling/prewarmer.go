@@ -89,9 +89,8 @@ type ContainerPrewarmer interface {
 	// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 	ProvisionContainer(host Host) error
 
-	// ReturnUnusedPrewarmContainer is used to return a pre-warmed container that was originally returned to the caller
-	// via the RequestPrewarmedContainer method, but ended up being unused, and so it can simply be put back into the pool.
-	ReturnUnusedPrewarmContainer(container PrewarmedContainer) error
+	// ReturnPrewarmContainer returns a used pre-warmed container so that it may be reused in the future.
+	ReturnPrewarmContainer(container PrewarmedContainer) error
 
 	// RequestPrewarmedContainer is used to request a pre-warm container on a particular host.
 	//
@@ -126,6 +125,7 @@ type PrewarmedContainer interface {
 	HostId() string
 	HostName() string
 	OnPrewarmedContainerUsed()
+	GetOnPrewarmedContainerUsed() PrewarmedContainerUsedCallback
 	IsAvailable() bool
 	SetUnavailable()
 	Host() Host

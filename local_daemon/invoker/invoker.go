@@ -52,7 +52,7 @@ type KernelInvoker interface {
 	// KernelInvoker struct is scheduling.PrewarmContainer.
 	SetWorkloadId(string)
 
-	AssignedGpuDeviceIds() []int32
+	GetAssignedGpuDeviceIds() []int32
 
 	// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target KernelInvoker is
 	// scheduling.StandardContainer.
@@ -76,6 +76,11 @@ type KernelInvoker interface {
 	// You can only mutate the KernelId field of a KernelInvoker struct if the CurrentContainerType of the target
 	// KernelInvoker struct is scheduling.PrewarmContainer.
 	SetKernelId(string)
+}
+
+// ContainerInvoker is an extension of LocalInvoker that is specifically used to invoke container-based kernels.
+type ContainerInvoker interface {
+	KernelInvoker
 
 	// CurrentContainerType is the current scheduling.ContainerType of the container created by the target
 	// KernelInvoker.
@@ -95,7 +100,20 @@ type KernelInvoker interface {
 	//
 	// If the OriginalContainerType of the target KernelInvoker is KernelInvoker,
 	// then PromotePrewarmedContainer returns false.
+	//
+	// PromotePrewarmedContainer is the inverse of DemoteStandardContainer.
 	PromotePrewarmedContainer() bool
+
+	// DemoteStandardContainer records within the target KernelInvoker that its container is now of type
+	// scheduling.PrewarmContainer.
+	//
+	// PRECONDITION: The container of the target KernelInvoker must be of type scheduling.StandardContainer when
+	// DemoteStandardContainer is called.
+	//
+	// If the demotion is successful, then PromotePrewarmedContainer returns nil.
+	//
+	// DemoteStandardContainer is the inverse of PromotePrewarmedContainer.
+	DemoteStandardContainer() error
 
 	// ContainerIsPrewarm returns true if the CurrentContainerType of the target KernelInvoker is
 	// scheduling.PrewarmContainer.

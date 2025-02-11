@@ -60,6 +60,10 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (SchedulingPolicy, e
 		{
 			return policy.NewFcfsBatchSchedulingPolicy(opts)
 		}
+	case string(scheduling.MiddleGround):
+		{
+			return policy.NewMiddleGroundPolicy(opts)
+		}
 	case string(scheduling.AutoScalingFcfsBatch):
 		{
 			panic("Auto-Scaling FCFS Batch is no longer supported (at least for the time being.")

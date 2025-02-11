@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"errors"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"time"
@@ -15,6 +16,12 @@ const (
 	PrewarmContainer  ContainerType = "Prewarmed"
 	StandardContainer ContainerType = "Standard"
 	UnknownContainer  ContainerType = "Unknown"
+)
+
+var (
+	// ErrInvalidContainerType is used when a container is expected to be a PrewarmContainer, but it is instead a
+	// StandardContainer (or vice versa).
+	ErrInvalidContainerType = errors.New("invalid container type")
 )
 
 type ContainerType string
@@ -75,6 +82,10 @@ type KernelContainer interface {
 	// PrewarmContainerPromoted is used to promote a KernelContainer whose ContainerType is PrewarmContainer
 	// to a StandardContainer.
 	PrewarmContainerPromoted(kernelId string, replicaId int32, spec types.Spec) error
+
+	// StandardContainerDemoted is used to demote a KernelContainer whose ContainerType is StandardContainer
+	// to a PrewarmContainer.
+	StandardContainerDemoted(prewarmContainerId string) error
 
 	// SetHost sets the scheduling.Host of the Container.
 	SetHost(host Host)

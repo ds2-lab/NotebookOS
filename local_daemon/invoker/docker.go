@@ -84,45 +84,34 @@ var (
 	ErrDockerContainerCreationFailed = errors.New("failed to create docker container for new kernel")
 	ErrUnexpectedReplicaExpression   = fmt.Errorf("unexpected replica expression, expected url")
 	ErrConfigurationFilesDoNotExist  = errors.New("one or more of the necessary configuration files do not exist on the host's file system")
+	ErrIllegalFieldMutation          = errors.New("cannot mutate specified field of non-prewarm container")
 )
 
 type DockerInvoker struct {
 	LocalInvoker
-	containerCreatedAt       time.Time                // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
-	containerMetricsProvider ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
-	connInfo                 *jupyter.ConnectionInfo
-	opts                     *DockerInvokerOptions
-	tempBase                 string
-	hostMountDir             string
-	targetMountDir           string
-	invokerCmd               string               // Command used to create the Docker container.
-	containerName            string               // Name of the launched container; this is the empty string before the container is launched.
-	kernelId                 string               // The ID of the target kernel.
-	dockerNetworkName        string               // The name of the Docker network that the Local Daemon container is running within.
-	id                       string               // Uniquely identifies this Invoker instance.
-	remoteStorageEndpoint    string               // Endpoint of the remote storage.
-	remoteStorage            string               // Type of remote storage, either 'hdfs' or 'redis'
-	dockerStorageBase        string               // Base directory in which the persistent store data is stored.
-	DeploymentMode           types.DeploymentMode // DeploymentMode is the deployment mode of the cluster
-	workloadId               string
 
-	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
-	S3Bucket string
+	// opts are the options specified when first creating the DockerInvoker.
+	opts *DockerInvokerOptions
 
-	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
-	AwsRegion string
+	// containerMetricsProvider enables the DockerInvoker to publish relevant metrics,
+	// such as latency of creating containers.
+	containerMetricsProvider ContainerMetricsProvider
 
-	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
-	RedisPassword string
+	tempBase       string
+	hostMountDir   string
+	targetMountDir string
 
-	assignedGpuDeviceIds   []int32 // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
-	smrPort                int     // Port used by the SMR cluster.
-	KernelDebugPort        int32   // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	electionTimeoutSeconds int     // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
-	prometheusMetricsPort  int     // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
+	// invokerCmd is the command used to create the Docker container.
+	invokerCmd string
 
-	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
-	RedisPort int
+	// containerName is the name of the launched container; this is the empty string before the container is launched.
+	containerName string
+
+	// dockerNetworkName is the name of the Docker network that the Local Daemon container is running within.
+	dockerNetworkName string
+
+	// dockerStorageBase is the base directory in which the persistent store data is stored.
+	dockerStorageBase string
 
 	// originalContainerType is the original type of the container created by this DockerInvoker
 	originalContainerType scheduling.ContainerType
@@ -130,20 +119,11 @@ type DockerInvoker struct {
 	// currentContainerType is the current type of the container created by this DockerInvoker
 	currentContainerType scheduling.ContainerType
 
-	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
-	RedisDatabase                        int
-	closing                              int32 // Indicates whether the container is closing/shutting down.
-	containerCreated                     bool  // containerCreated is a bool indicating whether kernel the container has been created.
-	simulateCheckpointingLatency         bool  // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
-	RunKernelsInGdb                      bool  // If true, then the kernels will be run in GDB.
-	simulateWriteAfterExec               bool  // Simulate network write after executing code?
-	simulateWriteAfterExecOnCriticalPath bool  // Should the simulated network write after executing code be on the critical path?
-	SimulateTrainingUsingSleep           bool  // SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
-	BindGPUs                             bool  // BindGPUs indicates whether we should bind GPUs to the container or not. We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
-	BindAllGpus                          bool  // BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
-	BindDebugpyPort                      bool  // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
-	SaveStoppedKernelContainers          bool  // If true, then do not fully remove stopped kernel containers.
-	SmrEnabled                           bool
+	// closing indicates whether the container is closing/shutting down.
+	closing int32
+
+	// containerCreated is a bool indicating whether kernel the container has been created.
+	containerCreated bool
 
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
@@ -151,6 +131,9 @@ type DockerInvoker struct {
 	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
 	// that they are scheduled onto our node.
 	IsInDockerSwarm bool
+
+	// RunKernelsInGdb indicates whether the kernels should be run in GDB.
+	RunKernelsInGdb bool
 }
 
 // DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
@@ -244,39 +227,41 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
-		connInfo:                             connInfo,
-		opts:                                 opts,
-		tempBase:                             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
-		hostMountDir:                         utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
-		targetMountDir:                       utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
-		smrPort:                              smrPort,
-		remoteStorageEndpoint:                opts.RemoteStorageEndpoint,
-		remoteStorage:                        opts.RemoteStorage,
-		id:                                   uuid.NewString(),
-		KernelDebugPort:                      opts.KernelDebugPort,
-		dockerNetworkName:                    dockerNetworkName,
-		dockerStorageBase:                    opts.DockerStorageBase,
-		RunKernelsInGdb:                      opts.RunKernelsInGdb,
-		containerMetricsProvider:             containerMetricsProvider,
-		simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
-		IsInDockerSwarm:                      opts.IsInDockerSwarm,
-		prometheusMetricsPort:                opts.PrometheusMetricsPort,
-		electionTimeoutSeconds:               opts.ElectionTimeoutSeconds,
-		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
-		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
-		workloadId:                           opts.WorkloadId,
-		SmrEnabled:                           opts.SmrEnabled,
-		SimulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
-		assignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
-		BindAllGpus:                          opts.BindAllGpus,
-		BindDebugpyPort:                      opts.BindDebugpyPort,
-		SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
-		BindGPUs:                             opts.BindGPUs,
-		S3Bucket:                             opts.S3Bucket,
-		AwsRegion:                            opts.AwsRegion,
-		RedisPassword:                        opts.RedisPassword,
-		RedisPort:                            opts.RedisPort,
-		RedisDatabase:                        opts.RedisDatabase,
+		LocalInvoker: LocalInvoker{
+			workloadId:                           opts.WorkloadId,
+			remoteStorageEndpoint:                opts.RemoteStorageEndpoint,
+			remoteStorage:                        opts.RemoteStorage,
+			id:                                   uuid.NewString(),
+			SMRPort:                              smrPort,
+			connInfo:                             connInfo,
+			S3Bucket:                             opts.S3Bucket,
+			AwsRegion:                            opts.AwsRegion,
+			RedisPassword:                        opts.RedisPassword,
+			prometheusMetricsPort:                opts.PrometheusMetricsPort,
+			electionTimeoutSeconds:               opts.ElectionTimeoutSeconds,
+			simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
+			simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
+			SmrEnabled:                           opts.SmrEnabled,
+			SimulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
+			AssignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
+			BindAllGpus:                          opts.BindAllGpus,
+			BindDebugpyPort:                      opts.BindDebugpyPort,
+			SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
+			BindGPUs:                             opts.BindGPUs,
+			RedisPort:                            opts.RedisPort,
+			RedisDatabase:                        opts.RedisDatabase,
+			KernelDebugPort:                      opts.KernelDebugPort,
+			simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
+		},
+		opts:                     opts,
+		RunKernelsInGdb:          opts.RunKernelsInGdb,
+		tempBase:                 utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		hostMountDir:             utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
+		targetMountDir:           utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
+		dockerNetworkName:        dockerNetworkName,
+		dockerStorageBase:        opts.DockerStorageBase,
+		containerMetricsProvider: containerMetricsProvider,
+		IsInDockerSwarm:          opts.IsInDockerSwarm,
 	}
 
 	config.InitLogger(&invoker.log, invoker)
@@ -336,7 +321,7 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 	}
 
 	// If no GPU device IDs were specified (and BindAllGpus is false), then we can just return.
-	if len(ivk.assignedGpuDeviceIds) == 0 {
+	if len(ivk.AssignedGpuDeviceIds) == 0 {
 		ivk.log.Warn("The use of real GPUs is enabled; however, no GPU device IDs were specified, " +
 			"and we were not instructed to bind all GPUs...")
 		return ""
@@ -351,12 +336,12 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 
 	// Iterate over all the assigned GPU device IDs, building out the string to include in the GPU command snippet.
 	deviceIdsString := ""
-	for i, deviceId := range ivk.assignedGpuDeviceIds {
+	for i, deviceId := range ivk.AssignedGpuDeviceIds {
 		// Append the GPU device ID to the string.
 		deviceIdsString += fmt.Sprintf("%d", deviceId)
 
 		// If there is going to be another GPU device ID, then we'll append a comma before continuing with the loop.
-		if i < len(ivk.assignedGpuDeviceIds)-1 {
+		if i < len(ivk.AssignedGpuDeviceIds)-1 {
 			deviceIdsString += ","
 		}
 	}
@@ -378,7 +363,7 @@ func (ivk *DockerInvoker) KernelCreatedAt() (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	return ivk.containerCreatedAt, true
+	return ivk.createdAt, true
 }
 
 // TimeSinceContainerCreated returns the amount of time that has elapsed since the DockerInvoker created the kernel container.
@@ -387,7 +372,7 @@ func (ivk *DockerInvoker) TimeSinceContainerCreated() (time.Duration, bool) {
 		return time.Duration(-1), false
 	}
 
-	return time.Since(ivk.containerCreatedAt), true
+	return time.Since(ivk.createdAt), true
 }
 
 func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.KernelReplicaSpec) (*jupyter.ConnectionInfo, error) {
@@ -417,7 +402,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		return nil, ivk.reportLaunchError(err)
 	}
 	if port == 0 {
-		port = ivk.smrPort
+		port = ivk.SMRPort
 	}
 	if len(spec.Replicas) < int(spec.NumReplicas) {
 		// Regenerate replica addresses
@@ -508,7 +493,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	}
 
 	ivk.containerCreated = true
-	ivk.containerCreatedAt = time.Now()
+	ivk.createdAt = time.Now()
 	ivk.setStatus(jupyter.KernelStatusRunning)
 	return connectionInfo, nil
 }
@@ -831,71 +816,6 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	return nil
 }
 
-func (ivk *DockerInvoker) WorkloadId() string {
-	return ivk.workloadId
-}
-
-// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetWorkloadId(workloadId string) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the WorkloadId field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.workloadId = workloadId
-}
-
-func (ivk *DockerInvoker) AssignedGpuDeviceIds() []int32 {
-	return ivk.assignedGpuDeviceIds
-}
-
-// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target DockerInvoker is
-// scheduling.StandardContainer.
-//
-// You can only mutate the AssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
-// target DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the AssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.assignedGpuDeviceIds = assignedGpuDeviceIds
-}
-
-func (ivk *DockerInvoker) DebugPort() int32 {
-	return ivk.KernelDebugPort
-}
-
-// SetDebugPort will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the DebugPort field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int32) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the DebugPort field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.KernelDebugPort = kernelDebugPort
-}
-
-func (ivk *DockerInvoker) KernelId() string {
-	return ivk.kernelId
-}
-
-// SetKernelId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the KernelId field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetKernelId(kernelId string) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the KernelId field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.kernelId = kernelId
-}
-
 // ContainerIsPrewarm returns true if the CurrentContainerType of the target DockerInvoker is scheduling.PrewarmContainer.
 func (ivk *DockerInvoker) ContainerIsPrewarm() bool {
 	return ivk.currentContainerType == scheduling.PrewarmContainer
@@ -935,4 +855,74 @@ func (ivk *DockerInvoker) PromotePrewarmedContainer() bool {
 	// Update the current container type and return true.
 	ivk.currentContainerType = scheduling.StandardContainer
 	return true
+}
+
+// DemoteStandardContainer records within the target KernelInvoker that its container is now of type
+// scheduling.PrewarmContainer.
+//
+// PRECONDITION: The container of the target KernelInvoker must be of type scheduling.StandardContainer when
+// DemoteStandardContainer is called.
+//
+// If the demotion is successful, then PromotePrewarmedContainer returns nil.
+//
+// DemoteStandardContainer is the inverse of PromotePrewarmedContainer.
+func (ivk *DockerInvoker) DemoteStandardContainer() error {
+	// If the container is already a standard container (and therefore must have already been promoted), return false.
+	if ivk.currentContainerType == scheduling.PrewarmContainer {
+		return fmt.Errorf("%w: container is already of type \"%s\"",
+			scheduling.ErrInvalidContainerType, scheduling.PrewarmContainer)
+	}
+
+	// Update the current container type and return true.
+	ivk.currentContainerType = scheduling.PrewarmContainer
+	return nil
+}
+
+// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target DockerInvoker is
+// scheduling.StandardContainer.
+//
+// You can only mutate the GetAssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
+// target DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the GetAssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetAssignedGpuDeviceIds(assignedGpuDeviceIds)
+}
+
+// SetDebugPort will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the DebugPort field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int32) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the DebugPort field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetDebugPort(kernelDebugPort)
+}
+
+// SetKernelId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the KernelId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetKernelId(kernelId string) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the KernelId field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetKernelId(kernelId)
+}
+
+// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetWorkloadId(workloadId string) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the WorkloadId field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetWorkloadId(workloadId)
 }

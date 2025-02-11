@@ -20,6 +20,9 @@ import (
 const (
 	MessageHeaderDefaultUsername = "username"
 
+	IOStatusMessage              = "status"
+	ControlResetKernelRequest    = "reset_kernel_request"
+	ControlResetKernelReply      = "reset_kernel_reply"
 	ShellExecuteRequest          = "execute_request"
 	ShellExecuteReply            = "execute_reply"
 	ShellYieldRequest            = "yield_request"

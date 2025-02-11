@@ -1,3 +1,5 @@
+import shutil
+
 import time
 import torch
 import os
@@ -240,6 +242,19 @@ class LibriSpeech(CustomDataset):
             )
         else:
             self._test_loader: Optional[WrappedLoader] = None
+
+    def remove_local_files(self):
+        """
+        Remove any local files on disk.
+        """
+        self.log.debug(f'Cleaning up cache files for "{self.name}" dataset. Removing directory "{self.root_directory}".')
+
+        st: float = time.time()
+
+        shutil.rmtree(self.root_directory, ignore_errors=True)
+
+        self.log.debug(f'Successfully cleaned-up cache files for "{self.name}" '
+                       f'dataset in {round(time.time() - st, 3):,} seconds.')
 
     @staticmethod
     def category() -> str:

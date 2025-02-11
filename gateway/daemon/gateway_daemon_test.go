@@ -92,38 +92,38 @@ var (
 			"execution-time-sampling-window": 10,
 			"migration-time-sampling-window": 10,
 			"scheduler-http-port": 8078,
+			"initial-cluster-size": -1,
+			"initial-connection-period": 0,
 			"common_options": {
-			"gpus-per-host": 8,
-			"deployment_mode": "docker-compose",
-			"using-wsl": true,
-			"docker_network_name": "distributed_cluster_default",
-			"prometheus_interval": 15,
-			"prometheus_port": -1,
-			"num_resend_attempts": 1,
-			"acks_enabled": false,
-			"scheduling-policy": "static",
-			"idle-session-reclamation-policy": "none",
-			"remote-storage-endpoint": "host.docker.internal:10000",
-			"smr-port": 8080,
-			"debug_mode": true,
-			"debug_port": 9996,
-			"simulate_checkpointing_latency": true,
-			"disable_prometheus_metrics_publishing": true
-		}
+				"gpus-per-host": 8,
+				"deployment_mode": "docker-compose",
+				"using-wsl": true,
+				"docker_network_name": "distributed_cluster_default",
+				"prometheus_interval": 15,
+				"prometheus_port": -1,
+				"num_resend_attempts": 1,
+				"acks_enabled": false,
+				"scheduling-policy": "static",
+				"idle-session-reclamation-policy": "none",
+				"remote-storage-endpoint": "host.docker.internal:10000",
+				"smr-port": 8080,
+				"debug_mode": true,
+				"debug_port": 9996,
+				"simulate_checkpointing_latency": true,
+				"disable_prometheus_metrics_publishing": true
+			}
+		},
+		"local-daemon-service-name": "local-daemon-network",
+		"local-daemon-service-port": 8075,
+		"global-daemon-service-name": "daemon-network",
+		"global-daemon-service-port": 0,
+		"kubernetes-namespace": "",
+		"use-stateful-set": false,
+		"notebook-image-name": "scusemua/jupyter-gpu",
+		"notebook-image-tag": "latest",
+		"distributed-cluster-service-port": 8079,
+		"remote-docker-event-aggregator-port": 5821
 	},
-	"local-daemon-service-name": "local-daemon-network",
-	"local-daemon-service-port": 8075,
-	"global-daemon-service-name": "daemon-network",
-	"global-daemon-service-port": 0,
-	"kubernetes-namespace": "",
-	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter-gpu",
-	"notebook-image-tag": "latest",
-	"distributed-cluster-service-port": 8079,
-	"remote-docker-event-aggregator-port": 5821,
-	"initial-cluster-size": -1,
-	"initial-connection-period": 0
-},
 	"port": 8080,
 	"provisioner_port": 8081,
 	"jaeger_addr": "",
@@ -285,7 +285,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
 		kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
 		kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)
-		kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
+		kernel.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
 		kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
 
 		executionManager := client.NewExecutionManager(kernel, numReplicas, nil, clusterGateway)
@@ -1907,9 +1907,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				AnyTimes()
 
 			mockedKernel.EXPECT().GetSession().Return(mockedSession).AnyTimes()
+			mockedKernel.EXPECT().RecordContainerPlacementStarted().Times(1)
+			mockedKernel.EXPECT().RecordContainerCreated(false).AnyTimes()
+			mockedKernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
 
 			mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
-			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+			mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
+			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 			mockedKernel.EXPECT().
 				BeginSchedulingReplicaContainers().
 				Times(1).
@@ -1917,7 +1921,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					return true, mockCreateReplicaContainersAttempt
 				})
 
-			mockedKernel.EXPECT().ReplicasAreScheduled().Times(1).Return(false)
+			mockedKernel.EXPECT().ReplicasAreScheduled().Times(2).Return(false)
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
 
@@ -3007,6 +3011,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
 
+				globalLogger.Debug("Creating ClusterGateway now.")
+				fmt.Printf("%v [INFO] Creating ClusterGateway now.\n", time.Now())
+
 				startTime := time.Now()
 				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
@@ -3020,12 +3027,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
 				cluster := clusterGateway.cluster
 				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
 				Expect(ok).To(BeTrue())
 				Expect(index).ToNot(BeNil())
+
+				Expect(cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 				placer := cluster.Placer()
 				Expect(placer).ToNot(BeNil())
@@ -3072,7 +3080,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
 				Expect(cluster.NumDisabledHosts()).To(Equal(0))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+				Expect(cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
 
@@ -3152,7 +3160,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
+				Expect(clusterGateway.cluster.IsInInitialConnectionPeriod()).To(Equal(false))
 			})
 		})
 
@@ -3230,7 +3238,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+				Expect(clusterGateway.cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 				dockerCluster = clusterGateway.cluster
 
@@ -3294,7 +3302,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// The initial connection period should elapse.
 				Eventually(func() bool {
-					return clusterGateway.inInitialConnectionPeriod.Load()
+					return dockerCluster.IsInInitialConnectionPeriod()
 				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.5), time.Millisecond*50).
 					Should(BeFalse())
 
@@ -3467,6 +3475,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Context("Autoscaling Without Any Kernels Scheduled", func() {
 				createHosts := func(policyKey scheduling.PolicyKey, numHostsToCreate int, initialClusterSize int, initialConnectionTime time.Duration) {
 					options.SchedulingPolicy = policyKey.String()
+					options.InitialClusterSize = initialClusterSize
+					options.InitialClusterConnectionPeriodSec = int(initialConnectionTime.Seconds())
 
 					clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 						globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
@@ -3480,7 +3490,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 					Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(initialClusterSize))
 					Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(initialConnectionTime))
-					Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+					Expect(clusterGateway.cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 					dockerCluster = clusterGateway.cluster
 
@@ -3556,9 +3566,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					})
 
 					It("Will automatically scale-out while using static scheduling", func() {
-						createHosts(scheduling.Static, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+						initialClusterSize := InitialClusterSize + 8
+						createHosts(scheduling.Static, NumHostsToCreate, initialClusterSize, InitialConnectionTime)
 
-						clusterSize := InitialClusterSize
+						clusterSize := initialClusterSize
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
 						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
 
@@ -3996,8 +4007,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
-				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
-
 				cluster := clusterGateway.cluster
 				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
 				Expect(ok).To(BeTrue())
@@ -4072,8 +4081,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan2 := make(chan *proto.KernelConnectionInfo)
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
+				kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
+				kernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
+				kernel.EXPECT().RecordContainerCreated(false).AnyTimes()
+
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
-				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
+				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 				kernel.EXPECT().
 					BeginSchedulingReplicaContainers().
 					Times(1).
@@ -4081,7 +4095,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						return true, mockCreateReplicaContainersAttempt
 					})
 
-				kernel.EXPECT().ReplicasAreScheduled().Times(1).Return(false)
+				kernel.EXPECT().ReplicasAreScheduled().Times(2).Return(false)
 
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
 					GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
@@ -4153,7 +4167,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
 				go func() {
-					// defer GinkgoRecover()
+					defer GinkgoRecover()
 
 					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
 					Expect(err).To(BeNil())
@@ -4328,7 +4342,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				smrReadyCalled.Wait()
 
-				connInfo := <-startKernelReturnValChan
+				var connInfo *proto.KernelConnectionInfo
+				Eventually(startKernelReturnValChan, time.Second*3, time.Millisecond*100).Should(Receive(&connInfo))
 				Expect(connInfo).ToNot(BeNil())
 
 				go func() {
@@ -4373,8 +4388,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					kernelKey := uuid.NewString()
 					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
+					kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
+					kernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
+					kernel.EXPECT().RecordContainerCreated(false).AnyTimes()
 
 					mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
+					mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 					mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 					kernel.EXPECT().
 						BeginSchedulingReplicaContainers().
