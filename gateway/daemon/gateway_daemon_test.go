@@ -285,7 +285,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
 		kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
 		kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)
-		kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
+		kernel.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
 		kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
 
 		executionManager := client.NewExecutionManager(kernel, numReplicas, nil, clusterGateway)
@@ -1913,7 +1913,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 			mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
-			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 			mockedKernel.EXPECT().
 				BeginSchedulingReplicaContainers().
 				Times(1).
@@ -4087,7 +4087,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
-				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 				kernel.EXPECT().
 					BeginSchedulingReplicaContainers().
 					Times(1).
@@ -4095,7 +4095,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						return true, mockCreateReplicaContainersAttempt
 					})
 
-				kernel.EXPECT().ReplicasAreScheduled().Times(1).Return(false)
+				kernel.EXPECT().ReplicasAreScheduled().Times(2).Return(false)
 
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
 					GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
@@ -4342,7 +4342,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				smrReadyCalled.Wait()
 
-				connInfo := <-startKernelReturnValChan
+				var connInfo *proto.KernelConnectionInfo
+				Eventually(startKernelReturnValChan, time.Second*3, time.Millisecond*100).Should(Receive(&connInfo))
 				Expect(connInfo).ToNot(BeNil())
 
 				go func() {
