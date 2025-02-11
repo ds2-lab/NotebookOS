@@ -136,11 +136,11 @@ type LocalScheduler struct {
 	// the kernel replica).
 	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
 
-	// kernels is a map from kernel ID to *client.KernelReplicaClient. It is the primary mapping of kernels.
-	kernels hashmap.HashMap[string, *client.KernelReplicaClient]
+	// kernels is a map from kernel ID to scheduling.KernelReplica. It is the primary mapping of kernels.
+	kernels hashmap.HashMap[string, scheduling.KernelReplica]
 
-	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed *client.KernelReplicaClient.
-	prewarmKernels hashmap.HashMap[string, *client.KernelReplicaClient]
+	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed scheduling.KernelReplica.
+	prewarmKernels hashmap.HashMap[string, scheduling.KernelReplica]
 
 	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 
@@ -369,8 +369,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		id:                             dockerNodeId,
 		nodeName:                       nodeName,
 		kernelsStopping:                hashmap.NewThreadsafeCornelkMap[string, chan struct{}](128),
-		kernels:                        hashmap.NewThreadsafeCornelkMap[string, *client.KernelReplicaClient](128),
-		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, *client.KernelReplicaClient](128),
+		kernels:                        hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
+		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
 		kernelClientCreationChannels:   hashmap.NewThreadsafeCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:               hashmap.NewThreadsafeCornelkMap[string, int](256),
 		closed:                         make(chan struct{}),
@@ -698,7 +698,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 
 	// Update the ID field of the router and of any existing kernels.
 	d.router.SetComponentId(d.id)
-	d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
+	d.kernels.Range(func(_ string, replicaClient scheduling.KernelReplica) (contd bool) {
 		replicaClient.SetComponentId(d.id)
 		return true
 	})
@@ -825,7 +825,7 @@ func (d *LocalScheduler) publishPrometheusMetrics(wg *sync.WaitGroup) {
 
 			// TODO: This is somewhat imprecise insofar if we stop training RIGHT before this goroutine runs again,
 			// then we'll not add any of that training time.
-			d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
+			d.kernels.Range(func(_ string, replicaClient scheduling.KernelReplica) (contd bool) {
 				if replicaClient.IsTraining() {
 					trainingTimeSeconds := time.Since(replicaClient.LastTrainingStartedAt()).Seconds()
 
@@ -1131,7 +1131,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 }
 
 // registerKernelReplicaDocker performs some Docker-specific registration steps.
-func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.KernelReplicaSpec, containerType scheduling.ContainerType) (*client.KernelReplicaClient, *proto.KernelConnectionInfo) {
+func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.KernelReplicaSpec, containerType scheduling.ContainerType) (scheduling.KernelReplica, *proto.KernelConnectionInfo) {
 	kernelClientCreationChannel, loaded := d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
 	if !loaded {
 		err := fmt.Errorf("failed to load 'kernel client creation' channel for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
@@ -1144,7 +1144,7 @@ func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.Ke
 	d.log.Debug("Received notification that the KernelClient for %s Kernel \"%s\" was created.",
 		containerType.String(), kernelReplicaSpec.Kernel.Id)
 
-	var kernel *client.KernelReplicaClient
+	var kernel scheduling.KernelReplica
 	if kernelReplicaSpec.PrewarmContainer {
 		kernel, loaded = d.prewarmKernels.Load(kernelReplicaSpec.Kernel.Id)
 	} else {
@@ -1252,7 +1252,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
 	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
 	var (
-		kernel               *client.KernelReplicaClient
+		kernel               scheduling.KernelReplica
 		kernelConnectionInfo *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
@@ -2061,7 +2061,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 	// Store the debug port.
 	d.kernelDebugPorts.Store(kernelReplicaSpec.Kernel.Id, int(kernelReplicaSpec.DockerModeKernelDebugPort))
-	
+
 	if containerInvoker, ok := kernelInvoker.(invoker.ContainerInvoker); ok {
 		// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
 		promoted := containerInvoker.PromotePrewarmedContainer()
@@ -3311,7 +3311,7 @@ func (d *LocalScheduler) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*p
 
 	containers := make([]*proto.ReplicaInfo, 0)
 
-	d.kernels.Range(func(kernelId string, replicaClient *client.KernelReplicaClient) (contd bool) {
+	d.kernels.Range(func(kernelId string, replicaClient scheduling.KernelReplica) (contd bool) {
 		replicaInfo := &proto.ReplicaInfo{
 			ReplicaId:    replicaClient.ReplicaID(),
 			KernelId:     replicaClient.ID(),
@@ -3813,7 +3813,7 @@ func (d *LocalScheduler) cleanUp() {
 	}
 }
 
-func (d *LocalScheduler) clearHandler(_ string, kernel *client.KernelReplicaClient) (contd bool) {
+func (d *LocalScheduler) clearHandler(_ string, kernel scheduling.KernelReplica) (contd bool) {
 	err := d.getInvoker(kernel).Close()
 	if err != nil {
 		d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
@@ -3821,7 +3821,7 @@ func (d *LocalScheduler) clearHandler(_ string, kernel *client.KernelReplicaClie
 	return true
 }
 
-func (d *LocalScheduler) gcHandler(kernelId string, kernel *client.KernelReplicaClient) (contd bool) {
+func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelReplica) (contd bool) {
 	if d.getInvoker(kernel).Expired(cleanUpInterval) {
 		d.kernels.Delete(kernelId)
 		if kernelId == kernel.ID() {

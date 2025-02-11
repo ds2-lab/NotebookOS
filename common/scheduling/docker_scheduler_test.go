@@ -55,10 +55,10 @@ var (
 		"cluster_scheduler_options": {
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
-			"mean_scale_out_per_host_sec": 1.0,
-			"std_dev_scale_out_per_host_sec": 0.0,
-			"mean_scale_in_per_host_sec": 1.0,
-			"std_dev_scale_in_per_host_sec": 0.0,
+			"mean_scale_out_per_host_sec": 0.75,
+			"std_dev_scale_out_per_host_sec": 0.5,
+			"mean_scale_in_per_host_sec": 0.75,
+			"std_dev_scale_in_per_host_sec": 0.5,
 			"scaling-factor": 1.05,
 			"scaling-interval": 15,
 			"scaling-limit": 1.1,
@@ -187,8 +187,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
 			Expect(schedulingPolicy.Name()).To(Equal("Static Scheduling"))
 
-			Expect(opts.MeanScaleInPerHostSec).To(Equal(1.0))
-			Expect(opts.MeanScaleOutPerHostSec).To(Equal(1.0))
+			Expect(opts.MeanScaleInPerHostSec).To(Equal(0.75))
+			Expect(opts.MeanScaleOutPerHostSec).To(Equal(0.75))
 
 			// clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
@@ -1209,6 +1209,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				Expect(p).ToNot(BeNil())
 
 				err := p.Error()
+				GinkgoWriter.Printf("Error: %v\n", err)
 				Expect(err).ToNot(BeNil())
 				Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
 			})
@@ -1223,6 +1224,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				Expect(p).ToNot(BeNil())
 
 				err := p.Error()
+				GinkgoWriter.Printf("Error: %v\n", err)
 				Expect(err).ToNot(BeNil())
 				Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
 			})
@@ -1738,6 +1740,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				hosts[i] = bigHost1
 
+				GinkgoWriter.Printf("dockerCluster.Len(): %d\n", dockerCluster.Len())
 				Expect(dockerCluster.Len()).To(Equal(1))
 
 				kernelId := uuid.NewString()

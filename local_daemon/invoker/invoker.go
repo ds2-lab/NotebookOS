@@ -52,7 +52,7 @@ type KernelInvoker interface {
 	// KernelInvoker struct is scheduling.PrewarmContainer.
 	SetWorkloadId(string)
 
-	AssignedGpuDeviceIds() []int32
+	GetAssignedGpuDeviceIds() []int32
 
 	// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target KernelInvoker is
 	// scheduling.StandardContainer.

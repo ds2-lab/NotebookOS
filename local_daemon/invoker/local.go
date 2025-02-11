@@ -86,7 +86,7 @@ type LocalInvoker struct {
 	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 	RedisDatabase int
 
-	assignedGpuDeviceIds                 []int32 // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	AssignedGpuDeviceIds                 []int32 // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
 	KernelDebugPort                      int32   // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	electionTimeoutSeconds               int     // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
 	prometheusMetricsPort                int     // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
@@ -113,12 +113,12 @@ func (ivk *LocalInvoker) SetWorkloadId(workloadId string) {
 	ivk.workloadId = workloadId
 }
 
-func (ivk *LocalInvoker) AssignedGpuDeviceIds() []int32 {
-	return ivk.assignedGpuDeviceIds
+func (ivk *LocalInvoker) GetAssignedGpuDeviceIds() []int32 {
+	return ivk.AssignedGpuDeviceIds
 }
 
 func (ivk *LocalInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
-	ivk.assignedGpuDeviceIds = assignedGpuDeviceIds
+	ivk.AssignedGpuDeviceIds = assignedGpuDeviceIds
 }
 
 func (ivk *LocalInvoker) DebugPort() int32 {

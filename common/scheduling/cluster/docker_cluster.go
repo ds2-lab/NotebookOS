@@ -323,9 +323,17 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			}
 		}
 
-		scaleInDuration := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
-		c.log.Debug("Simulating scale-in with duration %v", scaleInDuration)
-		time.Sleep(scaleInDuration)
+		var totalScaleInDuration time.Duration
+		for i := 0; i < int(numAffectedNodes); i++ {
+			scaleInDuration := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
+			c.log.Debug("Simulated scale-in duration for target host #%d (%s): %v",
+				i+1, targetHosts[i], scaleInDuration)
+
+			totalScaleInDuration += scaleInDuration
+		}
+
+		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), totalScaleInDuration)
+		time.Sleep(totalScaleInDuration)
 
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {

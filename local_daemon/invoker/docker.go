@@ -243,7 +243,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
 			SmrEnabled:                           opts.SmrEnabled,
 			SimulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
-			assignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
+			AssignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
 			BindAllGpus:                          opts.BindAllGpus,
 			BindDebugpyPort:                      opts.BindDebugpyPort,
 			SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
@@ -321,7 +321,7 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 	}
 
 	// If no GPU device IDs were specified (and BindAllGpus is false), then we can just return.
-	if len(ivk.assignedGpuDeviceIds) == 0 {
+	if len(ivk.AssignedGpuDeviceIds) == 0 {
 		ivk.log.Warn("The use of real GPUs is enabled; however, no GPU device IDs were specified, " +
 			"and we were not instructed to bind all GPUs...")
 		return ""
@@ -336,12 +336,12 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 
 	// Iterate over all the assigned GPU device IDs, building out the string to include in the GPU command snippet.
 	deviceIdsString := ""
-	for i, deviceId := range ivk.assignedGpuDeviceIds {
+	for i, deviceId := range ivk.AssignedGpuDeviceIds {
 		// Append the GPU device ID to the string.
 		deviceIdsString += fmt.Sprintf("%d", deviceId)
 
 		// If there is going to be another GPU device ID, then we'll append a comma before continuing with the loop.
-		if i < len(ivk.assignedGpuDeviceIds)-1 {
+		if i < len(ivk.AssignedGpuDeviceIds)-1 {
 			deviceIdsString += ","
 		}
 	}
@@ -881,11 +881,11 @@ func (ivk *DockerInvoker) DemoteStandardContainer() error {
 // SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target DockerInvoker is
 // scheduling.StandardContainer.
 //
-// You can only mutate the AssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
+// You can only mutate the GetAssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
 // target DockerInvoker struct is scheduling.PrewarmContainer.
 func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
 	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the AssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
+		panic("Cannot mutate the GetAssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
 	}
 
 	ivk.LocalInvoker.SetAssignedGpuDeviceIds(assignedGpuDeviceIds)

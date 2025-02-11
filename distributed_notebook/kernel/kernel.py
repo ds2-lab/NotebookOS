@@ -2336,7 +2336,7 @@ class DistributedKernel(IPythonKernel):
             self.shell.init_user_ns()
 
         self.log.warning(f"The user namespace has been reset. "
-                         f"Removed {len(self.shell.user_ns) - prev_size} variable(s): {', '.join(previous_var_names)}")
+                         f"Removed {prev_size - len(self.shell.user_ns)} variable(s): {', '.join(previous_var_names)}")
 
         return {
             "status": "ok",

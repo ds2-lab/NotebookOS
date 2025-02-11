@@ -200,6 +200,11 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 	c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
 		c.initialConnectionPeriod, c.Len())
 
+	if c.Scheduler() == nil {
+		c.log.Warn("No ContainerPrewarmer available.")
+		return
+	}
+
 	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
 	prewarmer := c.Scheduler().ContainerPrewarmer()
 	if prewarmer == nil {
@@ -1247,7 +1252,7 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	}
 
 	// Scale in (i.e., remove hosts).
-	c.log.Debug("Releasing %d host(s) in order to scale-in to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
+	c.log.Debug("Releasing %d host(s) in order to scale-in to target size of %d.", currentNumNodes-targetNumNodes, targetNumNodes)
 	return c.ReleaseHosts(ctx, currentNumNodes-targetNumNodes)
 }
 
