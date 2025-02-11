@@ -62,7 +62,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
 
     @staticmethod
     def dataset_name() -> str:
-        return "IMDb Large Movie Review Dataset (Truncated)"
+        return "IMDb Large Movie Review Dataset (Truncated IMDb)"
 
     @property
     def name(self) -> str:

@@ -627,20 +627,22 @@ class DeepLearningModel(ABC):
         else:
             old_device_ids: list[int] = [0]
 
-        if len(device_ids) == 1:
-            gpu_device_id: int = device_ids[0]
-            self.log.debug(f"Using GPU #{gpu_device_id}")
-            self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
+        # We only do this part if CUDA is actually available.
+        if self.gpu_available:
+            if len(device_ids) == 1:
+                gpu_device_id: int = device_ids[0]
+                self.log.debug(f"Using GPU #{gpu_device_id}")
+                self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
 
-            self.model = self.model.to(self.gpu_device)
-        else:
-            self.log.debug(f"{colors.LIGHT_CYAN}Wrapping model in DataParallel.{colors.END} "
-                           f"GPU device IDs: {colors.LIGHT_PURPLE}{device_ids}.{colors.END}")
+                self.model = self.model.to(self.gpu_device)
+            else:
+                self.log.debug(f"{colors.LIGHT_CYAN}Wrapping model in DataParallel.{colors.END} "
+                               f"GPU device IDs: {colors.LIGHT_PURPLE}{device_ids}.{colors.END}")
 
-            self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
-            self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
+                self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
+                self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
 
-            self.model = self.model.to(self.gpu_device)
+                self.model = self.model.to(self.gpu_device)
 
         et: float = time.time()
         self.log.debug(f"{colors.LIGHT_BLUE}Changed GPU device IDs{colors.END} from "

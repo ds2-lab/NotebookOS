@@ -61,7 +61,7 @@ class IMDbLargeMovieReview(NLPDataset):
 
     @staticmethod
     def dataset_name() -> str:
-        return "IMDb Large Movie Review Dataset"
+        return "IMDb Large Movie Review Dataset (IMDb)"
 
     @property
     def name(self) -> str:
