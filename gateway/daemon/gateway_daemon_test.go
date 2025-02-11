@@ -4007,8 +4007,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
-				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
-
 				cluster := clusterGateway.cluster
 				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
 				Expect(ok).To(BeTrue())
@@ -4085,6 +4083,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
 				kernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
+				kernel.EXPECT().RecordContainerCreated(false).AnyTimes()
 
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
@@ -4390,6 +4389,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 					kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
 					kernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
+					kernel.EXPECT().RecordContainerCreated(false).AnyTimes()
 
 					mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 					mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
