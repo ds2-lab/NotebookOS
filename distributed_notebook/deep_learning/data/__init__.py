@@ -53,7 +53,7 @@ DatasetClassesByName: Dict[str, Type[CustomDataset]] = {
     LibriSpeech.dataset_name(): LibriSpeech,
 }
 
-DatasetNameToModelCategory: Dict[str, Type[CustomDataset]] = {
+DatasetNameToModelCategory: Dict[str, str] = {
     CIFAR10.dataset_name(): ComputerVision,
     CIFAR100.dataset_name(): ComputerVision,
     TinyImageNet.dataset_name(): ComputerVision,

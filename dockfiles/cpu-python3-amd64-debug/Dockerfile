@@ -64,6 +64,9 @@ ADD dockfiles/cpu-python3-amd64-debug/start.sh /usr/local/bin/start.sh
 RUN chmod 777 /usr/local/bin/start.sh
 RUN chown jovyan /usr/local/bin/start.sh
 
+RUN chmod -R 777 /home/jovyan
+RUN chown -R jovyan /home/jovyan
+
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
 
