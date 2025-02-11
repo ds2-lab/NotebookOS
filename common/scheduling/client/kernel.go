@@ -768,7 +768,7 @@ func (c *KernelReplicaClient) closeSocket(typ messaging.MessageType) (messaging.
 		}
 
 		err := oldSocket.Close()
-		if err != nil {
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			// Print the error, but that's all. We're recreating the socket anyway.
 			c.log.Warn("Error while closing %s socket: %v", typ.String(), err)
 		}
@@ -1300,7 +1300,7 @@ func (c *KernelReplicaClient) Close() error {
 
 		// The 'use of closed network connection' error is OK.
 		socketCloseErr := socket.Close()
-		if socketCloseErr != nil && strings.Contains(socketCloseErr.Error(), "use of closed network connection") {
+		if socketCloseErr != nil && !strings.Contains(socketCloseErr.Error(), "use of closed network connection") {
 			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
 				socket.Type.String(), c.replicaId, c.id, socketCloseErr)
 
@@ -1313,7 +1313,7 @@ func (c *KernelReplicaClient) Close() error {
 	}
 	if c.iopub != nil {
 		ioPubCloseError := c.iopub.Close()
-		if ioPubCloseError != nil && strings.Contains(ioPubCloseError.Error(), "use of closed network connection") {
+		if ioPubCloseError != nil && !strings.Contains(ioPubCloseError.Error(), "use of closed network connection") {
 			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
 				c.iopub.Type.String(), c.replicaId, c.id, ioPubCloseError)
 
