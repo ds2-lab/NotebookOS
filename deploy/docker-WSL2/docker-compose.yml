@@ -183,9 +183,9 @@ services:
         - "app=distributed_cluster"
         - "component=node-exporter"
     ports:
-      - "7125:8089"
+      - "7125:7125"
     command:
-      - --web.listen-address=0.0.0.0:8089
+      - --web.listen-address=0.0.0.0:7125
 
   cadvisor:
     container_name: cadvisor

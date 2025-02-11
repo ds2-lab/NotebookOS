@@ -211,14 +211,13 @@ services:
         - "app=distributed_cluster"
         - "component=node-exporter"
     ports:
-      - "7125:7125"
+      - "7125:8089"
     command:
-      - --web.listen-address=0.0.0.0:7125
+      - --web.listen-address=0.0.0.0:8089
 
   cadvisor:
     container_name: cadvisor
     image: gcr.io/cadvisor/cadvisor:latest
-    privileged: true
     labels:
       - "traefik.enable=true"
       - "app=distributed_cluster"
@@ -229,14 +228,14 @@ services:
         - "app=distributed_cluster"
         - "component=cadvisor"
     ports:
-      - "7126:8089"
+      - "7126:7126"
     volumes:
       - "/:/rootfs:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
     command:
-      - -port 8089
+      - '-port=7126'
 
 #  dashboard_backend:
 #    image: $USER/distributed-notebook-dashboard-backend:latest
