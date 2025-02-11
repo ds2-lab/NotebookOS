@@ -2308,7 +2308,7 @@ class DistributedKernel(IPythonKernel):
         :return:
         """
         self.log.warning(f"Resetting user namespace. Current size: {len(self.shell.user_ns)} variable(s).")
-        previous_var_names: Iterable[str] = list(self.shell.user_ns.keys())
+        previous_var_names: set[str] = set(self.shell.user_ns.keys())
 
         async with self._user_ns_lock:
             prev_size: int = len(self.shell.user_ns)
@@ -2334,7 +2334,8 @@ class DistributedKernel(IPythonKernel):
             self.shell.init_user_ns()
 
         self.log.warning(f"The user namespace has been reset. "
-                         f"Removed {prev_size - len(self.shell.user_ns)} variable(s): {', '.join(previous_var_names)}")
+                         f"Removed {prev_size - len(self.shell.user_ns)} "
+                         f"variable(s): {', '.join([x for x in previous_var_names if x not in self.shell.user_ns])}")
 
         return {
             "status": "ok",
