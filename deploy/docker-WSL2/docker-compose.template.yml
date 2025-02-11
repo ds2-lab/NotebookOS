@@ -198,6 +198,30 @@ services:
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"] # Enables AOF persistence for durability
     restart: unless-stopped
 
+  node-exporter:
+    image: prom/node-exporter
+    deploy:
+      mode: global
+    ports:
+      - "7125:7125"
+    command:
+      - --web.listen-address=0.0.0.0:7125
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    deploy:
+      mode: global
+    ports:
+      - "7126:7126"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker/:/var/lib/docker:ro"
+    command:
+      - --publish=7126:7126
+      - --privileged
+
 #  dashboard_backend:
 #    image: $USER/distributed-notebook-dashboard-backend:latest
 #    ports:
