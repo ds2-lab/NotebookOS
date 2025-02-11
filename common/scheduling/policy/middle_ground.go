@@ -140,7 +140,7 @@ func (p *MiddleGroundPolicy) ResourceBindingMode() scheduling.ResourceBindingMod
 func (p *MiddleGroundPolicy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.SingleTrainingEvent
 }
-
+z
 func (p *MiddleGroundPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
 	// MiddleGroundPolicy implements scheduling.PostExecutionStatePolicy directly, so we
 	// just return the target MiddleGroundPolicy struct.

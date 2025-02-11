@@ -3030,13 +3030,6 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 // We also check if this replica has been explicitly instructed to yield, or if there is simply another replica of
 // the same kernel that has been explicitly targeted as the winner (in which case the locally-running replica of the
 // associated kernel must yield).
-//
-// TODO: Should we "reserve" resources for the kernel replica before the leader election to ensure that they are
-// TODO: | available in the event that the replica wins? Or should we instead require that the winning replica contact
-// TODO: | its local daemon upon winning to request the resources (in which case they may be unavailable due to
-// TODO: | concurrent code executions running on the same node)?
-// TODO: |
-// TODO: | For now, we're reserving resources.
 func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) *messaging.JupyterMessage {
 	gid := goid.Get()
 
