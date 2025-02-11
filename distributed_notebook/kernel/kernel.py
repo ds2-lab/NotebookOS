@@ -16,7 +16,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Tuple, Iterable
+from typing import Union, Optional, Dict, Any, Tuple, Iterable, Awaitable
 
 import debugpy
 import faulthandler
@@ -2076,7 +2076,7 @@ class DistributedKernel(IPythonKernel):
             self._publish_execute_input(code, parent, self.execution_count)
 
         # Call do_execute with the appropriate arguments
-        reply_content = self.do_execute(
+        reply_content: Dict[str, Any] | Awaitable[Dict[str, Any]] = self.do_execute(
             code=code,
             silent=silent,
             store_history=store_history,
@@ -2109,18 +2109,16 @@ class DistributedKernel(IPythonKernel):
             was_primary_replica = True
             del reply_content[LEADER_KEY]
 
-            performed_gpu_training: bool = reply_content.pop(
-                "performed_gpu_training", False
-            )
+            performed_dl_training: bool = reply_content.pop("performed_dl_training", False)
             term_number: int = reply_content.pop("term_number", -1)
-            code: str = reply_content.pop("code", None)
+            code: Optional[str] = reply_content.pop("code", None)
 
             assert term_number >= 0
             assert code is not None
 
             await self.handle_post_execution_overheads(
                 remote_storage_name=remote_storage_name,
-                performing_gpu_training=performed_gpu_training,
+                performed_dl_training=performed_dl_training,
                 code=code,
             )
 
@@ -3244,7 +3242,7 @@ class DistributedKernel(IPythonKernel):
             *,
             cell_meta=None,
             cell_id=None,
-    ):
+    )->Dict[str, Any]:
         """
         Execute user code. This is part of the official Jupyter kernel API.
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
@@ -3361,7 +3359,7 @@ class DistributedKernel(IPythonKernel):
                 ident=self._topic(SMR_LEAD_TASK),
             )  # type: ignore
 
-            reply_content, performed_gpu_training, code = await self.execute_user_code(
+            reply_content, performed_dl_training, code = await self.execute_user_code(
                 target_training_duration_millis=training_duration_millis,
                 code=code,
                 gpu_device_ids=gpu_device_ids,
@@ -3375,7 +3373,7 @@ class DistributedKernel(IPythonKernel):
 
             reply_content[LEADER_KEY] = True
             reply_content["term_number"] = term_number
-            reply_content["performed_gpu_training"] = performed_gpu_training
+            reply_content["performed_dl_training"] = performed_dl_training
             reply_content["code"] = code
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
@@ -3428,7 +3426,7 @@ class DistributedKernel(IPythonKernel):
         if not self.simulate_training_using_sleep:
             assert gpu_device_ids is not None and len(gpu_device_ids) > 0
 
-        performed_gpu_training: bool = False
+        performed_dl_training: bool = False
 
         # Check for the special training code that indicates that we are to generate some code to simulate
         # the execution of deep learning training.
@@ -3453,35 +3451,7 @@ class DistributedKernel(IPythonKernel):
                 dataset_name=dataset,
                 batch_size=batch_size,
             )
-            performed_gpu_training = True
-
-        # if target_training_duration_millis > 0 and torch.cuda.is_available():dewb
-        #     self.log.debug(
-        #         f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
-        #         f"Discarding specified code. Will use custom training code instead generated for model "
-        #         f"'{deep_learning_model_name}' and dataset '{dataset}'."
-        #     )
-        #     code = await self.get_custom_training_code(
-        #         target_training_duration_millis=target_training_duration_millis,
-        #         gpu_device_ids=gpu_device_ids,
-        #         deep_learning_model=deep_learning_model_name,
-        #         dataset_name=dataset,
-        #         batch_size=batch_size,
-        #     )
-        #     performed_gpu_training = True
-        # elif "training_duration_millis = " in code:
-        #     target_training_duration_millis = int(float(code[27:]))
-        #
-        #     code = await self.get_custom_training_code(
-        #         target_training_duration_millis=target_training_duration_millis,
-        #         gpu_device_ids=gpu_device_ids,
-        #         deep_learning_model=deep_learning_model_name,
-        #         dataset_name=dataset,
-        #         batch_size=batch_size,
-        #     )
-        #     performed_gpu_training = True
-        # else:
-        #     pass
+            performed_dl_training = True
 
         self.log.debug(f"Executing the following code now:\n"
                        f"{ColoredLogFormatter.LIGHT_CYAN}{ColoredLogFormatter.BOLD}{code}{ColoredLogFormatter.reset}\n")
@@ -3519,7 +3489,7 @@ class DistributedKernel(IPythonKernel):
             f"Returning the following content: {reply_content}"
         )
 
-        return reply_content, performed_gpu_training, code
+        return reply_content, performed_dl_training, code
 
     async def synchronize_updated_state(self, term_number: int):
         """
@@ -3597,27 +3567,22 @@ class DistributedKernel(IPythonKernel):
             )
             return
 
-        assert len(model.gpu_to_cpu_times) > 0
-        assert len(model.cpu_to_gpu_times) > 0
+        if cuda_available:
+            assert len(model.gpu_to_cpu_times) > 0
+            assert len(model.cpu_to_gpu_times) > 0
 
-        # Grab the most-recent copy time for both directions.
-        cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
-        gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
+            # Grab the most-recent copy time for both directions.
+            cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+            gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
 
-        # Store the most recent copy times for both directions in the current ExecutionStats.
-        self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = (
-            cpu2gpu_micros
-        )
-        self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = (
-            gpu2cpu_micros
-        )
+            # Store the most recent copy times for both directions in the current ExecutionStats.
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
+            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
 
-        self.log.debug(
-            f"Retrieved most recent CPU to GPU time from model in shell user namespace: {cpu2gpu_micros} µs"
-        )
-        self.log.debug(
-            f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs"
-        )
+            self.log.debug(f"Retrieved most recent CPU to GPU time from model "
+                           f"in shell user namespace: {cpu2gpu_micros} µs")
+            self.log.debug(f"Retrieved most recent GPU to CPU time from model "
+                           f"in shell user namespace: {gpu2cpu_micros} µs")
 
     async def extract_dataset_tokenization_latency(
             self,
@@ -3706,7 +3671,7 @@ class DistributedKernel(IPythonKernel):
     async def handle_post_execution_overheads(
             self,
             remote_storage_name: Optional[str] = None,
-            performing_gpu_training: bool = False,
+            performed_dl_training: bool = False,
             code: str = "",
     ):
         if self.simulate_training_using_sleep and self.data_on_gpu:
@@ -3745,7 +3710,7 @@ class DistributedKernel(IPythonKernel):
                 self.current_execution_stats.upload_runtime_dependencies_microseconds = (
                         duration_sec * 1.0e6
                 )
-        elif not self.simulate_training_using_sleep and performing_gpu_training:
+        elif not self.simulate_training_using_sleep and performed_dl_training and cuda_available:
             await self.extract_mem_copy_times(code=code)
             await self.extract_dataset_download_latency(code=code)
             await self.extract_dataset_tokenization_latency(code=code)
