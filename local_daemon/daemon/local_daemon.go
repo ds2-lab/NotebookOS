@@ -3001,13 +3001,24 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 		targetReplicaId = *requestMetadata.TargetReplicaId
 	}
 
-	if requestMetadata.ResourceRequest != nil && d.resourceRequestAdjustmentEnabled() {
-		d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
-			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+	// If dynamic resource adjustments are disabled, or if there is no resource request included in the metadata,
+	// then we can just return.
+	if !d.resourceRequestAdjustmentEnabled() || requestMetadata.ResourceRequest == nil {
+		return targetReplicaId, metadataDict, nil
+	}
 
-		if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
-			return targetReplicaId, metadataDict, err
-		}
+	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
+	// then we can just return.
+	if kernel.ResourceSpec().Equals(requestMetadata.ResourceRequest) {
+		return targetReplicaId, metadataDict, nil
+	}
+
+	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
+		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+
+	// Attempt to update the kernel's resource request.
+	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
+		return targetReplicaId, metadataDict, err
 	}
 
 	return targetReplicaId, metadataDict, nil
