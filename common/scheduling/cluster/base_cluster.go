@@ -1261,6 +1261,11 @@ func (c *BaseCluster) MetricsProvider() scheduling.MetricsProvider {
 	return c.metricsProvider
 }
 
+// IsInInitialConnectionPeriod returns true if the scheduling.Cluster is still in "initial connection" mode/phase.
+func (c *BaseCluster) IsInInitialConnectionPeriod() bool {
+	return c.inInitialConnectionPeriod.Load()
+}
+
 // NewHostAddedOrConnected should be called by an external entity when a new host connects to the Cluster Gateway.
 // NewHostAddedOrConnected handles the logic of adding the host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.

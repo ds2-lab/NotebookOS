@@ -294,6 +294,20 @@ func (mr *MockClusterMockRecorder) HasActiveScalingOperation() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveScalingOperation", reflect.TypeOf((*MockCluster)(nil).HasActiveScalingOperation))
 }
 
+// IsInInitialConnectionPeriod mocks base method.
+func (m *MockCluster) IsInInitialConnectionPeriod() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsInInitialConnectionPeriod")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsInInitialConnectionPeriod indicates an expected call of IsInInitialConnectionPeriod.
+func (mr *MockClusterMockRecorder) IsInInitialConnectionPeriod() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsInInitialConnectionPeriod", reflect.TypeOf((*MockCluster)(nil).IsInInitialConnectionPeriod))
+}
+
 // Len mocks base method.
 func (m *MockCluster) Len() int {
 	m.ctrl.T.Helper()

@@ -447,9 +447,6 @@ type ClusterGatewayImpl struct {
 	// value of the IdleSessionReclamationEnabled flag.
 	IdleSessionReclamationEnabled bool
 
-	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
-	inInitialConnectionPeriod atomic.Bool
-
 	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
 	// as the request history.
 	DebugMode bool
@@ -2647,7 +2644,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	// TODO: Eventually, this may be true (as in a warm container may be used).
 	// TODO: We may also have to move this call, as we may not be able to determine whether a warm container was
 	//		 used or not, unless that information is included in the registration payload (which it could be).
-	kernel.RecordContainerCreated(false)
+	kernel.RecordContainerCreated(in.WasPrewarmContainer)
 
 	d.log.Debug("SetDone handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
 
@@ -2934,10 +2931,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v",
 		kernelId, replicaId, response)
 
-	// TODO: Eventually, this may be true (as in a warm container may be used).
-	// TODO: We may also have to move this call, as we may not be able to determine whether a warm container was
-	//		 used or not, unless that information is included in the registration payload (which it could be).
-	kernel.RecordContainerCreated(false)
+	kernel.RecordContainerCreated(in.WasPrewarmContainer)
 
 	waitGroup.Notify()
 	return response, nil

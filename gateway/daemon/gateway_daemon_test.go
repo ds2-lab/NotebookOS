@@ -1908,6 +1908,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernel.EXPECT().GetSession().Return(mockedSession).AnyTimes()
 			mockedKernel.EXPECT().RecordContainerPlacementStarted().Times(1)
+			mockedKernel.EXPECT().RecordContainerCreated(false).AnyTimes()
 			mockedKernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
 
 			mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
@@ -3011,6 +3012,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
 
+				globalLogger.Debug("Creating ClusterGateway now.")
+				fmt.Printf("%v [INFO] Creating ClusterGateway now.\n", time.Now())
+
 				startTime := time.Now()
 				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
@@ -3024,12 +3028,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
 				cluster := clusterGateway.cluster
 				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
 				Expect(ok).To(BeTrue())
 				Expect(index).ToNot(BeNil())
+
+				Expect(cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 				placer := cluster.Placer()
 				Expect(placer).ToNot(BeNil())
@@ -3076,7 +3081,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
 				Expect(cluster.NumDisabledHosts()).To(Equal(0))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+				Expect(cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
 
@@ -3156,7 +3161,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
+				Expect(clusterGateway.cluster.IsInInitialConnectionPeriod()).To(Equal(false))
 			})
 		})
 
@@ -3234,7 +3239,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(InitialClusterSize))
 				Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(InitialConnectionTime))
-				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+				Expect(clusterGateway.cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 				dockerCluster = clusterGateway.cluster
 
@@ -3298,7 +3303,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// The initial connection period should elapse.
 				Eventually(func() bool {
-					return clusterGateway.inInitialConnectionPeriod.Load()
+					return dockerCluster.IsInInitialConnectionPeriod()
 				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.5), time.Millisecond*50).
 					Should(BeFalse())
 
@@ -3471,6 +3476,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Context("Autoscaling Without Any Kernels Scheduled", func() {
 				createHosts := func(policyKey scheduling.PolicyKey, numHostsToCreate int, initialClusterSize int, initialConnectionTime time.Duration) {
 					options.SchedulingPolicy = policyKey.String()
+					options.InitialClusterSize = initialClusterSize
+					options.InitialClusterConnectionPeriodSec = int(initialConnectionTime.Seconds())
 
 					clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 						globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
@@ -3484,7 +3491,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(clusterGateway.MetricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 					Expect(clusterGateway.ClusterOptions.InitialClusterSize).To(Equal(initialClusterSize))
 					Expect(time.Second * time.Duration(clusterGateway.ClusterOptions.InitialClusterConnectionPeriodSec)).To(Equal(initialConnectionTime))
-					Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+					Expect(clusterGateway.cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
 					dockerCluster = clusterGateway.cluster
 
@@ -3560,9 +3567,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					})
 
 					It("Will automatically scale-out while using static scheduling", func() {
-						createHosts(scheduling.Static, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+						initialClusterSize := InitialClusterSize + 8
+						createHosts(scheduling.Static, NumHostsToCreate, initialClusterSize, InitialConnectionTime)
 
-						clusterSize := InitialClusterSize
+						clusterSize := initialClusterSize
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
 						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
 

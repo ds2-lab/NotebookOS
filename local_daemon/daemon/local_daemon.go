@@ -1291,16 +1291,17 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	}
 
 	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
-		ConnectionInfo:     kernelConnectionInfo,
-		KernelId:           kernel.ID(),
-		HostId:             d.id,
-		SessionId:          "N/A",
-		ReplicaId:          registrationPayload.ReplicaId,
-		KernelIp:           remoteIp,
-		PodOrContainerName: registrationPayload.PodOrContainerName,
-		NodeName:           d.nodeName,
-		NotificationId:     uuid.NewString(),
-		PrewarmContainer:   registrationPayload.PrewarmContainer,
+		ConnectionInfo:      kernelConnectionInfo,
+		KernelId:            kernel.ID(),
+		HostId:              d.id,
+		SessionId:           "N/A",
+		ReplicaId:           registrationPayload.ReplicaId,
+		KernelIp:            remoteIp,
+		PodOrContainerName:  registrationPayload.PodOrContainerName,
+		NodeName:            d.nodeName,
+		NotificationId:      uuid.NewString(),
+		PrewarmContainer:    registrationPayload.PrewarmContainer,
+		WasPrewarmContainer: kernel.WasPrewarmContainer(),
 	}
 
 	// If the kernel client was originally a prewarm container, then there won't be a notification because the
