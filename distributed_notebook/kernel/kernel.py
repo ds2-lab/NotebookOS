@@ -4710,44 +4710,48 @@ class DistributedKernel(IPythonKernel):
         Download any Model pointers that were committed while we were catching up.
         """
         if len(self.model_pointers_catchup) == 0:
-            self.log.debug(
-                "There were no ModelPointer objects committed while we were catching up."
-            )
+            self.log.debug("There were no ModelPointer objects committed while we were catching up.")
             return
 
-        self.log.debug(
-            f"Retrieving {len(self.model_pointers_catchup)} DeepLearningModels committed during catch-up phase."
-        )
+        self.log.debug(f"Retrieving {len(self.model_pointers_catchup)} "
+                       f"DeepLearningModels committed during catch-up phase.")
         _st: float = time.time()
         for var_name, model_pointer in self.model_pointers_catchup.items():
-            self.log.debug(
-                f"Loading DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'"
-            )
+            self.log.debug(f"Loading DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'")
 
             async with self._user_ns_lock:
-                existing_model: Optional[DeepLearningModel] = self.shell.user_ns.get(
-                    var_name, None
-                )
+                existing_var_or_model: Optional[Any] = self.shell.user_ns.get(var_name, None)
 
-                if existing_model is not None and not isinstance(
-                        existing_model, DeepLearningModel
-                ):
+                if existing_var_or_model is not None and not isinstance(existing_var_or_model, DeepLearningModel):
                     self.log.warning(
                         f"Found existing variable '{var_name}' in shell user namespace of type "
-                        f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                        f"'{type(existing_var_or_model).__name__}'. Variable will be overwritten with "
                         f"DeepLearningModel '{model_pointer.model_name}'."
                     )
-                    existing_model = None  # So that we pass None for the existing_model argument below.
+                    existing_var_or_model = None  # So that we pass None for the existing_model argument below.
+
+            # Define the 'existing_model' variable and assign it a (non-nil) value if the value we retrieved from the
+            # user namespace is (a) non-nil, and (b) is an instance of DeepLearningModel or ModelPointer.
+            #
+            # Of course, if the variable retrieved from the user namespace is a ModelPointer, its model field will
+            # only be non-nil if we were the one who committed the variable, which won't be the case here, as
+            # we're catching up.
+            existing_model: Optional[DeepLearningModel] = None
+            if existing_var_or_model is not None:
+                if isinstance(existing_var_or_model, DeepLearningModel):
+                    existing_model = existing_var_or_model
+                elif isinstance(existing_var_or_model, ModelPointer):
+                    existing_model = existing_var_or_model.model
 
             st: float = time.time()
             try:
                 model: DeepLearningModel = self.__load_model_from_remote_storage(
-                    model_pointer, existing_model=existing_model.model
+                    model_pointer, existing_model=existing_model
                 )
             except Exception as exc:
-                self.log.error(
-                    f"Failed to load DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'"
-                )
+                self.log.error(f"Failed to load DeepLearningModel '{model_pointer.model_name}' "
+                               f"for variable '{var_name}' because: {exc}")
+                self.log.error(traceback.format_exc())
                 self.report_error(
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
                     f"DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}' "
@@ -4796,9 +4800,8 @@ class DistributedKernel(IPythonKernel):
                     dataset_pointer
                 )
             except Exception as exc:
-                self.log.error(
-                    f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'"
-                )
+                self.log.error(f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'")
+                self.log.error(traceback.format_exc())
                 self.report_error(
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
                     f"Dataset '{dataset_pointer.model_name}' for variable '{var_name}' "
@@ -4830,21 +4833,15 @@ class DistributedKernel(IPythonKernel):
                 len(self.model_pointers_catchup) == 0
                 and len(self.dataset_pointers_catchup) == 0
         ):
-            self.log.debug(
-                "There were no models or data committed during catch-up phase."
-            )
+            self.log.debug("There were no models or data committed during catch-up phase.")
             return
 
-        self.log.debug(
-            "Downloading any models and data that were committed during catch-up phase..."
-        )
+        self.log.debug("Downloading any models and data that were committed during catch-up phase...")
         await asyncio.gather(
             self.__download_model_pointers_committed_while_catching_up(),
             self.__download_dataset_pointers_committed_while_catching_up(),
         )
-        self.log.debug(
-            "Finished downloading the models and data that were committed during catch-up phase."
-        )
+        self.log.debug("Finished downloading the models and data that were committed during catch-up phase.")
 
     def __load_model_from_remote_storage(
             self,
@@ -4886,6 +4883,7 @@ class DistributedKernel(IPythonKernel):
                 f'Failed to read state dictionaries for model "{pointer.large_object_name}" '
                 f'from remote storage "{self._remote_checkpointer.storage_name}" because: {exc}'
             )
+            self.log.error(traceback.format_exc())
             raise exc  # re-raise
 
         try:
