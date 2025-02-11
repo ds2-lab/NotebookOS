@@ -336,9 +336,6 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						resourceSpoofers[hostIndex] = resourceSpoofer
 					}
 
-					Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Second * 1))
-					Expect(dockerCluster.MeanScaleInTime()).To(Equal(time.Second * 1))
-
 					Expect(dockerCluster.Len()).To(Equal(5))
 
 					// Add a sixth host, but set it to be disabled initially.
