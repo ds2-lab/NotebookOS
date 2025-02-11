@@ -80,7 +80,7 @@ type KernelInvoker interface {
 
 // ContainerInvoker is an extension of LocalInvoker that is specifically used to invoke container-based kernels.
 type ContainerInvoker interface {
-	LocalInvoker
+	KernelInvoker
 
 	// CurrentContainerType is the current scheduling.ContainerType of the container created by the target
 	// KernelInvoker.
