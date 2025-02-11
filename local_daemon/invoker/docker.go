@@ -816,55 +816,6 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	return nil
 }
 
-func (ivk *DockerInvoker) AssignedGpuDeviceIds() []int32 {
-	return ivk.assignedGpuDeviceIds
-}
-
-// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target DockerInvoker is
-// scheduling.StandardContainer.
-//
-// You can only mutate the AssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
-// target DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the AssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.assignedGpuDeviceIds = assignedGpuDeviceIds
-}
-
-func (ivk *DockerInvoker) DebugPort() int32 {
-	return ivk.KernelDebugPort
-}
-
-// SetDebugPort will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the DebugPort field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int32) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the DebugPort field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.KernelDebugPort = kernelDebugPort
-}
-
-func (ivk *DockerInvoker) KernelId() string {
-	return ivk.kernelId
-}
-
-// SetKernelId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the KernelId field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
-func (ivk *DockerInvoker) SetKernelId(kernelId string) {
-	if !ivk.ContainerIsPrewarm() {
-		panic("Cannot mutate the KernelId field of a DockerInvoker a non-prewarm container.")
-	}
-
-	ivk.kernelId = kernelId
-}
-
 // ContainerIsPrewarm returns true if the CurrentContainerType of the target DockerInvoker is scheduling.PrewarmContainer.
 func (ivk *DockerInvoker) ContainerIsPrewarm() bool {
 	return ivk.currentContainerType == scheduling.PrewarmContainer
@@ -925,4 +876,53 @@ func (ivk *DockerInvoker) DemoteStandardContainer() error {
 	// Update the current container type and return true.
 	ivk.currentContainerType = scheduling.PrewarmContainer
 	return nil
+}
+
+// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target DockerInvoker is
+// scheduling.StandardContainer.
+//
+// You can only mutate the AssignedGpuDeviceIds field of a DockerInvoker struct if the CurrentContainerType of the
+// target DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the AssignedGpuDeviceIds field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetAssignedGpuDeviceIds(assignedGpuDeviceIds)
+}
+
+// SetDebugPort will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the DebugPort field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetDebugPort(kernelDebugPort int32) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the DebugPort field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetDebugPort(kernelDebugPort)
+}
+
+// SetKernelId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the KernelId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetKernelId(kernelId string) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the KernelId field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetKernelId(kernelId)
+}
+
+// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
+//
+// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
+// DockerInvoker struct is scheduling.PrewarmContainer.
+func (ivk *DockerInvoker) SetWorkloadId(workloadId string) {
+	if !ivk.ContainerIsPrewarm() {
+		panic("Cannot mutate the WorkloadId field of a DockerInvoker a non-prewarm container.")
+	}
+
+	ivk.LocalInvoker.SetWorkloadId(workloadId)
 }

@@ -109,42 +109,32 @@ func (ivk *LocalInvoker) WorkloadId() string {
 	return ivk.workloadId
 }
 
-// SetWorkloadId will panic if the CurrentContainerType of the target DockerInvoker is scheduling.StandardContainer.
-//
-// You can only mutate the WorkloadId field of a DockerInvoker struct if the CurrentContainerType of the target
-// DockerInvoker struct is scheduling.PrewarmContainer.
 func (ivk *LocalInvoker) SetWorkloadId(workloadId string) {
 	ivk.workloadId = workloadId
 }
 
 func (ivk *LocalInvoker) AssignedGpuDeviceIds() []int32 {
-	//TODO implement me
-	panic("implement me")
+	return ivk.assignedGpuDeviceIds
 }
 
-func (ivk *LocalInvoker) SetAssignedGpuDeviceIds(int32s []int32) {
-	//TODO implement me
-	panic("implement me")
+func (ivk *LocalInvoker) SetAssignedGpuDeviceIds(assignedGpuDeviceIds []int32) {
+	ivk.assignedGpuDeviceIds = assignedGpuDeviceIds
 }
 
 func (ivk *LocalInvoker) DebugPort() int32 {
-	//TODO implement me
-	panic("implement me")
+	return ivk.KernelDebugPort
 }
 
-func (ivk *LocalInvoker) SetDebugPort(i int32) {
-	//TODO implement me
-	panic("implement me")
+func (ivk *LocalInvoker) SetDebugPort(kernelDebugPort int32) {
+	ivk.KernelDebugPort = kernelDebugPort
 }
 
 func (ivk *LocalInvoker) KernelId() string {
-	//TODO implement me
-	panic("implement me")
+	return ivk.kernelId
 }
 
-func (ivk *LocalInvoker) SetKernelId(s string) {
-	//TODO implement me
-	panic("implement me")
+func (ivk *LocalInvoker) SetKernelId(kernelId string) {
+	ivk.kernelId = kernelId
 }
 
 func NewLocalInvoker() *LocalInvoker {
