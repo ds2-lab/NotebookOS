@@ -198,6 +198,45 @@ services:
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"] # Enables AOF persistence for durability
     restart: unless-stopped
 
+  node-exporter:
+    container_name: node-exporter
+    image: prom/node-exporter
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=node-exporter"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=node-exporter"
+    ports:
+      - "7125:8089"
+    command:
+      - --web.listen-address=0.0.0.0:8089
+
+  cadvisor:
+    container_name: cadvisor
+    image: gcr.io/cadvisor/cadvisor:latest
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=cadvisor"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=cadvisor"
+    ports:
+      - "7126:7126"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker/:/var/lib/docker:ro"
+    command:
+      - '-port=7126'
+
 #  dashboard_backend:
 #    image: $USER/distributed-notebook-dashboard-backend:latest
 #    ports:
