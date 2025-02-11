@@ -3281,11 +3281,11 @@ class DistributedKernel(IPythonKernel):
                 "DistributedKernel is preparing to execute empty codeblock...\n\n"
             )
 
-        # Make sure we have some GPU device IDs if we're using real GPUs.
-        if not self.simulate_training_using_sleep and (gpu_device_ids is None or len(gpu_device_ids) == 0):
-            self.log.error(
-                "We're using real GPUs, but we've not been assigned any GPU device IDs..."
-            )
+        # Make sure we have some GPU device IDs if we're using real GPUs and our current resource
+        # request indicates that we have 1 or more GPUs assigned to us.
+        if not self.simulate_training_using_sleep and cuda_available and (gpu_device_ids is None or len(gpu_device_ids) == 0) and self.current_resource_request.get("gpus", 0) > 0:
+            self.log.error("We're using real GPUs, but we've not been assigned any GPU device IDs...")
+
             self.report_error(
                 f"Replica {self.smr_node_id} of Kernel '{self.kernel_id}' Was Not Assigned Any GPU Device IDs",
                 f"Replica {self.smr_node_id} of kernel '{self.kernel_id}' was not assigned any GPU device "
@@ -4673,6 +4673,29 @@ class DistributedKernel(IPythonKernel):
                 title=error_title,
                 message=error_message,
                 notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            )
+        )
+
+    def report_warning(self, warning_title: str = "", warning_message: str = ""):
+        """
+        Send an warning report/message to our local daemon via our IOPub socket.
+        """
+        if self.kernel_notification_service_stub is None:
+            self.log.warning(
+                f"Cannot send 'warning_report' for warning \"{warning_message}\" as our gRPC connection was never setup."
+            )
+            return
+
+        self.log.debug(
+            f"Sending 'warning_report' message for warning \"{warning_message}\" now. Warning message: {warning_message}"
+        )
+        self.kernel_notification_service_stub.Notify(
+            gateway_pb2.KernelNotification(
+                title=warning_title,
+                message=warning_message,
+                notificationType=WarningNotification,
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
             )
