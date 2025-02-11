@@ -2054,27 +2054,25 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	}
 
 	// Update fields of the KernelInvoker.
-	err := kernelInvoker.SetWorkloadId(kernelReplicaSpec.WorkloadId)
-	if err != nil {
-		return nil, err
-	}
-
+	kernelInvoker.SetWorkloadId(kernelReplicaSpec.WorkloadId)
 	kernelInvoker.SetAssignedGpuDeviceIds(kernelReplicaSpec.Kernel.ResourceSpec.GpuDeviceIds)
 	kernelInvoker.SetDebugPort(kernelReplicaSpec.DockerModeKernelDebugPort)
 	kernelInvoker.SetKernelId(kernelReplicaSpec.Kernel.Id)
 
 	// Store the debug port.
 	d.kernelDebugPorts.Store(kernelReplicaSpec.Kernel.Id, int(kernelReplicaSpec.DockerModeKernelDebugPort))
-
-	// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
-	promoted := kernelInvoker.PromotePrewarmedContainer()
-	if !promoted {
-		d.log.Error("Expected to promote container of KernelInvoker")
-		return nil, status.Error(codes.Internal, "expected to promote container of KernelInvoker")
+	
+	if containerInvoker, ok := kernelInvoker.(invoker.ContainerInvoker); ok {
+		// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
+		promoted := containerInvoker.PromotePrewarmedContainer()
+		if !promoted {
+			d.log.Error("Expected to promote container of KernelInvoker")
+			return nil, status.Error(codes.Internal, "expected to promote container of KernelInvoker")
+		}
 	}
 
 	// Promote the container (with respect to the scheduling.KernelReplica and scheduling.Container).
-	err = prewarmedKernelClient.PromotePrewarmContainer(kernelReplicaSpec)
+	err := prewarmedKernelClient.PromotePrewarmContainer(kernelReplicaSpec)
 	if err != nil && !errors.Is(err, entity.ErrInvalidContainer) /* It's fine if it doesn't have a container */ {
 		d.log.Error("Failed to promote prewarmed container (with respect to the KernelReplicaClient): %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
