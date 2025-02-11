@@ -236,7 +236,7 @@ services:
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
     command:
-      - --port 8089
+      - -port 8089
 
 #  dashboard_backend:
 #    image: $USER/distributed-notebook-dashboard-backend:latest

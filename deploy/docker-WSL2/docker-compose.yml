@@ -190,7 +190,6 @@ services:
   cadvisor:
     container_name: cadvisor
     image: gcr.io/cadvisor/cadvisor:latest
-    privileged: true
     labels:
       - "traefik.enable=true"
       - "app=distributed_cluster"
@@ -201,14 +200,14 @@ services:
         - "app=distributed_cluster"
         - "component=cadvisor"
     ports:
-      - "7126:8089"
+      - "7126:7126"
     volumes:
       - "/:/rootfs:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
     command:
-      - --port 8089
+      - '-port=7126'
 
   grafana:
     platform: linux/amd64

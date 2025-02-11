@@ -24,7 +24,7 @@ scrape_configs:
     scheme: http
     static_configs:
       - targets:
-          - host.docker.internal:8000
+          - host.docker.internal:8500
     dns_sd_configs:
       - names:
           - gateway
