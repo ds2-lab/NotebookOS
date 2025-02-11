@@ -169,18 +169,7 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		panic(err)
 	}
 
-	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
-	// setting inInitialConnectionPeriod to true and creating a goroutine to eventually set inInitialConnectionPeriod
-	// to false if the feature is enabled in the first place.
-	if cluster.initialClusterSize >= 0 {
-		cluster.inInitialConnectionPeriod.Store(true)
-
-		go cluster.handleInitialConnectionPeriod()
-	} else {
-		cluster.log.Debug("Initial Cluster Size specified as negative number (%d). "+
-			"Disabling 'initial connection period' feature.", cluster.initialClusterSize)
-		cluster.inInitialConnectionPeriod.Store(false) // It defaults to false, so this is unnecessary.
-	}
+	go cluster.handleInitialConnectionPeriod()
 
 	return cluster
 }
@@ -191,14 +180,30 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 // After that, handleInitialConnectionPeriod invokes the ProvisionInitialPrewarmContainers method of the
 // scheduling.ContainerPrewarmer (if one exists).
 func (c *BaseCluster) handleInitialConnectionPeriod() {
-	c.log.Debug("Initial Connection Period will end in %v.", c.initialConnectionPeriod)
+	initialConnPeriodEnabled := c.initialClusterSize >= 0
 
-	time.Sleep(c.initialConnectionPeriod)
+	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
+	// setting inInitialConnectionPeriod to true and creating a goroutine to eventually set inInitialConnectionPeriod
+	// to false if the feature is enabled in the first place.
+	if initialConnPeriodEnabled {
+		c.inInitialConnectionPeriod.Store(true)
 
-	c.inInitialConnectionPeriod.Store(false)
+		c.log.Debug("Initial Connection Period will end in %v.", c.initialConnectionPeriod)
+		time.Sleep(c.initialConnectionPeriod)
 
-	c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
-		c.initialConnectionPeriod, c.Len())
+		c.inInitialConnectionPeriod.Store(false)
+
+		c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+			c.initialConnectionPeriod, c.Len())
+	} else {
+		c.log.Debug("Initial Cluster Size specified as negative number (%d). "+
+			"Disabling 'initial connection period' feature.", c.initialClusterSize)
+	}
+
+	if c.Scheduler() == nil {
+		c.log.Warn("No ContainerPrewarmer available.")
+		return
+	}
 
 	// Trigger the initial pre-warming phase now that the initial connection period has elapsed.
 	prewarmer := c.Scheduler().ContainerPrewarmer()
@@ -1247,13 +1252,18 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	}
 
 	// Scale in (i.e., remove hosts).
-	c.log.Debug("Releasing %d host(s) in order to scale-in to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
+	c.log.Debug("Releasing %d host(s) in order to scale-in to target size of %d.", currentNumNodes-targetNumNodes, targetNumNodes)
 	return c.ReleaseHosts(ctx, currentNumNodes-targetNumNodes)
 }
 
 // MetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
 func (c *BaseCluster) MetricsProvider() scheduling.MetricsProvider {
 	return c.metricsProvider
+}
+
+// IsInInitialConnectionPeriod returns true if the scheduling.Cluster is still in "initial connection" mode/phase.
+func (c *BaseCluster) IsInInitialConnectionPeriod() bool {
+	return c.inInitialConnectionPeriod.Load()
 }
 
 // NewHostAddedOrConnected should be called by an external entity when a new host connects to the Cluster Gateway.
@@ -1263,9 +1273,11 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
+	initialConnPeriodEnabled := c.initialClusterSize >= 0
+
 	// If we're still in the "initial connection period" and we already have all the hosts we're supposed to have,
 	// then we'll disable this host before registering it.
-	if c.inInitialConnectionPeriod.Load() && c.Len() >= c.initialClusterSize {
+	if initialConnPeriodEnabled && c.inInitialConnectionPeriod.Load() && c.Len() >= c.initialClusterSize {
 		c.numHostsDisabledDuringInitialConnectionPeriod += 1
 		c.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
 			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",

@@ -12,6 +12,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -652,7 +653,8 @@ func (c *KernelReplicaClient) recreateControlSocket() *messaging.Socket {
 		remoteName = fmt.Sprintf("K-kernel-Ctrl[%s]", c.id)
 	}
 
-	newSocket := messaging.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.ControlPort, messaging.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
+	newSocket := messaging.NewSocketWithHandlerAndRemoteName(zmq4.NewDealer(c.client.Ctx), c.client.Meta.ControlPort,
+		messaging.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", c.id), remoteName, handler)
 	c.client.Sockets.Control = newSocket
 	c.client.Sockets.All[messaging.ControlMessage] = newSocket
 	return newSocket
@@ -665,12 +667,14 @@ func (c *KernelReplicaClient) WorkloadId() string {
 }
 
 // SetWorkloadId sets the WorkloadId of the KernelReplicaClient.
-func (c *KernelReplicaClient) SetWorkloadId(workloadId string) {
+func (c *KernelReplicaClient) SetWorkloadId(workloadId string) error {
 	if c.workloadIdSet {
-		c.log.Warn("Workload ID has already been set to \"%s\". Will replace it with (possibly identical) new ID: \"%s\"", c.workloadId, workloadId)
+		c.log.Warn("Workload ID has already been set to \"%s\". Will replace it with (possibly identical) new ID: \"%s\"",
+			c.workloadId, workloadId)
 	}
 
 	c.workloadId = workloadId
+	return nil
 }
 
 // WorkloadIdSet returns a flag indicating whether the KernelReplicaClient's workloadId has been assigned a "meaningful" value or not.
@@ -764,7 +768,7 @@ func (c *KernelReplicaClient) closeSocket(typ messaging.MessageType) (messaging.
 		}
 
 		err := oldSocket.Close()
-		if err != nil {
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			// Print the error, but that's all. We're recreating the socket anyway.
 			c.log.Warn("Error while closing %s socket: %v", typ.String(), err)
 		}
@@ -1294,10 +1298,11 @@ func (c *KernelReplicaClient) Close() error {
 			continue
 		}
 
+		// The 'use of closed network connection' error is OK.
 		socketCloseErr := socket.Close()
-		if socketCloseErr != nil {
+		if socketCloseErr != nil && !strings.Contains(socketCloseErr.Error(), "use of closed network connection") {
 			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
-				socket.Type.String(), c.replicaId, c.id, err)
+				socket.Type.String(), c.replicaId, c.id, socketCloseErr)
 
 			if err != nil {
 				err = errors.Join(err, socketCloseErr)
@@ -1308,9 +1313,9 @@ func (c *KernelReplicaClient) Close() error {
 	}
 	if c.iopub != nil {
 		ioPubCloseError := c.iopub.Close()
-		if ioPubCloseError != nil {
+		if ioPubCloseError != nil && !strings.Contains(ioPubCloseError.Error(), "use of closed network connection") {
 			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
-				c.iopub.Type.String(), c.replicaId, c.id, err)
+				c.iopub.Type.String(), c.replicaId, c.id, ioPubCloseError)
 
 			if err != nil {
 				err = errors.Join(err, ioPubCloseError)
@@ -1464,7 +1469,7 @@ func (c *KernelReplicaClient) WasPrewarmContainer() bool {
 	return c.wasPrewarmContainer
 }
 
-// PromotePrewarmContainer is used to promote a scheduling.KernelContainer whose ContainerType is
+// PromotePrewarmContainer is used to promote a scheduling.KernelReplica whose ContainerType is
 // scheduling.PrewarmContainer to a scheduling.StandardContainer.
 func (c *KernelReplicaClient) PromotePrewarmContainer(spec *proto.KernelReplicaSpec) error {
 	// Modify these fields first, as they need to be updated regardless of whether the KernelReplicaClient
@@ -1476,9 +1481,30 @@ func (c *KernelReplicaClient) PromotePrewarmContainer(spec *proto.KernelReplicaS
 	c.containerType = scheduling.StandardContainer
 
 	if c.container == nil {
+		// This is to be expected when running in a Local Scheduler.
 		return fmt.Errorf("%w: replica %d of kernel \"%s\" does not have a container",
 			entity.ErrInvalidContainer, c.replicaId, c.id)
 	}
 
 	return c.container.PrewarmContainerPromoted(spec.Kernel.Id, spec.ReplicaId, spec.ResourceSpec().ToDecimalSpec())
+}
+
+// DemoteStandardContainer is used to demote a scheduling.KernelReplica whose ContainerType is StandardContainer
+// to a PrewarmContainer.
+func (c *KernelReplicaClient) DemoteStandardContainer(prewarmContainerId string) error {
+	// Modify these fields first, as they need to be updated regardless of whether the KernelReplicaClient
+	// has a valid, non-nil container or not. (It will be nil in the Local Scheduler.)
+	c.replicaId = 0
+	c.spec.Id = prewarmContainerId
+	c.replicaSpec.Kernel.Id = prewarmContainerId
+	c.id = prewarmContainerId
+	c.containerType = scheduling.PrewarmContainer
+
+	if c.container == nil {
+		// This is to be expected when running in a Local Scheduler.
+		return fmt.Errorf("%w: replica %d of kernel \"%s\" does not have a container",
+			entity.ErrInvalidContainer, c.replicaId, c.id)
+	}
+
+	return c.container.StandardContainerDemoted(prewarmContainerId)
 }

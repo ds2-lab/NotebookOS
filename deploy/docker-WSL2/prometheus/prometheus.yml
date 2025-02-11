@@ -10,6 +10,12 @@ alerting:
       timeout: 10s
       api_version: v2
 scrape_configs:
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:7125']
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:7126']
   - job_name: prometheus
     honor_timestamps: true
     scrape_interval: 5s
@@ -18,7 +24,7 @@ scrape_configs:
     scheme: http
     static_configs:
       - targets:
-          - host.docker.internal:8000
+          - host.docker.internal:8500
     dns_sd_configs:
       - names:
           - gateway

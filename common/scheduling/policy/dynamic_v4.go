@@ -42,7 +42,7 @@ func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) (*DynamicV4Policy, er
 //
 // But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
 func (p *DynamicV4Policy) ReuseWarmContainers() bool {
-	return false
+	return true
 }
 
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.

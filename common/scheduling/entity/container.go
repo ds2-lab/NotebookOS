@@ -371,3 +371,17 @@ func (c *Container) PrewarmContainerPromoted(kernelId string, replicaId int32, s
 
 	return nil
 }
+
+// StandardContainerDemoted is used to demote a KernelContainer whose ContainerType is StandardContainer
+// to a PrewarmContainer.
+func (c *Container) StandardContainerDemoted(prewarmContainerId string) error {
+	if c.KernelReplica.ContainerType() != scheduling.StandardContainer {
+		return fmt.Errorf("%w: cannot demote container for replica %d of kernel %s as it is of type '%s'",
+			scheduling.ErrContainerPromotionFailed, c.replicaId, c.id, c.KernelReplica.ContainerType().String())
+	}
+
+	c.replicaId = 0
+	c.id = prewarmContainerId
+
+	return nil
+}

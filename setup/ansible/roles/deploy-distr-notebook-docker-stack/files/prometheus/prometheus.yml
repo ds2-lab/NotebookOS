@@ -12,6 +12,22 @@ alerting:
       api_version: v2
 
 scrape_configs:
+  # Scrape the node-exporter containers
+  - job_name: 'node-exporter'
+    dns_sd_configs:
+      - names:
+          - node-exporter
+        type: A
+        port: 7125
+
+  # Scrape the cadvisor containers
+  - job_name: 'cadvisor'
+    dns_sd_configs:
+      - names:
+          - cadvisor
+        type: A
+        port: 7126
+
   # Scraping Prometheus' own metrics
   - job_name: 'prometheus'
     scrape_interval: 5s

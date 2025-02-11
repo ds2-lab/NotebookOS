@@ -58,6 +58,18 @@ class HuggingFaceDataset(CustomDataset, ABC):
         else:
             print(f"The {self.name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
+    def remove_local_files(self):
+        """
+        Remove any local files on disk.
+        """
+        if self._dataset is not None:
+            self.log.debug(f'Cleaning up cache files for "{self.name}" dataset.')
+
+            st: float = time.time()
+            self._dataset.cleanup_cache_files()
+            self.log.debug(f'Successfully cleaned-up cache files for "{self.name}" '
+                           f'dataset in {round(time.time() - st, 3):,} seconds.')
+
     @property
     def tokenization_start(self) -> float:
         if hasattr(self, "_tokenize_start"):

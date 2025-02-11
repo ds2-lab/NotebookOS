@@ -498,17 +498,21 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 				break // Give up.
 			}
 
-			numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
+			numHostsRequired = s.schedulingPolicy.NumReplicas() - len(hosts)
 			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
 				numHostsRequired, kernelSpec.Id)
 
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
-			if err := p.Error(); err != nil {
+			if err = p.Error(); err != nil {
 				if errors.Is(err, scheduling.ErrScalingActive) {
 					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
 						kernelSpec.Id)
+				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+						numHostsRequired, kernelSpec.Id, err)
+					break // We're out of hosts. Give up. It can be resubmitted by the client later.
 				} else {
-					s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
 						numHostsRequired, kernelSpec.Id, err)
 				}
 			}
