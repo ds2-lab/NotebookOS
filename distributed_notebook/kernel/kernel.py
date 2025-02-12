@@ -4065,7 +4065,7 @@ class DistributedKernel(IPythonKernel):
         Write the data directory of the SyncLog to remote remote_storage.
         """
 
-        # Verify that the SyncLog is not None before we continue. 
+        # Verify that the SyncLog is not None before we continue.
         if self.synclog is None:
             self.log.warning("SyncLog is None. Cannot write data directory to remote storage.")
             return { "status": "ok", "id": self.smr_node_id, "kernel_id": self.kernel_id }, True
@@ -5132,7 +5132,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog = RaftLog(
+                self.synclog: Optional[SyncLog] = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -5195,7 +5195,7 @@ class DistributedKernel(IPythonKernel):
                 raise ValueError(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
 
             assert remote_storage_provider is not None
-            self.synclog = RemoteStorageLog(
+            self.synclog: Optional[SyncLog] = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,
