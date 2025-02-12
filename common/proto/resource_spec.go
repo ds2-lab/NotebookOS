@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 )
@@ -23,6 +24,24 @@ func ResourceSpecFromSpec(spec types.Spec) *ResourceSpec {
 		Gpu:    int32(spec.GPU()),
 		Vram:   float32(spec.VRAM()),
 	}
+}
+
+// GetResourceQuantity returns the quantity of the given ResourceType encoded by the target ResourceSpec.
+func (s *ResourceSpec) GetResourceQuantity(typ types.ResourceType) float64 {
+	switch typ {
+	case types.Millicpus:
+		return float64(s.Cpu)
+	case types.Memory:
+		return float64(s.Memory)
+	case types.GPUs:
+		return float64(s.Gpu)
+	case types.VRAM:
+		return float64(s.Vram)
+	case types.NoResource:
+		return -1
+	}
+
+	panic(fmt.Sprintf("Unknown resource quantity: %s", typ.String()))
 }
 
 // GPU returns the number of GPUs required.
@@ -100,6 +119,37 @@ func (s *ResourceSpec) Equals(other types.Spec) bool {
 	d2 := types.ToDecimalSpec(other)
 
 	return d1.GPUs.Equal(d2.GPUs) && d1.Millicpus.Equals(d2.Millicpus) && d1.VRam.Equal(d2.VRam) && d1.MemoryMb.Equal(d2.MemoryMb)
+}
+
+// EqualsWithField returns a flag indicating whether the two Spec instances are equal.
+//
+// If they are not, then a string is returned indicating the resource type for which they are unequal.
+//
+// Resources are checked in this order: CPU, Memory, GPU, VRAM.
+//
+// If the Spec instances are unequal, then the first resource type for which they are unequal (in the order in which
+// resource types are checked/compared) will be the one that is returned.
+func (s *ResourceSpec) EqualsWithField(other types.Spec) (bool, types.ResourceType) {
+	d1 := types.ToDecimalSpec(s)
+	d2 := types.ToDecimalSpec(other)
+
+	if !d1.Millicpus.Equals(d2.Millicpus) {
+		return false, types.Millicpus
+	}
+
+	if !d1.MemoryMb.Equal(d2.MemoryMb) {
+		return false, types.Memory
+	}
+
+	if !d1.GPUs.Equal(d2.GPUs) {
+		return false, types.GPUs
+	}
+
+	if !d1.VRam.Equal(d2.VRam) {
+		return false, types.VRAM
+	}
+
+	return true, types.NoResource
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.

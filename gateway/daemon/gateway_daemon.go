@@ -372,8 +372,6 @@ type ClusterGatewayImpl struct {
 	hostSpec *types.DecimalSpec
 
 	// RequestLog is used to track the status/progress of requests when in DebugMode.
-	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
-	//		 Update in forwardRequest and kernelReplicaResponseForwarder, rather than in here.
 	RequestLog *metrics.RequestLog
 
 	id string
@@ -4676,8 +4674,20 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 		return nil
 	}
 
-	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
-		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
+	// then we can just return.
+	specsAreEqual, firstUnequalField := kernel.ResourceSpec().EqualsWithField(requestMetadata.ResourceRequest)
+	if specsAreEqual {
+		d.log.Debug("Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
+			requestMetadata.ResourceRequest.String(), kernel.ResourceSpec().String(), kernel.ID())
+		return nil
+	}
+
+	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\". "+
+		"Old spec: %v. New spec: %v. Differ in field '%v' [old=%f, new=%f].",
+		kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec().String(), requestMetadata.ResourceRequest.String(),
+		firstUnequalField, kernel.ResourceSpec().GetResourceQuantity(firstUnequalField),
+		requestMetadata.ResourceRequest.GetResourceQuantity(firstUnequalField))
 
 	err = d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest)
 	if err != nil {
@@ -4702,6 +4712,12 @@ func (d *ClusterGatewayImpl) updateKernelResourceSpec(kernel scheduling.Kernel, 
 		d.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
 			kernel.ID(), newSpec.String())
 		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
+	}
+
+	if newSpec.Equals(kernel.ResourceSpec()) {
+		d.log.Debug("Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
+			newSpec.String(), kernel.ResourceSpec().String(), kernel.ID())
+		return nil
 	}
 
 	d.log.Debug("Attempting to update resource request for kernel %s from %s to %s.",

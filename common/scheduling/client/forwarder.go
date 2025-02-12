@@ -219,7 +219,8 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 		return // We'll panic before this line is executed in the local daemon.
 	}
 
-	s.log.Debug("Dequeued message %s (JupyterID=%s) targeting kernel %s.", message.MsgId, message.Kernel.ID())
+	s.log.Debug("Dequeued message %s targeting kernel %s.",
+		message.MsgId, message.Kernel.ID())
 
 	// Process the message.
 	processedMessage := message.Msg

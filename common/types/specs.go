@@ -5,6 +5,20 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const (
+	Millicpus  ResourceType = "Millicpus"
+	Memory     ResourceType = "Memory"
+	GPUs       ResourceType = "GPUs"
+	VRAM       ResourceType = "VRAM"
+	NoResource ResourceType = "NoResource"
+)
+
+type ResourceType string
+
+func (rt ResourceType) String() string {
+	return string(rt)
+}
+
 var (
 	ZeroDecimalSpec = NewDecimalSpec(0, 0, 0, 0)
 )
@@ -72,6 +86,9 @@ type Spec interface {
 	// and returns a new Spec struct. Neither the target spec nor the parameterized spec
 	// are modified by Add.
 	Add(other Spec) Spec
+
+	// GetResourceQuantity returns the quantity of the given ResourceType encoded by the target Spec.
+	GetResourceQuantity(typ ResourceType) float64
 }
 
 // ToDecimalSpec creates a new DecimalSpec struct using the same resource values as the provided Spec and returns
@@ -167,6 +184,36 @@ func (d *DecimalSpec) Equals(other Spec) bool {
 	return d.GPUs.Equal(d2.GPUs) && d.Millicpus.Equals(d2.Millicpus) && d.VRam.Equal(d2.VRam) && d.MemoryMb.Equal(d2.MemoryMb)
 }
 
+// EqualsWithField returns a flag indicating whether the two Spec instances are equal.
+//
+// If they are not, then a string is returned indicating the resource type for which they are unequal.
+//
+// Resources are checked in this order: CPU, Memory, GPU, VRAM.
+//
+// If the Spec instances are unequal, then the first resource type for which they are unequal (in the order in which
+// resource types are checked/compared) will be the one that is returned.
+func (d *DecimalSpec) EqualsWithField(other Spec) (bool, ResourceType) {
+	d2 := ToDecimalSpec(other)
+
+	if !d.Millicpus.Equals(d2.Millicpus) {
+		return false, Millicpus
+	}
+
+	if !d.MemoryMb.Equal(d2.MemoryMb) {
+		return false, Memory
+	}
+
+	if !d.GPUs.Equal(d2.GPUs) {
+		return false, GPUs
+	}
+
+	if !d.VRam.Equal(d2.VRam) {
+		return false, VRAM
+	}
+
+	return true, NoResource
+}
+
 // VRAM is the amount of GPU memory required in GB.
 func (d *DecimalSpec) VRAM() float64 {
 	return d.VRam.InexactFloat64()
@@ -216,9 +263,46 @@ func (d *DecimalSpec) Validate(requirement Spec) bool {
 		d.VRam.GreaterThanOrEqual(decimal.NewFromFloat(requirement.VRAM()))
 }
 
+// GetResourceQuantityAsDecimal returns the quantity of the given ResourceType encoded by the target DecimalSpec as a
+// decimal.Decimal.
+func (d *DecimalSpec) GetResourceQuantityAsDecimal(typ ResourceType) decimal.Decimal {
+	switch typ {
+	case Millicpus:
+		return d.Millicpus
+	case Memory:
+		return d.MemoryMb
+	case GPUs:
+		return d.GPUs
+	case VRAM:
+		return d.VRam
+	case NoResource:
+		return decimal.NewFromFloat(-1)
+	}
+
+	panic(fmt.Sprintf("Unknown resource quantity: %s", typ.String()))
+}
+
+// GetResourceQuantity returns the quantity of the given ResourceType encoded by the target DecimalSpec.
+func (d *DecimalSpec) GetResourceQuantity(typ ResourceType) float64 {
+	switch typ {
+	case Millicpus:
+		return d.Millicpus.InexactFloat64()
+	case Memory:
+		return d.MemoryMb.InexactFloat64()
+	case GPUs:
+		return d.GPUs.InexactFloat64()
+	case VRAM:
+		return d.VRam.InexactFloat64()
+	case NoResource:
+		return -1
+	}
+
+	panic(fmt.Sprintf("Unknown resource quantity: %s", typ.String()))
+}
+
 func (d *DecimalSpec) String() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
-		d.Millicpus.StringFixed(4), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(1), d.VRam.StringFixed(4))
+		d.Millicpus.StringFixed(0), d.MemoryMb.String(), d.GPUs.StringFixed(1), d.VRam.String())
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.
@@ -310,7 +394,7 @@ func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
 }
 
 func (s *Float64Spec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.Memory, s.GPUs, s.VRAM())
+	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %f MB, GPUs: %.0f, VRAM: %.6f GB]", s.Millicpus, s.Memory, s.GPUs, s.VRAM())
 }
 
 func (s *Float64Spec) Equals(other Spec) bool {
@@ -318,6 +402,55 @@ func (s *Float64Spec) Equals(other Spec) bool {
 	d2 := ToDecimalSpec(other)
 
 	return d1.GPUs.Equal(d2.GPUs) && d1.Millicpus.Equals(d2.Millicpus) && d1.VRam.Equal(d2.VRam) && d1.MemoryMb.Equal(d2.MemoryMb)
+}
+
+// EqualsWithField returns a flag indicating whether the two Spec instances are equal.
+//
+// If they are not, then a string is returned indicating the resource type for which they are unequal.
+//
+// Resources are checked in this order: CPU, Memory, GPU, VRAM.
+//
+// If the Spec instances are unequal, then the first resource type for which they are unequal (in the order in which
+// resource types are checked/compared) will be the one that is returned.
+func (s *Float64Spec) EqualsWithField(other Spec) (bool, ResourceType) {
+	d1 := ToDecimalSpec(s)
+	d2 := ToDecimalSpec(other)
+
+	if !d1.Millicpus.Equals(d2.Millicpus) {
+		return false, Millicpus
+	}
+
+	if !d1.MemoryMb.Equal(d2.MemoryMb) {
+		return false, Memory
+	}
+
+	if !d1.GPUs.Equal(d2.GPUs) {
+		return false, GPUs
+	}
+
+	if !d1.VRam.Equal(d2.VRam) {
+		return false, VRAM
+	}
+
+	return true, NoResource
+}
+
+// GetResourceQuantity returns the quantity of the given ResourceType encoded by the target Float64Spec.
+func (s *Float64Spec) GetResourceQuantity(typ ResourceType) float64 {
+	switch typ {
+	case Millicpus:
+		return s.Millicpus
+	case Memory:
+		return s.Memory
+	case GPUs:
+		return s.GPUs
+	case VRAM:
+		return s.VRam
+	case NoResource:
+		return -1
+	}
+
+	panic(fmt.Sprintf("Unknown resource quantity: %s", typ.String()))
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.

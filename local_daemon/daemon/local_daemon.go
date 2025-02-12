@@ -3185,12 +3185,18 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 
 	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
 	// then we can just return.
-	if kernel.ResourceSpec().Equals(requestMetadata.ResourceRequest) {
+	specsAreEqual, firstUnequalField := kernel.ResourceSpec().EqualsWithField(requestMetadata.ResourceRequest)
+	if specsAreEqual {
+		d.log.Debug("Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
+			requestMetadata.ResourceRequest.String(), kernel.ResourceSpec().String(), kernel.ID())
 		return targetReplicaId, metadataDict, nil
 	}
 
-	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
-		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\". "+
+		"Old spec: %v. New spec: %v. Differ in field '%v' [old=%f, new=%f].",
+		kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec().String(), requestMetadata.ResourceRequest.String(),
+		firstUnequalField, kernel.ResourceSpec().GetResourceQuantity(firstUnequalField),
+		requestMetadata.ResourceRequest.GetResourceQuantity(firstUnequalField))
 
 	// Attempt to update the kernel's resource request.
 	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {

@@ -905,7 +905,7 @@ class DistributedKernel(IPythonKernel):
             )
 
         self.log.info(
-            "CPU: %.2f, Memory: %.2f, GPUs: %d, VRAM: %.2f."
+            "CPU: %.2f, Memory: %f, GPUs: %d, VRAM: %.6f."
             % (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb)
         )
 

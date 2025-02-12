@@ -23,6 +23,14 @@ var (
 	ErrEmptyKernelId = errors.New("kernel ID is empty")
 )
 
+// ResponseForwarder is an interface that provides the means to forward responses from scheduling.Kernel and
+// scheduling.KernelReplica instances back to the associated Jupyter client.
+type ResponseForwarder interface {
+	// ForwardResponse forwards a response from a scheduling.Kernel / scheduling.KernelReplica
+	// back to the Jupyter client.
+	ForwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage)
+}
+
 // KernelManager is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
 // scheduling.KernelReplica instances running within the cluster.
 type KernelManager struct {
@@ -36,13 +44,16 @@ type KernelManager struct {
 
 	// RequestTracingEnabled controls whether we embed proto.RequestTrace structs within Jupyter requests and replies.
 	RequestTracingEnabled bool
+
+	ResponseForwarder ResponseForwarder
 }
 
 // NewKernelManager creates a new KernelManager struct and returns a pointer to it.
-func NewKernelManager() *KernelManager {
+func NewKernelManager(responseForwarder ResponseForwarder) *KernelManager {
 	manager := &KernelManager{
-		Kernels:  hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		Sessions: hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		Kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		Sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		ResponseForwarder: responseForwarder,
 	}
 
 	config.InitLogger(&manager.log, manager)
