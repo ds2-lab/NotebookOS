@@ -2383,6 +2383,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
 
+	// Make sure to associate the Jupyter Session with the kernel.
+	kernel.BindSession(in.Session)
+	d.kernels.Store(in.Session, kernel)
+
 	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Will wait to schedule container(s) for kernel %s until we receive an 'execute_request'.", in.Id)
 
