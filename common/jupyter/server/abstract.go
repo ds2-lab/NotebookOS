@@ -524,7 +524,8 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 				handlerStart := time.Now()
 				err = handler(server, socket.Type, jMsg)
 				if err != nil && !errors.Is(err, errServeOnce) {
-					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
+					s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."),
+						goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
 
 					// Send an error message of some sort back to the original sender, in Jupyter format.
 					_ = s.replyWithError(jMsg, socket, err)

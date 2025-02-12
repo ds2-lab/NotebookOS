@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strings"
@@ -273,8 +274,8 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 	if s.prewarmer != nil {
 		container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
 		if container != nil {
-			s.log.Debug("Found pre-warmed container on host %s. Using for replica %d of kernel %s.",
-				targetHost.GetID(), replicaSpec.ReplicaId, kernelId)
+			s.log.Debug("Found pre-warmed container on host %s (ID=%s). Using for replica %d of kernel %s.",
+				targetHost.GetNodeName(), targetHost.GetID(), replicaSpec.ReplicaId, kernelId)
 
 			err = s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
 
@@ -344,13 +345,17 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 
 	replicaConnInfo, err := targetHost.PromotePrewarmedContainer(ctx, spec)
 	if err != nil {
-		s.log.Warn("Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v",
+		s.log.Warn(
+			utils.YellowStyle.Render(
+				"Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v"),
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID(), err)
 		return err
 	}
 
 	container.OnPrewarmedContainerUsed()
-	s.log.Debug("Successfully created replica %d of kernel %s in pre-warmed container on host %s (ID=%s): %v",
+	s.log.Debug(
+		utils.LightGreenStyle.Render(
+			"Successfully created replica %d of kernel %s in pre-warmed container on host %s (ID=%s): %v"),
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), replicaConnInfo)
 	return nil
 }
@@ -588,17 +593,20 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 			{
 				err := ctx.Err()
 				if err != nil {
-					s.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. "+
-						"Error extracted from now-cancelled context: %v", kernel.ID(), err)
+					s.log.Error(
+						utils.RedStyle.Render("Context cancelled while waiting for new Docker replicas to register for kernel %s. "+
+							"Error extracted from now-cancelled context: %v"), kernel.ID(), err)
 				} else {
-					s.log.Error("Context cancelled while waiting for new Docker replicas to register for kernel %s. "+
-						"No error extracted from now-cancelled context.", kernel.ID(), err)
+					s.log.Error(
+						utils.RedStyle.Render("Context cancelled while waiting for new Docker replicas to register for kernel %s. "+
+							"No error extracted from now-cancelled context."), kernel.ID(), err)
 					err = types.ErrRequestTimedOut // Return generic error if we can't get one from the Context for some reason.
 				}
 
 				// If we received no responses, then no replicas were scheduled (apparently), so we can just return.
 				if len(responsesReceived) == 0 {
-					s.log.Error("Scheduling of kernel %s has failed after %v. Failed to schedule any of the %d replicas.",
+					s.log.Error(
+						utils.RedStyle.Render("Scheduling of kernel %s has failed after %v. Failed to schedule any of the %d replicas."),
 						kernel.ID(), time.Since(st), responsesRequired)
 
 					return status.Error(codes.Internal, (&scheduling.ErrorDuringScheduling{
@@ -615,20 +623,23 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 		case notification := <-resultChan:
 			{
 				if !notification.Successful {
-					s.log.Error("Error while launching at least one of the replicas of kernel %s: %v",
+					s.log.Warn(
+						utils.OrangeStyle.Render("Error while launching at least one of the replicas of kernel %s: %v"),
 						kernel.ID(), notification.Error)
 					return notification.Error
 				}
 
 				responsesReceived = append(responsesReceived, notification)
-				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s (ID=%s). %d/%d replicas scheduled. Time elapsed: %v.",
+				s.log.Debug(
+					utils.LightGreenStyle.Render("Successfully scheduled replica %d of kernel %s on host %s (ID=%s). %d/%d replicas scheduled. Time elapsed: %v."),
 					notification.ReplicaId, kernel.ID(), notification.Host.GetNodeName(), notification.Host.GetID(), len(responsesReceived),
 					responsesRequired, time.Since(st))
 			}
 		}
 	}
 
-	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
+	s.log.Debug(
+		utils.DarkGreenStyle.Render("Successfully scheduled all %d replica(s) of kernel %s in %v."),
 		s.schedulingPolicy.NumReplicas(), kernel.ID(), time.Since(st))
 
 	return nil
