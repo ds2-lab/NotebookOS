@@ -27,6 +27,8 @@ import (
 
 var (
 	CtxKernelHost = utils.ContextKey("host")
+
+	ErrNoReplicas = errors.New("kernel has no replicas")
 )
 
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
