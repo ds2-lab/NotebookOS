@@ -2060,18 +2060,31 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	prewarmedContainerId := in.PrewarmedContainerId
 	kernelReplicaSpec := in.KernelReplicaSpec
 
-	d.log.Debug("PromotePrewarmedContainer[ID=%s, For=Replica %d of Kernel %s]",
+	d.log.Debug(
+		utils.LightBlueStyle.Render(
+			"↪ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s]"),
 		prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 	if kernelReplicaSpec.Kernel == nil {
 		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
 		d.log.Error("kernelReplicaSpec: %v", in)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, ErrNilArgument
 	}
 
 	prewarmedKernelClient, loaded := d.prewarmKernels.Load(prewarmedContainerId)
 	if !loaded {
 		d.log.Error("Unknown pre-warmed container specified: \"%s\"", prewarmedContainerId)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.InvalidArgument,
 			fmt.Sprintf("unknown pre-warmed container \"%s\"", prewarmedContainerId))
@@ -2081,6 +2094,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	if kernelInvoker == nil {
 		errorMessage := fmt.Sprintf("prewarmed container \"%s\" has nil invoker", prewarmedContainerId)
 		d.log.Error(errorMessage)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, errorMessage)
 	}
@@ -2104,6 +2122,12 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		promoted := containerInvoker.PromotePrewarmedContainer()
 		if !promoted {
 			d.log.Error("Expected to promote container of KernelInvoker")
+
+			d.log.Error(
+				utils.RedStyle.Render(
+					"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 			return nil, status.Error(codes.Internal, "expected to promote container of KernelInvoker")
 		}
 	}
@@ -2112,6 +2136,12 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	err := prewarmedKernelClient.PromotePrewarmContainer(kernelReplicaSpec)
 	if err != nil && !errors.Is(err, entity.ErrInvalidContainer) /* It's fine if it doesn't have a container */ {
 		d.log.Error("Failed to promote prewarmed container (with respect to the KernelReplicaClient): %v", err)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
@@ -2120,6 +2150,12 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	if err != nil {
 		d.log.Error("Failed to allocate resources to new replica %d of kernel %s during prewarm promotion: %v",
 			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, err)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, err // Should already be compatible with gRPC
 	}
 
@@ -2134,6 +2170,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 			Panicked:         false,
 		})
 
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, status.Error(codes.Internal, "resources were not allocated for some unknown reason")
 	}
 
@@ -2146,6 +2187,12 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	hostname, err := os.Hostname()
 	if err != nil {
 		d.log.Error("[ERROR] DockerInvoker could not resolve hostname because: %v", err)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
@@ -2189,6 +2236,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		d.log.Error("Failed to encode content of \"%s\" request for pre-warmed container \"%s\": %v",
 			messaging.ControlPromotePrewarmRequest, prewarmedContainerId, err)
 
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
@@ -2197,6 +2249,12 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
 			kernelReplicaSpec.Kernel.Id, kernelReplicaSpec.Kernel.SignatureScheme, err)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
+
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
@@ -2226,6 +2284,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		d.log.Error("Promotion of prewarmed container \"%s\" failed: %v", prewarmedKernelClient, err)
 		d.log.Error("Failed to create replica %d of kernel \"%s\" using pre-warmed container \"%s\".",
 			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, prewarmedKernelClient)
+
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -2273,6 +2336,11 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	if d.prometheusManager != nil {
 		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()
 	}
+
+	d.log.Debug(
+		utils.LightGreenStyle.Render(
+			"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Success ✓"),
+		prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 	return info, nil
 }
@@ -2342,6 +2410,13 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	// Validate that argument is non-nil.
 	if in == nil {
 		d.log.Error("`kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
+
+		if in.PrewarmContainer {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
+		} else {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
+		}
+
 		return nil, status.Error(codes.InvalidArgument, "received nil KernelReplicaSpec argument")
 	}
 
@@ -2350,19 +2425,35 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
 		d.log.Error("kernelReplicaSpec: %v", in)
 
+		if in.PrewarmContainer {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
+		} else {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
+		}
+
 		return nil, status.Error(codes.InvalidArgument, "KernelSpec field within KernelReplicaSpec argument cannot be nil")
 	}
 
 	if in.PrewarmContainer {
 		d.log.Debug("LocalScheduler::StartKernelReplica called for prewarm container \"%s\"", in.Kernel.Id)
+		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[PrewarmID=%s]"), in.Kernel.Id)
 	} else {
-		d.log.Debug("LocalScheduler::StartKernelReplica(\"%s\"). Spec: %v.", in.Kernel.Id, in)
+		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[KernelId=%s, Spec=%v]"), in.Kernel.Id, in)
 	}
 
 	// Make sure we don't already have another replica of the same kernel running locally.
 	if otherReplica, loaded := d.kernels.Load(in.Kernel.Id); loaded {
 		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.",
 			in.Kernel.Id, otherReplica.ReplicaID())
+
+		if in.PrewarmContainer {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id)
+		} else {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id, in)
+		}
+
 		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
 	}
 
@@ -2371,6 +2462,14 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	if err != nil {
 		d.log.Error("Failed to allocate resources to new replica %d of kernel %s: %v",
 			in.ReplicaId, in.Kernel.Id, err)
+
+		if in.PrewarmContainer {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id)
+		} else {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id, in)
+		}
 
 		return nil, err // Should already be compatible with gRPC
 	}
@@ -2382,9 +2481,13 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		if in.PrewarmContainer {
 			d.log.Error("Failed to prepare Kernel Invoker for new prewarm container %s: %v",
 				in.Kernel.Id, err)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id)
 		} else {
 			d.log.Error("Failed to prepare Kernel Invoker for new replica %d of kernel %s: %v",
 				in.ReplicaId, in.Kernel.Id, err)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id, in)
 		}
 
 		return nil, err // Should already be compatible with gRPC.
@@ -2414,11 +2517,42 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			NotificationType: 0,
 			Panicked:         false,
 		})
+
+		if in.PrewarmContainer {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id)
+		} else {
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
+				in.Kernel.Id, in)
+		}
+
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
 	// Finish creating the kernel client.
-	return d.createNewKernelClient(in, kernelInvoker, connInfo, kernelClientCreationChannel)
+	info, err := d.createNewKernelClient(in, kernelInvoker, connInfo, kernelClientCreationChannel)
+
+	if err == nil {
+		if in.PrewarmContainer {
+			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Success ✓"),
+				in.Kernel.Id)
+		} else {
+			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Success ✓"),
+				in.Kernel.Id, in)
+		}
+
+		return info, nil
+	}
+
+	if in.PrewarmContainer {
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
+			in.Kernel.Id)
+	} else {
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
+			in.Kernel.Id, in)
+	}
+
+	return nil, err
 }
 
 // allocateResourcesForNewReplica allocates resources to the new kernel replica in accordance with the
@@ -2465,6 +2599,9 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
+	d.log.Debug("Creating new KernelReplicaClient for kernel \"%s\" [Prewarm=%v]",
+		in.Kernel.Id, in.PrewarmContainer)
+
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
 		types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
@@ -2501,6 +2638,9 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 		}
 	}
 
+	d.log.Debug("Successfully created new KernelReplicaClient for kernel \"%s\" [Prewarm=%v]",
+		in.Kernel.Id, in.PrewarmContainer)
+
 	return info, nil
 }
 
@@ -2509,7 +2649,7 @@ func (d *LocalScheduler) GetKernelStatus(_ context.Context, in *proto.KernelId) 
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Warn("kernel %s not found on query status", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	kernelStatus, err := d.getInvoker(kernel).Status()
@@ -2523,7 +2663,7 @@ func (d *LocalScheduler) KillKernel(_ context.Context, in *proto.KernelId) (*pro
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	if err := d.errorf(d.getInvoker(kernel).Close()); err != nil {
@@ -2550,7 +2690,7 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	d.log.Debug("Stopping replica %d of kernel %s now.", kernel.ReplicaID(), in.Id)
@@ -2634,7 +2774,7 @@ func (d *LocalScheduler) WaitKernel(_ context.Context, in *proto.KernelId) (*pro
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	kernelStatus, err := d.getInvoker(kernel).Wait()
@@ -2713,7 +2853,7 @@ func (d *LocalScheduler) ControlHandler(_ router.Info, msg *messaging.JupyterMes
 	kernel, ok := d.kernels.Load(msg.JupyterSession())
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", msg.JupyterSession())
-		return domain.ErrKernelNotFound
+		return types.ErrKernelNotFound
 	}
 
 	connInfo := kernel.ConnectionInfo()
@@ -2772,7 +2912,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 		kernel, ok = d.kernels.Load(msg.DestinationId)
 		if !ok {
 			d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
-			return domain.ErrKernelNotFound
+			return types.ErrKernelNotFound
 		}
 
 		d.log.Debug("Binding %v with session %s ", kernel, session)
@@ -2781,7 +2921,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	}
 	if kernel == nil {
 		d.log.Error("Could not find kernel with ID \"%s\"", session)
-		return domain.ErrKernelNotFound
+		return types.ErrKernelNotFound
 	}
 
 	connInfo := kernel.ConnectionInfo()
@@ -3377,7 +3517,7 @@ func (d *LocalScheduler) kernelFromMsg(msg *messaging.JupyterMessage) (kernel sc
 	kernel, ok := d.kernels.Load(msg.DestinationId)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	if kernel.Status() != jupyter.KernelStatusRunning {

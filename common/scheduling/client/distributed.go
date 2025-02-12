@@ -27,6 +27,8 @@ import (
 
 var (
 	CtxKernelHost = utils.ContextKey("host")
+
+	ErrNoReplicas = errors.New("kernel has no replicas")
 )
 
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
@@ -1170,9 +1172,20 @@ func (c *DistributedKernelClient) DebugMode() bool {
 }
 
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
+func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType,
+	jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
+
+	kernelSize := c.Size()
+	if kernelSize == 0 {
+		c.log.Error("Cannot forward %s '%s' message \"%s\" to replica(s)... I have no replicas!",
+			typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
+
+		return fmt.Errorf("%w: cannot forward %v \"%s\" message \"%s\"",
+			ErrNoReplicas, typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
+	}
+
 	// Broadcast to all replicas if no replicas are specified.
-	replicas := make([]scheduling.KernelReplica, c.Size())
+	replicas := make([]scheduling.KernelReplica, kernelSize)
 	for _, replica := range c.replicas {
 		replicas = append(replicas, replica)
 	}
@@ -1186,7 +1199,7 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 	//
 	// It would be bad if the replicas concurrently modified the same jupyter message, so we clone it and send
 	// each replica its own unique copy.
-	jupyterMessages := make([]*messaging.JupyterMessage, 0, len(c.replicas))
+	jupyterMessages := make([]*messaging.JupyterMessage, 0, kernelSize)
 	for range replicas {
 		var jupyterMessage *messaging.JupyterMessage
 		if c.debugMode {
@@ -1645,28 +1658,99 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 	}
 
 	// Stop the replicas first.
-	var stopped sync.WaitGroup
-	stopped.Add(len(c.replicas))
+	numReplicas := len(c.replicas)
+
+	// shutdownNotification is used to notify that a replica shutdown has either failed or succeeded.
+	type shutdownNotification struct {
+		Error         error
+		KernelReplica scheduling.KernelReplica
+		ReplicaId     int32
+		Host          scheduling.Host
+	}
+
+	notifyChan := make(chan *shutdownNotification, numReplicas)
+	startTime := time.Now()
 
 	// In RLock, don't change anything in c.replicas.
-	for _, replica := range c.replicas {
+	for id, replica := range c.replicas {
 		if replica == nil {
+			c.log.Warn("Replica %d is nil", id)
 			continue
 		}
 
 		go func(replica scheduling.KernelReplica) {
-			defer stopped.Done()
+			// Get the current host of the replica so we can send it on the shutdownNotification
+			// if the stopReplicaLocked call returns nil for the replica's host
+			currHost := replica.Host()
 
-			if host, err := c.stopReplicaLocked(replica, remover, false); err != nil {
+			host, err := c.stopReplicaLocked(replica, remover, false)
+			if err != nil {
 				c.log.Warn("Failed to stop %v on host %v: %v", replica, host, err)
-				return
 			} else {
 				c.log.Debug("Successfully stopped replica %v on host %s.", replica, host)
+			}
+
+			// Assign host to currHost so that we can assign a non-nil host in the shutdownNotification
+			if host == nil {
+				host = currHost
+			}
+
+			notifyChan <- &shutdownNotification{
+				Error:         err,
+				Host:          host,
+				KernelReplica: replica,
+				ReplicaId:     replica.ReplicaID(),
 			}
 		}(replica)
 	}
 	c.replicasMutex.RUnlock()
-	stopped.Wait()
+
+	numReplicasShutdown := 0
+
+	// Wait up to 6 minutes for the shutdown operation to complete.
+	timeoutInterval := time.Minute * 6
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	defer cancel()
+
+	// Wait until all replicas have stopped, or until the context times out.
+	for numReplicasShutdown < numReplicas {
+		select {
+		case <-ctx.Done():
+			{
+				// We timed out. Boo.
+				c.log.Error("Timed-out while attempting to stop %d kernel replica(s). Timed elapsed: %v.",
+					numReplicas, time.Since(startTime))
+
+				return fmt.Errorf("%w: replicas did not shutdown within timeout interval of %v",
+					types.ErrRequestTimedOut, timeoutInterval)
+			}
+		case notification := <-notifyChan:
+			{
+				hostName := "N/A"
+				hostId := "N/A"
+
+				// We do this in case the Host field is nil for whatever reason.
+				if notification.Host != nil {
+					hostId = notification.Host.GetID()
+					hostName = notification.Host.GetNodeName()
+				}
+
+				// If there was an error, then we'll log an error message and return the error.
+				if notification.Error != nil {
+					c.log.Error("Failed to shutdown replica %d on host %s (ID=%s). Time elapsed: %v.",
+						notification.ReplicaId, hostName, hostId, time.Since(startTime))
+
+					return notification.Error
+				}
+
+				// Success! Increment the counter and log a message.
+				numReplicasShutdown += 1
+				c.log.Debug(utils.LightGreenStyle.Render("Successfully terminated replica %d on host %s (ID=%s). "+
+					"Shut down %d/%d replicas so far. Time elapsed: %v."),
+					notification.ReplicaId, hostName, hostId, numReplicasShutdown, numReplicas, time.Since(startTime))
+			}
+		}
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

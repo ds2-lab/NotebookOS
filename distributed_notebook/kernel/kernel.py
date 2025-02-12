@@ -1255,14 +1255,14 @@ class DistributedKernel(IPythonKernel):
         """
         if f.done():
             self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
-            return
 
         if f.cancelled():
-            self.log.error("Initialization of Persistent Store on-start has been cancelled...")
+            self.log.error("Initialization of Persistent Store on-start was apparently cancelled...")
 
         try:
+            ex = f.exception()
             self.log.error(f"Initialization of Persistent Store apparently "
-                           f"raised an exception: {f.exception()}")
+                           f"raised an exception: {ex}")
         except:  # noqa
             self.log.error("No exception associated with cancelled initialization of Persistent Store.")
 
@@ -1301,10 +1301,18 @@ class DistributedKernel(IPythonKernel):
         # Create future to avoid duplicate initialization
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
-        self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
-        self.log.info(f"Persistent store confirmed on start: {self.store}")
 
-        faulthandler.dump_traceback(file=sys.stderr)
+        try:
+            self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
+            self.log.info(f"Persistent store confirmed on start: {self.store}")
+            return True
+        except Exception as ex:
+            self.log.error(f'Failed to initialize persistent store with ID "{persistent_id}" because: {ex}')
+            self.log.error(traceback.format_exc())
+
+            return False
+        finally:
+            faulthandler.dump_traceback(file=sys.stderr)
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""
@@ -1694,9 +1702,7 @@ class DistributedKernel(IPythonKernel):
 
             self.log.info('Persistent ID set: "%s"' % self.persistent_id)
             # Initialize persistent store
-            self.store = await self.init_persistent_store_with_persistent_id(
-                self.persistent_id
-            )
+            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
             # Resolve future
             rsp = self.gen_simple_response()
@@ -1740,23 +1746,35 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Overrode shell hooks.")
 
-        # Get synclog for synchronization.
-        sync_log: SyncLog = await self.get_synclog(self.store_path)
+        try:
+            # Get synclog for synchronization.
+            sync_log: SyncLog = await self.get_synclog(self.store_path)
+        except Exception as ex:
+            self.log.error("Creation of SyncLog failed: %s" % str(ex))
+            self.log.error(traceback.format_exc())
+            # re-raise
+            raise ex
 
         self.init_raft_log_event.set()
 
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
-        self.synchronizer = Synchronizer(
-            sync_log,
-            store_path=self.store_path,
-            module=self.shell.user_module,
-            opts=CHECKPOINT_AUTO,
-            num_replicas=self.num_replicas,
-            node_id=self.smr_node_id,
-            large_object_pointer_committed=self.large_object_pointer_committed,
-            remote_checkpointer=self._remote_checkpointer,
-        )  # type: ignore
+        try:
+            self.synchronizer = Synchronizer(
+                sync_log,
+                store_path=self.store_path,
+                module=self.shell.user_module,
+                opts=CHECKPOINT_AUTO,
+                num_replicas=self.num_replicas,
+                node_id=self.smr_node_id,
+                large_object_pointer_committed=self.large_object_pointer_committed,
+                remote_checkpointer=self._remote_checkpointer,
+            )  # type: ignore
+        except Exception as ex:
+            self.log.error("Creation of Synchronizer failed: %s" % str(ex))
+            self.log.error(traceback.format_exc())
+            # re-raise
+            raise ex
 
         if isinstance(sync_log, RaftLog):
             sync_log.set_fast_forward_executions_handler(
@@ -1830,6 +1848,8 @@ class DistributedKernel(IPythonKernel):
                 "Calling `notify_all` on the Persistent Store condition variable."
             )
             self.persistent_store_cv.notify_all()
+
+        self.log.info(f'Successfully initialized persistent store with ID "{persistent_id}".')
 
         return self.store_path
 
@@ -2384,11 +2404,15 @@ class DistributedKernel(IPythonKernel):
         # Step 1: stop the sync log
         intermediate_resp, ok = await self.__close_synclog()
         if not ok:
+            self.log.error(f"Failed to close SyncLog while reverting to PREWARM. "
+                           f"Intermediate response: {intermediate_resp}")
             return intermediate_resp, False
 
         # Step 2: copy the data directory to RemoteStorage
         intermediate_resp, ok = await self.__write_synclog_data_dir_to_remote_storage()
         if not ok:
+            self.log.error(f"Failed to write SyncLog data directory to remote storage while reverting to PREWARM. "
+                           f"Intermediate response: {intermediate_resp}")
             await self.__close_synclog_remote_storage_client()
             return intermediate_resp, False
 
@@ -2502,20 +2526,13 @@ class DistributedKernel(IPythonKernel):
         if self.prometheus_enabled:
             self.registration_time_milliseconds.observe(registration_duration)
 
-        # Call start now that we're no longer a prewarm container.
-        self.init_persistent_store_on_start_future: futures.Future = (
-            asyncio.run_coroutine_threadsafe(
-                self.init_persistent_store_on_start(self.persistent_id),
-                self.control_thread.io_loop.asyncio_loop,
-            )
-        )
-        self.init_persistent_store_on_start_future.add_done_callback(
-            self.persistent_store_initialized_callback
-        )
+        self.log.info(f'Initializing Persistent Store with new Persistent ID: "{self.persistent_id}"')
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        # Create future to avoid duplicate initialization
+        self.store = asyncio.Future(loop=asyncio.get_running_loop())
+        self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "promote_prewarm_reply",
@@ -4060,6 +4077,12 @@ class DistributedKernel(IPythonKernel):
         """
         Write the data directory of the SyncLog to remote remote_storage.
         """
+
+        # Verify that the SyncLog is not None before we continue.
+        if self.synclog is None:
+            self.log.warning("SyncLog is None. Cannot write data directory to remote storage.")
+            return { "status": "ok", "id": self.smr_node_id, "kernel_id": self.kernel_id }, True
+
         try:
             write_start: float = time.time()
 
@@ -5122,7 +5145,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog = RaftLog(
+                self.synclog: Optional[SyncLog] = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -5169,6 +5192,8 @@ class DistributedKernel(IPythonKernel):
                        "remote_storage_read_latency_milliseconds") and self.remote_storage_read_latency_milliseconds is not None:
                 remote_storage_read_latency_milliseconds = self.remote_storage_read_latency_milliseconds
 
+            self.log.debug(f'Creating remote storage provider: "{self.remote_storage.lower()}"')
+
             if self.remote_storage.lower() == "redis":
                 remote_storage_provider: RedisProvider = RedisProvider(
                     host=self.remote_storage_hostname,
@@ -5182,10 +5207,14 @@ class DistributedKernel(IPythonKernel):
                     aws_region=self.aws_region,
                 )
             else:
+                self.log.error(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
                 raise ValueError(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
 
-            assert remote_storage_provider is not None
-            self.synclog = RemoteStorageLog(
+            if remote_storage_provider is None:
+                self.log.error("Remote storage provider should not be None at this point.")
+                raise ValueError("Remote storage provider is None, but it should have been created by now.")
+
+            self.synclog: Optional[SyncLog] = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,
@@ -5195,7 +5224,10 @@ class DistributedKernel(IPythonKernel):
                 remote_storage_write_latency_milliseconds=remote_storage_read_latency_milliseconds,
             )
 
-        assert self.synclog is not None
+        if self.synclog is None:
+            self.log.error("SyncLog should not be None at this point.")
+            raise ValueError("SyncLog is still None, even though it should have been created by now.")
+
         self.log.debug("Successfully created SyncLog.")
 
         return self.synclog

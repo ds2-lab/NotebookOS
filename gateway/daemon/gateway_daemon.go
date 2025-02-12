@@ -622,11 +622,26 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// It's possible one of the config functions already set this, so check that it is nil first.
 	if clusterGateway.hostSpec == nil {
+		vram := clusterDaemonOptions.VramGbPerHost
+		if vram <= 0 {
+			vram = scheduling.DefaultVramPerHostGb
+		}
+
+		millicpus := clusterDaemonOptions.MillicpusPerHost
+		if millicpus <= 0 {
+			millicpus = scheduling.DefaultMillicpusPerHost
+		}
+
+		memoryMb := clusterDaemonOptions.MemoryMbPerHost
+		if memoryMb <= 0 {
+			memoryMb = scheduling.DefaultMemoryMbPerHost
+		}
+
 		clusterGateway.hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-			VRam:      decimal.NewFromFloat(scheduling.DefaultVramPerHostGb),
-			Millicpus: decimal.NewFromFloat(scheduling.DefaultMillicpusPerHost),
-			MemoryMb:  decimal.NewFromFloat(scheduling.DefaultMemoryMbPerHost),
+			VRam:      decimal.NewFromFloat(vram),
+			Millicpus: decimal.NewFromFloat(float64(millicpus)),
+			MemoryMb:  decimal.NewFromFloat(memoryMb),
 		}
 	}
 
@@ -1790,7 +1805,10 @@ func (d *ClusterGatewayImpl) NotificationCallback(notificationName string, notif
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          notificationMessage,
@@ -1798,9 +1816,13 @@ func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificati
 		})
 
 		if err != nil {
-			d.log.Error("Failed to send notification to internalCluster Dashboard because: %s", err.Error())
+			d.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+			d.log.Error("Notification name: %s", notificationName)
+			d.log.Error("Notification message: %s", notificationMessage)
+			d.log.Error("Notification type: %s", typ.String())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to internalCluster Dashboard.", notificationName, typ)
+			d.log.Debug("Successfully sent \"%s\" (typ=%s (%d)) notification to internalCluster Dashboard.",
+				notificationName, typ.String(), typ.Int32())
 		}
 	}
 }
@@ -1824,7 +1846,10 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 // Used to issue an "info" notification to the internalCluster Dashboard.
 func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          message,
@@ -1843,7 +1868,10 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            errorName,
 			Message:          errorMessage,
@@ -1862,7 +1890,10 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warningMessage string) {
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            warningName,
 			Message:          warningMessage,
@@ -1983,7 +2014,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		// If we started a new attempt, then we'll break out of the loop and orchestrate the creation of
 		// the containers for the replicas of the target kernel.
 		if startedScheduling {
-			d.log.Debug("Started attempt to schedule %d replica container(s) for kernel \"%s\".",
+			d.log.Debug(utils.LightBlueStyle.Render("Started attempt to schedule %d replica container(s) for kernel \"%s\"."),
 				d.NumReplicas(), kernel.ID())
 			break
 		}
@@ -2001,7 +2032,9 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 			}
 
 			// This would be truly bizarre, but if this occurs, then we'll just sleep briefly and then try again...
-			d.log.Error("We were lead to believe that kernel %s's replicas were scheduled, but they're not...", kernel.ID())
+			d.log.Error("We were lead to believe that kernel %s's replicas were scheduled, but they're not...",
+				kernel.ID())
+
 			time.Sleep(time.Millisecond * (5 + time.Duration(rand.Intn(25))))
 			continue
 		}
@@ -2066,19 +2099,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, kernel, []scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
-		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
-
-		// Clean up everything since we failed to create the kernel.
-		d.kernelIdToKernel.Delete(in.Id)
-		d.kernelsStarting.Delete(in.Id)
-		d.kernels.Delete(in.Id)
-		d.kernelSpecs.Delete(in.Id)
-		d.waitGroups.Delete(in.Id)
-
-		closeKernelError := kernel.Close()
-		if closeKernelError != nil {
-			d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
-		}
+		d.log.Warn("Failed to deploy kernel replica(s) for kernel \"%s\" because: %v", kernel.ID(), err)
 
 		// Only notify if there's an "actual" error.
 		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &scheduling.InsufficientResourcesError{}) {
@@ -2087,12 +2108,6 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 		// Record that the container creation attempt has completed with an error (i.e., it failed).
 		attempt.SetDone(err)
-
-		// The error should already be compatible with gRPC. But just in case it isn't...
-		_, ok := status.FromError(err)
-		if !ok {
-			err = status.Error(codes.Internal, err.Error())
-		}
 
 		return err
 	}
@@ -2123,7 +2138,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
-	// Map all the sessions (probably just one?) to the kernel client.
+	// Map all the sessions to the kernel client.
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
 		d.kernels.Store(sess, kernel)
@@ -2276,7 +2291,25 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 			// If we received an error, then we already know that the operation failed (and we know why -- it is
 			// whatever the error is/says), so we can just return the error.
 			if err, ok := v.(error); ok {
-				d.log.Error("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+				d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+
+				// Clean up everything since we failed to create the long-running kernel.
+				d.kernelIdToKernel.Delete(in.Id)
+				d.kernelsStarting.Delete(in.Id)
+				d.kernels.Delete(in.Id)
+				d.kernelSpecs.Delete(in.Id)
+				d.waitGroups.Delete(in.Id)
+
+				closeKernelError := kernel.Close()
+				if closeKernelError != nil {
+					d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
+				}
+
+				// The error should already be compatible with gRPC. But just in case it isn't...
+				_, ok = status.FromError(err)
+				if !ok {
+					err = status.Error(codes.Internal, err.Error())
+				}
 
 				return err
 			}
@@ -2367,6 +2400,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.kernelIdToKernel.Store(in.Id, kernel)
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
+
+	// Make sure to associate the Jupyter Session with the kernel.
+	kernel.BindSession(in.Session)
+	d.kernels.Store(in.Session, kernel)
 
 	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Will wait to schedule container(s) for kernel %s until we receive an 'execute_request'.", in.Id)
@@ -2842,7 +2879,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		nodeName = host.GetID()
 	}
 
-	d.log.Debug("Creating new kernel Client for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
+	d.log.Debug("Creating new KernelReplicaClient for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
@@ -3206,7 +3243,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 	if in.Restart != nil {
 		restart = *in.Restart
 	}
-	d.log.Info("Stopping %v, will restart %v", kernel, restart)
+	d.log.Info("Stopping %v, restart=%v", kernel, restart)
 	ret = proto.VOID
 
 	var wg sync.WaitGroup
@@ -3694,7 +3731,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 
 	session, ok := d.cluster.GetSession(kernel.ID())
 	if !ok || session == nil {
-		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", sessionId, kernel.ID())
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", kernel.ID(), kernel.ID())
 		d.log.Error(errorMessage)
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
 	} else {
@@ -4006,7 +4043,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 		{
 			// If we received an error over the channel, then we'll log an error message and return the error.
 			if err, ok := v.(error); ok {
-				d.log.Error("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
+				d.log.Warn("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
 					kernel.ID(), msg.JupyterMessageType(), err)
 				return nil, false, err
 			} else {
@@ -4268,7 +4305,7 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
 	_, replicasAlreadyScheduled, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
 	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+		d.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), jMsg.JupyterMessageType(), err)
 
 		// We'll send an error message to the associated client here.
@@ -4880,7 +4917,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 
 	resp, _, err := d.ensureKernelReplicasAreScheduled(kernel, msg, typ)
 	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+		d.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), msg.JupyterMessageType(), err)
 		_ = d.sendErrorResponse(kernel, msg, err, messaging.ShellMessage)
 		return
@@ -4945,7 +4982,7 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 			style = utils.OrangeStyle
 		}
 
-		d.log.Warn(style.Render("Forwarding %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
+		d.log.Warn(style.Render("Sending %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
 			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, sendDuration)
 	}
 
@@ -5101,14 +5138,14 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		}
 	}
 
-	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s via %s: %v"),
-		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg)
+	d.log.Debug(utils.LightBlueStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel \"%s\" via %s:\n%v"),
+		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg.StringFormatted())
 
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
 	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
-		d.cleanUpBeforeForwardingExecuteReply(from)
+		d.cleanUpBeforeForwardingExecuteReply(from, msg)
 	}
 
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
@@ -5128,9 +5165,17 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 //
 // For example, scheduling.Policy instances in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent
 // will either terminate the scheduling.KernelContainer instance(s) or return them to the warm container pool.
-func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info) {
+func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info, execReplyMsg *messaging.JupyterMessage) {
 	// If the scheduling policy isn't a single-training-event policy, then we can just return immediately.
 	if d.Scheduler().Policy().ContainerLifetime() != scheduling.SingleTrainingEvent {
+		return
+	}
+
+	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
+	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
+	// the execution failed.
+	kernel, ok := d.kernels.Load(from.ID())
+	if ok && kernel != nil && kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
 		return
 	}
 
