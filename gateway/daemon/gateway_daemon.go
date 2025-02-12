@@ -2120,7 +2120,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
-	// Map all the sessions (probably just one?) to the kernel client.
+	// Map all the sessions to the kernel client.
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
 		d.kernels.Store(sess, kernel)
@@ -2382,6 +2382,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.kernelIdToKernel.Store(in.Id, kernel)
 	d.kernels.Store(in.Id, kernel)
 	d.kernelSpecs.Store(in.Id, in)
+
+	// Make sure to associate the Jupyter Session with the kernel.
+	kernel.BindSession(in.Session)
+	d.kernels.Store(in.Session, kernel)
 
 	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Will wait to schedule container(s) for kernel %s until we receive an 'execute_request'.", in.Id)
@@ -2857,7 +2861,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		nodeName = host.GetID()
 	}
 
-	d.log.Debug("Creating new kernel Client for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
+	d.log.Debug("Creating new KernelReplicaClient for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
