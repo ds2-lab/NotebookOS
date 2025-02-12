@@ -18,8 +18,8 @@ starting-resource-port: 9007
 debug_port: 9996
 num-resource-ports: 4096
 provisioner: "gateway:8081"
-remote-remote_storage: redis
-remote-remote_storage-endpoint: redis:6379
+remote-storage: redis
+remote-storage-endpoint: redis:6379
 debug: true
 direct: false
 num-replicas: 3

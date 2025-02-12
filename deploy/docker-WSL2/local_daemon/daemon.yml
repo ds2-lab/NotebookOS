@@ -9,8 +9,8 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-#remote-remote_storage-endpoint: host.docker.internal:10000
-#remote-remote_storage: hdfs
+#remote-storage-endpoint: host.docker.internal:10000
+#remote-storage: hdfs
 remote-storage: redis
 remote-storage-endpoint: redis:6379
 debug: true
