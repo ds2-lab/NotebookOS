@@ -35,8 +35,8 @@ def test_upload_and_download_string(redis_client, async_redis_client):
     success: bool = redis_provider.write_value(obj_name, data)
     assert success
 
-    data: str | bytes = redis_provider.read_value(obj_name)
-    print("Read data:", data.decode("utf-8"))
+    data_from_redis: str | bytes = redis_provider.read_value(obj_name)
+    assert data_from_redis == data
 
     success = redis_provider.delete_value(obj_name)
     assert success
@@ -45,4 +45,28 @@ def test_upload_and_download_string(redis_client, async_redis_client):
 
     assert redis_provider.num_objects_read == 1
     assert redis_provider.num_objects_written == 1
+    assert redis_provider.num_objects_deleted == 1
+
+def test_write_large_data(redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client = redis_client,
+        async_redis_client = async_redis_client,
+    )
+
+    data: bytes = b'0' * 512 * 1024 * 1024
+    obj_name: str = "large_data"
+
+    success: bool = redis_provider.write_value(obj_name, data)
+    assert success
+
+    data_from_redis: str | bytes = redis_provider.read_value(obj_name)
+    assert data_from_redis == data
+
+    success = redis_provider.delete_value(obj_name)
+    assert success
+
+    assert data is not None
+
+    assert redis_provider.num_objects_read == 1
+    assert redis_provider.num_objects_written == 4
     assert redis_provider.num_objects_deleted == 1

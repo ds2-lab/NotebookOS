@@ -162,6 +162,23 @@ class RedisProvider(RemoteStorageProvider):
         self._lifetime_write_time += time_elapsed_ms
         self._lifetime_bytes_written += size_bytes
 
+    def __update_read_stats(self, time_elapsed_ms: float, size_bytes: int, num_values_read: int = 1):
+        """
+        Updates the write-related metrics of the RedisProvider.
+
+        :param time_elapsed_ms: the time taken by the write operation.
+        :param size_bytes: the size, in bytes, of the data written to Redis.
+        :param num_values_read: the number of objects written. This will usually be 1, but if a large object is
+        chunked, then this should be the number of individual chunks.
+        """
+        self._read_time += time_elapsed_ms
+        self._num_objects_read += 1
+        self._bytes_read += size_bytes
+
+        self._lifetime_read_time += time_elapsed_ms
+        self._lifetime_num_objects_read += 1
+        self._lifetime_bytes_read += size_bytes
+
     async def __chunk_data_async(self, key: str, value: bytes, size_bytes: int = -1, size_mb: float = -1)->bool:
         """
         Split the given buffer into smaller pieces so that it can be written to remote storage.
@@ -193,6 +210,7 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
+        # Update internal metrics.
         self.__update_write_stats(
             time_elapsed_ms=time_elapsed,
             size_bytes=size_bytes,
@@ -235,6 +253,7 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
+        # Update internal metrics.
         self.__update_write_stats(
             time_elapsed_ms=time_elapsed,
             size_bytes=size_bytes,
@@ -273,6 +292,7 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
+        # Update internal metrics.
         self.__update_write_stats(
             time_elapsed_ms=time_elapsed,
             size_bytes=size_bytes
@@ -310,6 +330,7 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
+        # Update internal metrics.
         self.__update_write_stats(
             time_elapsed_ms=time_elapsed,
             size_bytes=size_bytes
@@ -332,13 +353,17 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         # Get the type of the data.
-        value_type: str = await self._async_redis.type(key)
+        value_type: str|bytes = await self._async_redis.type(key)
+
+        if isinstance(value_type, bytes):
+            value_type = value_type.decode()
 
         if value_type != "string" and value_type != "list":
             raise ValueError(f'Value stored in Redis at key "{key}" has '
                              f'unexpected type: "{value_type}". '
                              f'Expected "string" or "list".')
 
+        num_values_read: int = 1
         if value_type == "list":
             # Read the entire list.
             values: Optional[List[str|bytes|memoryview]] = await self._async_redis.lrange(key, 0, -1)
@@ -347,6 +372,8 @@ class RedisProvider(RemoteStorageProvider):
 
             self.log.debug(f'Read {len(values)} value(s) from list stored in '
                            f'Redis at key "{key}" in {round((time.time() - start_time) * 1.0e3):,} ms.')
+
+            num_values_read = len(values)
 
             # Concatenate all the items in the list together.
             value: str|bytes|memoryview = b''.join(values)
@@ -361,13 +388,12 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
         value_size = sys.getsizeof(value)
 
-        self._read_time += time_elapsed
-        self._num_objects_read += 1
-        self._bytes_read += value_size
-
-        self._lifetime_read_time += time_elapsed
-        self._lifetime_num_objects_read += 1
-        self._lifetime_bytes_read += value_size
+        # Update internal metrics.
+        self.__update_read_stats(
+            time_elapsed_ms=time_elapsed,
+            size_bytes=value_size,
+            num_values_read=num_values_read
+        )
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
 
@@ -385,12 +411,17 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         # Get the type of the data.
-        value_type: str = self._redis.type(key)
+        value_type: str|bytes = self._redis.type(key)
+
+        if isinstance(value_type, bytes):
+            value_type = value_type.decode()
 
         if value_type != "string" and value_type != "list":
             raise ValueError(f'Value stored in Redis at key "{key}" has '
                              f'unexpected type: "{value_type}". '
                              f'Expected "string" or "list".')
+
+        num_values_read: int = 1
 
         if value_type == "list":
             # Read the entire list.
@@ -400,6 +431,8 @@ class RedisProvider(RemoteStorageProvider):
 
             self.log.debug(f'Read {len(values)} value(s) from list stored in '
                            f'Redis at key "{key}" in {round((time.time() - start_time) * 1.0e3):,} ms.')
+
+            num_values_read = len(values)
 
             # Concatenate all the items in the list together.
             value: str|bytes|memoryview = b''.join(values)
@@ -417,13 +450,12 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
         value_size = sys.getsizeof(value)
 
-        self._read_time += time_elapsed
-        self._num_objects_read += 1
-        self._bytes_read += value_size
-
-        self._lifetime_read_time += time_elapsed
-        self._lifetime_num_objects_read += 1
-        self._lifetime_bytes_read += value_size
+        # Update internal metrics.
+        self.__update_read_stats(
+            time_elapsed_ms=time_elapsed,
+            size_bytes=value_size,
+            num_values_read=num_values_read
+        )
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
 
