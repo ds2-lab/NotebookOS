@@ -5127,7 +5127,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
 	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
-		d.cleanUpBeforeForwardingExecuteReply(from)
+		d.cleanUpBeforeForwardingExecuteReply(from, msg)
 	}
 
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
