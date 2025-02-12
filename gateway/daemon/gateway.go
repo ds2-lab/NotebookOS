@@ -128,21 +128,17 @@ func (g *Gateway) ForwardResponse(from router.Info, typ messaging.MessageType, m
 			"Forward Response [SocketType='%v', MsgType=\"%s\", MsgId=\"%s\", KernelId=\"%s\"]"),
 		typ, msg.JupyterMessageType(), msg.JupyterMessageId(), from.ID())
 
-	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
-	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
-	// event, then let's stop the kernel container(s).
-	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
-		d.cleanUpBeforeForwardingExecuteReply(from, msg)
-	}
+	panic("Implement me!")
+	//sendError := g.sendZmqMessage(msg, socket, from.ID())
 
-	sendError := d.sendZmqMessage(msg, socket, from.ID())
-	if sendError == nil {
-		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
-		d.clusterStatisticsMutex.Unlock()
-	}
+	// TODO: Implement this.
+	//if sendError == nil {
+	//	g.clusterStatisticsMutex.Lock()
+	//	g.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
+	//	g.clusterStatisticsMutex.Unlock()
+	//}
 
-	return sendError
+	//return sendError
 }
 
 // updateRequestLog updates the RequestLog contained within the given messaging.JupyterMessage's buffers/metadata.
@@ -169,7 +165,7 @@ func (g *Gateway) updateRequestLog(msg *messaging.JupyterMessage, typ messaging.
 	// Extract the data from the RequestTrace.
 	if typ == messaging.ShellMessage {
 		panic("TODO: Implement ClusterGatewayImpl::updateStatisticsFromShellExecuteReply")
-		// d.updateStatisticsFromShellExecuteReply(requestTrace)
+		// g.updateStatisticsFromShellExecuteReply(requestTrace)
 	}
 
 	return nil
