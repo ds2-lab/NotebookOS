@@ -640,7 +640,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
 			VRam:      decimal.NewFromFloat(vram),
-			Millicpus: decimal.NewFromFloat(millicpus),
+			Millicpus: decimal.NewFromFloat(float64(millicpus)),
 			MemoryMb:  decimal.NewFromFloat(memoryMb),
 		}
 	}
