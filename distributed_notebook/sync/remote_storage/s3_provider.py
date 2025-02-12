@@ -117,13 +117,13 @@ class S3Provider(RemoteStorageProvider):
         self.log.debug(f'{value_size} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
                        f'in {round(time_elapsed, 3):,}ms.')
 
-        self._num_objects_written += 1
-        self._write_time += time_elapsed
-        self._bytes_written += value_size
+        # Update internal metrics.
+        self.update_write_stats(
+            time_elapsed_ms=time_elapsed,
+            size_bytes=value_size,
+            num_values=1
+        )
 
-        self._lifetime_num_objects_written += 1
-        self._lifetime_write_time += time_elapsed
-        self._lifetime_bytes_written += value_size
         return True
 
     def write_value(self, key: str, value: Any)->bool:
@@ -156,13 +156,13 @@ class S3Provider(RemoteStorageProvider):
         self.log.debug(f'{value_size} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
                        f'in {round(time_elapsed, 3):,}ms.')
 
-        self._num_objects_written += 1
-        self._write_time += time_elapsed
-        self._bytes_written += value_size
+        # Update internal metrics.
+        self.update_write_stats(
+            time_elapsed_ms=time_elapsed,
+            size_bytes=value_size,
+            num_values=1
+        )
 
-        self._lifetime_num_objects_written += 1
-        self._lifetime_write_time += time_elapsed
-        self._lifetime_bytes_written += value_size
         return True
 
     async def read_value_async(self, key: str)->Any:
@@ -193,13 +193,12 @@ class S3Provider(RemoteStorageProvider):
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
         value_size = buffer.getbuffer().nbytes
 
-        self._read_time += time_elapsed
-        self._num_objects_read += 1
-        self._bytes_read += value_size
-
-        self._lifetime_read_time += time_elapsed
-        self._lifetime_num_objects_read += 1
-        self._lifetime_bytes_read += value_size
+        # Update internal metrics.
+        self.update_read_stats(
+            time_elapsed_ms=time_elapsed,
+            size_bytes=value_size,
+            num_values=1
+        )
 
         self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
                        f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
@@ -233,13 +232,12 @@ class S3Provider(RemoteStorageProvider):
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
         value_size = buffer.getbuffer().nbytes
 
-        self._read_time += time_elapsed
-        self._num_objects_read += 1
-        self._bytes_read += value_size
-
-        self._lifetime_read_time += time_elapsed
-        self._lifetime_num_objects_read += 1
-        self._lifetime_bytes_read += value_size
+        # Update internal metrics.
+        self.update_read_stats(
+            time_elapsed_ms=time_elapsed,
+            size_bytes=value_size,
+            num_values=1
+        )
 
         self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
                        f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')

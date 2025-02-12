@@ -1,8 +1,6 @@
-from abc import ABC, abstractmethod
-
-from typing import Any
-
 import logging
+from abc import ABC, abstractmethod
+from typing import Any
 
 from distributed_notebook.logs import ColoredLogFormatter
 
@@ -15,6 +13,7 @@ class RemoteStorageProvider(ABC):
     For systems providing file-like IO APIs, the file names can be treated as the keys, while the file contents can
     be treated as the values.
     """
+
     def __init__(self):
         self.log = logging.getLogger(__class__.__name__)
         self.log.handlers.clear()
@@ -173,6 +172,40 @@ class RemoteStorageProvider(ABC):
         self._num_objects_read = 0
         self._num_objects_deleted = 0
 
+    def update_write_stats(self, time_elapsed_ms: float, size_bytes: int, num_values: int = 1):
+        """
+        Updates the write-related metrics of the RedisProvider.
+
+        :param time_elapsed_ms: the time taken by the write operation.
+        :param size_bytes: the size, in bytes, of the data written to Redis.
+        :param num_values: the number of objects written. This will usually be 1, but if a large object is
+        chunked, then this should be the number of individual chunks.
+        """
+        self._write_time += time_elapsed_ms
+        self._num_objects_written += num_values
+        self._bytes_written += size_bytes
+
+        self._lifetime_num_objects_written += num_values
+        self._lifetime_write_time += time_elapsed_ms
+        self._lifetime_bytes_written += size_bytes
+
+    def update_read_stats(self, time_elapsed_ms: float, size_bytes: int, num_values: int = 1):
+        """
+        Updates the write-related metrics of the RedisProvider.
+
+        :param time_elapsed_ms: the time taken by the read operation.
+        :param size_bytes: the size, in bytes, of the data read from Redis.
+        :param num_values: the number of objects read. This will usually be 1, but if a large object is
+        chunked, then this should be the number of individual chunks.
+        """
+        self._read_time += time_elapsed_ms
+        self._num_objects_read += num_values
+        self._bytes_read += size_bytes
+
+        self._lifetime_read_time += time_elapsed_ms
+        self._lifetime_num_objects_read += num_values
+        self._lifetime_bytes_read += size_bytes
+
     @property
     @abstractmethod
     def storage_name(self) -> str:
@@ -191,7 +224,7 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
-    def is_too_large(self, size_bytes: int)->bool:
+    def is_too_large(self, size_bytes: int) -> bool:
         """
         :param size_bytes: the size of the data to (potentially) be written to remote remote_storage
         :return: True if the data is too large to be written, otherwise False
@@ -209,7 +242,7 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
-    async def read_value_async(self, key: str)->Any:
+    async def read_value_async(self, key: str) -> Any:
         """
         Asynchronously read a value from remote remote_storage.
 
@@ -230,7 +263,7 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
-    def read_value(self, key: str)->Any:
+    def read_value(self, key: str) -> Any:
         """
         Read a value from remote remote_storage.
 
