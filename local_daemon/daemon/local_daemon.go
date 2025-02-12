@@ -76,6 +76,18 @@ var (
 	errConcurrentConnectionAttempt = errors.New("another goroutine is already attempting to connect to the Cluster Gateway")
 )
 
+// getErrorNotification creates and returns a proto.Notification struct whose NotificationType field is set
+// to messaging.ErrorNotification.
+func getErrorNotification(title, message string, panicked bool) *proto.Notification {
+	return &proto.Notification{
+		Id:               uuid.NewString(),
+		Title:            title,
+		Message:          message,
+		NotificationType: int32(messaging.ErrorNotification),
+		Panicked:         panicked,
+	}
+}
+
 // enqueuedExecOrYieldRequest encapsulates an "execute_request" or "yield_request" *messaging.JupyterMessage and a
 // chan interface{} used to notify the caller when the request has been submitted and a result has been returned.
 type enqueuedExecOrYieldRequest struct {
@@ -1462,9 +1474,33 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of %s kernel %s.",
-			containerType.String(), response.GetPersistentId(), response.Id, kernel.ID())
+			response.GetPersistentId(), kernel.ReplicaID(), containerType.String(), kernel.ID())
+
 		payload["persistent_id"] = response.GetPersistentId()
-		kernel.SetPersistentID(response.GetPersistentId())
+
+		// If this is a prewarm container, then we can set its persistent ID.
+		// Alternatively, if the persistent ID has not yet been set, then we can set the persistent ID.
+		if registrationPayload.PrewarmContainer || kernel.PersistentID() == "" {
+			kernel.SetPersistentID(response.GetPersistentId())
+		}
+
+		// If this is not a prewarm container and the persistent ID is already set to something else,
+		// then something is wrong.
+		if !registrationPayload.PrewarmContainer && kernel.PersistentID() != response.GetPersistentId() {
+			d.log.Error("Replica %d of standard kernel %s is registering with persistent ID \"%s\".",
+				kernel.ReplicaID(), kernel.ID(), response.GetPersistentId())
+			d.log.Error("However, replica %d of standard kernel %s already has persistent ID set to a different value: \"%s\"",
+				kernel.ReplicaID(), kernel.ID(), kernel.PersistentID())
+
+			msg := fmt.Sprintf("Replica %d of standard kernel %s is registering with persistent ID \"%s\"; "+
+				"however, kernel replica already has persistent ID set to a different value: \"%s\"",
+				kernel.ReplicaID(), kernel.ID(), response.GetPersistentId(), kernel.PersistentID())
+			notification := getErrorNotification("Attempting to Modify Existing Persistent ID", msg, true)
+
+			d.notifyClusterGatewayOfError(context.Background(), notification)
+
+			panic(msg)
+		}
 	} else {
 		d.log.Debug("No persistent ID to include in response.")
 	}
