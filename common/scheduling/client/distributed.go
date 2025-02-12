@@ -1673,10 +1673,6 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 
 	// In RLock, don't change anything in c.replicas.
 	for id, replica := range c.replicas {
-		if !stoppedSem.TryAcquire(1) {
-			panic("Failed to acquire.")
-		}
-
 		if replica == nil {
 			c.log.Warn("Replica %d is nil", id)
 			continue
