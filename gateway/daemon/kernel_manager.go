@@ -77,6 +77,12 @@ func (g *KernelManager) ForwardRequestToKernel(kernelOrSessionId string, msg *me
 	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, g.forwardResponseFromKernel, nil)
 }
 
+// ensureReplicasScheduled ensures that the scheduling.KernelReplica instances of the specified scheduling.Kernel are
+// scheduled so that a message can be forwarded.
+func (g *KernelManager) ensureReplicasScheduled(kernel scheduling.Kernel) error {
+	panic("Implement me")
+}
+
 // forwardResponseFromKernel forwards the given messaging.JupyterMessage response from the given
 // scheduling.KernelReplica to the Jupyter client.
 func (g *KernelManager) forwardResponseFromKernel(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
@@ -88,7 +94,7 @@ func (g *KernelManager) embedRequestTrace() error {
 	if !g.RequestTracingEnabled {
 		return nil
 	}
-	
+
 	panic("Implement me!")
 }
 
