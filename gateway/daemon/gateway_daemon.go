@@ -5147,9 +5147,17 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 //
 // For example, scheduling.Policy instances in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent
 // will either terminate the scheduling.KernelContainer instance(s) or return them to the warm container pool.
-func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info) {
+func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info, execReplyMsg *messaging.JupyterMessage) {
 	// If the scheduling policy isn't a single-training-event policy, then we can just return immediately.
 	if d.Scheduler().Policy().ContainerLifetime() != scheduling.SingleTrainingEvent {
+		return
+	}
+
+	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
+	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
+	// the execution failed.
+	kernel, ok := d.kernels.Load(from.ID())
+	if ok && kernel != nil && kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
 		return
 	}
 
