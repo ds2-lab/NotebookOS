@@ -4006,7 +4006,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 		{
 			// If we received an error over the channel, then we'll log an error message and return the error.
 			if err, ok := v.(error); ok {
-				d.log.Error("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
+				d.log.Warn("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
 					kernel.ID(), msg.JupyterMessageType(), err)
 				return nil, false, err
 			} else {
@@ -4268,7 +4268,7 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
 	_, replicasAlreadyScheduled, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
 	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+		d.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), jMsg.JupyterMessageType(), err)
 
 		// We'll send an error message to the associated client here.
@@ -4880,7 +4880,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 
 	resp, _, err := d.ensureKernelReplicasAreScheduled(kernel, msg, typ)
 	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+		d.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), msg.JupyterMessageType(), err)
 		_ = d.sendErrorResponse(kernel, msg, err, messaging.ShellMessage)
 		return
