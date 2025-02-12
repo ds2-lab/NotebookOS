@@ -67,6 +67,10 @@ RUN chown jovyan /usr/local/bin/start.sh
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
 
+# Make sure the jovyan user owns everything and can write to everything in their home directory.
+RUN chmod -R 777 /home/jovyan
+RUN chown -R jovyan /home/jovyan
+
 # Update path.
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 

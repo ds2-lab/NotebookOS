@@ -1,20 +1,19 @@
-from abc import ABC, abstractmethod
-
-from typing import Any
-
 import logging
+from abc import ABC, abstractmethod
+from typing import Any
 
 from distributed_notebook.logs import ColoredLogFormatter
 
 
 class RemoteStorageProvider(ABC):
     """
-    RemoteStorageProvider is an abstract base class for any remote storage provider that provides a key-value-like
-    API for reading and writing values from and to remote storage (e.g., Redis, AWS S3, memcached, HDFS, etc.).
+    RemoteStorageProvider is an abstract base class for any remote remote_storage provider that provides a key-value-like
+    API for reading and writing values from and to remote remote_storage (e.g., Redis, AWS S3, memcached, HDFS, etc.).
 
     For systems providing file-like IO APIs, the file names can be treated as the keys, while the file contents can
     be treated as the values.
     """
+
     def __init__(self):
         self.log = logging.getLogger(__class__.__name__)
         self.log.handlers.clear()
@@ -49,112 +48,112 @@ class RemoteStorageProvider(ABC):
     @property
     def num_objects_written(self) -> int:
         """
-        :return: the number of objects written to remote storage.
+        :return: the number of objects written to remote remote_storage.
         """
         return self._num_objects_written
 
     @property
     def num_objects_read(self) -> int:
         """
-        :return: the number of objects read from remote storage.
+        :return: the number of objects read from remote remote_storage.
         """
         return self._num_objects_read
 
     @property
     def num_objects_deleted(self) -> int:
         """
-        :return: the number of objects deleted from remote storage.
+        :return: the number of objects deleted from remote remote_storage.
         """
         return self._num_objects_deleted
 
     @property
     def bytes_read(self) -> int:
         """
-        :return: the number of bytes read from remote storage.
+        :return: the number of bytes read from remote remote_storage.
         """
         return self._bytes_read
 
     @property
     def bytes_written(self) -> int:
         """
-        :return: the number of bytes written to remote storage.
+        :return: the number of bytes written to remote remote_storage.
         """
         return self._bytes_written
 
     @property
     def read_time(self) -> float:
         """
-        Return the total time spent reading data from remote storage in seconds.
+        Return the total time spent reading data from remote remote_storage in seconds.
         """
         return self._read_time
 
     @property
     def write_time(self) -> float:
         """
-        Return the total time spent writing data to remote storage in seconds.
+        Return the total time spent writing data to remote remote_storage in seconds.
         """
         return self._write_time
 
     @property
     def delete_time(self) -> float:
         """
-        Return the total time spent deleting data from remote storage in seconds.
+        Return the total time spent deleting data from remote remote_storage in seconds.
         """
         return self._delete_time
 
     @property
     def lifetime_num_objects_written(self) -> int:
         """
-        :return: the number of objects written to remote storage.
+        :return: the number of objects written to remote remote_storage.
         """
         return self._lifetime_num_objects_written
 
     @property
     def lifetime_num_objects_read(self) -> int:
         """
-        :return: the number of objects read from remote storage.
+        :return: the number of objects read from remote remote_storage.
         """
         return self._lifetime_num_objects_read
 
     @property
     def lifetime_num_objects_deleted(self) -> int:
         """
-        :return: the number of objects deleted from remote storage.
+        :return: the number of objects deleted from remote remote_storage.
         """
         return self._lifetime_num_objects_deleted
 
     @property
     def lifetime_bytes_read(self) -> int:
         """
-        :return: the number of bytes read from remote storage.
+        :return: the number of bytes read from remote remote_storage.
         """
         return self._lifetime_bytes_read
 
     @property
     def lifetime_bytes_written(self) -> int:
         """
-        :return: the number of bytes written to remote storage.
+        :return: the number of bytes written to remote remote_storage.
         """
         return self._lifetime_bytes_written
 
     @property
     def lifetime_read_time(self) -> float:
         """
-        Return the total time spent reading data from remote storage in seconds.
+        Return the total time spent reading data from remote remote_storage in seconds.
         """
         return self._lifetime_read_time
 
     @property
     def lifetime_write_time(self) -> float:
         """
-        Return the total time spent writing data to remote storage in seconds.
+        Return the total time spent writing data to remote remote_storage in seconds.
         """
         return self._lifetime_write_time
 
     @property
     def lifetime_delete_time(self) -> float:
         """
-        Return the total time spent deleting data from remote storage in seconds.
+        Return the total time spent deleting data from remote remote_storage in seconds.
         """
         return self._lifetime_delete_time
 
@@ -173,11 +172,45 @@ class RemoteStorageProvider(ABC):
         self._num_objects_read = 0
         self._num_objects_deleted = 0
 
+    def update_write_stats(self, time_elapsed_ms: float, size_bytes: int, num_values: int = 1):
+        """
+        Updates the write-related metrics of the RedisProvider.
+
+        :param time_elapsed_ms: the time taken by the write operation.
+        :param size_bytes: the size, in bytes, of the data written to Redis.
+        :param num_values: the number of objects written. This will usually be 1, but if a large object is
+        chunked, then this should be the number of individual chunks.
+        """
+        self._write_time += time_elapsed_ms
+        self._num_objects_written += num_values
+        self._bytes_written += size_bytes
+
+        self._lifetime_num_objects_written += num_values
+        self._lifetime_write_time += time_elapsed_ms
+        self._lifetime_bytes_written += size_bytes
+
+    def update_read_stats(self, time_elapsed_ms: float, size_bytes: int, num_values: int = 1):
+        """
+        Updates the write-related metrics of the RedisProvider.
+
+        :param time_elapsed_ms: the time taken by the read operation.
+        :param size_bytes: the size, in bytes, of the data read from Redis.
+        :param num_values: the number of objects read. This will usually be 1, but if a large object is
+        chunked, then this should be the number of individual chunks.
+        """
+        self._read_time += time_elapsed_ms
+        self._num_objects_read += num_values
+        self._bytes_read += size_bytes
+
+        self._lifetime_read_time += time_elapsed_ms
+        self._lifetime_num_objects_read += num_values
+        self._lifetime_bytes_read += size_bytes
+
     @property
     @abstractmethod
     def storage_name(self) -> str:
         """
-        :return: a human-readable name of the remote storage whose access is
+        :return: a human-readable name of the remote remote_storage whose access is
         provided by objects of this class.
         """
         pass
@@ -191,9 +224,9 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
-    def is_too_large(self, size_bytes: int)->bool:
+    def is_too_large(self, size_bytes: int) -> bool:
         """
-        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :param size_bytes: the size of the data to (potentially) be written to remote remote_storage
         :return: True if the data is too large to be written, otherwise False
         """
         pass
@@ -201,49 +234,49 @@ class RemoteStorageProvider(ABC):
     @abstractmethod
     async def write_value_async(self, key: str, value: Any):
         """
-        Asynchronously write a value to remote storage.
+        Asynchronously write a value to remote remote_storage.
 
-        :param key: the key at which to store the value in remote storage.
+        :param key: the key at which to store the value in remote remote_storage.
         :param value: the value to be written.
         """
         pass
 
     @abstractmethod
-    async def read_value_async(self, key: str)->Any:
+    async def read_value_async(self, key: str) -> Any:
         """
-        Asynchronously read a value from remote storage.
+        Asynchronously read a value from remote remote_storage.
 
-        :param key: the remote storage key from which to read the value.
+        :param key: the remote remote_storage key from which to read the value.
 
-        :return: the value read from remote storage.
+        :return: the value read from remote remote_storage.
         """
         pass
 
     @abstractmethod
     def write_value(self, key: str, value: Any):
         """
-        Write a value to remote storage.
+        Write a value to remote remote_storage.
 
-        :param key: the key at which to store the value in remote storage.
+        :param key: the key at which to store the value in remote remote_storage.
         :param value: the value to be written.
         """
         pass
 
     @abstractmethod
-    def read_value(self, key: str)->Any:
+    def read_value(self, key: str) -> Any:
         """
-        Read a value from remote storage.
+        Read a value from remote remote_storage.
 
-        :param key: the remote storage key from which to read the value.
+        :param key: the remote remote_storage key from which to read the value.
 
-        :return: the value read from remote storage.
+        :return: the value read from remote remote_storage.
         """
         pass
 
     @abstractmethod
     async def delete_value_async(self, key: str):
         """
-        Asynchronously delete the value stored at the specified key from remote storage.
+        Asynchronously delete the value stored at the specified key from remote remote_storage.
 
         :param key: the name/key of the data to delete
         """
@@ -252,7 +285,7 @@ class RemoteStorageProvider(ABC):
     @abstractmethod
     def delete_value(self, key: str):
         """
-        Delete the value stored at the specified key from remote storage.
+        Delete the value stored at the specified key from remote remote_storage.
 
         :param key: the name/key of the data to delete
         """

@@ -62,6 +62,7 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             num_workers: int = 2,
             batch_size: int = 4,
             image_size: int = 224,  # 224 x 224 for ResNet-18, 299 x 299 for Inception v3.
+            **kwargs
     ):
         assert image_size > 0
         assert batch_size > 0
@@ -72,6 +73,7 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             num_workers=num_workers,
             hugging_face_dataset_name=TinyImageNet.hugging_face_dataset_name,
             hugging_face_dataset_config_name=TinyImageNet.hugging_face_dataset_config_name,
+            **kwargs
         )
 
         self.log.debug(f'Creating Tiny ImageNet dataset with root directory "{root_dir}", batch size = {batch_size}, '

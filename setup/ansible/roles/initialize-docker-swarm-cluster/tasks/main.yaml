@@ -108,7 +108,7 @@
     mode: '0777'
   become: true
 
-- name: Create kernel storage directory if it doesn't already exist
+- name: Create kernel remote_storage directory if it doesn't already exist
   file:
     path: "{{ kernel_storage_directory }}"
     state: directory

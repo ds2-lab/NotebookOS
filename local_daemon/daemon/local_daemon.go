@@ -76,6 +76,18 @@ var (
 	errConcurrentConnectionAttempt = errors.New("another goroutine is already attempting to connect to the Cluster Gateway")
 )
 
+// getErrorNotification creates and returns a proto.Notification struct whose NotificationType field is set
+// to messaging.ErrorNotification.
+func getErrorNotification(title, message string, panicked bool) *proto.Notification {
+	return &proto.Notification{
+		Id:               uuid.NewString(),
+		Title:            title,
+		Message:          message,
+		NotificationType: int32(messaging.ErrorNotification),
+		Panicked:         panicked,
+	}
+}
+
 // enqueuedExecOrYieldRequest encapsulates an "execute_request" or "yield_request" *messaging.JupyterMessage and a
 // chan interface{} used to notify the caller when the request has been submitted and a result has been returned.
 type enqueuedExecOrYieldRequest struct {
@@ -203,18 +215,18 @@ type LocalScheduler struct {
 	id       string
 	nodeName string
 
-	S3Bucket      string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
-	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
-	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	S3Bucket      string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.
+	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
+	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
 
 	// members
 	transport string
 	ip        string
 
-	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
+	// Hostname of the remote remote_storage. The SyncLog's remote remote_storage client will connect to this.
 	remoteStorageEndpoint string
 
-	// Type of remote storage, 'hdfs' or 'redis'
+	// Type of remote remote_storage, 'hdfs' or 'redis'
 	remoteStorage string
 
 	// Base directory in which the persistent store data is stored when running in docker mode.
@@ -228,8 +240,8 @@ type LocalScheduler struct {
 	// prometheusStarted is a sync.primarSemaphore used to signal to the metric-publishing goroutine
 	// that it should start publishing metrics now.
 	prometheusStarted sync.WaitGroup
-	RedisPort         int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
-	RedisDatabase     int // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+	RedisPort         int // RedisPort is the port of the Redis server (only relevant if using Redis for remote remote_storage).
+	RedisDatabase     int // RedisDatabase is the database number to use (only relevant if using Redis for remote remote_storage).
 
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
@@ -488,7 +500,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	}
 
 	if len(localDaemonOptions.RemoteStorageEndpoint) == 0 {
-		panic("remote storage endpoint is empty.")
+		panic("remote remote_storage endpoint is empty.")
 	}
 
 	switch localDaemonOptions.DeploymentMode {
@@ -1462,9 +1474,33 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of %s kernel %s.",
-			containerType.String(), response.GetPersistentId(), response.Id, kernel.ID())
+			response.GetPersistentId(), kernel.ReplicaID(), containerType.String(), kernel.ID())
+
 		payload["persistent_id"] = response.GetPersistentId()
-		kernel.SetPersistentID(response.GetPersistentId())
+
+		// If this is a prewarm container, then we can set its persistent ID.
+		// Alternatively, if the persistent ID has not yet been set, then we can set the persistent ID.
+		if registrationPayload.PrewarmContainer || kernel.PersistentID() == "" {
+			kernel.SetPersistentID(response.GetPersistentId())
+		}
+
+		// If this is not a prewarm container and the persistent ID is already set to something else,
+		// then something is wrong.
+		if !registrationPayload.PrewarmContainer && kernel.PersistentID() != response.GetPersistentId() {
+			d.log.Error("Replica %d of standard kernel %s is registering with persistent ID \"%s\".",
+				kernel.ReplicaID(), kernel.ID(), response.GetPersistentId())
+			d.log.Error("However, replica %d of standard kernel %s already has persistent ID set to a different value: \"%s\"",
+				kernel.ReplicaID(), kernel.ID(), kernel.PersistentID())
+
+			msg := fmt.Sprintf("Replica %d of standard kernel %s is registering with persistent ID \"%s\"; "+
+				"however, kernel replica already has persistent ID set to a different value: \"%s\"",
+				kernel.ReplicaID(), kernel.ID(), response.GetPersistentId(), kernel.PersistentID())
+			notification := getErrorNotification("Attempting to Modify Existing Persistent ID", msg, true)
+
+			d.notifyClusterGatewayOfError(context.Background(), notification)
+
+			panic(msg)
+		}
 	} else {
 		d.log.Debug("No persistent ID to include in response.")
 	}
@@ -3001,13 +3037,24 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 		targetReplicaId = *requestMetadata.TargetReplicaId
 	}
 
-	if requestMetadata.ResourceRequest != nil && d.resourceRequestAdjustmentEnabled() {
-		d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
-			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+	// If dynamic resource adjustments are disabled, or if there is no resource request included in the metadata,
+	// then we can just return.
+	if !d.resourceRequestAdjustmentEnabled() || requestMetadata.ResourceRequest == nil {
+		return targetReplicaId, metadataDict, nil
+	}
 
-		if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
-			return targetReplicaId, metadataDict, err
-		}
+	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
+	// then we can just return.
+	if kernel.ResourceSpec().Equals(requestMetadata.ResourceRequest) {
+		return targetReplicaId, metadataDict, nil
+	}
+
+	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
+		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+
+	// Attempt to update the kernel's resource request.
+	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
+		return targetReplicaId, metadataDict, err
 	}
 
 	return targetReplicaId, metadataDict, nil
@@ -3019,13 +3066,6 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 // We also check if this replica has been explicitly instructed to yield, or if there is simply another replica of
 // the same kernel that has been explicitly targeted as the winner (in which case the locally-running replica of the
 // associated kernel must yield).
-//
-// TODO: Should we "reserve" resources for the kernel replica before the leader election to ensure that they are
-// TODO: | available in the event that the replica wins? Or should we instead require that the winning replica contact
-// TODO: | its local daemon upon winning to request the resources (in which case they may be unavailable due to
-// TODO: | concurrent code executions running on the same node)?
-// TODO: |
-// TODO: | For now, we're reserving resources.
 func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) *messaging.JupyterMessage {
 	gid := goid.Get()
 

@@ -2938,29 +2938,29 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 }
 
 // shouldKernelReplicaReadStateFromRemoteStorage is called by NotifyKernelRegistered and is used to determine whether
-// the scheduling.KernelReplica that is registering should read/restore state from remote storage or not.
+// the scheduling.KernelReplica that is registering should read/restore state from remote remote_storage or not.
 //
 // The basis for this decision depends on several factors.
 //
 // First of all, if the scheduling policy uses short-lived containers that are created on-demand for each training
-// event, then they should always restore state from intermediate storage.
+// event, then they should always restore state from intermediate remote_storage.
 //
 // Next, for policies that use long-lived containers (regardless of the number of replicas), the kernel should restore
 // state if the kernel replicas are being recreated following an idle kernel/session reclamation.
 //
 // Finally, when using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from
-// remote storage if this is not the very first time that they're being created.
+// remote remote_storage if this is not the very first time that they're being created.
 func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel, forMigration bool) bool {
 	policy := d.Scheduler().Policy()
 
 	// If the scheduling policy uses short-lived containers that are created on-demand for each training event,
-	// then they should always restore state from intermediate storage.
+	// then they should always restore state from intermediate remote_storage.
 	if policy.ContainerLifetime() == scheduling.SingleTrainingEvent {
 		return true
 	}
 
 	// If the kernel replica that is registering was created for a migration operation, then it should read and
-	// restore its state from intermediate storage.
+	// restore its state from intermediate remote_storage.
 	if forMigration {
 		return true
 	}
@@ -2972,15 +2972,15 @@ func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kerne
 	}
 
 	// When using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from remote
-	// storage if this is not the very first time that they're being created. We can test for this by checking if the
+	// remote_storage if this is not the very first time that they're being created. We can test for this by checking if the
 	// total number of containers created for this kernel is greater than zero.
 	//
 	// We also need to check if the number of containers created for this kernel is greater than or equal to the number
 	// of replicas mandated by the scheduling policy. Although this isn't supported at the time of writing this, if we
 	// enable warm container reuse by (e.g.,) the Static policy, then we'll be creating 3 containers when the kernel is
-	// first created. We don't want the second or third replica to attempt to read state from remote storage when they
+	// first created. We don't want the second or third replica to attempt to read state from remote remote_storage when they
 	// are being created for the first time. So, it's only once we've created at least as many containers as there are
-	// replicas of an individual kernel that a new kernel replica should attempt to read state from remote storage.
+	// replicas of an individual kernel that a new kernel replica should attempt to read state from remote remote_storage.
 	//
 	// For single-replica policies, like the WarmContainerPoolPolicy, this logic will still work appropriately.
 	if policy.ReuseWarmContainers() && kernel.NumContainersCreated() > 0 && kernel.NumContainersCreated() >= int32(d.NumReplicas()) {

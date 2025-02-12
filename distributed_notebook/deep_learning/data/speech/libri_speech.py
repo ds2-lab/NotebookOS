@@ -154,11 +154,12 @@ class LibriSpeech(CustomDataset):
             num_workers: int = 2,
             # Default to test_clean, even though it's a test set, because it is small (good for unit tests)
             train_split: Optional[str] = test_clean,
-            test_split: Optional[str] = None
+            test_split: Optional[str] = None,
+            **kwargs,
     ):
         assert folder_in_archive is not None
 
-        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers, **kwargs)
 
         if train_split is not None and train_split not in LibriSpeech._train_splits[0]:
             self.log.debug(f'[WARNING] Specified training split "{train_split}" is technically NOT a training split.')

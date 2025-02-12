@@ -29,6 +29,7 @@ class IMDbLargeMovieReview(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             batch_size=4,
+            **kwargs
     ):
         super().__init__(
             root_dir=root_dir,
@@ -42,6 +43,7 @@ class IMDbLargeMovieReview(NLPDataset):
             max_token_length=max_token_length,
             tokenized_dataset_directory=IMDbLargeMovieReview.get_tokenized_dataset_directory(model_name),
             batch_size=batch_size,
+            **kwargs
         )
 
     @staticmethod
@@ -61,7 +63,7 @@ class IMDbLargeMovieReview(NLPDataset):
 
     @staticmethod
     def dataset_name() -> str:
-        return "IMDb Large Movie Review Dataset"
+        return "IMDb Large Movie Review Dataset (IMDb)"
 
     @property
     def name(self) -> str:

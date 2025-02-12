@@ -939,11 +939,11 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	}
 
 	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
-	// requests to prompt the containers to persist any important state to remote storage.
+	// requests to prompt the containers to persist any important state to remote remote_storage.
 	if forIdleReclamation {
-		c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote storage.")
+		c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote remote_storage.")
 
-		// We'll give the replicas up to 5 minutes to write their state to remote storage.
+		// We'll give the replicas up to 5 minutes to write their state to remote remote_storage.
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 		defer cancel()
 

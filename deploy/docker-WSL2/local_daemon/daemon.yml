@@ -49,7 +49,7 @@ local_mode: false
 deployment_mode: "docker-compose"
 debug_port: 9996
 debug_mode: true
-docker-storage-base: "/storage"
+docker-storage-base: "/remote_storage"
 using-wsl: true 
 prometheus_interval: 15
 prometheus_port: 8089
@@ -65,7 +65,7 @@ num_resource_ports: 4096
 use_real_gpus: false
 bind_debugpy_port: false
 save_stopped_kernel_containers: true
-s3_bucket: "distributed-notebook-storage"
+s3_bucket: "distributed-notebook-remote_storage"
 aws_region: "us-east-1"
 redis_password: ""
 redis_port: 6379

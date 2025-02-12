@@ -17,7 +17,7 @@ from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
-from distributed_notebook.sync.storage.redis_provider import RedisProvider
+from distributed_notebook.sync.remote_storage.redis_provider import RedisProvider
 
 
 def get_fake_redis_client() -> fakeredis.FakeRedis:
@@ -172,7 +172,7 @@ def test_checkpoint_after_training(redis_client, async_redis_client):
         assert previous_weights.equal(updated_weights) == False
         previous_weights = updated_weights.clone()
 
-        # Before re-writing the updated model's weights, verify that the weights in remote storage
+        # Before re-writing the updated model's weights, verify that the weights in remote remote_storage
         # match the initial weights and no longer match the model's weights.
         old_model_state, old_optimizer_state, old_criterion_state, old_constructor_args_state = checkpointer.read_state_dicts(
             model_pointer)
@@ -192,7 +192,7 @@ def test_checkpoint_after_training(redis_client, async_redis_client):
             if isinstance(old_val, Tensor) and isinstance(new_val, Tensor):
                 assert old_val.equal(new_val) == False
 
-        # Write the updated model state to remote storage.
+        # Write the updated model state to remote remote_storage.
         model_pointer = ModelPointer(
             deep_learning_model=model,
             user_namespace_variable_name="model",
@@ -201,7 +201,7 @@ def test_checkpoint_after_training(redis_client, async_redis_client):
         )
         checkpointer.write_state_dicts(model_pointer)
 
-        # Verify that the weights in remote storage match the updated weights.
+        # Verify that the weights in remote remote_storage match the updated weights.
         remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(
             model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
@@ -209,7 +209,7 @@ def test_checkpoint_after_training(redis_client, async_redis_client):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
                 assert remote_val.equal(local_val)
 
-        # Load a new instance of the model using the state checkpointed in remote storage.
+        # Load a new instance of the model using the state checkpointed in remote remote_storage.
         checkpointed_model: DeepLearningModel = load_model(
             model_name=model_pointer.large_object_name,
             existing_model=None,
@@ -225,7 +225,7 @@ def test_checkpoint_after_training(redis_client, async_redis_client):
         assert checkpointed_model.model is not None
         assert isinstance(checkpointed_model.model, SimpleModule)
 
-        # Compare the state of the model loaded from remote storage with the original, local model.
+        # Compare the state of the model loaded from remote remote_storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
         checkpointed_model_state: dict[str, Any] = checkpointed_model.state_dict
 
@@ -275,7 +275,7 @@ def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
         assert previous_weights.equal(updated_weights) == False
         previous_weights = updated_weights.clone()
 
-        # Before re-writing the updated model's weights, verify that the weights in remote storage
+        # Before re-writing the updated model's weights, verify that the weights in remote remote_storage
         # match the initial weights and no longer match the model's weights.
         old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(
             model_pointer)
@@ -295,7 +295,7 @@ def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
             if isinstance(old_val, Tensor) and isinstance(new_val, Tensor):
                 assert old_val.equal(new_val) == False
 
-        # Write the updated model state to remote storage.
+        # Write the updated model state to remote remote_storage.
         model_pointer = ModelPointer(
             deep_learning_model=model,
             user_namespace_variable_name="model",
@@ -304,7 +304,7 @@ def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
         )
         checkpointer.write_state_dicts(model_pointer)
 
-        # Verify that the weights in remote storage match the updated weights.
+        # Verify that the weights in remote remote_storage match the updated weights.
         remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(
             model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
@@ -312,7 +312,7 @@ def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
                 assert remote_val.equal(local_val)
 
-        # Load a new instance of the model using the state checkpointed in remote storage.
+        # Load a new instance of the model using the state checkpointed in remote remote_storage.
         checkpointed_model: DeepLearningModel = load_model(
             model_name=model_pointer.large_object_name,
             existing_model=None,
@@ -328,7 +328,7 @@ def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
         assert checkpointed_model.model is not None
         assert isinstance(checkpointed_model.model, SimpleModule)
 
-        # Compare the state of the model loaded from remote storage with the original, local model.
+        # Compare the state of the model loaded from remote remote_storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
         checkpointed_model_state: dict[str, Any] = checkpointed_model.state_dict
 
@@ -404,7 +404,7 @@ def perform_training_for_model(
         assert previous_weights.equal(updated_weights) == False
         previous_weights = updated_weights.clone()
 
-        # Before re-writing the updated model's weights, verify that the weights in remote storage
+        # Before re-writing the updated model's weights, verify that the weights in remote remote_storage
         # match the initial weights and no longer match the model's weights.
         old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(
             model_pointer)
@@ -424,7 +424,7 @@ def perform_training_for_model(
             if isinstance(old_val, Tensor) and isinstance(new_val, Tensor):
                 assert old_val.equal(new_val) == False
 
-        # Write the updated model state to remote storage.
+        # Write the updated model state to remote remote_storage.
         model_pointer = ModelPointer(
             deep_learning_model=model,
             user_namespace_variable_name="model",
@@ -433,7 +433,7 @@ def perform_training_for_model(
         )
         checkpointer.write_state_dicts(model_pointer)
 
-        # Verify that the weights in remote storage match the updated weights.
+        # Verify that the weights in remote remote_storage match the updated weights.
         remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(
             model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
@@ -441,7 +441,7 @@ def perform_training_for_model(
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
                 assert remote_val.equal(local_val)
 
-        # Load a new instance of the model using the state checkpointed in remote storage.
+        # Load a new instance of the model using the state checkpointed in remote remote_storage.
         checkpointed_model = load_model(
             model_name=model_pointer.large_object_name,
             existing_model=None,
@@ -458,7 +458,7 @@ def perform_training_for_model(
         if checkpointed_model.expected_model_class() is not None:
             assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class())
 
-        # Compare the state of the model loaded from remote storage with the original, local model.
+        # Compare the state of the model loaded from remote remote_storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
         checkpointed_model_state: dict[str, Any] = checkpointed_model.state_dict
 

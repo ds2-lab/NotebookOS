@@ -46,8 +46,8 @@ spec:
               name: daemon-claim0
             - mountPath: /kernel_base
               name: daemon-claim1
-            - mountPath: /storage
-              name: storage
+            - mountPath: /remote_storage
+              name: remote_storage
       restartPolicy: Always
       volumes:
         - name: daemon-claim0
@@ -56,7 +56,7 @@ spec:
         - name: daemon-claim1
           persistentVolumeClaim:
             claimName: daemon-claim1
-        - name: storage
+        - name: remote_storage
           persistentVolumeClaim:
-            claimName: storage
+            claimName: remote_storage
 status: {}

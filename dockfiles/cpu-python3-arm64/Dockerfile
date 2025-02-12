@@ -14,7 +14,7 @@ RUN mkdir -p /home/jovyan/.ipython/profile_default
 USER root:root
 
 # Prepare directories to have them owned by the user jovyan
-RUN mkdir -p /storage && chown jovyan:users /storage
+RUN mkdir -p /remote_storage && chown jovyan:users /remote_storage
 
 # Add files
 # ADD common/gateway /distributed_notebook/common/gateway

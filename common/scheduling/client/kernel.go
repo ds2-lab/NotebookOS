@@ -853,9 +853,12 @@ func (c *KernelReplicaClient) SetReplicaID(replicaId int32) {
 // SetPersistentID sets the value of the persistentId field.
 // This will panic if the persistentId has already been set to something other than the empty string.
 func (c *KernelReplicaClient) SetPersistentID(persistentId string) {
-	if c.persistentId != "" {
-		panic(fmt.Sprintf("Cannot set persistent ID of kernel %s. Persistent ID already set to value: '%s'", c.id, c.persistentId))
+	if c.persistentId != "" && c.containerType == scheduling.StandardContainer {
+		c.log.Error("Cannot set persistent ID of standard kernel %s. Persistent ID already set to value: '%s'",
+			c.id, c.persistentId)
+		panic("attempted to modify persistent ID of standard kernel after it had already been set")
 	}
+
 	c.persistentId = persistentId
 }
 
@@ -1499,6 +1502,7 @@ func (c *KernelReplicaClient) DemoteStandardContainer(prewarmContainerId string)
 	c.replicaSpec.Kernel.Id = prewarmContainerId
 	c.id = prewarmContainerId
 	c.containerType = scheduling.PrewarmContainer
+	c.persistentId = "" // Reset the persistent ID field.
 
 	if c.container == nil {
 		// This is to be expected when running in a Local Scheduler.
