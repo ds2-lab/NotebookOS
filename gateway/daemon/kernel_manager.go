@@ -74,13 +74,13 @@ func (g *KernelManager) ForwardRequestToKernel(kernelOrSessionId string, msg *me
 		return types.ErrKernelNotFound
 	}
 
-	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, d.kernelReplicaResponseForwarder, nil)
+	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, g.forwardResponseFromKernel, nil)
 }
 
 // forwardResponseFromKernel forwards the given messaging.JupyterMessage response from the given
 // scheduling.KernelReplica to the Jupyter client.
 func (g *KernelManager) forwardResponseFromKernel(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
-
+	panic("Implement me!")
 }
 
 func (g *KernelManager) embedRequestTrace() error {
@@ -88,6 +88,8 @@ func (g *KernelManager) embedRequestTrace() error {
 	if !g.RequestTracingEnabled {
 		return nil
 	}
+	
+	panic("Implement me!")
 }
 
 // tryGetKernel attempts to retrieve the scheduling.Kernel with the given kernel or Jupyter session ID.
