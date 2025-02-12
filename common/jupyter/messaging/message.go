@@ -1025,11 +1025,13 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 }
 
 func (m *JupyterMessage) String() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset(), m.JupyterFrames.String())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,IsFailedExecuteRequest=%v]; JupyterMessage's JupyterFrames=%s",
+		m.RequestId, m.DestinationId, m.Offset(), m.IsFailedExecuteRequest, m.JupyterFrames.String())
 }
 
 func (m *JupyterMessage) StringFormatted() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,IsFailedExecuteRequest=%v]; JupyterMessage's JupyterFrames=\n%s",
+		m.RequestId, m.DestinationId, m.Offset, m.IsFailedExecuteRequest, m.JupyterFrames.StringFormatted())
 }
 
 // CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.

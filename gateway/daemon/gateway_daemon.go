@@ -1805,7 +1805,10 @@ func (d *ClusterGatewayImpl) NotificationCallback(notificationName string, notif
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          notificationMessage,
@@ -1839,7 +1842,10 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 // Used to issue an "info" notification to the internalCluster Dashboard.
 func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          message,
@@ -1858,7 +1864,10 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            errorName,
 			Message:          errorMessage,
@@ -1877,7 +1886,10 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warningMessage string) {
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            warningName,
 			Message:          warningMessage,
@@ -4964,7 +4976,7 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 			style = utils.OrangeStyle
 		}
 
-		d.log.Warn(style.Render("Forwarding %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
+		d.log.Warn(style.Render("Sending %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
 			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, sendDuration)
 	}
 
@@ -5120,14 +5132,14 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		}
 	}
 
-	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s via %s: %v"),
-		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg)
+	d.log.Debug(utils.LightBlueStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel \"%s\" via %s:\n%v"),
+		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg.StringFormatted())
 
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
 	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
-		d.cleanUpBeforeForwardingExecuteReply(from)
+		d.cleanUpBeforeForwardingExecuteReply(from, msg)
 	}
 
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
@@ -5147,11 +5159,49 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 //
 // For example, scheduling.Policy instances in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent
 // will either terminate the scheduling.KernelContainer instance(s) or return them to the warm container pool.
-func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info) {
+func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Info, execReplyMsg *messaging.JupyterMessage) {
 	// If the scheduling policy isn't a single-training-event policy, then we can just return immediately.
 	if d.Scheduler().Policy().ContainerLifetime() != scheduling.SingleTrainingEvent {
 		return
 	}
+
+	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
+	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
+	// the execution failed.
+	kernel, ok := d.kernels.Load(from.ID())
+	if ok && kernel != nil && kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
+		return
+	}
+
+	// Decode the content of the response.
+	//var content map[string]interface{}
+	//err := execReplyMsg.JupyterFrames.DecodeContent(&content)
+	//if err != nil {
+	//	d.log.Error("Failed to decode content of \"execute_reply\" message \"%s\" targeting kernel \"%s\"",
+	//		execReplyMsg.JupyterMessageId(), from.ID())
+	//
+	//	go d.notifyDashboardOfError(
+	//		fmt.Sprintf(
+	//			"Failed to decode content of \"execute_reply\" message \"%s\" targeting kernel \"%s\"",
+	//			execReplyMsg.JupyterMessageId(), from.ID()), "")
+	//
+	//	return
+	//}
+	//
+	//// If the status is error and the error name includes the text from ErrInsufficientHostsAvailable,
+	//// then the associated execution never actually occurred, so we'll have nothing to clean up.
+	////
+	//// We can just return.
+	//if content["status"] != nil && content["status"].(string) == "error" {
+	//	errorName, _ := content["ename"].(string)
+	//	if strings.Contains(errorName, scheduling.ErrInsufficientHostsAvailable.Error()) {
+	//		return
+	//	}
+	//}
+	//
+	//if execReplyMsg.IsFailedExecuteRequest {
+	//	return
+	//}
 
 	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
