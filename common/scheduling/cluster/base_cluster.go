@@ -968,17 +968,17 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
+		c.log.Warn("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Warn("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
 	}
 
 	if targetNumNodes < int32(c.NumReplicas()) {
-		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Warn("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
+		c.log.Warn("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
 	}
 
@@ -988,7 +988,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleInOperation(opId, targetNumNodes, ids)
 	if err != nil {
-		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
+		c.log.Warn("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 

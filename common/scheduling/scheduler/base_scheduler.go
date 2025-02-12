@@ -628,8 +628,15 @@ func (s *BaseScheduler) RemoveHost(hostId string) error {
 
 	result, err := p.Result()
 	if err != nil {
-		s.log.Error("Failed to remove host %s because: %v", hostId, err)
-		s.sendErrorNotification(fmt.Sprintf("Failed to Remove Host %s from the Cluster", hostId), err.Error())
+		// If the error isn't something trivial like there already being another concurrent scaling operation,
+		// then just we'll just return the error.
+		if !errors.Is(err, scheduling.ErrScalingActive) {
+			s.sendErrorNotification(fmt.Sprintf("Failed to Remove Host %s from the Cluster", hostId), err.Error())
+			s.log.Error("Failed to remove host %s because: %v", hostId, err)
+			return err
+		}
+
+		s.log.Warn("Failed to remove host %s because: %v", hostId, err)
 		return err
 	}
 
