@@ -1685,8 +1685,8 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 	}
 	c.replicasMutex.RUnlock()
 
-	// Wait up to 5 minutes for the shutdown operation to complete.
-	timeoutInterval := time.Minute * 5
+	// Wait up to 6 minutes for the shutdown operation to complete.
+	timeoutInterval := time.Minute * 6
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
