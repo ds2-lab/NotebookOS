@@ -552,7 +552,14 @@ class DistributedKernel(IPythonKernel):
         ########################
         # Execution/Data State #
         ########################
-        self.current_execution_stats: Optional[ExecutionStats] = None
+
+        # Tracks all overheads and activity during execution.
+        #
+        # We create this when the kernel is first created so that any overheads that occur during the initial,
+        # first-time start-up of the kernel are recorded.
+        #
+        # The current_execution_stats field is reset each time an "execute_reply" is sent back to the client.
+        self.current_execution_stats: ExecutionStats = ExecutionStats()
 
         # Indicates if the CUDA runtime initialized.
         # This is only used when simulating the use of real GPUs.
@@ -2028,9 +2035,6 @@ class DistributedKernel(IPythonKernel):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
 
-        # Reset the current ExecutionStats object.
-        self.current_execution_stats = ExecutionStats()
-
         parent_header: dict[str, Any] = extract_header(parent)
 
         self.log.debug(
@@ -2045,6 +2049,12 @@ class DistributedKernel(IPythonKernel):
 
         if not self.session:
             self.log.error("We don't have a Session. Cannot process 'execute_request'.")
+
+            # Commented-out because it's unclear if we should reset the execution stats here or not...
+            #
+            # Reset the current ExecutionStats object.
+            # self.current_execution_stats = ExecutionStats()
+
             return
         try:
             content = parent["content"]
@@ -2061,6 +2071,12 @@ class DistributedKernel(IPythonKernel):
             self.report_error(
                 'Got Bad "execute_request" Message', f"Error: {ex}. Message: {parent}"
             )
+
+            # Commented-out because it's unclear if we should reset the execution stats here or not...
+            # 
+            # Reset the current ExecutionStats object.
+            # self.current_execution_stats = ExecutionStats()
+
             return
 
         stop_on_error = content.get("stop_on_error", True)
@@ -2321,6 +2337,9 @@ class DistributedKernel(IPythonKernel):
 
         if self.prometheus_enabled:
             self.execute_request_latency.observe(duration_ms)
+
+        # Reset the current ExecutionStats object.
+        self.current_execution_stats = ExecutionStats()
 
     async def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
         """

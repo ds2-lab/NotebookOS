@@ -86,16 +86,20 @@ func (g *KernelManager) ensureReplicasScheduled(kernel scheduling.Kernel) error 
 // forwardResponseFromKernel forwards the given messaging.JupyterMessage response from the given
 // scheduling.KernelReplica to the Jupyter client.
 func (g *KernelManager) forwardResponseFromKernel(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+	g.updateRequestTraceReplicaId(from, msg)
+
 	panic("Implement me!")
 }
 
-func (g *KernelManager) embedRequestTrace() error {
-	// If request
+// updateRequestTraceReplicaId updates the ReplicaId field of the proto.RequestTrace embedded in the given *messaging.JupyterMessage.
+func (g *KernelManager) updateRequestTraceReplicaId(from scheduling.KernelReplicaInfo, msg *messaging.JupyterMessage) {
 	if !g.RequestTracingEnabled {
-		return nil
+		return
 	}
 
-	panic("Implement me!")
+	if msg.RequestTrace != nil {
+		msg.RequestTrace.ReplicaId = from.ReplicaID()
+	}
 }
 
 // tryGetKernel attempts to retrieve the scheduling.Kernel with the given kernel or Jupyter session ID.
