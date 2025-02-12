@@ -2529,16 +2529,30 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
+	// Finish creating the kernel client.
+	info, err := d.createNewKernelClient(in, kernelInvoker, connInfo, kernelClientCreationChannel)
+
+	if err == nil {
+		if in.PrewarmContainer {
+			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Success ✓"),
+				in.Kernel.Id)
+		} else {
+			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Success ✓"),
+				in.Kernel.Id, in)
+		}
+
+		return info, nil
+	}
+
 	if in.PrewarmContainer {
-		d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Success ✓"),
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
 			in.Kernel.Id)
 	} else {
-		d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Success ✓"),
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
 			in.Kernel.Id, in)
 	}
 
-	// Finish creating the kernel client.
-	return d.createNewKernelClient(in, kernelInvoker, connInfo, kernelClientCreationChannel)
+	return nil, err
 }
 
 // allocateResourcesForNewReplica allocates resources to the new kernel replica in accordance with the
@@ -2585,6 +2599,9 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
+	d.log.Debug("Creating new KernelReplicaClient for kernel \"%s\" [Prewarm=%v]",
+		in.Kernel.Id, in.PrewarmContainer)
+
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
 		types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
@@ -2620,6 +2637,9 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 			d.prometheusManager.TotalNumStandardContainersCreatedCounter.Inc()
 		}
 	}
+
+	d.log.Debug("Successfully created new KernelReplicaClient for kernel \"%s\" [Prewarm=%v]",
+		in.Kernel.Id, in.PrewarmContainer)
 
 	return info, nil
 }
