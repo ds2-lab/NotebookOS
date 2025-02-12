@@ -40,6 +40,9 @@ type Gateway struct {
 	// RequestLog is used to track the status/progress of requests when in DebugMode.
 	RequestLog *metrics.RequestLog
 
+	// ClusterStatistics encapsulates a number of statistics/metrics.
+	ClusterStatistics *metrics.ClusterStatistics
+
 	log logger.Logger
 }
 

@@ -3453,9 +3453,9 @@ class DistributedKernel(IPythonKernel):
 
             reply_content = gen_error_response(dme)
         except Exception as e:
-            self.log.error("Execution error: {}...".format(e))
+            self.log.error(f"Execution error: {e}")
             self.log.error(traceback.format_exc())
-            self.report_error("Execution Error", str(e))
+            self.report_error("Execution Error", f"{type(e).__name__}: {e}")
 
             reply_content = gen_error_response(e)
 

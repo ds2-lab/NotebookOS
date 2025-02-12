@@ -452,8 +452,8 @@ func (c *KernelReplicaClient) KernelStartedTraining(trainingStartedAt time.Time)
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumTrainingSessions += 1
-			stats.CumulativeSessionIdleTime += time.Since(c.idleStartedAt).Seconds()
+			stats.NumTrainingSessions.Add(1)
+			stats.CumulativeSessionIdleTime.Add(time.Since(c.idleStartedAt).Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -597,8 +597,8 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumTrainingSessions -= 1
-			stats.CumulativeSessionTrainingTime += time.Since(c.lastTrainingStartedAt).Seconds()
+			stats.NumTrainingSessions.Sub(1)
+			stats.CumulativeSessionTrainingTime.Add(time.Since(c.lastTrainingStartedAt).Seconds())
 
 			var metadata map[string]interface{}
 			if container != nil {

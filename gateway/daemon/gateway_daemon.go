@@ -2350,7 +2350,9 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
-	d.log.Info("ClusterGatewayImpl::StartKernel[kernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v.",
+	d.log.Info(
+		utils.LightBlueStyle.Render(
+			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v."),
 		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
 
 	if in.ResourceSpec == nil {
@@ -2469,6 +2471,11 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.newKernelCreated(startTime, kernel.ID())
 
 	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v.", kernel.ID(), time.Since(startTime))
+
+	d.log.Info(
+		utils.DarkGreenStyle.Render(
+			"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v. Success ✓"),
+		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
 
 	return info, nil
 }
@@ -3199,7 +3206,7 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 
 		if session != nil {
 			lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
-			d.ClusterStatistics.AggregateSessionLifetimeSec += lifetimeSeconds
+			d.ClusterStatistics.AggregateSessionLifetimeSec.Add(lifetimeSeconds)
 			d.ClusterStatistics.AggregateSessionLifetimesSec = append(d.ClusterStatistics.AggregateSessionLifetimesSec, lifetimeSeconds)
 		}
 
@@ -3334,7 +3341,7 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 
 	if session != nil {
 		lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
-		d.ClusterStatistics.AggregateSessionLifetimeSec += lifetimeSeconds
+		d.ClusterStatistics.AggregateSessionLifetimeSec.Add(lifetimeSeconds)
 		d.ClusterStatistics.AggregateSessionLifetimesSec = append(d.ClusterStatistics.AggregateSessionLifetimesSec, lifetimeSeconds)
 	}
 
@@ -4315,7 +4322,7 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	// 'replicasAlreadyScheduled' will always be false.
 	if !replicasAlreadyScheduled {
 		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.NumTimesKernelReplicaNotAvailableImmediately += 1
+		d.ClusterStatistics.NumTimesKernelReplicaNotAvailableImmediately.Add(1)
 		d.clusterStatisticsMutex.Unlock()
 	}
 
@@ -4564,7 +4571,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		// increment the metric about a kernel replica being available right away.
 		if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
 			d.clusterStatisticsMutex.Lock()
-			d.ClusterStatistics.NumTimesKernelReplicaAvailableImmediately += 1
+			d.ClusterStatistics.NumTimesKernelReplicaAvailableImmediately.Add(1)
 			d.clusterStatisticsMutex.Unlock()
 		}
 
@@ -4573,9 +4580,9 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 			d.clusterStatisticsMutex.Lock()
 			// If we selected the same replica again, then update the corresponding metric.
 			if kernel.LastPrimaryReplica().ReplicaID() == targetReplica.ReplicaID() {
-				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively += 1
+				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively.Add(1)
 			} else {
-				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaUnavailable += 1
+				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaUnavailable.Add(1)
 			}
 			d.clusterStatisticsMutex.Unlock()
 		}
@@ -4587,7 +4594,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	// increment the metric about a kernel replica not being available right away.
 	if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
 		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.NumTimesKernelReplicaNotAvailableImmediately += 1
+		d.ClusterStatistics.NumTimesKernelReplicaNotAvailableImmediately.Add(1)
 		d.clusterStatisticsMutex.Unlock()
 	}
 
@@ -4745,7 +4752,7 @@ func (d *ClusterGatewayImpl) ExecutionLatencyCallback(latency time.Duration, wor
 	d.clusterStatisticsMutex.Lock()
 	defer d.clusterStatisticsMutex.Unlock()
 
-	d.ClusterStatistics.JupyterTrainingStartLatencyMillis += milliseconds
+	d.ClusterStatistics.JupyterTrainingStartLatencyMillis.Add(milliseconds)
 	d.ClusterStatistics.JupyterTrainingStartLatenciesMillis = append(
 		d.ClusterStatistics.JupyterTrainingStartLatenciesMillis, milliseconds)
 }
@@ -5036,85 +5043,85 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	defer d.clusterStatisticsMutex.Unlock()
 
 	if trace.CudaInitMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeCudaInitMicroseconds += float64(trace.CudaInitMicroseconds)
-		d.ClusterStatistics.NumCudaRuntimesInitialized += 1
+		d.ClusterStatistics.CumulativeCudaInitMicroseconds.Add(float64(trace.CudaInitMicroseconds))
+		d.ClusterStatistics.NumCudaRuntimesInitialized.Add(1)
 	}
 
 	if trace.ReplayTimeMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeReplayTimeMicroseconds += float64(trace.ReplayTimeMicroseconds)
-		d.ClusterStatistics.TotalNumReplays += 1
+		d.ClusterStatistics.CumulativeReplayTimeMicroseconds.Add(float64(trace.ReplayTimeMicroseconds))
+		d.ClusterStatistics.TotalNumReplays.Add(1)
 
 		session, loaded := d.cluster.GetSession(trace.KernelId)
 		if !loaded || session == nil {
 			d.log.Warn("Could not find session \"%s\" specified in RequestTrace: %s", trace.KernelId, trace.String())
 		} else {
 			// Subtract 1 to exclude the last training event that just completed.
-			d.ClusterStatistics.TotalNumCellsReplayed += int64(session.NumTrainingEventsProcessed() - 1)
+			d.ClusterStatistics.TotalNumCellsReplayed.Add(int64(session.NumTrainingEventsProcessed() - 1))
 		}
 	}
 
 	//if trace.DownloadDependencyMicroseconds > 0 {
 	//	d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += float64(trace.DownloadDependencyMicroseconds)
-	//	d.ClusterStatistics.NumTimesDownloadedDependencies += 1
+	//	d.ClusterStatistics.NumTimesDownloadedDependencies.Add(1)
 	//}
 
 	if trace.DownloadModelMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeDownloadModelMicroseconds += float64(trace.DownloadDatasetMicroseconds)
-		d.ClusterStatistics.NumTimesDownloadModelMicroseconds += 1
+		d.ClusterStatistics.CumulativeTimeDownloadModelMicroseconds.Add(float64(trace.DownloadDatasetMicroseconds))
+		d.ClusterStatistics.NumTimesDownloadModelMicroseconds.Add(1)
 	}
 
 	// Downloading the dataset overhead.
 	if trace.DownloadDatasetMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeDownloadTrainingDataMicroseconds += float64(trace.DownloadDatasetMicroseconds)
-		d.ClusterStatistics.NumTimesDownloadTrainingDataMicroseconds += 1
+		d.ClusterStatistics.CumulativeTimeDownloadTrainingDataMicroseconds.Add(float64(trace.DownloadDatasetMicroseconds))
+		d.ClusterStatistics.NumTimesDownloadTrainingDataMicroseconds.Add(1)
 	}
 
 	// Tokenization overhead. Only relevant for NLP datasets.
 	if trace.TokenizeDatasetMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTokenizeDatasetMicroseconds += float64(trace.TokenizeDatasetMicroseconds)
-		d.ClusterStatistics.NumTimesTokenizeDatasetMicroseconds += 1
+		d.ClusterStatistics.CumulativeTokenizeDatasetMicroseconds.Add(float64(trace.TokenizeDatasetMicroseconds))
+		d.ClusterStatistics.NumTimesTokenizeDatasetMicroseconds.Add(1)
 	}
 
 	if trace.UploadModelAndTrainingDataMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds += float64(trace.UploadModelAndTrainingDataMicroseconds)
-		d.ClusterStatistics.NumTimesUploadModelAndTrainingDataMicroseconds += 1
+		d.ClusterStatistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds.Add(float64(trace.UploadModelAndTrainingDataMicroseconds))
+		d.ClusterStatistics.NumTimesUploadModelAndTrainingDataMicroseconds.Add(1)
 	}
 
 	if trace.CopyFromCpuToGpuMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeCopyDataHostToDeviceMicroseconds += float64(trace.CopyFromCpuToGpuMicroseconds)
-		d.ClusterStatistics.NumTimesCopyDataHostToDeviceMicroseconds += 1
+		d.ClusterStatistics.CumulativeTimeCopyDataHostToDeviceMicroseconds.Add(float64(trace.CopyFromCpuToGpuMicroseconds))
+		d.ClusterStatistics.NumTimesCopyDataHostToDeviceMicroseconds.Add(1)
 	}
 
 	if trace.CopyFromGpuToCpuMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeCopyDataDeviceToHostMicroseconds += float64(trace.CopyFromGpuToCpuMicroseconds)
-		d.ClusterStatistics.NumTimesCopyDataDeviceToHostMicroseconds += 1
+		d.ClusterStatistics.CumulativeTimeCopyDataDeviceToHostMicroseconds.Add(float64(trace.CopyFromGpuToCpuMicroseconds))
+		d.ClusterStatistics.NumTimesCopyDataDeviceToHostMicroseconds.Add(1)
 	}
 
 	if trace.LeaderElectionTimeMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeLeaderElectionTimeMicroseconds += float64(trace.LeaderElectionTimeMicroseconds)
+		d.ClusterStatistics.CumulativeLeaderElectionTimeMicroseconds.Add(float64(trace.LeaderElectionTimeMicroseconds))
 	}
 
 	if trace.RequestReceivedByKernelReplica > 0 && trace.ElectionCreationTime > 0 {
 		preprocessDuration := trace.ElectionCreationTime - trace.RequestReceivedByKernelReplica
-		d.ClusterStatistics.CumulativeKernelCreateElectionMillis += float64(preprocessDuration)
+		d.ClusterStatistics.CumulativeKernelCreateElectionMillis.Add(float64(preprocessDuration))
 	}
 
 	if trace.ElectionCreationTime > 0 && trace.ElectionProposalPhaseStartTime > 0 {
 		electionCreationDuration := trace.ElectionProposalPhaseStartTime - trace.ElectionCreationTime
-		d.ClusterStatistics.CumulativeKernelCreateElectionMillis += float64(electionCreationDuration)
+		d.ClusterStatistics.CumulativeKernelCreateElectionMillis.Add(float64(electionCreationDuration))
 	}
 
 	if trace.ElectionProposalPhaseStartTime > 0 && trace.ElectionExecutionPhaseStartTime > 0 {
 		proposalVotePhaseDuration := trace.ElectionExecutionPhaseStartTime - trace.ElectionProposalPhaseStartTime
-		d.ClusterStatistics.CumulativeKernelProposalVotePhaseMillis += float64(proposalVotePhaseDuration)
+		d.ClusterStatistics.CumulativeKernelProposalVotePhaseMillis.Add(float64(proposalVotePhaseDuration))
 	}
 
 	if trace.ReplySentByKernelReplica > 0 && trace.ExecutionEndUnixMillis > 0 {
 		postprocessDuration := trace.ReplySentByKernelReplica - trace.ExecutionEndUnixMillis
-		d.ClusterStatistics.CumulativeKernelPostprocessMillis += float64(postprocessDuration)
+		d.ClusterStatistics.CumulativeKernelPostprocessMillis.Add(float64(postprocessDuration))
 	}
 
-	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += float64(trace.ExecutionTimeMicroseconds)
+	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds.Add(float64(trace.ExecutionTimeMicroseconds))
 
 	if trace.MessageType == messaging.ShellExecuteRequest || trace.MessageType == messaging.ShellExecuteReply || trace.MessageType == messaging.ShellYieldRequest {
 		d.ClusterStatistics.ExecuteRequestTraces = append(d.ClusterStatistics.ExecuteRequestTraces, trace)
@@ -5843,25 +5850,25 @@ func (d *ClusterGatewayImpl) DecrementResourceCountsForRemovedHost(host metrics.
 //
 // Important: resetResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
 func (d *ClusterGatewayImpl) resetResourceCounts() {
-	d.ClusterStatistics.IdleCPUs = 0
-	d.ClusterStatistics.IdleMemory = 0
-	d.ClusterStatistics.IdleGPUs = 0
-	d.ClusterStatistics.IdleVRAM = 0
+	d.ClusterStatistics.IdleCPUs.Store(0.0)
+	d.ClusterStatistics.IdleMemory.Store(0.0)
+	d.ClusterStatistics.IdleGPUs.Store(0.0)
+	d.ClusterStatistics.IdleVRAM.Store(0.0)
 
-	d.ClusterStatistics.PendingCPUs = 0
-	d.ClusterStatistics.PendingMemory = 0
-	d.ClusterStatistics.PendingGPUs = 0
-	d.ClusterStatistics.PendingVRAM = 0
+	d.ClusterStatistics.PendingCPUs.Store(0.0)
+	d.ClusterStatistics.PendingMemory.Store(0.0)
+	d.ClusterStatistics.PendingGPUs.Store(0.0)
+	d.ClusterStatistics.PendingVRAM.Store(0.0)
 
-	d.ClusterStatistics.CommittedCPUs = 0
-	d.ClusterStatistics.CommittedMemory = 0
-	d.ClusterStatistics.CommittedGPUs = 0
-	d.ClusterStatistics.CommittedVRAM = 0
+	d.ClusterStatistics.CommittedCPUs.Store(0.0)
+	d.ClusterStatistics.CommittedMemory.Store(0.0)
+	d.ClusterStatistics.CommittedGPUs.Store(0.0)
+	d.ClusterStatistics.CommittedVRAM.Store(0.0)
 
-	d.ClusterStatistics.SpecCPUs = 0
-	d.ClusterStatistics.SpecMemory = 0
-	d.ClusterStatistics.SpecGPUs = 0
-	d.ClusterStatistics.SpecVRAM = 0
+	d.ClusterStatistics.SpecCPUs.Store(0.0)
+	d.ClusterStatistics.SpecMemory.Store(0.0)
+	d.ClusterStatistics.SpecGPUs.Store(0.0)
+	d.ClusterStatistics.SpecVRAM.Store(0.0)
 }
 
 // incrIdleResourcesForHost increments the idle resource counts of the ClusterStatistics for a particular host.
@@ -5875,10 +5882,10 @@ func (d *ClusterGatewayImpl) incrIdleResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.IdleCPUs += host.IdleCPUs()
-	d.ClusterStatistics.IdleMemory += host.IdleMemoryMb()
-	d.ClusterStatistics.IdleGPUs += host.IdleGPUs()
-	d.ClusterStatistics.IdleVRAM += host.IdleVRAM()
+	d.ClusterStatistics.IdleCPUs.Add(host.IdleCPUs())
+	d.ClusterStatistics.IdleMemory.Add(host.IdleMemoryMb())
+	d.ClusterStatistics.IdleGPUs.Add(host.IdleGPUs())
+	d.ClusterStatistics.IdleVRAM.Add(host.IdleVRAM())
 }
 
 // incrPendingResourcesForHost increments the pending resource counts of the ClusterStatistics for a particular host.
@@ -5892,10 +5899,10 @@ func (d *ClusterGatewayImpl) incrPendingResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.PendingCPUs += host.PendingCPUs()
-	d.ClusterStatistics.PendingMemory += host.PendingMemoryMb()
-	d.ClusterStatistics.PendingGPUs += host.PendingGPUs()
-	d.ClusterStatistics.PendingVRAM += host.PendingVRAM()
+	d.ClusterStatistics.PendingCPUs.Add(host.PendingCPUs())
+	d.ClusterStatistics.PendingMemory.Add(host.PendingMemoryMb())
+	d.ClusterStatistics.PendingGPUs.Add(host.PendingGPUs())
+	d.ClusterStatistics.PendingVRAM.Add(host.PendingVRAM())
 }
 
 // incrCommittedResourcesForHost increments the committed resource counts of the ClusterStatistics for a particular host.
@@ -5909,10 +5916,10 @@ func (d *ClusterGatewayImpl) incrCommittedResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.CommittedCPUs += host.CommittedCPUs()
-	d.ClusterStatistics.CommittedMemory += host.CommittedMemoryMb()
-	d.ClusterStatistics.CommittedGPUs += host.CommittedGPUs()
-	d.ClusterStatistics.CommittedVRAM += host.CommittedVRAM()
+	d.ClusterStatistics.CommittedCPUs.Add(host.CommittedCPUs())
+	d.ClusterStatistics.CommittedMemory.Add(host.CommittedMemoryMb())
+	d.ClusterStatistics.CommittedGPUs.Add(host.CommittedGPUs())
+	d.ClusterStatistics.CommittedVRAM.Add(host.CommittedVRAM())
 }
 
 // incrSpecResourcesForHost increments the spec resource counts of the ClusterStatistics for a particular host.
@@ -5926,10 +5933,10 @@ func (d *ClusterGatewayImpl) incrSpecResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.SpecCPUs += host.ResourceSpec().CPU()
-	d.ClusterStatistics.SpecMemory += host.ResourceSpec().MemoryMB()
-	d.ClusterStatistics.SpecGPUs += host.ResourceSpec().GPU()
-	d.ClusterStatistics.SpecVRAM += host.ResourceSpec().VRAM()
+	d.ClusterStatistics.SpecCPUs.Add(host.ResourceSpec().CPU())
+	d.ClusterStatistics.SpecMemory.Add(host.ResourceSpec().MemoryMB())
+	d.ClusterStatistics.SpecGPUs.Add(host.ResourceSpec().GPU())
+	d.ClusterStatistics.SpecVRAM.Add(host.ResourceSpec().VRAM())
 }
 
 // incrementResourceCountsForHost increments the resource counts of the ClusterStatistics for a particular host.
@@ -5956,10 +5963,10 @@ func (d *ClusterGatewayImpl) decrIdleResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.IdleCPUs -= host.IdleCPUs()
-	d.ClusterStatistics.IdleMemory -= host.IdleMemoryMb()
-	d.ClusterStatistics.IdleGPUs -= host.IdleGPUs()
-	d.ClusterStatistics.IdleVRAM -= host.IdleVRAM()
+	d.ClusterStatistics.IdleCPUs.Sub(host.IdleCPUs())
+	d.ClusterStatistics.IdleMemory.Sub(host.IdleMemoryMb())
+	d.ClusterStatistics.IdleGPUs.Sub(host.IdleGPUs())
+	d.ClusterStatistics.IdleVRAM.Sub(host.IdleVRAM())
 }
 
 // decrPendingResourcesForHost decrements the pending resource counts of the ClusterStatistics for a particular host.
@@ -5971,10 +5978,10 @@ func (d *ClusterGatewayImpl) decrPendingResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.PendingCPUs -= host.PendingCPUs()
-	d.ClusterStatistics.PendingMemory -= host.PendingMemoryMb()
-	d.ClusterStatistics.PendingGPUs -= host.PendingGPUs()
-	d.ClusterStatistics.PendingVRAM -= host.PendingVRAM()
+	d.ClusterStatistics.PendingCPUs.Sub(host.PendingCPUs())
+	d.ClusterStatistics.PendingMemory.Sub(host.PendingMemoryMb())
+	d.ClusterStatistics.PendingGPUs.Sub(host.PendingGPUs())
+	d.ClusterStatistics.PendingVRAM.Sub(host.PendingVRAM())
 }
 
 // decrCommittedResourcesForHost decrements the committed resource counts of the ClusterStatistics for a particular host.
@@ -5986,10 +5993,10 @@ func (d *ClusterGatewayImpl) decrCommittedResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.CommittedCPUs -= host.CommittedCPUs()
-	d.ClusterStatistics.CommittedMemory -= host.CommittedMemoryMb()
-	d.ClusterStatistics.CommittedGPUs -= host.CommittedGPUs()
-	d.ClusterStatistics.CommittedVRAM -= host.CommittedVRAM()
+	d.ClusterStatistics.CommittedCPUs.Sub(host.CommittedCPUs())
+	d.ClusterStatistics.CommittedMemory.Sub(host.CommittedMemoryMb())
+	d.ClusterStatistics.CommittedGPUs.Sub(host.CommittedGPUs())
+	d.ClusterStatistics.CommittedVRAM.Sub(host.CommittedVRAM())
 }
 
 // decrSpecResourcesForHost decrements the spec resource counts of the ClusterStatistics for a particular host.
@@ -6001,10 +6008,10 @@ func (d *ClusterGatewayImpl) decrSpecResourcesForHost(host metrics.Host) {
 		return
 	}
 
-	d.ClusterStatistics.SpecCPUs -= host.ResourceSpec().CPU()
-	d.ClusterStatistics.SpecMemory -= host.ResourceSpec().MemoryMB()
-	d.ClusterStatistics.SpecGPUs -= host.ResourceSpec().GPU()
-	d.ClusterStatistics.SpecVRAM -= host.ResourceSpec().VRAM()
+	d.ClusterStatistics.SpecCPUs.Sub(host.ResourceSpec().CPU())
+	d.ClusterStatistics.SpecMemory.Sub(host.ResourceSpec().MemoryMB())
+	d.ClusterStatistics.SpecGPUs.Sub(host.ResourceSpec().GPU())
+	d.ClusterStatistics.SpecVRAM.Sub(host.ResourceSpec().VRAM())
 }
 
 // decrementResourceCountsForHost decrements the resource counts of the ClusterStatistics for a particular host.
@@ -6056,7 +6063,7 @@ func (d *ClusterGatewayImpl) recomputeResourceCounts() (int, int) {
 		return true
 	})
 
-	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts = aggregateHostLifetimeOfRunningHosts
+	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts.Store(aggregateHostLifetimeOfRunningHosts)
 
 	return numNonEmptyHosts, numEmptyHosts
 }
@@ -6088,13 +6095,13 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	// Hosts //
 	///////////
 
-	d.ClusterStatistics.Hosts = d.cluster.Len()
-	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
-	d.ClusterStatistics.NumEmptyHosts = numEmptyHosts
+	d.ClusterStatistics.Hosts.Store(int32(d.cluster.Len()))
+	d.ClusterStatistics.NumDisabledHosts.Store(int32(d.cluster.NumDisabledHosts()))
+	d.ClusterStatistics.NumEmptyHosts.Store(int32(numEmptyHosts))
 
-	d.ClusterStatistics.CumulativeHostActiveTime += activeTime.Seconds()
-	d.ClusterStatistics.CumulativeHostIdleTime += idleTime.Seconds()
-	d.ClusterStatistics.AggregateHostLifetime += time.Since(lastTime).Seconds() * float64(d.cluster.Len())
+	d.ClusterStatistics.CumulativeHostActiveTime.Add(activeTime.Seconds())
+	d.ClusterStatistics.CumulativeHostIdleTime.Add(idleTime.Seconds())
+	d.ClusterStatistics.AggregateHostLifetime.Add(time.Since(lastTime).Seconds() * float64(d.cluster.Len()))
 
 	var numRunning, numIdle, numTraining, numStopped int
 	d.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
@@ -6118,28 +6125,28 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 		return true
 	})
 
-	d.ClusterStatistics.NumSeenSessions = d.cluster.Sessions().Len()
-	d.ClusterStatistics.NumRunningSessions = numRunning
-	d.ClusterStatistics.NumIdleSessions = numIdle
-	d.ClusterStatistics.NumTrainingSessions = numTraining
-	d.ClusterStatistics.NumStoppedSessions = numStopped
+	d.ClusterStatistics.NumSeenSessions.Store(d.cluster.Sessions().Len())
+	d.ClusterStatistics.NumRunningSessions.Store(int32(numRunning))
+	d.ClusterStatistics.NumIdleSessions.Store(int32(numIdle))
+	d.ClusterStatistics.NumTrainingSessions.Store(int32(numTraining))
+	d.ClusterStatistics.NumStoppedSessions.Store(int32(numStopped))
 
-	d.ClusterStatistics.DemandGPUs = demandCpus
-	d.ClusterStatistics.DemandMemMb = demandMem
-	d.ClusterStatistics.DemandGPUs = demandGpus
-	d.ClusterStatistics.DemandVRAMGb = demandVram
+	d.ClusterStatistics.DemandGPUs.Store(demandCpus)
+	d.ClusterStatistics.DemandMemMb.Store(demandMem)
+	d.ClusterStatistics.DemandGPUs.Store(demandGpus)
+	d.ClusterStatistics.DemandVRAMGb.Store(demandVram)
 
 	///////////
 	// Hosts //
 	///////////
 
-	d.ClusterStatistics.Hosts = d.cluster.Len()
-	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
+	d.ClusterStatistics.Hosts.Store(int32(d.cluster.Len()))
+	d.ClusterStatistics.NumDisabledHosts.Store(int32(d.cluster.NumDisabledHosts()))
 
 	/////////////////////////////////
 	// Static & Dynamic Scheduling //
 	/////////////////////////////////
-	d.ClusterStatistics.SubscriptionRatio = d.cluster.Scheduler().SubscriptionRatio()
+	d.ClusterStatistics.SubscriptionRatio.Store(d.cluster.Scheduler().SubscriptionRatio())
 
 	////////////////////////
 	// Dynamic Scheduling //
@@ -6148,8 +6155,8 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	//////////////
 	// Sessions //
 	//////////////
-	d.ClusterStatistics.NumNonTerminatedSessions = int(d.numActiveKernels.Load())
-	d.ClusterStatistics.NumRunningSessions = d.cluster.Sessions().Len()
+	d.ClusterStatistics.NumNonTerminatedSessions.Store(int32(d.numActiveKernels.Load()))
+	d.ClusterStatistics.NumRunningSessions.Store(d.cluster.Sessions().Len())
 
 	d.lastFullStatisticsUpdate = time.Now()
 

@@ -2435,7 +2435,6 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	}
 
 	if in.PrewarmContainer {
-		d.log.Debug("LocalScheduler::StartKernelReplica called for prewarm container \"%s\"", in.Kernel.Id)
 		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[PrewarmID=%s]"), in.Kernel.Id)
 	} else {
 		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[KernelId=%s, Spec=%v]"), in.Kernel.Id, in)
