@@ -1694,9 +1694,7 @@ class DistributedKernel(IPythonKernel):
 
             self.log.info('Persistent ID set: "%s"' % self.persistent_id)
             # Initialize persistent store
-            self.store = await self.init_persistent_store_with_persistent_id(
-                self.persistent_id
-            )
+            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
             # Resolve future
             rsp = self.gen_simple_response()
@@ -1830,6 +1828,8 @@ class DistributedKernel(IPythonKernel):
                 "Calling `notify_all` on the Persistent Store condition variable."
             )
             self.persistent_store_cv.notify_all()
+
+        self.log.info(f'Successfully initialized persistent store with ID "{persistent_id}".')
 
         return self.store_path
 
@@ -2506,20 +2506,13 @@ class DistributedKernel(IPythonKernel):
         if self.prometheus_enabled:
             self.registration_time_milliseconds.observe(registration_duration)
 
-        # Call start now that we're no longer a prewarm container.
-        self.init_persistent_store_on_start_future: futures.Future = (
-            asyncio.run_coroutine_threadsafe(
-                self.init_persistent_store_on_start(self.persistent_id),
-                self.control_thread.io_loop.asyncio_loop,
-            )
-        )
-        self.init_persistent_store_on_start_future.add_done_callback(
-            self.persistent_store_initialized_callback
-        )
+        self.log.info(f'Initializing Persistent Store with new Persistent ID: "{self.persistent_id}"')
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        # Create future to avoid duplicate initialization
+        self.store = asyncio.Future(loop=asyncio.get_running_loop())
+        self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "promote_prewarm_reply",
