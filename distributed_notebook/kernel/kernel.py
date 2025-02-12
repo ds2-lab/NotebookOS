@@ -2107,7 +2107,7 @@ class DistributedKernel(IPythonKernel):
             training_duration_millis=training_duration_millis,
             gpu_device_ids=gpu_device_ids,
             deep_learning_model_name=target_model,
-            execute_request_metdata=metadata,
+            execute_request_metadata=metadata,
             dataset=target_dataset,
             batch_size=batch_size,
         )
@@ -3387,7 +3387,7 @@ class DistributedKernel(IPythonKernel):
                 deep_learning_model_name=deep_learning_model_name,
                 dataset=dataset,
                 batch_size=batch_size,
-                execute_request_metdata=execute_request_metdata,
+                execute_request_metadata=execute_request_metadata,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -3427,7 +3427,7 @@ class DistributedKernel(IPythonKernel):
     def __validate_gpu_id_args(
             self,
             gpu_device_ids: list[int] = None,
-            execute_request_metdata: Optional[Dict[str, Any]] = None,
+            execute_request_metadata: Optional[Dict[str, Any]] = None,
     ):
         # If we're simulating training using time.sleep, then we have
         # no expectations regarding the GPU device IDs. We can return.
@@ -3439,16 +3439,16 @@ class DistributedKernel(IPythonKernel):
             return
 
         # At this point, the GPU device IDs are either none or empty.
-        if execute_request_metdata is not None and "required-gpus" in execute_request_metdata:
+        if execute_request_metadata is not None and "required-gpus" in execute_request_metadata:
             # If in the request metadata, we were told that we don't actually need any GPUs
             # for this training, then we're okay to return.
-            assert execute_request_metdata["required-gpus"] == 0
+            assert execute_request_metadata["required-gpus"] == 0
             return
 
-        if execute_request_metdata is not None and "resource_request" in execute_request_metdata:
+        if execute_request_metadata is not None and "resource_request" in execute_request_metadata:
             # If the latest/current resource request is embedded in the metadata, then we can
             # check that to verify that we do not in fact require any GPU device IDs.
-            resource_request: Dict[str, int|float] = execute_request_metdata["resource_request"]
+            resource_request: Dict[str, int|float] = execute_request_metadata["resource_request"]
             assert "gpus" in resource_request and resource_request["gpus"] == 0
 
         # If our current execution request is not None and there is a "gpus" entry,
@@ -3481,7 +3481,7 @@ class DistributedKernel(IPythonKernel):
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
             batch_size: Optional[int] = None,
-            execute_request_metdata: Optional[Dict[str, Any]] = None,
+            execute_request_metadata: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3492,7 +3492,10 @@ class DistributedKernel(IPythonKernel):
                  - (3) the code that was executed (which may have been updated/changed)
         """
         if not self.simulate_training_using_sleep:
-            self.__validate_gpu_id_args()
+            self.__validate_gpu_id_args(
+                gpu_device_ids = gpu_device_ids,
+                execute_request_metadata = execute_request_metadata
+            )
 
         performed_dl_training: bool = False
 
