@@ -622,11 +622,26 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// It's possible one of the config functions already set this, so check that it is nil first.
 	if clusterGateway.hostSpec == nil {
+		vram := clusterDaemonOptions.VramGbPerHost
+		if vram <= 0 {
+			vram = scheduling.DefaultVramPerHostGb
+		}
+
+		millicpus := clusterDaemonOptions.MillicpusPerHost
+		if millicpus <= 0 {
+			millicpus = scheduling.DefaultMillicpusPerHost
+		}
+
+		memoryMb := clusterDaemonOptions.MemoryMbPerHost
+		if memoryMb <= 0 {
+			memoryMb = scheduling.DefaultMemoryMbPerHost
+		}
+
 		clusterGateway.hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-			VRam:      decimal.NewFromFloat(scheduling.DefaultVramPerHostGb),
-			Millicpus: decimal.NewFromFloat(scheduling.DefaultMillicpusPerHost),
-			MemoryMb:  decimal.NewFromFloat(scheduling.DefaultMemoryMbPerHost),
+			VRam:      decimal.NewFromFloat(vram),
+			Millicpus: decimal.NewFromFloat(float64(millicpus)),
+			MemoryMb:  decimal.NewFromFloat(memoryMb),
 		}
 	}
 
