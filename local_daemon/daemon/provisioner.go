@@ -84,9 +84,10 @@ func (p *Provisioner) InitClient(session *yamux.Session) (*grpc.ClientConn, erro
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			conn, err := session.Open()
 			if err != nil {
-				p.log.Error("Failed to open CLI session during dial: %v", err)
+				p.log.Warn("Dial failed for yamux.Session while initializing gRPC client: %v", err)
 			} else {
-				p.log.Debug("Opened cliSession. conn.LocalAddr(): %v, conn.RemoteAddr(): %v", conn.LocalAddr(), conn.RemoteAddr())
+				p.log.Debug("Opened cliSession. conn.LocalAddr(): %v, conn.RemoteAddr(): %v",
+					conn.LocalAddr(), conn.RemoteAddr())
 			}
 
 			return conn, err
