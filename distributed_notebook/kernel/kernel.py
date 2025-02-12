@@ -5055,7 +5055,7 @@ class DistributedKernel(IPythonKernel):
 
     async def override_shell(self):
         """Override IPython Core"""
-        
+
         # We only want to do this once.
         # If we re-use this container as a pre-warm container, then we do not want to execute this again,
         # as doing so will set self.old_run_cell to self.run_cell, and self.shell.run_cell will be set to
