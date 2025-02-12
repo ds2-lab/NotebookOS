@@ -1,10 +1,10 @@
 import asyncio
-import sys
-import time
-from typing import Any, Optional, List, Iterable, ByteString
+from typing import Any, Optional, List, ByteString
 
 import redis
 import redis.asyncio as async_redis
+import sys
+import time
 
 from distributed_notebook.sync.checkpointing.util import split_bytes_buffer
 from distributed_notebook.sync.remote_storage.error import InvalidKeyError
@@ -12,6 +12,7 @@ from distributed_notebook.sync.remote_storage.remote_storage_provider import Rem
 
 try:
     import fakeredis
+
     fakeredis_imported: bool = True
 except ImportError:
     fakeredis_imported: bool = False
@@ -23,24 +24,24 @@ class RedisProvider(RemoteStorageProvider):
 
     def __init__(
             self,
-            host:str = "",
+            host: str = "",
             port: int = 6379,
             db: int = 0,
             password: Optional[str] = None,
             additional_redis_args: Optional[dict] = None,
-            redis_client = None, # For unit testing
-            async_redis_client = None, # For unit testing
+            redis_client=None,  # For unit testing
+            async_redis_client=None,  # For unit testing
             strict_size_checking_during_tests: bool = False,
     ):
         super().__init__()
 
         if ':' in host:
-            host_orig:str = host
+            host_orig: str = host
             idx = host_orig.index(':')
             host = host_orig[:idx]
 
             try:
-                port = int(host_orig[idx+1:]) # +1 because idx is the index of the ':', not the beginning of the port
+                port = int(host_orig[idx + 1:])  # +1 because idx is the index of the ':', not the beginning of the port
             except IndexError:
                 # Apparently there's nothing after the colon, so we'll use the default of 6379 (or whatever was passed).
                 pass
@@ -67,25 +68,26 @@ class RedisProvider(RemoteStorageProvider):
             self._redis = redis_client
         else:
             self.log.debug(f"Creating synchronous Redis client of Redis server at {host}:{port} (db={db}).")
-            self._redis = redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
+            self._redis = redis.Redis(host=host, port=port, db=db, password=password, **additional_redis_args)
 
         if async_redis_client is not None:
             self._async_redis = async_redis_client
         else:
             self.log.debug(f"Creating asynchronous Redis client of Redis server at {host}:{port} (db={db}).")
-            self._async_redis = async_redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
+            self._async_redis = async_redis.Redis(host=host, port=port, db=db, password=password,
+                                                  **additional_redis_args)
 
         self.log.debug(f"Successfully connected to Redis server at {host}:{port} (db={db}).")
 
     @property
-    def hostname(self)->str:
+    def hostname(self) -> str:
         return self._redis_host
 
     @property
-    def redis_port(self)->int:
+    def redis_port(self) -> int:
         return self._redis_port
 
-    def __ensure_async_redis(self)->bool:
+    def __ensure_async_redis(self) -> bool:
         """
         Ensure the RedisProvider has created its async Redis client.
 
@@ -93,10 +95,10 @@ class RedisProvider(RemoteStorageProvider):
         """
         if getattr(self, "_async_redis") is None:
             self._async_redis = async_redis.Redis(
-                host = self._redis_host,
-                port = self._redis_port,
-                db = self._redis_db,
-                password = self._redis_password,
+                host=self._redis_host,
+                port=self._redis_port,
+                db=self._redis_db,
+                password=self._redis_password,
                 **self._additional_redis_args
             )
             return False
@@ -112,18 +114,18 @@ class RedisProvider(RemoteStorageProvider):
         """
         if getattr(self, "_redis") is None:
             self._redis = redis.Redis(
-                host = self._redis_host,
-                port = self._redis_port,
-                db = self._redis_db,
-                password = self._redis_password,
+                host=self._redis_host,
+                port=self._redis_port,
+                db=self._redis_db,
+                password=self._redis_password,
                 **self._additional_redis_args
             )
 
     @property
-    def storage_name(self)->str:
+    def storage_name(self) -> str:
         return f"Redis({self._redis_host}:{self._redis_port},db={self._redis_db})"
 
-    def is_too_large(self, size_bytes: int)->bool:
+    def is_too_large(self, size_bytes: int) -> bool:
         """
         :param size_bytes: the size of the data to (potentially) be written to remote remote_storage
         :return: True if the data is too large to be written, otherwise False
@@ -143,11 +145,11 @@ class RedisProvider(RemoteStorageProvider):
         if isinstance(self._redis, fakeredis.FakeRedis) and isinstance(self._async_redis, fakeredis.FakeAsyncRedis):
             self.log.warning(f"We appear to be unit testing, so returning 'False' for 'is_too_large({size_bytes:,}) "
                              f"despite it being >512MB...")
-            return False # Allow objects of arbitrary sizes for unit testing (when the flag mentioned above is False).
+            return False  # Allow objects of arbitrary sizes for unit testing (when the flag mentioned above is False).
 
         return size_bytes > RedisProvider.size_limit_bytes
 
-    async def __chunk_data_async(self, key: str, value: bytes, size_bytes: int = -1, size_mb: float = -1)->bool:
+    async def __chunk_data_async(self, key: str, value: bytes, size_bytes: int = -1, size_mb: float = -1) -> bool:
         """
         Split the given buffer into smaller pieces so that it can be written to remote storage.
 
@@ -165,7 +167,7 @@ class RedisProvider(RemoteStorageProvider):
         if size_mb <= 0:
             size_mb = size_bytes / 1.0e6
 
-        chunks: List[ByteString] = split_bytes_buffer(value) # Default chunk_size is 128MB.
+        chunks: List[ByteString] = split_bytes_buffer(value)  # Default chunk_size is 128MB.
         chunk_sizes: List[str] = [f'{len(chunk) / 1.0e6:,} MB' for chunk in chunks]
 
         self.log.debug(f'Split value of size {size_mb:,} MB to be stored at key '
@@ -190,7 +192,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    def __chunk_data(self, key: str, value: bytes, size_bytes: int = -1, size_mb: float = -1)->bool:
+    def __chunk_data(self, key: str, value: bytes, size_bytes: int = -1, size_mb: float = -1) -> bool:
         """
         Split the given buffer into smaller pieces so that it can be written to remote storage.
 
@@ -208,7 +210,7 @@ class RedisProvider(RemoteStorageProvider):
         if size_mb <= 0:
             size_mb = size_bytes / 1.0e6
 
-        chunks: List[ByteString] = split_bytes_buffer(value) # Default chunk_size is 128MB.
+        chunks: List[ByteString] = split_bytes_buffer(value)  # Default chunk_size is 128MB.
         chunk_sizes: List[str] = [f'{len(chunk) / 1.0e6:,} MB' for chunk in chunks]
 
         self.log.debug(f'Split value of size {size_mb:,} MB to be stored at key '
@@ -233,7 +235,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    async def write_value_async(self, key: str, value: Any)->bool:
+    async def write_value_async(self, key: str, value: Any) -> bool:
         """
         Asynchronously write a value to Redis at the specified key.
 
@@ -243,14 +245,14 @@ class RedisProvider(RemoteStorageProvider):
         self.__ensure_async_redis()
 
         size_bytes: int = sys.getsizeof(value)
-        size_mb: float = size_bytes/1.0e6
+        size_mb: float = size_bytes / 1.0e6
 
         if self.is_too_large(size_bytes):
             self.log.warning(f'Cannot write value with key="{key}" to {self.storage_name}. '
                              f'Model state is larger than maximum size of '
                              f'{self._size_limit_mb:,} MB: {size_mb:,} MB.')
 
-            return await self.__chunk_data_async(key, value, size_mb = size_mb)
+            return await self.__chunk_data_async(key, value, size_mb=size_mb)
 
         start_time: float = time.time()
 
@@ -271,7 +273,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    def write_value(self, key: str, value: Any)->bool:
+    def write_value(self, key: str, value: Any) -> bool:
         """
         Write a value to Redis at the specified key.
 
@@ -281,14 +283,14 @@ class RedisProvider(RemoteStorageProvider):
         self.__ensure_redis()
 
         size_bytes: int = sys.getsizeof(value)
-        size_mb: float = size_bytes/1.0e6
+        size_mb: float = size_bytes / 1.0e6
 
         if self.is_too_large(size_bytes):
             self.log.warning(f'Cannot write value with key="{key}" to {self.storage_name}. '
                              f'Model state is larger than maximum size of '
                              f'{self._size_limit_mb:,} MB: {size_mb:,} MB.')
 
-            return self.__chunk_data(key, value, size_mb = size_mb)
+            return self.__chunk_data(key, value, size_mb=size_mb)
 
         start_time: float = time.time()
 
@@ -309,7 +311,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    async def read_value_async(self, key: str)->Any:
+    async def read_value_async(self, key: str) -> Any:
         """
         Asynchronously read a value from Redis.
         :param key: the Redis key from which to read the value.
@@ -321,12 +323,20 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         # Get the type of the data.
-        value_type: str|bytes = await self._async_redis.type(key)
+        value_type: str | bytes = await self._async_redis.type(key)
 
         if isinstance(value_type, bytes):
             value_type = value_type.decode()
 
+        # If the value type is "none", then there's simply no data stored at
+        # that key, in which case we can already raise an InvalidKeyError.
+        if value_type== "none":
+            raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
+
         if value_type != "string" and value_type != "list":
+            self.log.error(f'Value stored in Redis at key "{key}" has '
+                           f'unexpected type: "{value_type}". '
+                           f'Expected "string" or "list".')
             raise ValueError(f'Value stored in Redis at key "{key}" has '
                              f'unexpected type: "{value_type}". '
                              f'Expected "string" or "list".')
@@ -334,7 +344,7 @@ class RedisProvider(RemoteStorageProvider):
         num_values_read: int = 1
         if value_type == "list":
             # Read the entire list.
-            values: Optional[List[str|bytes|memoryview]] = await self._async_redis.lrange(key, 0, -1)
+            values: Optional[List[str | bytes | memoryview]] = await self._async_redis.lrange(key, 0, -1)
             if values is None or len(values) == 0:
                 raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
@@ -344,9 +354,9 @@ class RedisProvider(RemoteStorageProvider):
             num_values_read = len(values)
 
             # Concatenate all the items in the list together.
-            value: str|bytes|memoryview = b''.join(values)
+            value: str | bytes | memoryview = b''.join(values)
         else:
-            value: Optional[str|bytes|memoryview] = await self._async_redis.get(key)
+            value: Optional[str | bytes | memoryview] = await self._async_redis.get(key)
 
             if value is None:
                 raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
@@ -367,7 +377,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return value
 
-    def read_value(self, key: str)->Any:
+    def read_value(self, key: str) -> Any:
         """
         Read a value from Redis from the specified key.
         :param key: the Redis key from which to read the value.
@@ -379,12 +389,20 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         # Get the type of the data.
-        value_type: str|bytes = self._redis.type(key)
+        value_type: str | bytes = self._redis.type(key)
 
         if isinstance(value_type, bytes):
             value_type = value_type.decode()
 
+        # If the value type is "none", then there's simply no data stored at
+        # that key, in which case we can already raise an InvalidKeyError.
+        if value_type== "none":
+            raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
+
         if value_type != "string" and value_type != "list":
+            self.log.error(f'Value stored in Redis at key "{key}" has '
+                           f'unexpected type: "{value_type}". '
+                           f'Expected "string" or "list".')
             raise ValueError(f'Value stored in Redis at key "{key}" has '
                              f'unexpected type: "{value_type}". '
                              f'Expected "string" or "list".')
@@ -393,7 +411,7 @@ class RedisProvider(RemoteStorageProvider):
 
         if value_type == "list":
             # Read the entire list.
-            values: Optional[List[str|bytes|memoryview]] = self._redis.lrange(key, 0, -1)
+            values: Optional[List[str | bytes | memoryview]] = self._redis.lrange(key, 0, -1)
             if values is None or len(values) == 0:
                 raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
@@ -403,9 +421,9 @@ class RedisProvider(RemoteStorageProvider):
             num_values_read = len(values)
 
             # Concatenate all the items in the list together.
-            value: str|bytes|memoryview = b''.join(values)
+            value: str | bytes | memoryview = b''.join(values)
         else:
-            value: Optional[str|bytes|memoryview] = self._redis.get(key)
+            value: Optional[str | bytes | memoryview] = self._redis.get(key)
 
             if value is None:
                 raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
@@ -429,7 +447,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return value
 
-    async def delete_value_async(self, key: str)->bool:
+    async def delete_value_async(self, key: str) -> bool:
         """
         Asynchronously delete the value stored at the specified key from Redis.
 
@@ -455,7 +473,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    def delete_value(self, key: str)->bool:
+    def delete_value(self, key: str) -> bool:
         """
         Delete the value stored at the specified key from Redis.
 
