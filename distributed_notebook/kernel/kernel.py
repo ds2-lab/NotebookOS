@@ -1981,6 +1981,38 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name
 
+    def __validate_resource_spec_metadata(self, metadata: Dict[str, Any]):
+        """
+        Validate the 'resource_request' and 'required-X' entries (where X is 'gpus', 'millicpus', 'memory-mb',
+        or 'vram-gb'). They should be consistent with each other.
+        """
+        resource_request: Optional[Dict[str, Any]] = metadata["resource_request"]
+        if resource_request is None:
+            return
+
+        required_keys: list[str] = ['required-millicpus', 'required-memory-mb', 'required-gpus', 'required-vram-gb']
+        resource_request_keys: list[str] = ['cpus', 'memory', 'gpus', 'vram']
+
+        for required_key, resource_request_key in list(zip(required_keys, resource_request_keys)):
+            # If either key is not present, then skip it.
+            if required_key not in metadata or resource_request_key not in resource_request:
+                continue
+
+            if metadata[required_key] != resource_request[resource_request_key]:
+                self.log.error(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                               f"and current resource request '{resource_request_key}' "
+                               f"({resource_request[resource_request_key]}).")
+
+                self.report_error(f"Inconsistent '{required_key}' Field and "
+                                  f"Resource Request '{resource_request_key}' Field",
+                                  f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                                  f"and current resource request '{resource_request_key}' "
+                                  f"({resource_request[resource_request_key]}).")
+
+                raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                                 f"and current resource request '{resource_request_key}' "
+                                 f"({resource_request[resource_request_key]}).")
+
     async def process_execute_request_metadata(
             self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
     ) -> tuple[Optional[str], list[int]]:
@@ -1989,43 +2021,32 @@ class DistributedKernel(IPythonKernel):
 
         :return: a tuple where the first element is the remote remote_storage name and the second is a list of GPU device IDs.
         """
-        self.log.debug(
-            f'Processing metadata of "{msg_type}" request "{msg_id}": {metadata}'
-        )
+        self.log.debug(f'Processing metadata of "{msg_type}" request "{msg_id}": {metadata}')
 
         if metadata is None:
             return None, []
 
         resource_request: Dict[str, Any] = metadata.get("resource_request", {})
 
-        remote_storage_definition: Dict[str, Any] = metadata.get(
-            "remote_storage_definition", {}
-        )
+        remote_storage_definition: Dict[str, Any] = metadata.get("remote_storage_definition", {})
 
         workload_id: str = metadata.get("workload_id", "")
 
         if len(resource_request) > 0:
-            self.log.debug(
-                f'Extracted ResourceRequest from "{msg_type}" metadata: {resource_request}'
-            )
+            self.log.debug(f'Extracted ResourceRequest from "{msg_type}" metadata: {resource_request}')
 
             self.resource_requests.append(resource_request)
             self.current_resource_request = resource_request
+            self.__validate_resource_spec_metadata(metadata)
 
         remote_storage_name: Optional[str] = None
         if len(remote_storage_definition) > 0:
-            self.log.debug(
-                f'Extracted ResourceRequest from "{msg_type}" metadata: {remote_storage_definition}'
-            )
+            self.log.debug(f'Extracted ResourceRequest from "{msg_type}" metadata: {remote_storage_definition}')
 
-            remote_storage_name = self.register_remote_storage_definition(
-                remote_storage_definition
-            )
+            remote_storage_name = self.register_remote_storage_definition(remote_storage_definition)
 
         if len(workload_id) > 0:
-            self.log.debug(
-                f'Extracted workload ID from "{msg_type}" metadata: {workload_id}'
-            )
+            self.log.debug(f'Extracted workload ID from "{msg_type}" metadata: {workload_id}')
 
         gpu_device_ids: list[int] = metadata.get("gpu_device_ids", [])
 
@@ -2037,10 +2058,8 @@ class DistributedKernel(IPythonKernel):
 
         parent_header: dict[str, Any] = extract_header(parent)
 
-        self.log.debug(
-            f"execute_request called for message with msg_id=\"{parent_header['msg_id']}\". "
-            f"identity frame(s): {str(ident)}"
-        )
+        self.log.debug(f"execute_request called for message with msg_id=\"{parent_header['msg_id']}\". "
+                       f"identity frame(s): {str(ident)}")
 
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
 
@@ -2068,9 +2087,8 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error("Got bad msg: ")
             self.log.error("%s", parent)
-            self.report_error(
-                'Got Bad "execute_request" Message', f"Error: {ex}. Message: {parent}"
-            )
+            self.report_error('Got Bad "execute_request" Message',
+                              f"Error: {ex}. Message: {parent}")
 
             # Commented-out because it's unclear if we should reset the execution stats here or not...
             # 
