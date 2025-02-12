@@ -4,8 +4,8 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from distributed_notebook.sync.storage.error import InvalidKeyError
-from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.remote_storage.error import InvalidKeyError
+from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 
 
 class LocalStorageProvider(RemoteStorageProvider):
@@ -47,7 +47,7 @@ class LocalStorageProvider(RemoteStorageProvider):
 
     def is_too_large(self, size_bytes: int)->bool:
         """
-        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :param size_bytes: the size of the data to (potentially) be written to remote remote_storage
         :return: True if the data is too large to be written, otherwise False
         """
         return False # never too large!

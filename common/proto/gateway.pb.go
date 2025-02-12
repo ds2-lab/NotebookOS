@@ -1140,7 +1140,7 @@ func (x *GetVirtualDockerNodesResponse) GetNodes() []*VirtualDockerNode {
 	return nil
 }
 
-// RemoteStorageDefinition defines a simulated remote storage to use for checkpointing by the kernel replicas.
+// RemoteStorageDefinition defines a simulated remote remote_storage to use for checkpointing by the kernel replicas.
 type RemoteStorageDefinition struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

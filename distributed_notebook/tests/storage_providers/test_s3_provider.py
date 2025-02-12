@@ -1,6 +1,6 @@
 import io
 
-from distributed_notebook.sync.storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
+from distributed_notebook.sync.remote_storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
 
 import pytest
 

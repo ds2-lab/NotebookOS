@@ -2,8 +2,8 @@ import io
 import sys
 import time
 
-from distributed_notebook.sync.storage.error import InvalidKeyError
-from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.remote_storage.error import InvalidKeyError
+from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 
 from typing import Any
 
@@ -12,7 +12,7 @@ import boto3
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
 
-DEFAULT_S3_BUCKET_NAME: str = "distributed-notebook-storage"
+DEFAULT_S3_BUCKET_NAME: str = "distributed-notebook-remote_storage"
 DEFAULT_AWS_S3_REGION: str = "us-east-1"
 
 class S3Provider(RemoteStorageProvider):
@@ -77,7 +77,7 @@ class S3Provider(RemoteStorageProvider):
 
     def is_too_large(self, size_bytes: int)->bool:
         """
-        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :param size_bytes: the size of the data to (potentially) be written to remote remote_storage
         :return: True if the data is too large to be written, otherwise False
         """
         return False # never too large!

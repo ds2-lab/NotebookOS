@@ -69,7 +69,7 @@ class DeepLearningModel(ABC):
         self._out_features: int = out_features
 
         # Flag that is set to True everytime we train and set to False everytime we write the model's parameters or
-        # state dictionary to remote storage.
+        # state dictionary to remote remote_storage.
         self._requires_checkpointing: bool = created_for_first_time
 
         # List of the times, in seconds, spent copying data from the CPU to the GPU.
@@ -107,7 +107,7 @@ class DeepLearningModel(ABC):
 
     def checkpointed(self):
         """
-        This should be called whenever the model's state dictionary is written to remote storage.
+        This should be called whenever the model's state dictionary is written to remote remote_storage.
         """
         if not self._requires_checkpointing:
             raise ValueError(f"model '{self.name}' does not require checkpointing")

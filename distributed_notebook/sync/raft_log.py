@@ -162,7 +162,7 @@ class RaftLog(object):
             )
 
         self.log.info("persistent store path: %s" % self._persistent_store_path)
-        self.log.info('remote storage hostname: "%s"' % remote_storage_hostname)
+        self.log.info('remote remote_storage hostname: "%s"' % remote_storage_hostname)
         self.log.info('remote_storage: "%s"', remote_storage)
         self.log.info('should read data from RemoteStorage: "%s"' % load_data_from_remote_storage)
         self.log.info("peer addresses: %s" % peer_addresses)
@@ -195,14 +195,14 @@ class RaftLog(object):
             )
             if remote_storage_read_latency > 0:
                 self.log.debug(
-                    f"Retrieved remote storage read latency of {remote_storage_read_latency} milliseconds from LogNode."
+                    f"Retrieved remote remote_storage read latency of {remote_storage_read_latency} milliseconds from LogNode."
                 )
 
                 if remote_storage_read_latency_callback is not None:
                     remote_storage_read_latency_callback(remote_storage_read_latency)
                 else:
                     self.log.warning(
-                        "Callback for reporting remote storage read latency is None. Cannot report remote storage read latency."
+                        "Callback for reporting remote remote_storage read latency is None. Cannot report remote remote_storage read latency."
                     )
 
         # Indicates whether we've created the first Election / at least one Election
@@ -1552,7 +1552,7 @@ class RaftLog(object):
         return GoNilError()
 
     def _load_value(self, val: SynchronizedValue) -> SynchronizedValue:
-        """Onload the buffer from the storage server."""
+        """Onload the buffer from the remote_storage server."""
         if type(val.data) is not offloadPath:
             self.log.debug("Returning synchronization value directly.")
             return val
@@ -1597,7 +1597,7 @@ class RaftLog(object):
             )
             data_dict["last_resource_request"] = last_resource_request
 
-        # Add the remote storage definitions entry, if available.
+        # Add the remote remote_storage definitions entry, if available.
         if remote_storage_definitions is not None:
             self.log.debug(
                 f"Adding 'remote_storage_definitions' entry to data dictionary for serialized state: "
@@ -1633,7 +1633,7 @@ class RaftLog(object):
 
     def retrieve_serialized_state_from_remote_storage(self) -> bytes:
         """
-        Retrieve our serialized state from remote storage (via the Golang-level LogNode).
+        Retrieve our serialized state from remote remote_storage (via the Golang-level LogNode).
 
         If there is no serialized state, then the returned bytes object will be empty.
         """
@@ -1876,7 +1876,7 @@ class RaftLog(object):
         return proposal
 
     async def _offload_value(self, val: SynchronizedValue) -> SynchronizedValue:
-        """Offload the buffer to the storage server."""
+        """Offload the buffer to the remote_storage server."""
         # Ensure path exists.
         should_end_execution = val.should_end_execution
         val.set_should_end_execution(False)

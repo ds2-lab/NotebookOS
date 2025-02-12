@@ -49,7 +49,7 @@ RUN mkdir -p /home/jovyan/.ipython/profile_default
 USER root:root
 
 # Prepare directories to have them owned by the user jovyan
-RUN mkdir -p /storage && chown jovyan:users /storage
+RUN mkdir -p /remote_storage && chown jovyan:users /remote_storage
 
 # For debugging.
 RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb screen -y

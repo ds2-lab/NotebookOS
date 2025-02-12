@@ -73,7 +73,7 @@ var (
 				"acks_enabled": false,
 				"scheduling-policy": "fcfs-batch",
 				"idle-session-reclamation-policy": "none",
-				"remote-storage-endpoint": "host.docker.internal:10000",
+				"remote-remote_storage-endpoint": "host.docker.internal:10000",
 				"smr-port": 8080,
 				"debug_mode": true,
 				"debug_port": 9996,

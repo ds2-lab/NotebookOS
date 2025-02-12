@@ -2,9 +2,9 @@ from typing import Any, Optional, Dict
 
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
-from distributed_notebook.sync.storage.local_provider import LocalStorageProvider
-from distributed_notebook.sync.storage.redis_provider import RedisProvider
-from distributed_notebook.sync.storage.s3_provider import S3Provider, DEFAULT_AWS_S3_REGION, DEFAULT_S3_BUCKET_NAME
+from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
+from distributed_notebook.sync.remote_storage.redis_provider import RedisProvider
+from distributed_notebook.sync.remote_storage.s3_provider import S3Provider, DEFAULT_AWS_S3_REGION, DEFAULT_S3_BUCKET_NAME
 
 def get_local_checkpointer(**kwargs)->RemoteCheckpointer:
     local_provider: LocalStorageProvider = LocalStorageProvider()
@@ -43,9 +43,9 @@ remote_checkpointer_factory: dict[str, Any] = {
 
 def get_checkpointer(remote_storage_name: str, **kwargs)->Checkpointer:
     if remote_storage_name is None:
-        raise ValueError("remote storage cannot be null")
+        raise ValueError("remote remote_storage cannot be null")
 
     if remote_storage_name.lower() not in remote_checkpointer_factory:
-        raise ValueError(f"invalid or unsupported remote storage: \"{remote_storage_name}\"")
+        raise ValueError(f"invalid or unsupported remote remote_storage: \"{remote_storage_name}\"")
 
     return remote_checkpointer_factory[remote_storage_name.lower()](**kwargs)

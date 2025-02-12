@@ -59,31 +59,31 @@ type LocalInvoker struct {
 	// id uniquely identifies this Invoker instance.
 	id string
 
-	// remoteStorageEndpoint is the network endpoint of the remote storage.
+	// remoteStorageEndpoint is the network endpoint of the remote remote_storage.
 	remoteStorageEndpoint string
 
-	// remoteStorage indicates the type of remote storage, either 'hdfs' or 'redis'
+	// remoteStorage indicates the type of remote remote_storage, either 'hdfs' or 'redis'
 	remoteStorage string
 
 	// DeploymentMode is the deployment mode of the cluster
 	DeploymentMode types.DeploymentMode
 
-	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.
 	S3Bucket string
 
-	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
 	AwsRegion string
 
-	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	// RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
 	RedisPassword string
 
-	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	// RedisPort is the port of the Redis server (only relevant if using Redis for remote remote_storage).
 	RedisPort int
 
 	// SMRPort is the network port used by the SMR cluster.
 	SMRPort int
 
-	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+	// RedisDatabase is the database number to use (only relevant if using Redis for remote remote_storage).
 	RedisDatabase int
 
 	AssignedGpuDeviceIds                 []int32 // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.

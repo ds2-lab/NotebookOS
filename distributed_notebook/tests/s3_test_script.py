@@ -7,7 +7,7 @@ import boto3
 
 from .util import create_s3_bucket_if_not_exists
 
-create_s3_bucket_if_not_exists("distributed-notebook-storage")
+create_s3_bucket_if_not_exists("distributed-notebook-remote_storage")
 
 # Define a simple PyTorch model
 class SimpleModel(nn.Module):
@@ -46,7 +46,7 @@ torch.save({
 }, buffer)
 
 s3 = boto3.client('s3')
-bucket_name = "distributed-notebook-storage"
+bucket_name = "distributed-notebook-remote_storage"
 s3_key = "model_checkpoints/model_checkpoint.pth"
 
 try:

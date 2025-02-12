@@ -755,14 +755,14 @@ class LogNode(go.GoClass):
 	def RemoteStorageReadLatencyMilliseconds(self):
 		"""RemoteStorageReadLatencyMilliseconds() int
 		
-		RemoteStorageReadLatencyMilliseconds returns the latency of the remote storage read operation(s) performed by the LogNode.
-		If the LogNode did not read data from remote storage, then -1 is returned.
+		RemoteStorageReadLatencyMilliseconds returns the latency of the remote remote_storage read operation(s) performed by the LogNode.
+		If the LogNode did not read data from remote remote_storage, then -1 is returned.
 		"""
 		return _smr.smr_LogNode_RemoteStorageReadLatencyMilliseconds(self.handle)
 	def ConnectedToRemoteStorage(self):
 		"""ConnectedToRemoteStorage() bool
 		
-		ConnectedToRemoteStorage returns true if we successfully connected to remote storage.
+		ConnectedToRemoteStorage returns true if we successfully connected to remote remote_storage.
 		"""
 		return _smr.smr_LogNode_ConnectedToRemoteStorage(self.handle)
 	def NumChanges(self):
@@ -805,7 +805,7 @@ class LogNode(go.GoClass):
 		
 		Close closes the LogNode.
 		
-		NOTE: Close does NOT close the remote storage client.
+		NOTE: Close does NOT close the remote remote_storage client.
 		This is because, when migrating a raft cluster member, we must first stop the raft
 		node before copying the contents of its data directory.
 		"""
@@ -816,7 +816,7 @@ class LogNode(go.GoClass):
 	def WriteDataDirectoryToRemoteStorage(self, serializedState, resolve, goRun=False):
 		"""WriteDataDirectoryToRemoteStorage([]int serializedState, callable resolve) 
 		
-		WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local storage to remote storage.
+		WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local remote_storage to remote remote_storage.
 		"""
 		_smr.smr_LogNode_WriteDataDirectoryToRemoteStorage(self.handle, serializedState.handle, resolve, goRun)
 	def Process(self, ctx, m):

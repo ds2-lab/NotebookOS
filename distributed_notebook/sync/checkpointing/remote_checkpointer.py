@@ -12,9 +12,10 @@ from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Iterable, ByteString, List
 
-from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.checkpointing.util import split_bytes_buffer
+from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 
 
 class RemoteCheckpointer(Checkpointer):
@@ -27,49 +28,49 @@ class RemoteCheckpointer(Checkpointer):
     @property
     def num_objects_written(self) -> int:
         """
-        :return: the total, cumulative number of objects written to remote storage.
+        :return: the total, cumulative number of objects written to remote remote_storage.
         """
         return self.storage_provider.num_objects_written
 
     @property
     def num_objects_read(self) -> int:
         """
-        :return: the total, cumulative number of objects read from remote storage.
+        :return: the total, cumulative number of objects read from remote remote_storage.
         """
         return self.storage_provider.num_objects_read
 
     @property
     def num_objects_deleted(self) -> int:
         """
-        :return: the total, cumulative number of objects deleted from remote storage.
+        :return: the total, cumulative number of objects deleted from remote remote_storage.
         """
         return self.storage_provider.num_objects_deleted
 
     @property
     def bytes_read(self) -> int:
         """
-        :return: the total, cumulative number of bytes read from remote storage.
+        :return: the total, cumulative number of bytes read from remote remote_storage.
         """
         return self.storage_provider.bytes_read
 
     @property
     def bytes_written(self) -> int:
         """
-        :return: the total, cumulative number of bytes written to remote storage.
+        :return: the total, cumulative number of bytes written to remote remote_storage.
         """
         return self.storage_provider.bytes_written
 
     @property
     def read_time(self) -> float:
         """
-        :return: the total time spent reading data from remote storage in seconds.
+        :return: the total time spent reading data from remote remote_storage in seconds.
         """
         return self.storage_provider.read_time
 
     @property
     def write_time(self) -> float:
         """
-        :return: the total time spent writing data to remote storage in seconds.
+        :return: the total time spent writing data to remote remote_storage in seconds.
         """
         return self.storage_provider.write_time
 
@@ -83,7 +84,7 @@ class RemoteCheckpointer(Checkpointer):
 
     def delete_data(self, key: str)->bool:
         """
-        Delete an object from remote storage.
+        Delete an object from remote remote_storage.
         :param key: the name/key of the object to delete
         :return: True if the object was deleted successfully, otherwise False.
         """
@@ -96,7 +97,7 @@ class RemoteCheckpointer(Checkpointer):
 
     async def delete_data_async(self, key: str)->bool:
         """
-        Asynchronously delete an object from remote storage.
+        Asynchronously delete an object from remote remote_storage.
         :param key: the name/key of the object to delete
         :return: True if the object was deleted successfully, otherwise False.
         """
@@ -150,12 +151,12 @@ class RemoteCheckpointer(Checkpointer):
 
     async def __read_state_dict_async(self, key: str, model_name: str)->Optional[Dict[str, Any]]:
         """
-        Read a single state dictionary from remote storage.
+        Read a single state dictionary from remote remote_storage.
 
         :param key: the key at which the desired state dictionary is stored
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to read
 
-        :return: the desired state dictionary after being retrieved from remote storage and deserialized using torch.load()
+        :return: the desired state dictionary after being retrieved from remote remote_storage and deserialized using torch.load()
         """
         try:
             st: float = time.time()
@@ -196,12 +197,12 @@ class RemoteCheckpointer(Checkpointer):
 
     def __read_state_dict(self, key: str, model_name: str)->Optional[Dict[str, Any]]:
         """
-        Read a single state dictionary from remote storage.
+        Read a single state dictionary from remote remote_storage.
 
         :param key: the key at which the desired state dictionary is stored
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to read
 
-        :return: the desired state dictionary after being retrieved from remote storage and deserialized using torch.load()
+        :return: the desired state dictionary after being retrieved from remote remote_storage and deserialized using torch.load()
         """
         try:
             st: float = time.time()
@@ -316,7 +317,7 @@ class RemoteCheckpointer(Checkpointer):
 
             return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
-    def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, float]:
+    def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, int]:
         buffer: io.BytesIO = io.BytesIO()
 
         try:
@@ -326,23 +327,19 @@ class RemoteCheckpointer(Checkpointer):
             raise ex  # re-raise
 
         size_bytes: int = buffer.getbuffer().nbytes
-        size_mb: float = size_bytes / 1.0e6
-        if self.storage_provider.is_too_large(size_bytes):
-            self.log.error(f"Cannot write state of model \"{model_name}\" to {self.storage_name}. "
-                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
-            raise ValueError(f"State dictionary buffer with a size of {size_mb:,} MB "
-                             f"is too large to be written to {self.storage_name}.")
 
-        return buffer, size_mb
+        return buffer, size_bytes
 
     def __write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
-        Write an individual state dictionary to remote storage.
+        Write an individual state dictionary to remote remote_storage.
 
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
         """
-        buffer, size_mb = self.__get_buffer_to_write(state_dict, model_name)
+        buffer, size_bytes = self.__get_buffer_to_write(state_dict, model_name)
+
+        size_mb: float = size_bytes / 1.0e6
 
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to {self.storage_name} at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")
@@ -359,12 +356,14 @@ class RemoteCheckpointer(Checkpointer):
 
     async def __async_write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
-        Write an individual state dictionary to remote storage.
+        Write an individual state dictionary to remote remote_storage.
 
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
         """
-        buffer, size_mb = self.__get_buffer_to_write(state_dict, model_name)
+        buffer, size_bytes = self.__get_buffer_to_write(state_dict, model_name)
+
+        size_mb: float = size_bytes / 1.0e6
 
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to {self.storage_name} at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")

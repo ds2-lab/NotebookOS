@@ -1838,7 +1838,7 @@ type LocalGatewayClient interface {
 	// This is primarily used during migrations.
 	UpdateReplicaAddr(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-	// This involves writing the contents of the etcd-raft data directory to remote storage so that
+	// This involves writing the contents of the etcd-raft data directory to remote remote_storage so that
 	// it can be read back from make build-linux-amd64 by the new replica.
 	PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*PrepareToMigrateResponse, error)
 	// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
@@ -2121,7 +2121,7 @@ type LocalGatewayServer interface {
 	// This is primarily used during migrations.
 	UpdateReplicaAddr(context.Context, *ReplicaInfoWithAddr) (*Void, error)
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-	// This involves writing the contents of the etcd-raft data directory to remote storage so that
+	// This involves writing the contents of the etcd-raft data directory to remote remote_storage so that
 	// it can be read back from make build-linux-amd64 by the new replica.
 	PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error)
 	// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of

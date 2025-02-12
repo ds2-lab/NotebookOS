@@ -130,13 +130,13 @@ tolerations: []
 affinity: {}
 # Configuration for classes of static volumes.
 # classes:
-#   - name: local-storage # Defines name of storage classes.
-#     # Path on the host where local volumes of this storage class are mounted
+#   - name: local-remote_storage # Defines name of remote_storage classes.
+#     # Path on the host where local volumes of this remote_storage class are mounted
 #     # under.
 #     hostDir: /data
 #     # Optionally specify mount path of local volumes. By default, we use same
 #     # path as hostDir in container.
-#     # mountDir: /mnt/local-storage
+#     # mountDir: /mnt/local-remote_storage
 #     # The volume mode of created PersistentVolume object. Default to Filesystem
 #     # if not specified.
 #     volumeMode: Filesystem

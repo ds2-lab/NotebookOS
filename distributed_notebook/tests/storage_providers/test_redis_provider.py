@@ -1,7 +1,7 @@
 import fakeredis
 import pytest
 
-from distributed_notebook.sync.storage.redis_provider import RedisProvider
+from distributed_notebook.sync.remote_storage.redis_provider import RedisProvider
 
 @pytest.fixture
 def redis_client(request):

@@ -112,7 +112,7 @@ class SimulatedCheckpointer(object):
         Create a new SimulatedCheckpointer object.
 
         Args:
-            name: Name of the storage service being simulated.
+            name: Name of the remote_storage service being simulated.
             download_rate: Download rate in bytes/sec.
             upload_rate: Upload rate in bytes/sec.
             download_variance_percent: The maximum amount by which the download rate can vary/deviate from its set value during a simulated I/O operation.
@@ -142,7 +142,7 @@ class SimulatedCheckpointer(object):
             raise ValueError(
                 f"Invalid write failure percentage specified: {write_failure_chance_percentage}. Value must be positive and between 0 and 1.")
 
-        # Name of the storage service being simulated.
+        # Name of the remote_storage service being simulated.
         self.name: str = name
 
         # Download rate in bytes/sec.

@@ -18,10 +18,10 @@ const (
 	NewSerializedStateBaseFileName string = "serialized_state_new"
 )
 
-// ConnectionStatus indicates the status of the connection with the remote storage.
+// ConnectionStatus indicates the status of the connection with the remote remote_storage.
 type ConnectionStatus string
 
-// Provider is a generic API for reading and writing to an arbitrary intermediate storage medium, such
+// Provider is a generic API for reading and writing to an arbitrary intermediate remote_storage medium, such
 // as Redis, AWS S3, or HDFS.
 type Provider interface {
 	Connect() error
@@ -31,7 +31,7 @@ type Provider interface {
 	// ConnectionStatus returns the current ConnectionStatus of the Provider.
 	ConnectionStatus() ConnectionStatus
 
-	// WriteDataDirectory writes the data directory for this Raft node from local storage to remote storage.
+	// WriteDataDirectory writes the data directory for this Raft node from local remote_storage to remote remote_storage.
 	WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error
 
 	ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error)
