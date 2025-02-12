@@ -25,11 +25,18 @@ type Gateway struct {
 	// to forward the messages that it receives to the appropriate/target scheduling.Kernel.
 	Router *router.Router
 
+	// KernelManager is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
+	// scheduling.KernelReplica instances running within the cluster.
+	KernelManager *KernelManager
+
 	log logger.Logger
 }
 
-func NewGateway() *Gateway {
-	gateway := &Gateway{}
+// NewGateway creates a new Gateway struct and returns a pointer to it.
+func NewGateway(manager *KernelManager) *Gateway {
+	gateway := &Gateway{
+		KernelManager: manager,
+	}
 
 	config.InitLogger(&gateway.log, gateway)
 
@@ -67,22 +74,21 @@ func (g *Gateway) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error 
 }
 
 // forwardRequest forwards the given message of the given type to the appropriate scheduling.Kernel.
-func (g *Gateway) forwardRequest(typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (g *Gateway) forwardRequest(socketType messaging.MessageType, msg *messaging.JupyterMessage) error {
 	kernelId, msgType, err := g.extractRequestMetadata(msg)
 	if err != nil {
 		g.log.Error("Metadata Extraction Error: %v", err)
 		return err
 	}
 
-	g.log.Debug("Forwarding[Socket=%v, MsgId='%s', MsgTyp='%s', TargetKernelId='%s']",
-		typ.String(), msg.JupyterMessageId(), msgType, kernelId)
+	g.log.Debug("Forwarding[SocketType=%v, MsgId='%s', MsgTyp='%s', TargetKernelId='%s']",
+		socketType.String(), msg.JupyterMessageId(), msgType, kernelId)
 
-	// TODO: Hand off to KernelManager.
-	return nil
+	return g.KernelManager.ForwardRequestToKernel(kernelId, msg, socketType)
 }
 
 // extractRequestMetadata extracts the kernel (or Jupyter session) ID and the message type from the given ZMQ message.
-func (g *Gateway) extractRequestMetadata(msg *messaging.JupyterMessage) (kernelId string, messageType string, err error) {
+func (g *Gateway) extractRequestMetadata(msg *messaging.JupyterMessage) (string, string, error) {
 	// This is initially the kernel's ID, which is the DestID field of the message.
 	// But we may not have set a destination ID field within the message yet.
 	// In this case, we'll fall back to the session ID within the message's Jupyter header.
@@ -90,21 +96,22 @@ func (g *Gateway) extractRequestMetadata(msg *messaging.JupyterMessage) (kernelI
 	//
 	// When Jupyter clients connect for the first time, they send both a shell and a control "kernel_info_request" message.
 	// This message is used to bind the session to the kernel (specifically the shell message).
-	var kernelKey = msg.DestinationId
+	kernelOrSessionId := msg.DestinationId
+	msgType := msg.JupyterMessageType()
 
 	// If there is no destination ID, then we'll try to use the session ID in the message's header instead.
-	if len(kernelKey) == 0 {
-		kernelKey = msg.JupyterSession()
+	if len(kernelOrSessionId) == 0 {
+		kernelOrSessionId = msg.JupyterSession()
 
 		// Sanity check.
 		// Make sure we got a valid session ID out of the Jupyter message header.
 		// If we didn't, then we'll return an error.
-		if len(kernelKey) == 0 {
+		if len(kernelOrSessionId) == 0 {
 			g.log.Error("Invalid Jupyter Session ID:\n%v", msg.JupyterFrames.StringFormatted())
 
-			return NoKernelId, msg.JupyterMessageType(), ErrInvalidJupyterSessionId
+			return NoKernelId, msgType, ErrInvalidJupyterSessionId
 		}
 	}
 
-	return kernelKey, messageType, nil
+	return kernelOrSessionId, msgType, nil
 }
