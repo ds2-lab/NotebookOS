@@ -44,7 +44,7 @@ local_mode: false
 deployment_mode: "docker-swarm"
 debug_mode: true
 debug_port: 9996
-docker-storage-base: "/storage"
+docker-storage-base: "/remote_storage"
 using-wsl: true 
 prometheus_interval: 15
 prometheus_port: 8089

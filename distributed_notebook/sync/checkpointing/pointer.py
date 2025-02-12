@@ -10,7 +10,7 @@ class SyncPointer(SynchronizedValue, ABC):
     """
     SyncPointer is a base class for any pointer type.
 
-    Pointers are a special kind of SynchronizedValue that references some object stored in remote storage.
+    Pointers are a special kind of SynchronizedValue that references some object stored in remote remote_storage.
 
     The pointer encodes information about how to retrieve the object.
 
@@ -126,7 +126,7 @@ class ModelPointer(SyncPointer):
 
     def wrote_model_state(self):
         """
-        Record that we wrote the model's state to remote storage.
+        Record that we wrote the model's state to remote remote_storage.
         """
         if not self._model.requires_checkpointing:
             raise ValueError(f"model '{self._model.name}' does not seem to require checkpointing")

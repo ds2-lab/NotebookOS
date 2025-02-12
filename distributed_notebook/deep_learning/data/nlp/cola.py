@@ -30,6 +30,7 @@ class CoLA(NLPDataset):
             model_name: Optional[str] = None,
             max_token_length: int = 128,
             batch_size = 4,
+            **kwargs
     ):
         super().__init__(
             root_dir = root_dir,
@@ -43,6 +44,7 @@ class CoLA(NLPDataset):
             max_token_length = max_token_length,
             tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
             batch_size = batch_size,
+            **kwargs
         )
 
     @staticmethod

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultS3Bucket      = "distributed-notebook-storage"
+	DefaultS3Bucket      = "distributed-notebook-remote_storage"
 	DefaultAwsRegion     = "us-east-1"
 	DefaultRedisPassword = ""
 	DefaultRedisPort     = 6379
@@ -25,16 +25,16 @@ type LocalDaemonOptions struct {
 	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
 	ConsulAddr      string `name:"consul" description:"Consul agent address."`
 	NodeName        string `name:"node_name" description:"Node name used only for debugging in local mode."`
-	S3Bucket        string `name:"s3_bucket" json:"s3_bucket" yaml:"s3_bucket"`                // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
-	AwsRegion       string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
-	RedisPassword   string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	S3Bucket        string `name:"s3_bucket" json:"s3_bucket" yaml:"s3_bucket"`                // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.
+	AwsRegion       string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
+	RedisPassword   string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
 	VirtualGpuPluginServerOptions
 	jupyter.ConnectionInfo
 	SchedulerDaemonOptions
 	Port               int `name:"port" usage:"Port that the gRPC service listens on."`
 	KernelRegistryPort int `name:"kernel-registry-port" usage:"Port on which the kernel Registry Server listens."`
-	RedisPort          int `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
-	RedisDatabase      int `name:"redis_database" json:"redis_database" yaml:"redis_database"` // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+	RedisPort          int `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote remote_storage).
+	RedisDatabase      int `name:"redis_database" json:"redis_database" yaml:"redis_database"` // RedisDatabase is the database number to use (only relevant if using Redis for remote remote_storage).
 }
 
 func (o *LocalDaemonOptions) Validate() error {
@@ -84,7 +84,7 @@ func (o *LocalDaemonOptions) String() string {
 type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
-	DockerStorageBase           string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
+	DockerStorageBase           string `name:"docker-remote_storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
 	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
 	// If the scheduler serves jupyter notebook directly, set this to true.

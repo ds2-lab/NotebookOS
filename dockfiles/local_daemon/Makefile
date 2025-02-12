@@ -20,7 +20,7 @@ docker: build-in-container
 # ../clean.sh
 
 build-and-push: docker
-	docker push $(DOCKER_USER)gateway:latest
+	docker push $(DOCKER_USER)daemon:latest
 
 clean:
 	docker builder prune

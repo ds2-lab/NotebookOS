@@ -347,7 +347,7 @@ type KernelReplica interface {
 	ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool)
 	LastTrainingStartedAt() time.Time
 	WorkloadId() string
-	SetWorkloadId(workloadId string)
+	SetWorkloadId(workloadId string) error
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
 	GetPodOrContainerName() string
@@ -413,7 +413,11 @@ type KernelReplica interface {
 	// ContainerType returns the current ContainerType of the (KernelContainer of the) target KernelReplica.
 	ContainerType() ContainerType
 
-	// PromotePrewarmContainer is used to promote a KernelContainer whose ContainerType is PrewarmContainer
+	// PromotePrewarmContainer is used to promote a KernelReplica whose ContainerType is PrewarmContainer
 	// to a StandardContainer.
 	PromotePrewarmContainer(spec *proto.KernelReplicaSpec) error
+
+	// DemoteStandardContainer is used to demote a KernelReplica whose ContainerType is StandardContainer
+	// to a PrewarmContainer.
+	DemoteStandardContainer(prewarmContainerId string) error
 }

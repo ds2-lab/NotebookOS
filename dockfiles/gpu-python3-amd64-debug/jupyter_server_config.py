@@ -1429,7 +1429,7 @@ c.Session.signature_scheme = 'hmac-sha256'
 #  Default: 'sha256'
 # c.NotebookNotary.algorithm = 'sha256'
 
-# The storage directory for notary secret and database.
+# The remote_storage directory for notary secret and database.
 #  Default: ''
 # c.NotebookNotary.data_dir = ''
 
@@ -1447,7 +1447,7 @@ c.Session.signature_scheme = 'hmac-sha256'
 #  Default: ''
 # c.NotebookNotary.secret_file = ''
 
-# A callable returning the storage backend for notebook signatures.
+# A callable returning the remote_storage backend for notebook signatures.
 #           The default uses an SQLite database.
 #  Default: traitlets.Undefined
 # c.NotebookNotary.store_factory = traitlets.Undefined

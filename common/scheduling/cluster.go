@@ -95,6 +95,9 @@ type ClusterHostManager interface {
 	//
 	// Len does NOT include the number of disabled Host instances.
 	Len() int
+
+	// IsInInitialConnectionPeriod returns true if the scheduling.Cluster is still in "initial connection" mode/phase.
+	IsInInitialConnectionPeriod() bool
 }
 
 type ScalingManager interface {

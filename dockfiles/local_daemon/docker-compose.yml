@@ -59,7 +59,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
-      - storage:/storage
+      - remote_storage:/remote_storage
     depends_on:
       - gateway
     restart: always

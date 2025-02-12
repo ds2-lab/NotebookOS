@@ -30,7 +30,7 @@ RUN chmod -R 777 /home/jovyan/.cache/
 RUN chown -R jovyan /home/jovyan/.cache/
 
 # Install distributed_notebook module.
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install /distributed_notebook/distributed_notebook
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install -e /distributed_notebook/distributed_notebook
 
 # Install kernel
 RUN cd /distributed_notebook \
@@ -66,6 +66,10 @@ RUN chown jovyan /usr/local/bin/start.sh
 
 # Copy the modified config file.
 COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.jupyter/jupyter_server_config.py
+
+# Make sure the jovyan user owns everything and can write to everything in their home directory.
+RUN chmod -R 777 /home/jovyan
+RUN chown -R jovyan /home/jovyan
 
 # Update path.
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin

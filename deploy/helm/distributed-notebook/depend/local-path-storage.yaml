@@ -8,14 +8,14 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: local-path-provisioner-service-account
-  namespace: local-path-storage
+  namespace: local-path-remote_storage
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: local-path-provisioner-role
-  namespace: local-path-storage
+  namespace: local-path-remote_storage
 rules:
   - apiGroups: [""]
     resources: ["pods"]
@@ -36,7 +36,7 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
-  - apiGroups: ["storage.k8s.io"]
+  - apiGroups: ["remote_storage.k8s.io"]
     resources: ["storageclasses"]
     verbs: ["get", "list", "watch"]
 
@@ -45,7 +45,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: local-path-provisioner-bind
-  namespace: local-path-storage
+  namespace: local-path-remote_storage
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -53,7 +53,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: local-path-provisioner-service-account
-    namespace: local-path-storage
+    namespace: local-path-remote_storage
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -67,14 +67,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: local-path-provisioner-service-account
-    namespace: local-path-storage
+    namespace: local-path-remote_storage
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: local-path-provisioner
-  namespace: local-path-storage
+  namespace: local-path-remote_storage
 spec:
   replicas: 1
   selector:
@@ -110,7 +110,7 @@ spec:
             name: local-path-config
 
 ---
-apiVersion: storage.k8s.io/v1
+apiVersion: remote_storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: local-path
@@ -123,7 +123,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: local-path-config
-  namespace: local-path-storage
+  namespace: local-path-remote_storage
 data:
   config.json: |-
     {

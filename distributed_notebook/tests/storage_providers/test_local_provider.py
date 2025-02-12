@@ -1,6 +1,6 @@
 import io
 
-from distributed_notebook.sync.storage.local_provider import LocalStorageProvider
+from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
 
 def test_create():
     local_provider: LocalStorageProvider = LocalStorageProvider()

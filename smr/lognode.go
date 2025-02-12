@@ -71,7 +71,7 @@ var (
 	ProposalDeadline          = 1 * time.Minute
 	ErrClosed                 = errors.New("node closed")
 	ErrEOF                    = io.EOF.Error() // For python module to check if io.EOF is returned
-	ErrRemoteStorageClientNil = errors.New("remote storage client is nil; cannot close it")
+	ErrRemoteStorageClientNil = errors.New("remote remote_storage client is nil; cannot close it")
 	sig                       = make(chan os.Signal, 1)
 )
 
@@ -180,7 +180,7 @@ type LogNode struct {
 
 	storageProvider storage.Provider
 
-	remoteStorageReadTime time.Duration // remoteStorageReadTime is the amount of time spent reading data from remote storage.
+	remoteStorageReadTime time.Duration // remoteStorageReadTime is the amount of time spent reading data from remote remote_storage.
 
 	id    int            // Client ID for raft session
 	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1. Each address should be prefixed by "http://"
@@ -269,13 +269,13 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr, "Checking validity of remote storage hostname.\n")
+	_, _ = fmt.Fprintf(os.Stderr, "Checking validity of remote remote_storage hostname.\n")
 
 	remoteStorage = strings.TrimSpace(remoteStorage)
 	remoteStorage = strings.ToLower(remoteStorage)
 
 	if len(remoteStorageHostname) == 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Cannot connect to remote storage %s; no hostname received.", remoteStorage)
+		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Cannot connect to remote remote_storage %s; no hostname received.", remoteStorage)
 		return nil
 	}
 
@@ -337,7 +337,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		node.peers[peerId] = peerAddr
 	}
 
-	node.logger.Info("Creating remote storage provider now.",
+	node.logger.Info("Creating remote remote_storage provider now.",
 		zap.String("hostname", remoteStorageHostname),
 		zap.String("deployment_mode", deploymentMode),
 		zap.String("remote_storage", remoteStorage))
@@ -349,13 +349,13 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 	} else if remoteStorage == localStorage {
 		node.storageProvider = storage.NewLocalProvider(deploymentMode, node.id, &node.atom)
 	} else {
-		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
+		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote remote_storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
 			remoteStorage)
 		return nil
 	}
 
 	if node.storageProvider == nil {
-		node.logger.Error("Failed to create remote storage provider.",
+		node.logger.Error("Failed to create remote remote_storage provider.",
 			zap.String("remote_storage", remoteStorage),
 			zap.String("hostname", remoteStorageHostname))
 		return nil
@@ -363,19 +363,19 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 
 	err := node.storageProvider.Connect()
 	if err != nil {
-		node.logger.Error("Failed to connect to remote storage.",
+		node.logger.Error("Failed to connect to remote remote_storage.",
 			zap.String("hostname", remoteStorageHostname),
 			zap.String("deployment_mode", deploymentMode),
 			zap.String("remote_storage", remoteStorage),
 			zap.Error(err))
 	}
 
-	// TODO(Ben): Read the data directory from remote storage.
+	// TODO(Ben): Read the data directory from remote remote_storage.
 	if shouldLoadDataFromRemoteStorage {
-		node.logger.Info(fmt.Sprintf("Reading data directory from remote storage now: %s.", node.dataDir))
+		node.logger.Info(fmt.Sprintf("Reading data directory from remote remote_storage now: %s.", node.dataDir))
 
 		// TODO: Make configurable, or make this interval longer to support larger recoveries.
-		// Alternatively, have the Goroutine that's reading the data from remote storage periodically indicate that it is still alive/making progress,
+		// Alternatively, have the Goroutine that's reading the data from remote remote_storage periodically indicate that it is still alive/making progress,
 		// and as long as that is happening, we continue waiting, with a timeout such that no progress after <timeout> means the whole operation has failed.
 		timeoutInterval := 60 * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
@@ -408,9 +408,9 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 				{
 					if msg == DoneString { // If we received the special 'DONE' message, then we're done reading the entire data directory.
 						node.remoteStorageReadTime = time.Since(st)
-						node.logger.Info("Successfully read entire data directory from remote storage to local storage and received serialized state from other goroutine.", zap.Duration("time_elapsed", node.remoteStorageReadTime))
+						node.logger.Info("Successfully read entire data directory from remote remote_storage to local remote_storage and received serialized state from other goroutine.", zap.Duration("time_elapsed", node.remoteStorageReadTime))
 						done = true
-					} else /* The message we received will be the path of whatever file or directory was copied from remote storage to our local file system */ {
+					} else /* The message we received will be the path of whatever file or directory was copied from remote remote_storage to our local file system */ {
 						node.logger.Info("Made progress.", zap.String("msg", msg))
 						noProgress = 0
 					}
@@ -424,14 +424,14 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 			case <-ctx.Done():
 				{
 					err := ctx.Err()
-					node.logger.Error("Operation to read data from remote storage timed-out.",
+					node.logger.Error("Operation to read data from remote remote_storage timed-out.",
 						zap.Duration("timeout_interval", timeoutInterval), zap.Error(err))
 					ticker.Stop()
 					return nil
 				}
 			case err := <-errorChan:
 				{
-					node.logger.Error("Error while reading data directory from remote storage.",
+					node.logger.Error("Error while reading data directory from remote remote_storage.",
 						zap.Error(err), zap.String("data_dir", node.dataDir), zap.String("waldir", node.waldir), zap.String("data_directory", node.dataDir))
 					ticker.Stop()
 					return nil
@@ -441,7 +441,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 
 		ticker.Stop()
 	} else {
-		node.logger.Info("We've not been instructed to retrieve any data directory from remote storage.",
+		node.logger.Info("We've not been instructed to retrieve any data directory from remote remote_storage.",
 			zap.String("data_directory", node.dataDir), zap.String("waldir", node.waldir))
 	}
 
@@ -472,8 +472,8 @@ func (node *LogNode) ServeHttpDebug() {
 	}()
 }
 
-// RemoteStorageReadLatencyMilliseconds returns the latency of the remote storage read operation(s) performed by the LogNode.
-// If the LogNode did not read data from remote storage, then -1 is returned.
+// RemoteStorageReadLatencyMilliseconds returns the latency of the remote remote_storage read operation(s) performed by the LogNode.
+// If the LogNode did not read data from remote remote_storage, then -1 is returned.
 func (node *LogNode) RemoteStorageReadLatencyMilliseconds() int {
 	if !node.shouldLoadDataFromRemoteStorage {
 		return -1
@@ -482,7 +482,7 @@ func (node *LogNode) RemoteStorageReadLatencyMilliseconds() int {
 	return int(node.remoteStorageReadTime.Milliseconds())
 }
 
-// ConnectedToRemoteStorage returns true if we successfully connected to remote storage.
+// ConnectedToRemoteStorage returns true if we successfully connected to remote remote_storage.
 func (node *LogNode) ConnectedToRemoteStorage() bool {
 	return node.storageProvider.ConnectionStatus() == storage.Connected
 }
@@ -660,7 +660,7 @@ func (node *LogNode) WaitToClose() (lastErr error) {
 
 // Close closes the LogNode.
 //
-// NOTE: Close does NOT close the remote storage client.
+// NOTE: Close does NOT close the remote remote_storage client.
 // This is because, when migrating a raft cluster member, we must first stop the raft
 // node before copying the contents of its data directory.
 func (node *LogNode) Close() error {
@@ -680,18 +680,18 @@ func (node *LogNode) CloseRemoteStorageClient() error {
 	if node.storageProvider != nil {
 		err := node.storageProvider.Close()
 		if err != nil {
-			node.logger.Error("Error while closing remote storage client.", zap.Error(err))
+			node.logger.Error("Error while closing remote remote_storage client.", zap.Error(err))
 			return err
 		}
 	} else {
-		node.logger.Warn("Remote storage client is nil. Will skip closing it.")
+		node.logger.Warn("Remote remote_storage client is nil. Will skip closing it.")
 		return ErrRemoteStorageClientNil
 	}
 
 	return nil
 }
 
-// IMPORTANT: This does NOT close the remote storage client.
+// IMPORTANT: This does NOT close the remote remote_storage client.
 // This is because, when migrating a raft cluster member, we must first stop the raft
 // node before copying the contents of its data directory.
 func (node *LogNode) close() {
@@ -864,13 +864,13 @@ func (node *LogNode) readDataDirectoryFromRemoteStorage(progressChan chan<- stri
 	return node.storageProvider.ReadDataDirectory(progressChan, node.dataDir, node.waldir, node.snapdir)
 }
 
-// WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local storage to remote storage.
+// WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local remote_storage to remote remote_storage.
 func (node *LogNode) WriteDataDirectoryToRemoteStorage(serializedState []byte, resolve ResolveCallback) {
 	go func() {
 		err := node.storageProvider.WriteDataDirectory(serializedState, node.dataDir, node.waldir, node.snapdir)
 
 		if err != nil {
-			node.logger.Error("Error while writing data directory to remote storage.", zap.Error(err))
+			node.logger.Error("Error while writing data directory to remote remote_storage.", zap.Error(err))
 
 			if resolve != nil {
 				resolve(node.waldir, toCError(err))
@@ -1040,7 +1040,7 @@ func (node *LogNode) replayWAL() *wal.WAL {
 
 	node.logger.Info("Successfully opened WAL via snapshot")
 
-	// Recover the in-memory storage from persistent snapshot, state and entries.
+	// Recover the in-memory remote_storage from persistent snapshot, state and entries.
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
 		node.logFatalf("LogNode %d: failed to read WAL (%v)", node.id, err)
@@ -1050,7 +1050,7 @@ func (node *LogNode) replayWAL() *wal.WAL {
 		node.logger.Info("Applying Snapshot to RaftStorage now.")
 		err = node.raftStorage.ApplySnapshot(*snapshot)
 		if err != nil {
-			node.logFatalf("LogNode %d: error encountered while applying WAL snapshot to Raft storage: %v", node.id, err)
+			node.logFatalf("LogNode %d: error encountered while applying WAL snapshot to Raft remote_storage: %v", node.id, err)
 		}
 	}
 	node.sugaredLogger.Infof("Recovered Raft HardState from WAL snapshot. Term: %d. Vote: %d. Commit: %v.", st.Term, st.Vote, st.Commit)
@@ -1060,10 +1060,10 @@ func (node *LogNode) replayWAL() *wal.WAL {
 		node.logFatalf("LogNode %d: error encountered while setting Raft HardState to the HardState recovered from WAL snapshot: %v", node.id, err)
 	}
 
-	// Append to storage so raft starts at the right place in log
+	// Append to remote_storage so raft starts at the right place in log
 	err = node.raftStorage.Append(ents)
 	if err != nil {
-		node.logFatalf("LogNode %d: error encountered while appending entries recovered from WAL snapshot to Raft storage: %v", node.id, err)
+		node.logFatalf("LogNode %d: error encountered while appending entries recovered from WAL snapshot to Raft remote_storage: %v", node.id, err)
 	}
 
 	node.logger.Info("Finished replaying WAL.")
@@ -1203,7 +1203,7 @@ func (node *LogNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 		compactIndex = node.appliedIndex - snapshotCatchUpEntriesN
 	}
 	if err := node.raftStorage.Compact(compactIndex); err != nil {
-		node.logger.Error("Failed to compact raft storage.", zap.Uint64("compactIndex", compactIndex), zap.Error(err))
+		node.logger.Error("Failed to compact raft remote_storage.", zap.Uint64("compactIndex", compactIndex), zap.Error(err))
 		node.panic(err)
 		return
 	}
@@ -1352,7 +1352,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 
 			err = node.raftStorage.Append(rd.Entries)
 			if err != nil {
-				node.logger.Error("Failed to append entries to Raft storage.", zap.Error(err))
+				node.logger.Error("Failed to append entries to Raft remote_storage.", zap.Error(err))
 			}
 
 			node.transport.Send(node.processMessages(rd.Messages))

@@ -24,6 +24,7 @@ func TestPrewarm(t *testing.T) {
 var (
 	debugLoggingEnabled = false
 	globalLogger        = config.GetLogger("")
+	hostSpec            = types.NewDecimalSpec(128000, 256000, 8, 40)
 )
 
 func init() {

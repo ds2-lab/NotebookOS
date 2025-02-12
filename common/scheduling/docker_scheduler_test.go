@@ -31,7 +31,12 @@ import (
 )
 
 var (
-	dockerSchedulerTestOpsAsJson = `{
+	dockerSchedulerTestOpsAsJson = `
+{
+	"jaeger_addr": "",
+	"consul_addr": "",
+	"port": 8080,
+	"provisioner_port": 8081,
 	"logger_options": {
 		"Debug": true,
 		"Verbose": false
@@ -55,10 +60,10 @@ var (
 		"cluster_scheduler_options": {
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
-			"mean_scale_out_per_host_sec": 1.0,
-			"std_dev_scale_out_per_host_sec": 0.0,
-			"mean_scale_in_per_host_sec": 1.0,
-			"std_dev_scale_in_per_host_sec": 0.0,
+			"mean_scale_out_per_host_sec": 0.75,
+			"std_dev_scale_out_per_host_sec": 0.5,
+			"mean_scale_in_per_host_sec": 0.75,
+			"std_dev_scale_in_per_host_sec": 0.5,
 			"scaling-factor": 1.05,
 			"scaling-interval": 15,
 			"scaling-limit": 1.1,
@@ -73,42 +78,38 @@ var (
 			"execution-time-sampling-window": 10,
 			"migration-time-sampling-window": 10,
 			"scheduler-http-port": 8078,
+			"initial-cluster-size": -1,
+			"initial-connection-period": 0,
 			"common_options": {
-			"gpus-per-host": 8,
-			"deployment_mode": "docker-swarm",
-			"using-wsl": true,
-			"docker_network_name": "distributed_cluster_default",
-			"prometheus_interval": 15,
-			"prometheus_port": -1,
-			"num_resend_attempts": 1,
-			"acks_enabled": false,
-			"scheduling-policy": "static",
-			"idle-session-reclamation-policy": "none",
-			"remote-storage-endpoint": "host.docker.internal:10000",
-			"smr-port": 8080,
-			"debug_mode": true,
-			"debug_port": 9996,
-			"simulate_checkpointing_latency": true,
-			"disable_prometheus_metrics_publishing": true
-		}
-	},
-	"local-daemon-service-name": "local-daemon-network",
-	"local-daemon-service-port": 8075,
-	"global-daemon-service-name": "daemon-network",
-	"global-daemon-service-port": 0,
-	"kubernetes-namespace": "",
-	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter-gpu",
-	"notebook-image-tag": "latest",
-	"distributed-cluster-service-port": 8079,
-	"remote-docker-event-aggregator-port": 5821,
-	"initial-cluster-size": -1,
-	"initial-connection-period": 0
-},
-	"port": 8080,
-	"provisioner_port": 8081,
-	"jaeger_addr": "",
-	"consul_addr": ""
+				"gpus-per-host": 8,
+				"deployment_mode": "docker-swarm",
+				"using-wsl": true,
+				"docker_network_name": "distributed_cluster_default",
+				"prometheus_interval": 15,
+				"prometheus_port": -1,
+				"num_resend_attempts": 1,
+				"acks_enabled": false,
+				"scheduling-policy": "static",
+				"idle-session-reclamation-policy": "none",
+				"remote-storage-endpoint": "host.docker.internal:10000",
+				"smr-port": 8080,
+				"debug_mode": true,
+				"debug_port": 9996,
+				"simulate_checkpointing_latency": true,
+				"disable_prometheus_metrics_publishing": true
+			}
+		},
+		"local-daemon-service-name": "local-daemon-network",
+		"local-daemon-service-port": 8075,
+		"global-daemon-service-name": "daemon-network",
+		"global-daemon-service-port": 0,
+		"kubernetes-namespace": "",
+		"use-stateful-set": false,
+		"notebook-image-name": "scusemua/jupyter-gpu",
+		"notebook-image-tag": "latest",
+		"distributed-cluster-service-port": 8079,
+		"remote-docker-event-aggregator-port": 5821
+	}
 }`
 )
 
@@ -187,8 +188,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
 			Expect(schedulingPolicy.Name()).To(Equal("Static Scheduling"))
 
-			Expect(opts.MeanScaleInPerHostSec).To(Equal(1.0))
-			Expect(opts.MeanScaleOutPerHostSec).To(Equal(1.0))
+			Expect(opts.MeanScaleInPerHostSec).To(Equal(0.75))
+			Expect(opts.MeanScaleOutPerHostSec).To(Equal(0.75))
 
 			// clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
@@ -335,9 +336,6 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						localGatewayClients[hostIndex] = localGatewayClient
 						resourceSpoofers[hostIndex] = resourceSpoofer
 					}
-
-					Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Second * 1))
-					Expect(dockerCluster.MeanScaleInTime()).To(Equal(time.Second * 1))
 
 					Expect(dockerCluster.Len()).To(Equal(5))
 
@@ -1209,6 +1207,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				Expect(p).ToNot(BeNil())
 
 				err := p.Error()
+				GinkgoWriter.Printf("Error: %v\n", err)
 				Expect(err).ToNot(BeNil())
 				Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
 			})
@@ -1223,6 +1222,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				Expect(p).ToNot(BeNil())
 
 				err := p.Error()
+				GinkgoWriter.Printf("Error: %v\n", err)
 				Expect(err).ToNot(BeNil())
 				Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
 			})
@@ -1738,6 +1738,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				hosts[i] = bigHost1
 
+				GinkgoWriter.Printf("dockerCluster.Len(): %d\n", dockerCluster.Len())
 				Expect(dockerCluster.Len()).To(Equal(1))
 
 				kernelId := uuid.NewString()

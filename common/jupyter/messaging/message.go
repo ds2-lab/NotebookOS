@@ -20,6 +20,9 @@ import (
 const (
 	MessageHeaderDefaultUsername = "username"
 
+	IOStatusMessage              = "status"
+	ControlResetKernelRequest    = "reset_kernel_request"
+	ControlResetKernelReply      = "reset_kernel_reply"
 	ShellExecuteRequest          = "execute_request"
 	ShellExecuteReply            = "execute_reply"
 	ShellYieldRequest            = "yield_request"
@@ -487,7 +490,7 @@ type ExecuteRequestMetadata struct {
 	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
 
-	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
+	// RemoteStorageDefinition defines the remote remote_storage that should be used by the kernel when simulating
 	// checkpointing its state.
 	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
 

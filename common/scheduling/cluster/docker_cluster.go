@@ -323,8 +323,20 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			}
 		}
 
-		scaleInDuration := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
-		c.log.Debug("Simulating scale-in with duration %v", scaleInDuration)
+		var scaleInDuration time.Duration
+		for i := 0; i < int(numAffectedNodes); i++ {
+			scaleInForHost := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
+			c.log.Debug("Simulated scale-in duration for target host #%d (%s): %v",
+				i+1, targetHosts[i], scaleInForHost)
+
+			// We're simulating the concurrent termination of several hosts.
+			// We'll sleep for whatever host takes the longest to terminate.
+			if scaleInForHost > scaleInDuration {
+				scaleInDuration = scaleInForHost
+			}
+		}
+
+		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
 		time.Sleep(scaleInDuration)
 
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.

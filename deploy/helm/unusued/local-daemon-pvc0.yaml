@@ -13,9 +13,9 @@ spec:
   resources:
     requests:
       storage: { { .Values.local_daemon.pvc_size: "" }: "" }
-  storageClassName: local-storage
+  storageClassName: local-remote_storage
   local:
-    path: /mnt/disks/k8s-local-storage
+    path: /mnt/disks/k8s-local-remote_storage
   nodeAffinity:
     required:
 status: {}

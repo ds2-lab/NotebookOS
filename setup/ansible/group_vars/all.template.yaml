@@ -42,7 +42,7 @@ distributed_notebook_save_stopped_kernel_containers: false
 distributed_notebook_bind_debugpy_port: false
 distributed_notebook_assign_kernel_debug_ports: false
 distributed_notebook_submit_execute_requests_one_at_a_time: true
-distributed_notebook_s3_bucket: "distributed-notebook-storage"
+distributed_notebook_s3_bucket: "distributed-notebook-remote_storage"
 distributed_notebook_aws_region: "us-east-1"
 distributed_notebook_idle_session_reclamation_enabled: true
 distributed_notebook_idle_session_reclamation_interval_sec: 1800
@@ -151,6 +151,16 @@ promtail_docker_image_tag: 3.2.0
 ##############
 prometheus_docker_image_name: prom/prometheus
 prometheus_docker_image_tag: main
+
+#################
+# Node Exporter #
+#################
+node_exporter_port: 7125
+
+############
+# cAdvisor #
+############
+cadvisor_port: 7126
 
 ##################################################################
 # Dashboard Backend Configuration

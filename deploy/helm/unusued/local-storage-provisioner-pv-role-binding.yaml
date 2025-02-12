@@ -5,7 +5,7 @@ metadata:
   namespace: default
 subjects:
 - kind: ServiceAccount
-  name: local-storage-admin
+  name: local-remote_storage-admin
   namespace: default
 roleRef:
   kind: ClusterRole

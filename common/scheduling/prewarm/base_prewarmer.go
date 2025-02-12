@@ -20,6 +20,7 @@ var (
 	ErrPrewarmedContainerRegistrationFailure = errors.New("could not register the specified prewarmed container")
 	ErrPrewarmedContainerAlreadyRegistered   = errors.New("a prewarmed container with the same ID is already registered")
 	ErrPrewarmedContainerAlreadyUsed         = errors.New("the prewarmed container has already been used")
+	ErrPrewarmedContainerUnused              = errors.New("the prewarmed container has not yet been used")
 	ErrNoPrewarmedContainersAvailable        = errors.New("there are no prewarmed containers available on the specified host")
 	ErrAlreadyRunning                        = errors.New("the prewarmer is already running")
 	ErrFailedToStop                          = errors.New("the prewarmer failed to stop cleanly")
@@ -161,6 +162,11 @@ func (p *PrewarmedContainer) OnPrewarmedContainerUsed() {
 	if p.onPrewarmedContainerUsed != nil {
 		p.onPrewarmedContainerUsed(p)
 	}
+}
+
+// GetOnPrewarmedContainerUsed returns the callback to execute when a pre-warmed container is used.
+func (p *PrewarmedContainer) GetOnPrewarmedContainerUsed() scheduling.PrewarmedContainerUsedCallback {
+	return p.onPrewarmedContainerUsed
 }
 
 // PrewarmerConfig encapsulates configuration information/parameters of a scheduling.ContainerPrewarmer implementation.
@@ -408,19 +414,22 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 	return prewarmedContainer, nil
 }
 
-// ReturnUnusedPrewarmContainer is used to return a pre-warmed container that was originally returned to the caller
-// via the RequestPrewarmedContainer method, but ended up being unused, and so it can simply be put back into the pool.
-func (p *BaseContainerPrewarmer) ReturnUnusedPrewarmContainer(container scheduling.PrewarmedContainer) error {
+// ReturnPrewarmContainer is used to return a used pre-warmed container so that it may be reused in the future.
+func (p *BaseContainerPrewarmer) ReturnPrewarmContainer(container scheduling.PrewarmedContainer) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.log.Debug("Container returned unused [%v]", container.String())
-
-	// Ensure the container hasn't already been used.
 	if !container.IsAvailable() {
-		p.log.Error("Returned prewarmed container %s is marked as having been used.", container.ID())
-		return fmt.Errorf("%w: container \"%s\"", ErrPrewarmedContainerAlreadyUsed, container.ID())
+		// Re-create the container so that the "IsAvailable" field is set to true.
+		container = NewPrewarmedContainerBuilder().
+			WithHost(container.Host()).
+			WithPrewarmedContainerUsedCallback(container.GetOnPrewarmedContainerUsed()).
+			WithKernelReplicaSpec(container.KernelReplicaSpec()).
+			WithKernelConnectionInfo(container.KernelConnectionInfo()).
+			Build()
 	}
+
+	p.log.Debug("Container returned after being used [%v]", container.String())
 
 	return p.unsafeRegisterPrewarmedContainer(container)
 }

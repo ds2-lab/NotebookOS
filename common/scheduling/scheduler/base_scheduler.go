@@ -498,17 +498,21 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 				break // Give up.
 			}
 
-			numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
+			numHostsRequired = s.schedulingPolicy.NumReplicas() - len(hosts)
 			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
 				numHostsRequired, kernelSpec.Id)
 
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
-			if err := p.Error(); err != nil {
+			if err = p.Error(); err != nil {
 				if errors.Is(err, scheduling.ErrScalingActive) {
 					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
 						kernelSpec.Id)
+				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+						numHostsRequired, kernelSpec.Id, err)
+					break // We're out of hosts. Give up. It can be resubmitted by the client later.
 				} else {
-					s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
 						numHostsRequired, kernelSpec.Id, err)
 				}
 			}
@@ -1173,9 +1177,9 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, ker
 
 // issuePrepareMigrateRequest issues a 'prepare-to-migrate' request to a specific replica of a specific kernel.
 // This will prompt the kernel to shut down its etcd process (but not remove itself from the cluster)
-// before writing the contents of its data directory to intermediate storage.
+// before writing the contents of its data directory to intermediate remote_storage.
 //
-// Returns the path to the data directory in intermediate storage.
+// Returns the path to the data directory in intermediate remote_storage.
 func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.KernelReplica, originalHost scheduling.Host) (string, error) {
 	// If the host is nil, then we'll attempt to retrieve it from the kernel itself.
 	if originalHost == nil {

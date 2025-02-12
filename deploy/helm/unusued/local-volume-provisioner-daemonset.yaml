@@ -14,7 +14,7 @@ spec:
       labels:
         app: local-volume-provisioner
     spec:
-      serviceAccountName: local-storage-admin
+      serviceAccountName: local-remote_storage-admin
       containers:
         - image: "registry.k8s.io/sig-storage/local-volume-provisioner:v2.4.0"
           imagePullPolicy: "Always"
@@ -30,8 +30,8 @@ spec:
             - mountPath: /etc/provisioner/config 
               name: provisioner-config
               readOnly: true             
-            - mountPath:  /mnt/local-storage 
-              name: local-storage
+            - mountPath:  /mnt/local-remote_storage
+              name: local-remote_storage
               mountPropagation: "HostToContainer"
             - mountPath: /dev
               name:  provisioner-dev
@@ -39,9 +39,9 @@ spec:
         - name: provisioner-config
           configMap:
             name: local-provisioner-config         
-        - name: local-storage
+        - name: local-remote_storage
           hostPath:
-            path: /mnt/local-storage 
+            path: /mnt/local-remote_storage
         - name: provisioner-dev
           hostPath:
             path: /dev

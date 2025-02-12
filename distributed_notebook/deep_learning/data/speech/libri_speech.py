@@ -1,3 +1,5 @@
+import shutil
+
 import time
 import torch
 import os
@@ -152,11 +154,12 @@ class LibriSpeech(CustomDataset):
             num_workers: int = 2,
             # Default to test_clean, even though it's a test set, because it is small (good for unit tests)
             train_split: Optional[str] = test_clean,
-            test_split: Optional[str] = None
+            test_split: Optional[str] = None,
+            **kwargs,
     ):
         assert folder_in_archive is not None
 
-        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers, **kwargs)
 
         if train_split is not None and train_split not in LibriSpeech._train_splits[0]:
             self.log.debug(f'[WARNING] Specified training split "{train_split}" is technically NOT a training split.')
@@ -240,6 +243,19 @@ class LibriSpeech(CustomDataset):
             )
         else:
             self._test_loader: Optional[WrappedLoader] = None
+
+    def remove_local_files(self):
+        """
+        Remove any local files on disk.
+        """
+        self.log.debug(f'Cleaning up cache files for "{self.name}" dataset. Removing directory "{self.root_directory}".')
+
+        st: float = time.time()
+
+        shutil.rmtree(self.root_directory, ignore_errors=True)
+
+        self.log.debug(f'Successfully cleaned-up cache files for "{self.name}" '
+                       f'dataset in {round(time.time() - st, 3):,} seconds.')
 
     @staticmethod
     def category() -> str:
