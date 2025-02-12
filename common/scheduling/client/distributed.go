@@ -1658,17 +1658,22 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 	}
 
 	// Stop the replicas first.
-	var stopped sync.WaitGroup
-	stopped.Add(len(c.replicas))
+	numReplicas := int64(len(c.replicas))
+	stoppedSem := semaphore.NewWeighted(numReplicas)
 
 	// In RLock, don't change anything in c.replicas.
-	for _, replica := range c.replicas {
+	for id, replica := range c.replicas {
+		if !stoppedSem.TryAcquire(1) {
+			panic("Failed to acquire.")
+		}
+
 		if replica == nil {
+			c.log.Warn("Replica %d is nil", id)
 			continue
 		}
 
 		go func(replica scheduling.KernelReplica) {
-			defer stopped.Done()
+			defer stoppedSem.Release(1)
 
 			if host, err := c.stopReplicaLocked(replica, remover, false); err != nil {
 				c.log.Warn("Failed to stop %v on host %v: %v", replica, host, err)
@@ -1679,7 +1684,18 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 		}(replica)
 	}
 	c.replicasMutex.RUnlock()
-	stopped.Wait()
+
+	// Wait up to 5 minutes for the shutdown operation to complete.
+	timeoutInterval := time.Minute * 5
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
+	defer cancel()
+
+	err := stoppedSem.Acquire(ctx, numReplicas)
+	if err != nil {
+		c.log.Error("Timed out waiting for %d replica(s) to shutdown: %v", numReplicas, err)
+		return fmt.Errorf("%w: replicas did not shutdown within timeout interval of %v",
+			types.ErrRequestTimedOut, timeoutInterval)
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -2014,7 +2014,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		// If we started a new attempt, then we'll break out of the loop and orchestrate the creation of
 		// the containers for the replicas of the target kernel.
 		if startedScheduling {
-			d.log.Debug("Started attempt to schedule %d replica container(s) for kernel \"%s\".",
+			d.log.Debug(utils.LightBlueStyle.Render("Started attempt to schedule %d replica container(s) for kernel \"%s\"."),
 				d.NumReplicas(), kernel.ID())
 			break
 		}
@@ -2032,7 +2032,9 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 			}
 
 			// This would be truly bizarre, but if this occurs, then we'll just sleep briefly and then try again...
-			d.log.Error("We were lead to believe that kernel %s's replicas were scheduled, but they're not...", kernel.ID())
+			d.log.Error("We were lead to believe that kernel %s's replicas were scheduled, but they're not...",
+				kernel.ID())
+
 			time.Sleep(time.Millisecond * (5 + time.Duration(rand.Intn(25))))
 			continue
 		}
