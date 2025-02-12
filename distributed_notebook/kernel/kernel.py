@@ -1253,18 +1253,17 @@ class DistributedKernel(IPythonKernel):
         """
         Simple callback to print a message when the initialization of the persistent store completes.
         """
-        if f.done():
-            self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
-
         if f.cancelled():
             self.log.error("Initialization of Persistent Store on-start was apparently cancelled...")
+            return
 
-        try:
-            ex = f.exception()
-            self.log.error(f"Initialization of Persistent Store apparently "
-                           f"raised an exception: {ex}")
-        except:  # noqa
-            self.log.error("No exception associated with cancelled initialization of Persistent Store.")
+        ex = f.exception()
+        if ex is not None:
+            self.log.error(f"Initialization of Persistent Store apparently raised an exception: {ex}")
+            self.report_error(f'Kernel {self.kernel_id} Failed to Initialize Persistent Store', str(ex))
+            return
+
+        self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
 
     def start(self):
         self.log.info(
