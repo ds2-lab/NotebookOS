@@ -19,7 +19,6 @@ var (
 	// Internal errors
 
 	ErrHeaderNotFound                        = errors.New("message header not found")
-	ErrKernelNotFound                        = errors.New("kernel not found")
 	ErrKernelNotReady                        = errors.New("kernel not ready")
 	ErrKernelIDRequired                      = errors.New("kernel id frame is required for kernel_info_request")
 	ErrUnexpectedZMQMessageType              = errors.New("received ZMQ message of unexpected type")

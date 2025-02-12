@@ -1253,18 +1253,17 @@ class DistributedKernel(IPythonKernel):
         """
         Simple callback to print a message when the initialization of the persistent store completes.
         """
-        if f.done():
-            self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
-
         if f.cancelled():
             self.log.error("Initialization of Persistent Store on-start was apparently cancelled...")
+            return
 
-        try:
-            ex = f.exception()
-            self.log.error(f"Initialization of Persistent Store apparently "
-                           f"raised an exception: {ex}")
-        except:  # noqa
-            self.log.error("No exception associated with cancelled initialization of Persistent Store.")
+        ex = f.exception()
+        if ex is not None:
+            self.log.error(f"Initialization of Persistent Store apparently raised an exception: {ex}")
+            self.report_error(f'Kernel {self.kernel_id} Failed to Initialize Persistent Store', str(ex))
+            return
+
+        self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
 
     def start(self):
         self.log.info(
@@ -2108,6 +2107,7 @@ class DistributedKernel(IPythonKernel):
             training_duration_millis=training_duration_millis,
             gpu_device_ids=gpu_device_ids,
             deep_learning_model_name=target_model,
+            execute_request_metdata=metadata,
             dataset=target_dataset,
             batch_size=batch_size,
         )
@@ -3259,6 +3259,7 @@ class DistributedKernel(IPythonKernel):
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
             batch_size: Optional[int] = None,
+            execute_request_metadata: Optional[Dict[str, Any]] = None,
             *,
             cell_meta=None,
             cell_id=None,
@@ -3386,6 +3387,7 @@ class DistributedKernel(IPythonKernel):
                 deep_learning_model_name=deep_learning_model_name,
                 dataset=dataset,
                 batch_size=batch_size,
+                execute_request_metdata=execute_request_metdata,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -3422,6 +3424,51 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content
 
+    def __validate_gpu_id_args(
+            self,
+            gpu_device_ids: list[int] = None,
+            execute_request_metdata: Optional[Dict[str, Any]] = None,
+    ):
+        # If we're simulating training using time.sleep, then we have
+        # no expectations regarding the GPU device IDs. We can return.
+        if self.simulate_training_using_sleep:
+            return
+
+        # If we received any valid GPU device IDs, then we're OK to return.
+        if gpu_device_ids is not None and len(gpu_device_ids) > 0:
+            return
+
+        # At this point, the GPU device IDs are either none or empty.
+        if execute_request_metdata is not None and "required-gpus" in execute_request_metdata:
+            # If in the request metadata, we were told that we don't actually need any GPUs
+            # for this training, then we're okay to return.
+            assert execute_request_metdata["required-gpus"] == 0
+            return
+
+        if execute_request_metdata is not None and "resource_request" in execute_request_metdata:
+            # If the latest/current resource request is embedded in the metadata, then we can
+            # check that to verify that we do not in fact require any GPU device IDs.
+            resource_request: Dict[str, int|float] = execute_request_metdata["resource_request"]
+            assert "gpus" in resource_request and resource_request["gpus"] == 0
+
+        # If our current execution request is not None and there is a "gpus" entry,
+        # then check that it is 0. If so, then it is OK that we did not receive any
+        # valid GPU device IDs.
+        #
+        # Note that our current resource request will/should have been set to the value of the "resource_request"
+        # entry in the "execute_request" metadata frame, so the last if-statement check would've found this...
+        if self.current_resource_request is not None and "gpus" in self.current_resource_request:
+            assert self.current_resource_request["gpus"] == 0
+            return
+
+        # Something is wrong. We should have received GPU device IDs.
+        error_title:str = (f'Kernel "{self.kernel_id}" Received 0 GPU device IDs for '
+                           f'"execute_request" "{self.next_execute_request_msg_id}"')
+
+        self.report_error(error_title, 'No GPU device IDs received.')
+
+        raise ValueError("Received 0 valid GPU device IDs, though it seems that we should have...")
+
     async def execute_user_code(
             self,
             target_training_duration_millis: float = 0,
@@ -3434,6 +3481,7 @@ class DistributedKernel(IPythonKernel):
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
             batch_size: Optional[int] = None,
+            execute_request_metdata: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3444,7 +3492,7 @@ class DistributedKernel(IPythonKernel):
                  - (3) the code that was executed (which may have been updated/changed)
         """
         if not self.simulate_training_using_sleep:
-            assert gpu_device_ids is not None and len(gpu_device_ids) > 0
+            self.__validate_gpu_id_args()
 
         performed_dl_training: bool = False
 
