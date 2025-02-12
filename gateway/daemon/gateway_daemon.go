@@ -2066,19 +2066,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, kernel, []scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
-		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
-
-		// Clean up everything since we failed to create the kernel.
-		d.kernelIdToKernel.Delete(in.Id)
-		d.kernelsStarting.Delete(in.Id)
-		d.kernels.Delete(in.Id)
-		d.kernelSpecs.Delete(in.Id)
-		d.waitGroups.Delete(in.Id)
-
-		closeKernelError := kernel.Close()
-		if closeKernelError != nil {
-			d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
-		}
+		d.log.Warn("Failed to deploy kernel replica(s) for kernel \"%s\" because: %v", kernel.ID(), err)
 
 		// Only notify if there's an "actual" error.
 		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &scheduling.InsufficientResourcesError{}) {
@@ -2087,12 +2075,6 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 		// Record that the container creation attempt has completed with an error (i.e., it failed).
 		attempt.SetDone(err)
-
-		// The error should already be compatible with gRPC. But just in case it isn't...
-		_, ok := status.FromError(err)
-		if !ok {
-			err = status.Error(codes.Internal, err.Error())
-		}
 
 		return err
 	}
@@ -2276,7 +2258,25 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 			// If we received an error, then we already know that the operation failed (and we know why -- it is
 			// whatever the error is/says), so we can just return the error.
 			if err, ok := v.(error); ok {
-				d.log.Error("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+				d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+
+				// Clean up everything since we failed to create the long-running kernel.
+				d.kernelIdToKernel.Delete(in.Id)
+				d.kernelsStarting.Delete(in.Id)
+				d.kernels.Delete(in.Id)
+				d.kernelSpecs.Delete(in.Id)
+				d.waitGroups.Delete(in.Id)
+
+				closeKernelError := kernel.Close()
+				if closeKernelError != nil {
+					d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
+				}
+
+				// The error should already be compatible with gRPC. But just in case it isn't...
+				_, ok = status.FromError(err)
+				if !ok {
+					err = status.Error(codes.Internal, err.Error())
+				}
 
 				return err
 			}
@@ -4006,7 +4006,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 		{
 			// If we received an error over the channel, then we'll log an error message and return the error.
 			if err, ok := v.(error); ok {
-				d.log.Error("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
+				d.log.Warn("Failed to schedule replica container(s) of kernel \"%s\" after receiving Jupyter \"%s\" message: %v",
 					kernel.ID(), msg.JupyterMessageType(), err)
 				return nil, false, err
 			} else {
@@ -4268,7 +4268,7 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
 	_, replicasAlreadyScheduled, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
 	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+		d.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), jMsg.JupyterMessageType(), err)
 
 		// We'll send an error message to the associated client here.
@@ -4880,7 +4880,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 
 	resp, _, err := d.ensureKernelReplicasAreScheduled(kernel, msg, typ)
 	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+		d.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), msg.JupyterMessageType(), err)
 		_ = d.sendErrorResponse(kernel, msg, err, messaging.ShellMessage)
 		return
