@@ -75,6 +75,8 @@ class RedisProvider(RemoteStorageProvider):
             self.log.debug(f"Creating asynchronous Redis client of Redis server at {host}:{port} (db={db}).")
             self._async_redis = async_redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
 
+        self.log.debug(f"Successfully connected to Redis server at {host}:{port} (db={db}).")
+
     @property
     def hostname(self)->str:
         return self._redis_host

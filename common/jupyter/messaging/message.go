@@ -101,6 +101,21 @@ func (nt NotificationType) Int32() int32 {
 	return int32(nt)
 }
 
+func (nt NotificationType) String() string {
+	switch nt {
+	case ErrorNotification:
+		return "ErrorNotification"
+	case WarningNotification:
+		return "WarningNotification"
+	case InfoNotification:
+		return "InfoNotification"
+	case SuccessNotification:
+		return "SuccessNotification"
+	}
+
+	panic(fmt.Sprintf("invalid notification type: %d", nt))
+}
+
 // Message represents an entire message in a high-level structure.
 type Message struct {
 	Content      interface{}            `json:"content"`
@@ -1025,11 +1040,13 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 }
 
 func (m *JupyterMessage) String() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset(), m.JupyterFrames.String())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,IsFailedExecuteRequest=%v]; JupyterMessage's JupyterFrames=%s",
+		m.RequestId, m.DestinationId, m.Offset(), m.IsFailedExecuteRequest, m.JupyterFrames.String())
 }
 
 func (m *JupyterMessage) StringFormatted() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,IsFailedExecuteRequest=%v]; JupyterMessage's JupyterFrames=\n%s",
+		m.RequestId, m.DestinationId, m.Offset, m.IsFailedExecuteRequest, m.JupyterFrames.StringFormatted())
 }
 
 // CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.

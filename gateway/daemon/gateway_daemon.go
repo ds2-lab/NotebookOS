@@ -1805,7 +1805,10 @@ func (d *ClusterGatewayImpl) NotificationCallback(notificationName string, notif
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          notificationMessage,
@@ -1813,9 +1816,13 @@ func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificati
 		})
 
 		if err != nil {
-			d.log.Error("Failed to send notification to internalCluster Dashboard because: %s", err.Error())
+			d.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+			d.log.Error("Notification name: %s", notificationName)
+			d.log.Error("Notification message: %s", notificationMessage)
+			d.log.Error("Notification type: %s", typ.String())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to internalCluster Dashboard.", notificationName, typ)
+			d.log.Debug("Successfully sent \"%s\" (typ=%s (%d)) notification to internalCluster Dashboard.",
+				notificationName, typ.String(), typ.Int32())
 		}
 	}
 }
@@ -1839,7 +1846,10 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 // Used to issue an "info" notification to the internalCluster Dashboard.
 func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            notificationName,
 			Message:          message,
@@ -1858,7 +1868,10 @@ func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, mess
 func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            errorName,
 			Message:          errorMessage,
@@ -1877,7 +1890,10 @@ func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessa
 func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warningMessage string) {
 	sendStart := time.Now()
 	if d.clusterDashboard != nil {
-		_, err := d.clusterDashboard.SendNotification(context.TODO(), &proto.Notification{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+		defer cancel()
+
+		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            warningName,
 			Message:          warningMessage,
@@ -2120,7 +2136,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
-	// Map all the sessions (probably just one?) to the kernel client.
+	// Map all the sessions to the kernel client.
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
 		d.kernels.Store(sess, kernel)
@@ -2861,7 +2877,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		nodeName = host.GetID()
 	}
 
-	d.log.Debug("Creating new kernel Client for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
+	d.log.Debug("Creating new KernelReplicaClient for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
@@ -3225,7 +3241,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 	if in.Restart != nil {
 		restart = *in.Restart
 	}
-	d.log.Info("Stopping %v, will restart %v", kernel, restart)
+	d.log.Info("Stopping %v, restart=%v", kernel, restart)
 	ret = proto.VOID
 
 	var wg sync.WaitGroup
@@ -3713,7 +3729,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 
 	session, ok := d.cluster.GetSession(kernel.ID())
 	if !ok || session == nil {
-		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", sessionId, kernel.ID())
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", kernel.ID(), kernel.ID())
 		d.log.Error(errorMessage)
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
 	} else {
@@ -4964,7 +4980,7 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 			style = utils.OrangeStyle
 		}
 
-		d.log.Warn(style.Render("Forwarding %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
+		d.log.Warn(style.Render("Sending %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
 			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, sendDuration)
 	}
 
@@ -5120,8 +5136,8 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		}
 	}
 
-	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s via %s: %v"),
-		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg)
+	d.log.Debug(utils.LightBlueStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel \"%s\" via %s:\n%v"),
+		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg.StringFormatted())
 
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
