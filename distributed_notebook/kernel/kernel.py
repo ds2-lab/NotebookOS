@@ -5179,6 +5179,8 @@ class DistributedKernel(IPythonKernel):
                        "remote_storage_read_latency_milliseconds") and self.remote_storage_read_latency_milliseconds is not None:
                 remote_storage_read_latency_milliseconds = self.remote_storage_read_latency_milliseconds
 
+            self.log.debug(f'Creating remote storage provider: "{self.remote_storage.lower()}"')
+
             if self.remote_storage.lower() == "redis":
                 remote_storage_provider: RedisProvider = RedisProvider(
                     host=self.remote_storage_hostname,
@@ -5192,9 +5194,13 @@ class DistributedKernel(IPythonKernel):
                     aws_region=self.aws_region,
                 )
             else:
+                self.log.error(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
                 raise ValueError(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
 
-            assert remote_storage_provider is not None
+            if remote_storage_provider is None:
+                self.log.error("Remote storage provider should not be None at this point.")
+                raise ValueError("Remote storage provider is None, but it should have been created by now.")
+
             self.synclog: Optional[SyncLog] = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
@@ -5205,7 +5211,10 @@ class DistributedKernel(IPythonKernel):
                 remote_storage_write_latency_milliseconds=remote_storage_read_latency_milliseconds,
             )
 
-        assert self.synclog is not None
+        if self.synclog is None:
+            self.log.error("SyncLog should not be None at this point.")
+            raise ValueError("SyncLog is still None, even though it should have been created by now.")
+
         self.log.debug("Successfully created SyncLog.")
 
         return self.synclog
