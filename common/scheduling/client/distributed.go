@@ -1170,9 +1170,20 @@ func (c *DistributedKernelClient) DebugMode() bool {
 }
 
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
+func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType,
+	jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
+
+	kernelSize := c.Size()
+	if kernelSize == 0 {
+		c.log.Error("Cannot forward %s '%s' message \"%s\" to replica(s)... I have no replicas!",
+			typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
+
+		return fmt.Errorf("%w: cannot forward %v \"%s\" message \"%s\"",
+			ErrNoReplicas, typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
+	}
+
 	// Broadcast to all replicas if no replicas are specified.
-	replicas := make([]scheduling.KernelReplica, c.Size())
+	replicas := make([]scheduling.KernelReplica, kernelSize)
 	for _, replica := range c.replicas {
 		replicas = append(replicas, replica)
 	}
@@ -1186,7 +1197,7 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 	//
 	// It would be bad if the replicas concurrently modified the same jupyter message, so we clone it and send
 	// each replica its own unique copy.
-	jupyterMessages := make([]*messaging.JupyterMessage, 0, len(c.replicas))
+	jupyterMessages := make([]*messaging.JupyterMessage, 0, kernelSize)
 	for range replicas {
 		var jupyterMessage *messaging.JupyterMessage
 		if c.debugMode {
