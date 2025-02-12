@@ -2384,11 +2384,15 @@ class DistributedKernel(IPythonKernel):
         # Step 1: stop the sync log
         intermediate_resp, ok = await self.__close_synclog()
         if not ok:
+            self.log.error(f"Failed to close SyncLog while reverting to PREWARM. "
+                           f"Intermediate response: {intermediate_resp}")
             return intermediate_resp, False
 
         # Step 2: copy the data directory to RemoteStorage
         intermediate_resp, ok = await self.__write_synclog_data_dir_to_remote_storage()
         if not ok:
+            self.log.error(f"Failed to write SyncLog data directory to remote storage while reverting to PREWARM. "
+                           f"Intermediate response: {intermediate_resp}")
             await self.__close_synclog_remote_storage_client()
             return intermediate_resp, False
 
@@ -4060,6 +4064,12 @@ class DistributedKernel(IPythonKernel):
         """
         Write the data directory of the SyncLog to remote remote_storage.
         """
+
+        # Verify that the SyncLog is not None before we continue. 
+        if self.synclog is None:
+            self.log.warning("SyncLog is None. Cannot write data directory to remote storage.")
+            return { "status": "ok", "id": self.smr_node_id, "kernel_id": self.kernel_id }, True
+
         try:
             write_start: float = time.time()
 

@@ -2509,7 +2509,7 @@ func (d *LocalScheduler) GetKernelStatus(_ context.Context, in *proto.KernelId) 
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Warn("kernel %s not found on query status", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	kernelStatus, err := d.getInvoker(kernel).Status()
@@ -2523,7 +2523,7 @@ func (d *LocalScheduler) KillKernel(_ context.Context, in *proto.KernelId) (*pro
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	if err := d.errorf(d.getInvoker(kernel).Close()); err != nil {
@@ -2550,7 +2550,7 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	d.log.Debug("Stopping replica %d of kernel %s now.", kernel.ReplicaID(), in.Id)
@@ -2634,7 +2634,7 @@ func (d *LocalScheduler) WaitKernel(_ context.Context, in *proto.KernelId) (*pro
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	kernelStatus, err := d.getInvoker(kernel).Wait()
@@ -2713,7 +2713,7 @@ func (d *LocalScheduler) ControlHandler(_ router.Info, msg *messaging.JupyterMes
 	kernel, ok := d.kernels.Load(msg.JupyterSession())
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", msg.JupyterSession())
-		return domain.ErrKernelNotFound
+		return types.ErrKernelNotFound
 	}
 
 	connInfo := kernel.ConnectionInfo()
@@ -2772,7 +2772,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 		kernel, ok = d.kernels.Load(msg.DestinationId)
 		if !ok {
 			d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
-			return domain.ErrKernelNotFound
+			return types.ErrKernelNotFound
 		}
 
 		d.log.Debug("Binding %v with session %s ", kernel, session)
@@ -2781,7 +2781,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	}
 	if kernel == nil {
 		d.log.Error("Could not find kernel with ID \"%s\"", session)
-		return domain.ErrKernelNotFound
+		return types.ErrKernelNotFound
 	}
 
 	connInfo := kernel.ConnectionInfo()
@@ -3377,7 +3377,7 @@ func (d *LocalScheduler) kernelFromMsg(msg *messaging.JupyterMessage) (kernel sc
 	kernel, ok := d.kernels.Load(msg.DestinationId)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
-		return nil, domain.ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	if kernel.Status() != jupyter.KernelStatusRunning {
