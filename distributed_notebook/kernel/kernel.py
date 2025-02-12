@@ -3398,7 +3398,7 @@ class DistributedKernel(IPythonKernel):
             reply_content = gen_error_response(dme)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
-
+            self.log.error(traceback.format_exc())
             self.report_error("Execution Error", str(e))
 
             reply_content = gen_error_response(e)
@@ -5055,8 +5055,15 @@ class DistributedKernel(IPythonKernel):
 
     async def override_shell(self):
         """Override IPython Core"""
-        self.old_run_cell = self.shell.run_cell  # type: ignore
-        self.shell.run_cell = self.run_cell  # type: ignore
+        
+        # We only want to do this once.
+        # If we re-use this container as a pre-warm container, then we do not want to execute this again,
+        # as doing so will set self.old_run_cell to self.run_cell, and self.shell.run_cell will be set to
+        # self.run_cell, which will lead to infinte recurion/stack overflow.
+        if self.old_run_cell is None:
+            self.old_run_cell = self.shell.run_cell  # type: ignore
+            self.shell.run_cell = self.run_cell  # type: ignore
+
         self.shell.transform_ast = self.transform_ast  # type: ignore
 
     async def send_smr_ready_notification(self) -> None:
