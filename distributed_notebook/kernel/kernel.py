@@ -3461,14 +3461,15 @@ class DistributedKernel(IPythonKernel):
         if execute_request_metadata is not None and "required-gpus" in execute_request_metadata:
             # If in the request metadata, we were told that we don't actually need any GPUs
             # for this training, then we're okay to return.
-            assert execute_request_metadata["required-gpus"] == 0
-            return
+            if execute_request_metadata["required-gpus"] == 0:
+                return
 
         if execute_request_metadata is not None and "resource_request" in execute_request_metadata:
             # If the latest/current resource request is embedded in the metadata, then we can
             # check that to verify that we do not in fact require any GPU device IDs.
             resource_request: Dict[str, int|float] = execute_request_metadata["resource_request"]
-            assert "gpus" in resource_request and resource_request["gpus"] == 0
+            if "gpus" in resource_request and resource_request["gpus"] == 0:
+                return
 
         # If our current execution request is not None and there is a "gpus" entry,
         # then check that it is 0. If so, then it is OK that we did not receive any
@@ -3477,8 +3478,8 @@ class DistributedKernel(IPythonKernel):
         # Note that our current resource request will/should have been set to the value of the "resource_request"
         # entry in the "execute_request" metadata frame, so the last if-statement check would've found this...
         if self.current_resource_request is not None and "gpus" in self.current_resource_request:
-            assert self.current_resource_request["gpus"] == 0
-            return
+            if self.current_resource_request["gpus"] == 0:
+                return
 
         # Something is wrong. We should have received GPU device IDs.
         error_title:str = (f'Kernel "{self.kernel_id}" Received 0 GPU device IDs for '
