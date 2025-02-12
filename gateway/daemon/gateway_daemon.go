@@ -5173,36 +5173,6 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 		return
 	}
 
-	// Decode the content of the response.
-	//var content map[string]interface{}
-	//err := execReplyMsg.JupyterFrames.DecodeContent(&content)
-	//if err != nil {
-	//	d.log.Error("Failed to decode content of \"execute_reply\" message \"%s\" targeting kernel \"%s\"",
-	//		execReplyMsg.JupyterMessageId(), from.ID())
-	//
-	//	go d.notifyDashboardOfError(
-	//		fmt.Sprintf(
-	//			"Failed to decode content of \"execute_reply\" message \"%s\" targeting kernel \"%s\"",
-	//			execReplyMsg.JupyterMessageId(), from.ID()), "")
-	//
-	//	return
-	//}
-	//
-	//// If the status is error and the error name includes the text from ErrInsufficientHostsAvailable,
-	//// then the associated execution never actually occurred, so we'll have nothing to clean up.
-	////
-	//// We can just return.
-	//if content["status"] != nil && content["status"].(string) == "error" {
-	//	errorName, _ := content["ename"].(string)
-	//	if strings.Contains(errorName, scheduling.ErrInsufficientHostsAvailable.Error()) {
-	//		return
-	//	}
-	//}
-	//
-	//if execReplyMsg.IsFailedExecuteRequest {
-	//	return
-	//}
-
 	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 	kernel, loaded := d.kernels.Load(from.ID())
