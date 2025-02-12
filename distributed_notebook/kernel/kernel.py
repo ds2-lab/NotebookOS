@@ -1255,14 +1255,14 @@ class DistributedKernel(IPythonKernel):
         """
         if f.done():
             self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
-            return
 
         if f.cancelled():
-            self.log.error("Initialization of Persistent Store on-start has been cancelled...")
+            self.log.error("Initialization of Persistent Store on-start was apparently cancelled...")
 
         try:
+            ex = f.exception()
             self.log.error(f"Initialization of Persistent Store apparently "
-                           f"raised an exception: {f.exception()}")
+                           f"raised an exception: {ex}")
         except:  # noqa
             self.log.error("No exception associated with cancelled initialization of Persistent Store.")
 
@@ -1301,10 +1301,18 @@ class DistributedKernel(IPythonKernel):
         # Create future to avoid duplicate initialization
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
-        self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
-        self.log.info(f"Persistent store confirmed on start: {self.store}")
 
-        faulthandler.dump_traceback(file=sys.stderr)
+        try:
+            self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
+            self.log.info(f"Persistent store confirmed on start: {self.store}")
+            return True
+        except Exception as ex:
+            self.log.error(f'Failed to initialize persistent store with ID "{persistent_id}" because: {ex}')
+            self.log.error(traceback.format_exc())
+
+            return False
+        finally:
+            faulthandler.dump_traceback(file=sys.stderr)
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""
@@ -1738,23 +1746,35 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Overrode shell hooks.")
 
-        # Get synclog for synchronization.
-        sync_log: SyncLog = await self.get_synclog(self.store_path)
+        try:
+            # Get synclog for synchronization.
+            sync_log: SyncLog = await self.get_synclog(self.store_path)
+        except Exception as ex:
+            self.log.error("Creation of SyncLog failed: %s" % str(ex))
+            self.log.error(traceback.format_exc())
+            # re-raise
+            raise ex
 
         self.init_raft_log_event.set()
 
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
-        self.synchronizer = Synchronizer(
-            sync_log,
-            store_path=self.store_path,
-            module=self.shell.user_module,
-            opts=CHECKPOINT_AUTO,
-            num_replicas=self.num_replicas,
-            node_id=self.smr_node_id,
-            large_object_pointer_committed=self.large_object_pointer_committed,
-            remote_checkpointer=self._remote_checkpointer,
-        )  # type: ignore
+        try:
+            self.synchronizer = Synchronizer(
+                sync_log,
+                store_path=self.store_path,
+                module=self.shell.user_module,
+                opts=CHECKPOINT_AUTO,
+                num_replicas=self.num_replicas,
+                node_id=self.smr_node_id,
+                large_object_pointer_committed=self.large_object_pointer_committed,
+                remote_checkpointer=self._remote_checkpointer,
+            )  # type: ignore
+        except Exception as ex:
+            self.log.error("Creation of Synchronizer failed: %s" % str(ex))
+            self.log.error(traceback.format_exc())
+            # re-raise
+            raise ex
 
         if isinstance(sync_log, RaftLog):
             sync_log.set_fast_forward_executions_handler(

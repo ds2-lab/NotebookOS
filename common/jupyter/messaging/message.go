@@ -101,6 +101,21 @@ func (nt NotificationType) Int32() int32 {
 	return int32(nt)
 }
 
+func (nt NotificationType) String() string {
+	switch nt {
+	case ErrorNotification:
+		return "ErrorNotification"
+	case WarningNotification:
+		return "WarningNotification"
+	case InfoNotification:
+		return "InfoNotification"
+	case SuccessNotification:
+		return "SuccessNotification"
+	}
+
+	panic(fmt.Sprintf("invalid notification type: %d", nt))
+}
+
 // Message represents an entire message in a high-level structure.
 type Message struct {
 	Content      interface{}            `json:"content"`

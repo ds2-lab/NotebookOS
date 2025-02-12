@@ -1816,9 +1816,13 @@ func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificati
 		})
 
 		if err != nil {
-			d.log.Error("Failed to send notification to internalCluster Dashboard because: %s", err.Error())
+			d.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+			d.log.Error("Notification name: %s", notificationName)
+			d.log.Error("Notification message: %s", notificationMessage)
+			d.log.Error("Notification type: %s", typ.String())
 		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=%d) notification to internalCluster Dashboard.", notificationName, typ)
+			d.log.Debug("Successfully sent \"%s\" (typ=%s (%d)) notification to internalCluster Dashboard.",
+				notificationName, typ.String(), typ.Int32())
 		}
 	}
 }
@@ -3237,7 +3241,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 	if in.Restart != nil {
 		restart = *in.Restart
 	}
-	d.log.Info("Stopping %v, will restart %v", kernel, restart)
+	d.log.Info("Stopping %v, restart=%v", kernel, restart)
 	ret = proto.VOID
 
 	var wg sync.WaitGroup
@@ -3725,7 +3729,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 
 	session, ok := d.cluster.GetSession(kernel.ID())
 	if !ok || session == nil {
-		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", sessionId, kernel.ID())
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", kernel.ID(), kernel.ID())
 		d.log.Error(errorMessage)
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
 	} else {
