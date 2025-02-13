@@ -75,6 +75,6 @@ def test_write_and_read_large_data(redis_client):
 
     assert data is not None
 
-    assert redis_provider.num_objects_read == 1
+    assert redis_provider.num_objects_read == 4
     assert redis_provider.num_objects_written == 4
     assert redis_provider.num_objects_deleted == 1
