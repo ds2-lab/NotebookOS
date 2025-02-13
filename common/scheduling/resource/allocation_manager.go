@@ -705,13 +705,13 @@ func (m *AllocationManager) ReplicaHasPendingGPUs(replicaId int32, kernelId stri
 		return false
 	}
 
-	// If it is a pending GPU allocation, then we may return true.
-	if alloc.IsPending() {
-		return alloc.GetGpus() > 0
+	if alloc.IsCommitted() {
+		// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
+		return false
 	}
 
-	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
-	return false
+	// If it is a pending GPU allocation, then we may return true.
+	return alloc.GetGpus() > 0
 }
 
 // ReplicaHasCommittedResources returns true if the specified kernel replica has any HostResources committed to it.
@@ -744,7 +744,7 @@ func (m *AllocationManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId st
 	}
 
 	// It is an "actual" GPU allocation.
-	return alloc.GetGpus() > 0
+	return alloc.GetGpus() > 0 && alloc.IsCommitted()
 }
 
 // KernelHasCommittedResources returns true if any replica of the specified kernel has resources committed to it.
