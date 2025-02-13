@@ -2120,7 +2120,7 @@ class DistributedKernel(IPythonKernel):
 
         target_model: Optional[str] = metadata.get("model", ResNet18.model_name())
         target_dataset: Optional[str] = metadata.get("dataset", CIFAR10.dataset_name())
-        batch_size: Optional[int] = metadata.get("batch_size", 8)
+        batch_size: Optional[int] = metadata.get("batch_size", 1)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -3295,7 +3295,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
-            batch_size: Optional[int] = None,
+            batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
             *,
             cell_meta=None,
@@ -3306,6 +3306,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param execute_request_metadata: the metadata of the execute request.
             :param dataset: the dataset to be used for deep learning training
             :param deep_learning_model_name: the model to be used for deep learning training
             :param batch_size: batch size to pass to dataset constructor
@@ -3518,7 +3519,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
-            batch_size: Optional[int] = None,
+            batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
