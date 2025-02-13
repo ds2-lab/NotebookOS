@@ -2350,20 +2350,59 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
-	d.log.Info(
-		utils.LightBlueStyle.Render(
-			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v. ResourceSpec: %v."),
-		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in, in.ResourceSpec.ToDecimalSpec().String())
 
-	if in.ResourceSpec == nil {
-		d.log.Warn("kernel %s does not have a ResourceSpec...")
+	if in == nil {
+		panic("Received nil proto.KernelSpec argument to ClusterGatewayImpl::StartKernel...")
+	}
 
+	// If the resource spec of the KernelSpec argument is non-nil, then we will "sanitize" it.
+	var originalSpec *proto.ResourceSpec
+	if in.ResourceSpec != nil {
+		// In rare cases, the ResourceSpec will be received with certain quantities -- particularly memory -- different
+		// from how they were originally sent.
+		//
+		// For example, there is a spec from the workload trace in which the memory is 3.908 (MB), but we receive it
+		// here as "3.9079999923706055". It is still correct in the Jupyter Server and in the Gateway Provisioner (the
+		// Python object), but we receive the 3.908 as 3.9079999923706055, which leads to errors.
+		//
+		// So, we just round everything to 3 decimal places again here, to be safe.
+		originalSpec = in.ResourceSpec
+		in.ResourceSpec = &proto.ResourceSpec{
+			Cpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)).InexactFloat64()),
+			Memory: float32(decimal.NewFromFloat(float64(in.ResourceSpec.Memory)).InexactFloat64()),
+			Gpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)).InexactFloat64()),
+			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).InexactFloat64()),
+		}
+	} else {
+		// Assign a default, "empty" resource spec.
 		in.ResourceSpec = &proto.ResourceSpec{
 			Cpu:    0,
 			Memory: 0,
 			Gpu:    0,
 			Vram:   0,
 		}
+	}
+
+	d.log.Info(
+		utils.LightBlueStyle.Render(
+			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v. ResourceSpec: %v."),
+		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in, in.ResourceSpec.ToDecimalSpec().String())
+
+	// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
+	// unequal. If so, we'll log a message indicating as such.
+	if originalSpec != nil {
+		// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
+		// unequal. If so, we'll log a message indicating as such.
+		if isEqual, unequalField := in.ResourceSpec.EqualsWithField(originalSpec); !isEqual {
+			d.log.Warn(
+				"Original ResourceSpec included in KernelSpec for new kernel \"%s\" has been rounded, and their \"%s\" fields differ.",
+				in.Id, unequalField)
+
+			d.log.Warn("Original \"%s\" field: %f. Rounded \"%s\" field: %v.",
+				originalSpec.GetResourceQuantity(unequalField), in.ResourceSpec.GetResourceQuantity(unequalField))
+		}
+	} else {
+		d.log.Warn("KernelSpec for new kernel \"%s\" did not originally contain a ResourceSpec...")
 	}
 
 	d.clusterStatisticsMutex.Lock()
