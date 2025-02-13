@@ -65,8 +65,8 @@ def test_write_and_read_large_data(redis_client):
 
     data_from_redis: str | bytes = redis_provider.read_value(obj_name)
 
-    if isinstance(data_from_redis, bytes):
-        data_from_redis = data_from_redis.decode()
+    # if isinstance(data_from_redis, bytes):
+    #     data_from_redis = data_from_redis.decode()
 
     assert data_from_redis == data
 
