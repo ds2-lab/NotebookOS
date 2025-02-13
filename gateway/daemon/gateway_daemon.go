@@ -2371,7 +2371,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 			Cpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)).Round(0).InexactFloat64()),
 			Memory: float32(decimal.NewFromFloat(float64(in.ResourceSpec.Memory)).Round(3).InexactFloat64()),
 			Gpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)).Round(0).InexactFloat64()),
-			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).Round(3).InexactFloat64()),
+			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).Round(6).InexactFloat64()),
 		}
 	} else {
 		// Assign a default, "empty" resource spec.
