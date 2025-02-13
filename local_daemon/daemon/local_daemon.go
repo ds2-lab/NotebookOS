@@ -1994,9 +1994,12 @@ func (d *LocalScheduler) initializeKernelClient(in *proto.KernelReplicaSpec, con
 	_ = kernel.AddIOHandler(messaging.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
 	_ = kernel.AddIOHandler(messaging.MessageTypeErrorReport, d.handleErrorReport)
 
-	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager (manager.py).
-	for _, session := range kernel.Sessions() {
-		d.kernels.Store(session, kernel)
+	// Register all sessions already associated with the kernel.
+	// Usually, there will be only one session used by the KernelManager (manager.py).
+	if !in.PrewarmContainer {
+		for _, session := range kernel.Sessions() {
+			d.kernels.Store(session, kernel)
+		}
 	}
 
 	info := &proto.KernelConnectionInfo{
@@ -2503,7 +2506,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	if err == nil {
 		if in.PrewarmContainer {
 			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Success ✓"),
-				in.Kernel.Id)
+				in.Kernel.Id, in)
 		} else {
 			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Success ✓"),
 				in.Kernel.Id, in)
@@ -2514,7 +2517,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 
 	if in.PrewarmContainer {
 		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
-			in.Kernel.Id, err)
+			in.Kernel.Id, in, err)
 	} else {
 		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
 			in.Kernel.Id, in, err)
@@ -4044,4 +4047,9 @@ func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelRepl
 // NumKernels returns the number of scheduling.KernelReplica instances currently running on the LocalScheduler.
 func (d *LocalScheduler) NumKernels() int {
 	return d.kernels.Len()
+}
+
+// NumPrewarmContainers returns the number of scheduling.PrewarmContainer instances currently running on the LocalScheduler.
+func (d *LocalScheduler) NumPrewarmContainers() int {
+	return d.prewarmKernels.Len()
 }

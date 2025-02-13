@@ -2352,8 +2352,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	startTime := time.Now()
 	d.log.Info(
 		utils.LightBlueStyle.Render(
-			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v."),
-		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
+			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v. ResourceSpec: %v."),
+		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in, in.ResourceSpec.ToDecimalSpec().String())
 
 	if in.ResourceSpec == nil {
 		d.log.Warn("kernel %s does not have a ResourceSpec...")

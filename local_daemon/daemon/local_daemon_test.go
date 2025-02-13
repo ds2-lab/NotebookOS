@@ -37,6 +37,12 @@ import (
 const (
 	signatureScheme               string = "hmac-sha256"
 	dockerInvokerKernelConnInfoIp        = "127.0.0.1"
+
+	prewarmConnFilePrefix   = "connection-prewarm"
+	prewarmKernelFilePrefix = "config-prewarm"
+
+	standardConnFilePrefix   = "connection-kernel"
+	standardKernelFilePrefix = "config-kernel"
 )
 
 var (
@@ -167,7 +173,15 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			kernelInvoker.(invoker.ContainerInvoker).WaitForContainerToBeCreated()
 
-			var kernelFile, connFile string
+			var kernelFile, connFile, kernelFilePrefix, connFilePrefix string
+
+			if prewarmContainer {
+				kernelFilePrefix = prewarmKernelFilePrefix
+				connFilePrefix = prewarmConnFilePrefix
+			} else {
+				kernelFilePrefix = standardKernelFilePrefix
+				connFilePrefix = standardConnFilePrefix
+			}
 
 			items, _ := os.ReadDir("/tmp")
 			for _, item := range items {
@@ -180,12 +194,12 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				fileName := info.Name()
 
-				if kernelFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "config-kernel") {
+				if kernelFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, kernelFilePrefix) {
 					kernelFile = path.Join("/tmp", info.Name())
 					continue
 				}
 
-				if connFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "connection-kernel") {
+				if connFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, connFilePrefix) {
 					connFile = path.Join("/tmp", info.Name())
 					continue
 				}
@@ -290,7 +304,66 @@ var _ = Describe("Local Daemon Tests", func() {
 			})
 
 			It("Will handle creating a pre-warm container", func() {
+				Expect(localScheduler).ToNot(BeNil())
 
+				kernelId := uuid.NewString()
+				kernelKey := uuid.NewString()
+				workloadId = uuid.NewString()
+				dataDirectory := uuid.NewString()
+
+				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
+				Expect(err).To(BeNil())
+				Expect(sockets).ToNot(BeNil())
+				Expect(len(sockets) == 5).To(BeTrue())
+				defer closeFunc()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+				defer cancel()
+
+				resourceSpec := proto.NewResourceSpec(128, 256, 2, 4)
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            kernelArgv,
+					SignatureScheme: messaging.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				kernelReplicaSpec := &proto.KernelReplicaSpec{
+					Kernel:                    kernelSpec,
+					ReplicaId:                 1,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &dataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{},
+					PrewarmContainer:          true,
+				}
+
+				resultChan := make(chan *proto.KernelConnectionInfo, 1)
+
+				go func() {
+					resp, err := localScheduler.StartKernelReplica(ctx, kernelReplicaSpec)
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					resultChan <- resp
+				}()
+
+				go func() {
+					callRegisterKernel(kernelId, kernelKey, resourceSpec, true, 0, 3)
+				}()
+
+				var resp *proto.KernelConnectionInfo
+				Eventually(resultChan, ctx).Should(Receive(&resp))
+
+				Expect(resp).ToNot(BeNil())
+
+				Expect(localScheduler.NumKernels()).To(Equal(0))
+				Expect(localScheduler.NumPrewarmContainers()).To(Equal(1))
 			})
 
 			It("Will handle creating a standard kernel replica", func() {
@@ -330,6 +403,7 @@ var _ = Describe("Local Daemon Tests", func() {
 					PersistentId:              &dataDirectory,
 					WorkloadId:                workloadId,
 					Replicas:                  []string{},
+					PrewarmContainer:          false,
 				}
 
 				resultChan := make(chan *proto.KernelConnectionInfo, 1)
@@ -352,6 +426,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(resp).ToNot(BeNil())
 
 				Expect(localScheduler.NumKernels()).To(Equal(1))
+				Expect(localScheduler.NumPrewarmContainers()).To(Equal(0))
 			})
 		})
 	})
