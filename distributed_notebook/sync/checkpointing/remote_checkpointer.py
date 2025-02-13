@@ -318,6 +318,9 @@ class RemoteCheckpointer(Checkpointer):
             return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
     def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, int]:
+        if state_dict is None:
+            raise ValueError(f'State dictionary is None for model "{model_name}"')
+
         buffer: io.BytesIO = io.BytesIO()
 
         try:
