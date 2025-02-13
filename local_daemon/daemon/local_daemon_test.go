@@ -29,6 +29,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 	"os"
 	"path"
 	"strings"
@@ -68,7 +69,7 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 	hbPort := startingPort + 3
 	ioPort := startingPort + 4
 
-	zmqControl := zmq4.NewRouter(context.Background())
+	zmqControl := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("control")))
 	controlSocket := messaging.NewSocket(zmqControl, controlPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.ControlMessage] = controlSocket
 	err = controlSocket.Listen(fmt.Sprintf("tcp://:%d", controlSocket.Port))
@@ -78,7 +79,7 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 	}
 	fmt.Printf("Created and bound CONTROL socket for kernel \"%s\" to port %d.\n", kernelId, controlSocket.Port)
 
-	zmqShell := zmq4.NewRouter(context.Background())
+	zmqShell := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("shell")))
 	shellSocket := messaging.NewSocket(zmqShell, shellPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.ShellMessage] = shellSocket
 	err = shellSocket.Listen(fmt.Sprintf("tcp://:%d", shellSocket.Port))
@@ -88,7 +89,7 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 	}
 	fmt.Printf("Created and bound SHELL socket for kernel \"%s\" to port %d.\n", kernelId, shellSocket.Port)
 
-	zmqStdin := zmq4.NewRouter(context.Background())
+	zmqStdin := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("stdin")))
 	stdinSocket := messaging.NewSocket(zmqStdin, stdinPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.StdinMessage] = stdinSocket
 	err = stdinSocket.Listen(fmt.Sprintf("tcp://:%d", stdinSocket.Port))
@@ -470,6 +471,32 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(len(sockets) == 5).To(BeTrue())
 				defer closeFunc()
 
+				controlSocket := sockets[messaging.ControlMessage]
+				Expect(controlSocket).ToNot(BeNil())
+
+				controlSocket.Handler = func(info messaging.JupyterServerInfo, messageType messaging.MessageType, message *messaging.JupyterMessage) error {
+					fmt.Printf("\n\n\n\nReceived message on Control socket: %v\n\n\n\n", message.StringFormatted())
+					return nil
+				}
+
+				go func(sock *messaging.Socket) {
+					for {
+						msg, err := controlSocket.Recv()
+						if err != nil {
+							fmt.Printf("Recv Error: %v\n", err)
+							return
+						}
+
+						jMsg := messaging.NewJupyterMessage(&msg)
+
+						err = sock.Handler(nil, sock.Type, jMsg)
+						if err != nil {
+							fmt.Printf("Handling Error: %v\n", err)
+							return
+						}
+					}
+				}(controlSocket)
+
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 				defer cancel()
 
@@ -571,6 +598,8 @@ var _ = Describe("Local Daemon Tests", func() {
 					promotionRespChan <- resp
 				}()
 
+				Expect(localScheduler.provisioner).To(Equal(mockedClusterGatewayClient))
+
 				mockedClusterGatewayClient.
 					EXPECT().
 					PingGateway(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -582,11 +611,22 @@ var _ = Describe("Local Daemon Tests", func() {
 					NotifyKernelRegistered(gomock.Any(), gomock.Any()).
 					Times(1).
 					DoAndReturn(
-						func(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+						func(ctx context.Context, in *proto.KernelRegistrationNotification, opts ...*grpc.CallOption) (*proto.KernelRegistrationNotificationResponse, error) {
+							resp := &proto.KernelRegistrationNotificationResponse{
+								Id:                              in.ReplicaId,
+								Replicas:                        map[int32]string{1: "127.0.0.1:12345", 2: "127.0.0.1:12343", 3: "127.0.0.1:12323"},
+								PersistentId:                    &dataDirectory,
+								ResourceSpec:                    kernelSpec.ResourceSpec,
+								SmrPort:                         int32(localScheduler.smrPort), // The kernel should already have this info, but we'll send it anyway.
+								ShouldReadDataFromRemoteStorage: false,
+							}
 
+							return resp, nil
 						})
 
 				go func() {
+					defer GinkgoRecover()
+
 					time.Sleep(time.Millisecond * 100)
 
 					fmt.Printf("\n\nRegistering promoted PreWarm container \"%s\" now...\n\n", kernelId)

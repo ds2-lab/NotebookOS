@@ -2103,7 +2103,8 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
 		promoted := containerInvoker.PromotePrewarmedContainer()
 		if !promoted {
-			d.log.Error("Expected to promote container of KernelInvoker")
+			d.log.Error("Expected to promote container of KernelInvoker for pre-warmed container \"%s\"; "+
+				"however, apparently we did not do so.", prewarmedContainerId)
 
 			d.log.Error(
 				utils.RedStyle.Render(

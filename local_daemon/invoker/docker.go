@@ -924,18 +924,19 @@ func (ivk *DockerInvoker) OriginalContainerType() scheduling.ContainerType {
 // If the OriginalContainerType of the target KernelInvoker is KernelInvoker,
 // then PromotePrewarmedContainer returns false.
 func (ivk *DockerInvoker) PromotePrewarmedContainer() bool {
-	// If the container was always a standard container, return false.
-	if ivk.originalContainerType == scheduling.StandardContainer {
-		return false
-	}
-
 	// If the container is already a standard container (and therefore must have already been promoted), return false.
 	if ivk.currentContainerType == scheduling.StandardContainer {
+		ivk.log.Error("Cannot promote container \"%s\"; it is currently a %s container.",
+			ivk.containerName, scheduling.StandardContainer)
 		return false
 	}
 
 	// Update the current container type and return true.
 	ivk.currentContainerType = scheduling.StandardContainer
+
+	ivk.log.Debug("Promoted container \"%s\" to a %s container.",
+		ivk.containerName, scheduling.StandardContainer)
+	
 	return true
 }
 
