@@ -54,6 +54,62 @@ type ClusterEvent struct {
 	d.clusterStatisticsMutex.Unlock()
 */
 
+// SerializableClusterStatistics is a version of the ClusterStatistics struct that is serializable using
+// the encoding/gob package/module/mechanism.
+type SerializableClusterStatistics struct {
+	ClusterEvents []*ClusterEvent `json:"cluster_events" csv:"-"`
+
+	ExecuteRequestTraces []*proto.RequestTrace `json:"execute_request_traces" csv:"-"`
+
+	AggregateSessionLifetimesSec        []float64 `csv:"-" json:"AggregateSessionLifetimesSec"`
+	JupyterTrainingStartLatenciesMillis []float64 `json:"jupyter_training_start_latencies_millis" csv:"-"`
+
+	Hosts                                                int32   `json:"hosts"`
+	NumDisabledHosts                                     int32   `json:"num_disabled_hosts"`
+	NumEmptyHosts                                        int32   `json:"NumEmptyHosts"`
+	CumulativeHostActiveTime                             float64 `json:"CumulativeHostActiveTimeSec"`
+	CumulativeHostIdleTime                               float64 `json:"CumulativeHostIdleTimeSec"`
+	AggregateHostLifetime                                float64 `json:"AggregateHostLifetimeSec"`
+	AggregateHostLifetimeOfRunningHosts                  float64 `json:"AggregateHostLifetimeOfRunningHostsSec"`
+	CumulativeNumHostsProvisioned                        int32   `json:"CumulativeNumHostsProvisioned"`
+	CumulativeNumHostsReleased                           int32   `json:"cumulative_num_hosts_released"`
+	CumulativeTimeProvisioningHosts                      float64 `json:"CumulativeTimeProvisioningHostsSec"`
+	NumActiveScaleOutEvents                              int32   `json:"num_active_scale_out_events"`
+	NumSuccessfulScaleOutEvents                          int32   `json:"num_successful_scale_out_events"`
+	NumFailedScaleOutEvents                              int32   `json:"num_failed_scale_out_events"`
+	NumActiveScaleInEvents                               int32   `json:"num_active_scale_in_events"`
+	NumSuccessfulScaleInEvents                           int32   `json:"num_successful_scale_in_events"`
+	NumFailedScaleInEvents                               int32   `json:"num_failed_scale_in_events"`
+	NumJupyterMessagesReceivedByClusterGateway           int64   `json:"num_jupyter_messages_received_by_cluster_gateway"`
+	NumJupyterRepliesSentByClusterGateway                int64   `json:"num_jupyter_replies_sent_by_cluster_gateway"`
+	CumulativeRequestProcessingTimeClusterGateway        int64   `json:"cumulative_request_processing_time_cluster_gateway"`
+	CumulativeRequestProcessingTimeLocalDaemon           int64   `json:"cumulative_request_processing_time_local_daemon"`
+	CumulativeRequestProcessingTimeKernel                int64   `json:"cumulative_request_processing_time_kernel"`
+	CumulativeResponseProcessingTimeClusterGateway       int64   `json:"cumulative_response_processing_time_cluster_gateway"`
+	CumulativeResponseProcessingTimeLocalDaemon          int64   `json:"cumulative_response_processing_time_local_daemon"`
+	CumulativeCudaInitMicroseconds                       float64 `json:"cumulative_cuda_init_microseconds"`
+	NumCudaRuntimesInitialized                           float64 `json:"num_cuda_runtimes_initialized"`
+	CumulativeTimeDownloadTrainingDataMicroseconds       float64 `json:"cumulative_time_download_training_data_microseconds"`
+	NumTimesDownloadTrainingDataMicroseconds             float64 `json:"num_times_download_training_data_microseconds"`
+	CumulativeTokenizeDatasetMicroseconds                float64 `json:"cumulative_tokenize_dataset_microseconds"`
+	NumTimesTokenizeDatasetMicroseconds                  float64 `json:"num_times_tokenize_dataset_microseconds"`
+	CumulativeTimeDownloadModelMicroseconds              float64 `json:"cumulative_time_download_model_microseconds"`
+	NumTimesDownloadModelMicroseconds                    float64 `json:"num_times_download_model_microseconds"`
+	CumulativeTimeUploadModelAndTrainingDataMicroseconds float64 `json:"cumulative_time_upload_model_and_training_data_microseconds"`
+	NumTimesUploadModelAndTrainingDataMicroseconds       float64 `json:"num_times_upload_model_and_training_data_microseconds"`
+	CumulativeTimeCopyDataHostToDeviceMicroseconds       float64 `json:"cumulative_time_copy_data_host_to_device_microseconds"`
+	NumTimesCopyDataHostToDeviceMicroseconds             float64 `json:"num_times_copy_data_host_to_device_microseconds"`
+	CumulativeTimeCopyDataDeviceToHostMicroseconds       float64 `json:"cumulative_time_copy_data_device_to_host_microseconds"`
+	NumTimesCopyDataDeviceToHostMicroseconds             float64 `json:"num_times_copy_data_device_to_host_microseconds"`
+	CumulativeExecutionTimeMicroseconds                  float64 `json:"cumulative_execution_time_microseconds"`
+	CumulativeLeaderElectionTimeMicroseconds             float64 `json:"cumulative_leader_election_time_microseconds"`
+	CumulativeKernelPreprocessRequestMillis              float64 `json:"cumulative_kernel_preprocess_request_millis"`
+	CumulativeKernelCreateElectionMillis                 float64 `json:"cumulative_kernel_create_election_millis"`
+	CumulativeKernelProposalVotePhaseMillis              float64 `json:"cumulative_kernel_proposal_vote_phase_millis"`
+	CumulativeKernelPostprocessMillis                    float64 `json:"cumulative_kernel_postprocess_millis"`
+	CumulativeReplayTimeMicroseconds                     float64 `json:"cumulative_replay_time_microseconds"`
+}
+
 type ClusterStatistics struct {
 	///////////
 	// Hosts //
@@ -343,4 +399,42 @@ func NewClusterStatistics() *ClusterStatistics {
 	clusterStatistics.CumulativeKernelPostprocessMillis.Store(0.0)
 
 	return clusterStatistics
+}
+
+func (stats *ClusterStatistics) ConvertToSerializable() *SerializableClusterStatistics {
+	return &SerializableClusterStatistics{
+		Hosts:                                          stats.Hosts.Load(),
+		NumDisabledHosts:                               stats.NumDisabledHosts.Load(),
+		NumEmptyHosts:                                  stats.NumEmptyHosts.Load(),
+		CumulativeHostActiveTime:                       stats.CumulativeHostActiveTime.Load(),
+		CumulativeHostIdleTime:                         stats.CumulativeHostIdleTime.Load(),
+		AggregateHostLifetime:                          stats.AggregateHostLifetime.Load(),
+		AggregateHostLifetimeOfRunningHosts:            stats.AggregateHostLifetimeOfRunningHosts.Load(),
+		CumulativeNumHostsProvisioned:                  stats.CumulativeNumHostsProvisioned.Load(),
+		CumulativeNumHostsReleased:                     stats.CumulativeNumHostsReleased.Load(),
+		CumulativeTimeProvisioningHosts:                stats.CumulativeTimeProvisioningHosts.Load(),
+		NumActiveScaleOutEvents:                        stats.NumActiveScaleOutEvents.Load(),
+		NumSuccessfulScaleOutEvents:                    stats.NumSuccessfulScaleOutEvents.Load(),
+		NumFailedScaleOutEvents:                        stats.NumFailedScaleOutEvents.Load(),
+		NumActiveScaleInEvents:                         stats.NumActiveScaleInEvents.Load(),
+		NumSuccessfulScaleInEvents:                     stats.NumSuccessfulScaleInEvents.Load(),
+		NumFailedScaleInEvents:                         stats.NumFailedScaleInEvents.Load(),
+		NumJupyterMessagesReceivedByClusterGateway:     stats.NumJupyterMessagesReceivedByClusterGateway.Load(),
+		NumJupyterRepliesSentByClusterGateway:          stats.NumJupyterRepliesSentByClusterGateway.Load(),
+		CumulativeRequestProcessingTimeClusterGateway:  stats.CumulativeRequestProcessingTimeClusterGateway.Load(),
+		CumulativeRequestProcessingTimeLocalDaemon:     stats.CumulativeRequestProcessingTimeLocalDaemon.Load(),
+		CumulativeRequestProcessingTimeKernel:          stats.CumulativeRequestProcessingTimeKernel.Load(),
+		CumulativeResponseProcessingTimeClusterGateway: stats.CumulativeResponseProcessingTimeClusterGateway.Load(),
+		CumulativeResponseProcessingTimeLocalDaemon:    stats.CumulativeResponseProcessingTimeLocalDaemon.Load(),
+		CumulativeCudaInitMicroseconds:                 stats.CumulativeCudaInitMicroseconds.Load(),
+		NumCudaRuntimesInitialized:                     stats.NumCudaRuntimesInitialized.Load(),
+		CumulativeTimeDownloadTrainingDataMicroseconds: stats.CumulativeTimeDownloadTrainingDataMicroseconds.Load(),
+		NumTimesDownloadTrainingDataMicroseconds:       stats.NumTimesDownloadTrainingDataMicroseconds.Load(),
+		CumulativeTokenizeDatasetMicroseconds:          stats.CumulativeTokenizeDatasetMicroseconds.Load(),
+		NumTimesTokenizeDatasetMicroseconds:            stats.NumTimesTokenizeDatasetMicroseconds.Load(),
+		ClusterEvents:                                  stats.ClusterEvents,
+		ExecuteRequestTraces:                           stats.ExecuteRequestTraces,
+		AggregateSessionLifetimesSec:                   stats.AggregateSessionLifetimesSec,
+		JupyterTrainingStartLatenciesMillis:            stats.JupyterTrainingStartLatenciesMillis,
+	}
 }

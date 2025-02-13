@@ -5778,7 +5778,9 @@ func (d *ClusterGatewayImpl) GetSerializedClusterStatistics(req *proto.ClusterSt
 	buffer := bytes.Buffer{}
 	encoder := gob.NewEncoder(&buffer)
 
-	err := encoder.Encode(&d.ClusterStatistics)
+	serializableClusterStatistics := d.ClusterStatistics.ConvertToSerializable()
+
+	err := encoder.Encode(&serializableClusterStatistics)
 	if err != nil {
 		d.log.Error("Failed to encode ClusterStatistics: %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -6166,17 +6168,18 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 
 	d.log.Debug("=== Updated Cluster Statistics ===")
 	d.log.Debug("Idle CPUs: %.0f, Idle Mem: %.0f, Idle GPUs: %.0f, Idle VRAM: %.0f",
-		stats.IdleCPUs, stats.IdleMemory, stats.IdleGPUs, stats.IdleVRAM)
+		stats.IdleCPUs.Load(), stats.IdleMemory.Load(), stats.IdleGPUs.Load(), stats.IdleVRAM.Load())
 	d.log.Debug("Pending CPUs: %.0f, Pending Mem: %.0f, Pending GPUs: %.0f, Pending VRAM: %.0f",
-		stats.PendingCPUs, stats.PendingMemory, stats.PendingGPUs, stats.PendingVRAM)
+		stats.PendingCPUs.Load(), stats.PendingMemory.Load(), stats.PendingGPUs.Load(), stats.PendingVRAM.Load())
 	d.log.Debug("Committed CPUs: %.0f, Committed Mem: %.0f, Committed GPUs: %.0f, Committed VRAM: %.0f",
-		stats.CommittedCPUs, stats.CommittedMemory, stats.CommittedGPUs, stats.CommittedVRAM)
+		stats.CommittedCPUs.Load(), stats.CommittedMemory.Load(), stats.CommittedGPUs.Load(), stats.CommittedVRAM.Load())
 	d.log.Debug("Spec CPUs: %.0f, Spec Mem: %.0f, Spec GPUs: %.0f, Spec VRAM: %.0f",
-		stats.SpecCPUs, stats.SpecMemory, stats.SpecGPUs, stats.SpecVRAM)
+		stats.SpecCPUs.Load(), stats.SpecMemory.Load(), stats.SpecGPUs.Load(), stats.SpecVRAM.Load())
 	d.log.Debug("NumSeenSessions: %d, NumRunningSessions: %d, NumNonTerminatedSessions: %d, NumTraining: %d, NumIdle: %d, NumStopped: %d.",
-		stats.NumSeenSessions, stats.NumRunningSessions, stats.NumNonTerminatedSessions, stats.NumTrainingSessions, stats.NumIdleSessions, stats.NumStoppedSessions)
+		stats.NumSeenSessions.Load(), stats.NumRunningSessions.Load(), stats.NumNonTerminatedSessions.Load(),
+		stats.NumTrainingSessions.Load(), stats.NumIdleSessions.Load(), stats.NumStoppedSessions.Load())
 	d.log.Debug("NumHosts: %d, NumDisabledHosts: %d, NumEmptyHosts: %d",
-		stats.Hosts, stats.NumDisabledHosts, stats.NumEmptyHosts)
+		stats.Hosts.Load(), stats.NumDisabledHosts.Load(), stats.NumEmptyHosts.Load())
 }
 
 // IncrementNumActiveExecutions increments the global counter of the number of active executions.
