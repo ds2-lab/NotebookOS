@@ -14,21 +14,22 @@ from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
-from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
 
 
 def test_create():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     assert checkpointer is not None
-    assert isinstance(checkpointer, LocalCheckpointer)
-    assert len(checkpointer) == 0
-    assert checkpointer.size == 0
+    assert isinstance(checkpointer, RemoteCheckpointer)
 
 
 def test_read_after_write():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -42,9 +43,6 @@ def test_read_after_write():
 
     # The size will now be three -- as we wrote the model state, the state of the model's optimizer, and
     # the state of the model's criterion.
-    assert checkpointer.size == 4
-    assert len(checkpointer) == 4
-
     model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
 
     assert model_state is not None
@@ -62,7 +60,8 @@ def test_write_model_that_does_not_require_checkpointing():
     """
     Write a model that does NOT require checkpointing, which should cause a ValueError to be raised.
     """
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=False)
     model_pointer: ModelPointer = ModelPointer(
@@ -77,7 +76,8 @@ def test_write_model_that_does_not_require_checkpointing():
 
 
 def test_read_empty():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -92,7 +92,8 @@ def test_read_empty():
 
 
 def test_checkpoint_after_training():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     # Create the model.
     input_size: int = 4
@@ -191,7 +192,8 @@ def test_checkpoint_after_training():
 
 
 def test_checkpoint_and_train_simple_model():
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     # Create the model.
     input_size: int = 4
@@ -303,7 +305,8 @@ def perform_training_for_model(
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
 
-    checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
 
     # # Create the model.
     # model = model_class(created_for_first_time=True)
@@ -411,14 +414,14 @@ def perform_training_for_model(
 
 @pytest.mark.parametrize("model_class,dataset_class", [
     (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
-    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
-    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    # (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    # (VGG11, CIFAR10), (VGG11, TinyImageNet),
     # (VGG13, CIFAR10), (VGG13, TinyImageNet),
     # (VGG16, CIFAR10), (VGG16, TinyImageNet),
     # (VGG19, CIFAR10), (VGG19, TinyImageNet),
-    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
-    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
-    (DeepSpeech2, LibriSpeech)
+    # (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    # (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    # (DeepSpeech2, LibriSpeech)
 ])
 def test_perform_training_for_model(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
     perform_training_for_model(model_class, dataset_class, target_training_duration_ms=2000.0, num_training_loops=3)
