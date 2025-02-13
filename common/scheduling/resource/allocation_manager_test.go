@@ -202,6 +202,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
 
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeTrue())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
 			By("Correctly handling the scheduling of the second pending resources")
 
 			kernel2Spec := types.NewDecimalSpec(3000, 12000, 2, 8)
@@ -209,6 +227,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			Expect(err).To(BeNil())
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel2")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel2")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel2"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly handling the scheduling of the first committed resources")
 
@@ -224,6 +260,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(6))
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeFalse())
+
+			allocation, ok = allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
 
 			By("Correctly handling the scheduling of the second committed resources")
 
@@ -245,6 +299,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumCommittedGpuDevices()).To(Equal(4))
 			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(4))
 
+			Expect(allocationManager.KernelHasCommittedResources("Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel2")).To(BeFalse())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel2")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel2"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
+
 			By("Correctly handling the scheduling of the third pending resources")
 
 			kernel3spec := types.NewDecimalSpec(2000, 0, 0, 0)
@@ -254,6 +326,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
 			Expect(allocationManager.NumAllocations()).To(Equal(3))
 			Expect(allocationManager.NumCommittedAllocations()).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel3")).To(BeFalse()) // Spec 0 GPUs
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel3")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel3"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel3spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel3spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel3spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel3spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel3spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
@@ -265,7 +355,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			GinkgoWriter.Printf("Error: %v\n", err)
 
 			var insufficientResourcesError scheduling.InsufficientResourcesError
-			ok := errors.As(err, &insufficientResourcesError)
+			ok = errors.As(err, &insufficientResourcesError)
 			Expect(ok).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 
@@ -274,11 +364,47 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel3spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
 
+			Expect(allocationManager.KernelHasCommittedResources("Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel3")).To(BeFalse()) // Spec 0 GPUs
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel3")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel3"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel3spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel3spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel3spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel3spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel3spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
 			By("Correctly handling the scheduling of the fourth pending resources")
 
 			kernel4spec := types.NewDecimalSpec(0, 0, 6, 0)
 			err = allocationManager.ContainerStartedRunningOnHost(1, "Kernel4", kernel4spec)
 			Expect(err).To(BeNil())
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel4")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel4")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel4"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel4spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel4spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel4spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel4spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel4spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
@@ -295,6 +421,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel4spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel4")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel4")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel4"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel4spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel4spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel4spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel4spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel4spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly handling the scheduling of the fifth pending resources")
 
@@ -359,14 +503,10 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(4))
 
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).
-				To(BeTrue())
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).
-				To(BeTrue())
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).
-				To(BeTrue())
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).
-				To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).To(BeTrue())
 
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel7spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
@@ -883,6 +1023,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
 
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeTrue())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
 			By("Correctly handling the scheduling of the second pending resources")
 
 			kernel2Spec := types.NewDecimalSpec(3000, 12000, 2, 8)
@@ -890,6 +1048,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			Expect(err).To(BeNil())
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel2")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel2")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel2"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly handling the scheduling of the first committed resources")
 
@@ -905,6 +1081,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(6))
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeFalse())
+
+			allocation, ok = allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
 
 			By("Correctly handling the scheduling of the second committed resources")
 
@@ -926,6 +1120,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumCommittedGpuDevices()).To(Equal(4))
 			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(4))
 
+			Expect(allocationManager.KernelHasCommittedResources("Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel2")).To(BeFalse())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel2")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel2"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
+
 			By("Correctly handling the scheduling of the third pending resources")
 
 			kernel3spec := types.NewDecimalSpec(2000, 0, 0, 0)
@@ -935,6 +1147,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
 			Expect(allocationManager.NumAllocations()).To(Equal(3))
 			Expect(allocationManager.NumCommittedAllocations()).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel3")).To(BeFalse()) // Spec 0 GPUs
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel3")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel3"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel3spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel3spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel3spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel3spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel3spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
@@ -946,7 +1176,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			GinkgoWriter.Printf("Error: %v\n", err)
 
 			var insufficientResourcesError scheduling.InsufficientResourcesError
-			ok := errors.As(err, &insufficientResourcesError)
+			ok = errors.As(err, &insufficientResourcesError)
 			Expect(ok).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 
@@ -955,11 +1185,47 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel3spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
 
+			Expect(allocationManager.KernelHasCommittedResources("Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel3")).To(BeFalse()) // Spec 0 GPUs
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel3")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel3"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel3spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel3spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel3spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel3spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel3spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
 			By("Correctly handling the scheduling of the fourth pending resources")
 
 			kernel4spec := types.NewDecimalSpec(0, 0, 6, 0)
 			err = allocationManager.ContainerStartedRunningOnHost(1, "Kernel4", kernel4spec)
 			Expect(err).To(BeNil())
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel4")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel4")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel4"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel4spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel4spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel4spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel4spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel4spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
@@ -976,6 +1242,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel4spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel4")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel4")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel4"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel4spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel4spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel4spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel4spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel4spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly handling the scheduling of the fifth pending resources")
 
@@ -1564,6 +1848,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
 
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeTrue())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
 			By("Correctly handling the scheduling of the second pending resources")
 
 			kernel2Spec := types.NewDecimalSpec(3000, 12000, 2, 8)
@@ -1571,6 +1873,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			Expect(err).To(BeNil())
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel2")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel2")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel2")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel2"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly handling the scheduling of the first committed resources")
 
@@ -1586,6 +1906,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(6))
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeFalse())
+
+			allocation, ok = allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
 
 			By("Correctly handling the scheduling of the second committed resources")
 
@@ -1607,6 +1945,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumCommittedGpuDevices()).To(Equal(4))
 			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(4))
 
+			Expect(allocationManager.KernelHasCommittedResources("Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel2")).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel2")).To(BeFalse())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel2")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel2"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
+
 			By("Correctly handling the scheduling of the third pending resources")
 
 			kernel3spec := types.NewDecimalSpec(2000, 0, 0, 0)
@@ -1616,6 +1972,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
 			Expect(allocationManager.NumAllocations()).To(Equal(3))
 			Expect(allocationManager.NumCommittedAllocations()).To(Equal(2))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel3")).To(BeFalse()) // Spec 0 GPUs
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel3")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel3"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel3spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel3spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel3spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel3spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel3spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
@@ -1627,7 +2001,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			GinkgoWriter.Printf("Error: %v\n", err)
 
 			var insufficientResourcesError scheduling.InsufficientResourcesError
-			ok := errors.As(err, &insufficientResourcesError)
+			ok = errors.As(err, &insufficientResourcesError)
 			Expect(ok).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 
@@ -1636,11 +2010,47 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel3spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
 
+			Expect(allocationManager.KernelHasCommittedResources("Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel3")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel3")).To(BeFalse()) // Spec 0 GPUs
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel3")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel3"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel3spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel3spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel3spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel3spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel3spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
 			By("Correctly handling the scheduling of the fourth pending resources")
 
 			kernel4spec := types.NewDecimalSpec(0, 0, 6, 0)
 			err = allocationManager.ContainerStartedRunningOnHost(1, "Kernel4", kernel4spec)
 			Expect(err).To(BeNil())
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel4")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel4")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel4"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel4spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel4spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel4spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel4spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel4spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
@@ -1657,6 +2067,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel4spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(allocationManager.IdleResources()))
+
+			Expect(allocationManager.KernelHasCommittedResources("Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, "Kernel4")).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, "Kernel4")).To(BeTrue())
+
+			allocation, ok = allocationManager.GetAllocation(1, "Kernel4")
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal("Kernel4"))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel4spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel4spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel4spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel4spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel4spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
 
 			By("Correctly handling the scheduling of the fifth pending resources")
 
