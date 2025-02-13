@@ -635,11 +635,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			memoryMb = scheduling.DefaultMemoryMbPerHost
 		}
 
+		// millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+		// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+		// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 		clusterGateway.hostSpec = &types.DecimalSpec{
-			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-			VRam:      decimal.NewFromFloat(vram),
-			Millicpus: decimal.NewFromFloat(float64(millicpus)),
-			MemoryMb:  decimal.NewFromFloat(memoryMb),
+			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)).Round(0),
+			VRam:      decimal.NewFromFloat(vram).Round(6),
+			Millicpus: decimal.NewFromFloat(float64(millicpus)).Round(3),
+			MemoryMb:  decimal.NewFromFloat(memoryMb).Round(0),
 		}
 	}
 

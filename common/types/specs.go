@@ -96,16 +96,20 @@ type Spec interface {
 //
 // If the provided Spec is actually a DecimalSpec (or *DecimalSpec), then the returned *DecimalSpec is created
 // by calling the given Spec's CloneDecimalSpec method.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func ToDecimalSpec(spec Spec) *DecimalSpec {
 	if decimalSpec, ok := spec.(*DecimalSpec); ok {
 		return decimalSpec
 	}
 
 	return &DecimalSpec{
-		Millicpus: decimal.NewFromFloat(spec.CPU()),
-		MemoryMb:  decimal.NewFromFloat(spec.MemoryMB()),
-		GPUs:      decimal.NewFromFloat(spec.GPU()),
-		VRam:      decimal.NewFromFloat(spec.VRAM()),
+		Millicpus: decimal.NewFromFloat(spec.CPU()).Round(0),
+		MemoryMb:  decimal.NewFromFloat(spec.MemoryMB()).Round(3),
+		GPUs:      decimal.NewFromFloat(spec.GPU()).Round(0),
+		VRam:      decimal.NewFromFloat(spec.VRAM()).Round(6),
 	}
 }
 
@@ -121,12 +125,16 @@ type DecimalSpec struct {
 }
 
 // NewDecimalSpec creates a new DecimalSpec struct and returns a pointer to it.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb float64) *DecimalSpec {
 	return &DecimalSpec{
-		Millicpus: decimal.NewFromFloat(millicpus),
-		MemoryMb:  decimal.NewFromFloat(memoryMb),
-		GPUs:      decimal.NewFromFloat(gpus),
-		VRam:      decimal.NewFromFloat(vramGb),
+		Millicpus: decimal.NewFromFloat(millicpus).Round(0),
+		MemoryMb:  decimal.NewFromFloat(memoryMb).Round(3),
+		GPUs:      decimal.NewFromFloat(gpus).Round(0),
+		VRam:      decimal.NewFromFloat(vramGb).Round(6),
 	}
 }
 

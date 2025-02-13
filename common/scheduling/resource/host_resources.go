@@ -145,12 +145,16 @@ func (res *HostResources) ToDecimalSpec() *types.DecimalSpec {
 //
 // This method is not thread-safe and should be called only by the ToDecimalSpec method, unless
 // the HostResources' lock is already held.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func (res *HostResources) unsafeToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
-		GPUs:      res.gpus.Copy(),
-		Millicpus: res.millicpus.Copy(),
-		MemoryMb:  res.memoryMB.Copy(),
-		VRam:      res.vramGB.Copy(),
+		GPUs:      res.gpus.Copy().Round(0),
+		Millicpus: res.millicpus.Copy().Round(0),
+		MemoryMb:  res.memoryMB.Copy().Round(3),
+		VRam:      res.vramGB.Copy().Round(6),
 	}
 }
 

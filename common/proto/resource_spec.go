@@ -91,12 +91,16 @@ func (s *ResourceSpec) VRAM() float64 {
 }
 
 // ToDecimalSpec converts the ResourceSpec to a types.DecimalSpec.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func (s *ResourceSpec) ToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
-		Millicpus: decimal.NewFromFloat(float64(s.Cpu)),
-		MemoryMb:  decimal.NewFromFloat(float64(s.Memory)),
-		GPUs:      decimal.NewFromFloat(float64(s.Gpu)),
-		VRam:      decimal.NewFromFloat(float64(s.Vram)),
+		Millicpus: decimal.NewFromFloat(float64(s.Cpu)).Round(0),
+		MemoryMb:  decimal.NewFromFloat(float64(s.Memory)).Round(3),
+		GPUs:      decimal.NewFromFloat(float64(s.Gpu)).Round(0),
+		VRam:      decimal.NewFromFloat(float64(s.Vram)).Round(6),
 	}
 }
 
@@ -185,16 +189,20 @@ func (x *KernelReplicaSpec) FullSpecFromKernelReplicaSpec() *types.Float64Spec {
 // *proto.KernelSpec to a *DecimalSpec and returns the resulting *DecimalSpec.
 //
 // If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func (x *KernelSpec) DecimalSpecFromKernelSpec() *types.DecimalSpec {
 	if x == nil {
 		return nil
 	}
 
 	return &types.DecimalSpec{
-		Millicpus: decimal.NewFromFloat(float64(x.ResourceSpec.Cpu)),
-		MemoryMb:  decimal.NewFromFloat(float64(x.ResourceSpec.Memory)),
-		GPUs:      decimal.NewFromFloat(float64(x.ResourceSpec.Gpu)),
-		VRam:      decimal.NewFromFloat(float64(x.ResourceSpec.Vram)),
+		Millicpus: decimal.NewFromFloat(float64(x.ResourceSpec.Cpu)).Round(0),
+		MemoryMb:  decimal.NewFromFloat(float64(x.ResourceSpec.Memory)).Round(3),
+		GPUs:      decimal.NewFromFloat(float64(x.ResourceSpec.Gpu)).Round(0),
+		VRam:      decimal.NewFromFloat(float64(x.ResourceSpec.Vram)).Round(6),
 	}
 }
 
