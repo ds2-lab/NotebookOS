@@ -3949,11 +3949,11 @@ class DistributedKernel(IPythonKernel):
             )
             await simulation_func(size_bytes=int(vram_bytes))
         except Exception as exc:
-            traceback.print_exc()
             self.log.error(
                 f"{type(exc).__name__} while simulating checkpointing with remote remote_storage "
                 f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}"
             )
+            self.log.error(traceback.format_exc())
             self.report_error(
                 f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
                 f"{type(exc).__name__} while simulating checkpointing with remote remote_storage "
@@ -5014,9 +5014,9 @@ class DistributedKernel(IPythonKernel):
                 **constructor_args_state,  # out_features should/will be in this dictionary.
             )
         except Exception as exc:
-            self.log.error(f'Failed to load committed dataset "{pointer.model_name}" because: {exc}')
+            self.log.error(f'Failed to load committed model "{pointer.model_name}" because: {exc}')
             self.log.error(traceback.format_exc())
-            self.report_error(f'Failed to Load Committed Dataset "{pointer.name}"', str(exc))
+            self.report_error(f'Failed to Load Committed Model "{pointer.model_name}"', str(exc))
             return None
 
         return model
@@ -5033,17 +5033,17 @@ class DistributedKernel(IPythonKernel):
 
                 # If they match, then we're done here.
                 # It is necessarily already downloaded by virtue of being one of our Dataset objects.
-                if existing_variable.name == pointer.dataset_name:
+                if existing_variable.name == pointer.large_object_name:
                     return None
 
                 self.log.warning(f'Existing dataset "{var_name}" does not match freshly-committed '
-                                 f'dataset "{pointer.dataset_name}".')
+                                 f'dataset "{pointer.large_object_name}".')
                 self.log.warning(f"Will overwrite existing {existing_variable.name} dataset "
-                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+                                 f"\"{var_name}\" with '{pointer.large_object_name}' dataset.")
             else:
                 self.log.warning(f'Found existing variable "{var_name}" of type {type(existing_variable).__name__}...')
                 self.log.warning(f"Will overwrite existing {type(existing_variable).__name__} variable "
-                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+                                 f"\"{var_name}\" with '{pointer.large_object_name}' dataset.")
 
         try:
             st: float = time.time()
@@ -5051,8 +5051,8 @@ class DistributedKernel(IPythonKernel):
             et: float = time.time()
         except Exception as exc:
             self.log.error(f'Failed to load committed dataset "{pointer.large_object_name}" because: {exc}')
-            self.report_error(f'Failed to Load Committed Dataset "{pointer.name}"', str(exc))
-            traceback.print_exc()
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Load Committed Dataset "{pointer.large_object_name}"', str(exc))
             return None
 
         if self.prometheus_enabled:
@@ -5077,14 +5077,14 @@ class DistributedKernel(IPythonKernel):
         if pointer.proposer_id == self.smr_node_id:
             if self.synclog.needs_to_catch_up:
                 self.log.debug(
-                    f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
+                    f"Received committed '{pointer.large_object_name}' Dataset pointer proposed by ourselves "
                     f"while catching up. Saving for later."
                 )
                 self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
                 return None
             else:
                 self.log.debug(
-                    f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves. "
+                    f"Received committed '{pointer.large_object_name}' Dataset pointer proposed by ourselves. "
                     f"Ignoring."
                 )
                 return None
