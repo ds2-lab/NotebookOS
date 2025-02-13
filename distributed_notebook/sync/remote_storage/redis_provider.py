@@ -469,11 +469,7 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
-        self._delete_time += time_elapsed
-        self._num_objects_deleted += 1
-
-        self._lifetime_delete_time += time_elapsed
-        self._lifetime_num_objects_deleted += 1
+        self.update_delete_stats(time_elapsed, 1)
 
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
 
@@ -495,11 +491,7 @@ class RedisProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
-        self._delete_time += time_elapsed
-        self._num_objects_deleted += 1
-
-        self._lifetime_delete_time += time_elapsed
-        self._lifetime_num_objects_deleted += 1
+        self.update_delete_stats(time_elapsed, 1)
 
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
 

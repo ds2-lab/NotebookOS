@@ -206,6 +206,20 @@ class RemoteStorageProvider(ABC):
         self._lifetime_num_objects_read += num_values
         self._lifetime_bytes_read += size_bytes
 
+    def update_delete_stats(self, time_elapsed_ms: float, num_values: int = 1):
+        """
+        Updates the write-related metrics of the RedisProvider.
+
+        :param time_elapsed_ms: the time taken by the read operation.
+        :param num_values: the number of objects read. This will usually be 1, but if a large object is
+        chunked, then this should be the number of individual chunks.
+        """
+        self._delete_time += time_elapsed_ms
+        self._num_objects_deleted += num_values
+
+        self._lifetime_delete_time += time_elapsed_ms
+        self._lifetime_num_objects_deleted += num_values
+
     @property
     @abstractmethod
     def storage_name(self) -> str:
