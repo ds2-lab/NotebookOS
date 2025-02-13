@@ -1101,8 +1101,8 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	if allocation.IsCommitted() {
 		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
 			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
-		return fmt.Errorf("%w: resources are already committed to replica %d of kernel %s",
-			scheduling.ErrInvalidOperation, replicaId, kernelId)
+		return fmt.Errorf("%w: replica %d of kernel %s",
+			scheduling.ErrResourcesAlreadyCommitted, replicaId, kernelId)
 	}
 
 	// First, release the original amount of pending resources.

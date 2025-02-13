@@ -667,14 +667,13 @@ func (c *KernelReplicaClient) WorkloadId() string {
 }
 
 // SetWorkloadId sets the WorkloadId of the KernelReplicaClient.
-func (c *KernelReplicaClient) SetWorkloadId(workloadId string) error {
+func (c *KernelReplicaClient) SetWorkloadId(workloadId string) {
 	if c.workloadIdSet {
 		c.log.Warn("Workload ID has already been set to \"%s\". Will replace it with (possibly identical) new ID: \"%s\"",
 			c.workloadId, workloadId)
 	}
 
 	c.workloadId = workloadId
-	return nil
 }
 
 // WorkloadIdSet returns a flag indicating whether the KernelReplicaClient's workloadId has been assigned a "meaningful" value or not.

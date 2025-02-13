@@ -4915,11 +4915,11 @@ class DistributedKernel(IPythonKernel):
                     dataset_pointer
                 )
             except Exception as exc:
-                self.log.error(f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'")
+                self.log.error(f"Failed to load Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}'")
                 self.log.error(traceback.format_exc())
                 self.report_error(
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
-                    f"Dataset '{dataset_pointer.model_name}' for variable '{var_name}' "
+                    f"Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}' "
                     f"while catching-up",
                     str(exc),
                 )
@@ -4927,7 +4927,7 @@ class DistributedKernel(IPythonKernel):
 
             et: float = time.time()
             self.log.debug(
-                f"Successfully retrieved Dataset '{dataset_pointer.model_name}' for variable "
+                f"Successfully retrieved Dataset '{dataset_pointer.dataset_name}' for variable "
                 f"'{var_name}' from remote remote_storage in {et - st} seconds."
             )
 
@@ -5015,8 +5015,8 @@ class DistributedKernel(IPythonKernel):
             )
         except Exception as exc:
             self.log.error(f'Failed to load committed dataset "{pointer.model_name}" because: {exc}')
+            self.log.error(traceback.format_exc())
             self.report_error(f'Failed to Load Committed Dataset "{pointer.name}"', str(exc))
-            traceback.print_exc()
             return None
 
         return model
@@ -5051,7 +5051,7 @@ class DistributedKernel(IPythonKernel):
             et: float = time.time()
         except Exception as exc:
             self.log.error(f'Failed to load committed dataset "{pointer.large_object_name}" because: {exc}')
-            self.report_error('Failed to Load Committed Dataset "{pointer.name}"', str(exc))
+            self.report_error(f'Failed to Load Committed Dataset "{pointer.name}"', str(exc))
             traceback.print_exc()
             return None
 
