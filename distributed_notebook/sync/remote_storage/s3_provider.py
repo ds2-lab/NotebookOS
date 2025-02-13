@@ -99,8 +99,9 @@ class S3Provider(RemoteStorageProvider):
             value = value.encode('utf-8')
             value_size: int = len(value)
         elif isinstance(value, io.BytesIO):
-            value_size: int = value.getbuffer().nbytes
-            value = value.getvalue()
+            value.seek(0)
+            value = value.getbuffer()
+            value_size: int = value.nbytes
         else:
             value_size: int = sys.getsizeof(value)
 
@@ -139,8 +140,9 @@ class S3Provider(RemoteStorageProvider):
             value = value.encode('utf-8')
             value_size: int = len(value)
         elif isinstance(value, io.BytesIO):
-            value_size: int = value.getbuffer().nbytes
-            value = value.getvalue()
+            value.seek(0)
+            value = value.getbuffer()
+            value_size: int = value.nbytes
         else:
             value_size: int = sys.getsizeof(value)
 

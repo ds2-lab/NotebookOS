@@ -50,6 +50,7 @@ bucket_name = "distributed-notebook-remote_storage"
 s3_key = "model_checkpoints/model_checkpoint.pth"
 
 try:
+    # When creating another io.BytesIO, use obj.getvalue()
     s3.upload_fileobj(Fileobj=io.BytesIO(buffer.getvalue()), Bucket=bucket_name, Key=s3_key)
     print(f"Checkpoint uploaded to S3 at s3://{bucket_name}/{s3_key}")
 except Exception as e:

@@ -18,7 +18,7 @@ def test_upload_and_download_string():
     assert success
 
     data: io.BytesIO = local_provider.read_value(obj_name)
-    print("Read data:", data.getvalue().decode("utf-8"))
+    print("Read data:", data.getbuffer().tobytes().decode("utf-8"))
 
     success = local_provider.delete_value(obj_name)
     assert success
