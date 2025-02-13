@@ -135,7 +135,7 @@ type AllocationManager interface {
 
 	// AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
-	AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
+	AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, replicaId int32, kernelId string) error
 
 	// AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
 	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.

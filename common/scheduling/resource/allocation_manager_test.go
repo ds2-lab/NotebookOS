@@ -12,7 +12,9 @@ import (
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
+	"github.com/shopspring/decimal"
 	"gopkg.in/yaml.v3"
+	"time"
 )
 
 var _ = Describe("AllocationManager Standard Tests", func() {
@@ -25,6 +27,185 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 	hostSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
 
 	kernel1Id := "Kernel1"
+	hostId := uuid.NewString()
+	hostName := "TestNode"
+
+	Context("Allocation Tests", func() {
+		BeforeEach(func() {
+			err := yaml.Unmarshal([]byte(samples.GatewayStaticYaml), &opts)
+			Expect(err).To(BeNil())
+
+			schedulingPolicy, err = policy.NewStaticPolicy(&opts.SchedulerOptions)
+			Expect(err).To(BeNil())
+			Expect(schedulingPolicy).ToNot(BeNil())
+
+			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId, hostName)
+		})
+
+		It("Will correctly enable the specification of an allocation's ID and GPU device IDs", func() {
+			builder := resource.NewResourceAllocationBuilder()
+
+			allocation := builder.WithIdOverride("allocation id").BuildResourceAllocation()
+
+			Expect(allocation.AllocationId).To(Equal("allocation id"))
+
+			allocation = builder.WithGpuDeviceId(1).BuildResourceAllocation()
+
+			Expect(len(allocation.GpuDeviceIds)).To(Equal(1))
+			Expect(allocation.GpuDeviceIds[0]).To(Equal(1))
+
+			allocation = builder.WithGpuDeviceIds([]int{1, 2, 3}).BuildResourceAllocation()
+
+			Expect(len(allocation.GpuDeviceIds)).To(Equal(3))
+			Expect(allocation.GpuDeviceIds[0]).To(Equal(1))
+			Expect(allocation.GpuDeviceIds[1]).To(Equal(2))
+			Expect(allocation.GpuDeviceIds[2]).To(Equal(3))
+		})
+
+		It("Will correctly enable the specification of an allocation's reservation and pre-commit statuses", func() {
+			builder := resource.NewResourceAllocationBuilder()
+
+			allocation := builder.
+				IsAReservation().
+				IsNotAPreCommitment().
+				BuildResourceAllocation()
+
+			Expect(allocation.IsReservationAllocation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeTrue())
+
+			Expect(allocation.IsPreCommittedAllocation).To(BeFalse())
+			Expect(allocation.IsPreCommitted()).To(BeFalse())
+
+			allocation = builder.
+				IsAPreCommitment().
+				IsNotAReservation().
+				BuildResourceAllocation()
+
+			Expect(allocation.IsReservationAllocation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
+
+			Expect(allocation.IsPreCommittedAllocation).To(BeTrue())
+			Expect(allocation.IsPreCommitted()).To(BeTrue())
+		})
+
+		It("Will correctly return the replica ID of an allocation", func() {
+			kernel1Spec := types.NewDecimalSpec(0, 0, 0, 0)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+
+			Expect(allocation.IsReservation()).To(BeFalse())
+			allocation.SetIsReservation(true)
+			Expect(allocation.IsReservation()).To(BeTrue())
+		})
+
+		It("Will correctly identify when an allocation is a reservation", func() {
+			kernel1Spec := types.NewDecimalSpec(0, 0, 0, 0)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+
+			allocation.SetReplicaId(int32(2))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(2)))
+		})
+
+		It("Will correctly identify when an allocation is 'zero'", func() {
+			kernel1Spec := types.NewDecimalSpec(0, 0, 0, 0)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+			Expect(allocation.IsNonZero()).To(BeFalse())
+		})
+
+		It("Will correctly return a cloned allocation", func() {
+			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
+			clonedAllocation := allocation.CloneAndReturnedAdjusted(kernel1Spec)
+
+			Expect(allocation.GetKernelId()).To(Equal(clonedAllocation.GetKernelId()))
+			Expect(allocation.GetReplicaId()).To(Equal(clonedAllocation.GetReplicaId()))
+			Expect(allocation.GetMillicpus()).To(Equal(clonedAllocation.GetMillicpus()))
+			Expect(allocation.GetMemoryMb()).To(Equal(clonedAllocation.GetMemoryMb()))
+			Expect(allocation.GetGpus()).To(Equal(clonedAllocation.GetGpus()))
+			Expect(allocation.GetVramGb()).To(Equal(clonedAllocation.GetVramGb()))
+			Expect(allocation.ToDecimalSpec().Equals(clonedAllocation.ToDecimalSpec())).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(Equal(clonedAllocation.IsCommitted()))
+			Expect(allocation.IsPending()).To(Equal(clonedAllocation.IsPending()))
+		})
+
+		It("Will correctly return a cloned and adjusted allocation", func() {
+			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+
+			kernel2Spec := types.NewDecimalSpec(14000, 26000, 5, 12)
+
+			clonedAllocation := allocation.CloneAndReturnedAdjusted(kernel2Spec)
+
+			Expect(clonedAllocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(clonedAllocation.GetKernelId()))
+			Expect(allocation.GetReplicaId()).To(Equal(clonedAllocation.GetReplicaId()))
+			Expect(clonedAllocation.GetMillicpus()).To(Equal(kernel2Spec.CPU()))
+			Expect(clonedAllocation.GetMemoryMb()).To(Equal(kernel2Spec.MemoryMB()))
+			Expect(clonedAllocation.GetGpus()).To(Equal(kernel2Spec.GPU()))
+			Expect(clonedAllocation.GetVramGb()).To(Equal(kernel2Spec.VRAM()))
+			Expect(clonedAllocation.ToDecimalSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(clonedAllocation.ToSpec().Equals(kernel2Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(Equal(clonedAllocation.IsCommitted()))
+			Expect(allocation.IsPending()).To(Equal(clonedAllocation.IsPending()))
+		})
+	})
 
 	Context("Static Scheduling", func() {
 		BeforeEach(func() {
@@ -35,7 +216,77 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString(), "TestNode")
+			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId, hostName)
+		})
+
+		It("Will correctly report the spec resources", func() {
+			Expect(allocationManager.SpecCPUs().Equal(hostSpec.Millicpus)).To(BeTrue())
+			Expect(allocationManager.SpecMemoryMB().Equal(hostSpec.MemoryMb)).To(BeTrue())
+			Expect(allocationManager.SpecGPUs().Equal(hostSpec.GPUs)).To(BeTrue())
+			Expect(allocationManager.SpecVRAM().Equal(hostSpec.VRam)).To(BeTrue())
+		})
+
+		It("Will correctly report the node ID and node name", func() {
+			Expect(allocationManager.GetNodeName()).To(Equal(hostName))
+			Expect(allocationManager.GetNodeId()).To(Equal(hostId))
+			Expect(len(allocationManager.GetId()) > 0).To(BeTrue())
+		})
+
+		It("Will correctly report when it can and cannot commit resources to containers", func() {
+			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			kernel2Spec := types.NewDecimalSpec(4000, 16000, 4, 8)
+
+			Expect(allocationManager.CanCommitResources(kernel2Spec)).To(BeTrue())
+
+			kernel3Spec := types.NewDecimalSpec(4000, 16000, 8, 8)
+
+			Expect(allocationManager.CanCommitResources(kernel3Spec)).To(BeTrue())
+
+			var allocatedGpuResourceIds []int
+			allocatedGpuResourceIds, err = allocationManager.CommitResourcesToExistingContainer(1, kernel1Id,
+				scheduling.DefaultExecutionId, kernel1Spec, false)
+			Expect(err).To(BeNil())
+			Expect(allocatedGpuResourceIds).ToNot(BeNil())
+			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
+
+			Expect(allocationManager.NumPendingAllocations()).To(Equal(0))
+			Expect(allocationManager.NumAllocations()).To(Equal(1))
+			Expect(allocationManager.NumCommittedAllocations()).To(Equal(1))
+
+			Expect(allocationManager.PendingResources().IsZero()).To(BeTrue())
+			Expect(allocationManager.IdleResources().Equals(hostSpec.Subtract(kernel1Spec))).To(BeTrue())
+			Expect(allocationManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+
+			Expect(allocationManager.NumCommittedGpuDevices()).To(Equal(2))
+			Expect(allocationManager.NumAvailableGpuDevices()).To(Equal(6))
+
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeFalse())
+
+			Expect(allocationManager.CanCommitResources(kernel2Spec)).To(BeTrue())
+
+			Expect(allocationManager.CanCommitResources(kernel3Spec)).To(BeFalse())
+		})
+
+		It("Will correctly report when it can and cannot serve containers", func() {
+			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			kernel2Spec := types.NewDecimalSpec(4000, 16000, 4, 8)
+
+			Expect(allocationManager.CanServeContainer(kernel2Spec)).To(BeTrue())
+
+			kernel3Spec := types.NewDecimalSpec(4000, 16000, 18, 8)
+
+			Expect(allocationManager.CanServeContainer(kernel3Spec)).To(BeFalse())
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -52,7 +303,15 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			Expect(allocationManager.PendingResources().Equals(kernel1Spec))
 			Expect(allocationManager.IdleResources().Equals(hostSpec)).To(BeTrue())
+			Expect(allocationManager.IdleCPUs().Equals(hostSpec.Millicpus)).To(BeTrue())
+			Expect(allocationManager.IdleMemoryMB().Equals(hostSpec.MemoryMb)).To(BeTrue())
+			Expect(allocationManager.IdleGPUs().Equals(hostSpec.GPUs)).To(BeTrue())
+			Expect(allocationManager.IdleVRamGB().Equals(hostSpec.VRam)).To(BeTrue())
 			Expect(allocationManager.CommittedResources().IsZero()).To(BeTrue())
+			Expect(allocationManager.CommittedCPUs().Equals(decimal.Zero)).To(BeTrue())
+			Expect(allocationManager.CommittedMemoryMB().Equals(decimal.Zero)).To(BeTrue())
+			Expect(allocationManager.CommittedGPUs().Equals(decimal.Zero)).To(BeTrue())
+			Expect(allocationManager.CommittedVRamGB().Equals(decimal.Zero)).To(BeTrue())
 
 			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
 			Expect(ok).To(BeTrue())
@@ -66,6 +325,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
 			Expect(allocation.IsPending()).To(BeTrue())
+			Expect(allocation.IsNonZero()).To(BeTrue())
 		})
 
 		It("Will correctly handle the scheduling of multiple pending resource request", func() {
@@ -542,6 +802,36 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.CommittedResources().IsZero()).To(BeTrue())
 		})
 
+		It("Will correctly adjust a lone pending resource reservation to a larger reservation", func() {
+			kernel1SpecV1 := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1SpecV1)
+			Expect(err).To(BeNil())
+
+			Expect(allocationManager.SpecResources().Equals(hostSpec)).To(BeTrue())
+
+			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
+			Expect(allocationManager.NumAllocations()).To(Equal(1))
+			Expect(allocationManager.NumCommittedAllocations()).To(Equal(0))
+
+			Expect(allocationManager.PendingResources().Equals(kernel1SpecV1))
+			Expect(allocationManager.IdleResources().Equals(hostSpec)).To(BeTrue())
+			Expect(allocationManager.CommittedResources().IsZero()).To(BeTrue())
+
+			kernel1SpecV2 := types.NewDecimalSpec(8000, 32000, 4, 16)
+
+			err = allocationManager.AdjustKernelResourceRequest(kernel1SpecV2, kernel1SpecV1, int32(1), kernel1Id)
+			Expect(err).To(BeNil())
+
+			Expect(allocationManager.NumPendingAllocations()).To(Equal(1))
+			Expect(allocationManager.NumAllocations()).To(Equal(1))
+			Expect(allocationManager.NumCommittedAllocations()).To(Equal(0))
+
+			Expect(allocationManager.PendingResources().Equals(kernel1SpecV2))
+			Expect(allocationManager.IdleResources().Equals(hostSpec)).To(BeTrue())
+			Expect(allocationManager.CommittedResources().IsZero()).To(BeTrue())
+		})
+
 		It("Will correctly handle evicting a kernel replica with pending resources", func() {
 			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 
@@ -606,6 +896,10 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.PendingResources().IsZero()).To(BeTrue())
 			Expect(allocationManager.IdleResources().Equals(hostSpec.Subtract(kernel1Spec))).To(BeTrue())
 			Expect(allocationManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocationManager.CommittedCPUs().Equals(kernel1Spec.Millicpus)).To(BeTrue())
+			Expect(allocationManager.CommittedMemoryMB().Equals(kernel1Spec.MemoryMb)).To(BeTrue())
+			Expect(allocationManager.CommittedGPUs().Equals(kernel1Spec.GPUs)).To(BeTrue())
+			Expect(allocationManager.CommittedVRamGB().Equals(kernel1Spec.VRam)).To(BeTrue())
 
 			err = allocationManager.ReleaseCommittedResources(1, kernel1Id, scheduling.DefaultExecutionId)
 			Expect(err).To(BeNil())
@@ -856,7 +1150,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString(), "TestNode")
+			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId, hostName)
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -887,6 +1181,10 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
 			Expect(allocation.IsPending()).To(BeTrue())
+			Expect(allocation.GetHostId()).To(Equal(hostId))
+			Expect(allocation.GetHostName()).To(Equal(hostName))
+			Expect(len(allocation.GetAllocationId()) > 0).To(BeTrue())
+			Expect(time.Since(allocation.GetTimestamp()) < time.Second*2).To(BeTrue())
 		})
 
 		It("Will correctly handle the scheduling of multiple pending resource request", func() {
@@ -1681,7 +1979,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString(), "TestNode")
+			allocationManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId, hostName)
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {

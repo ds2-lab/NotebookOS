@@ -8313,11 +8313,9 @@ func (mr *MockKernelReplicaMockRecorder) SetReplicaID(replicaId any) *gomock.Cal
 }
 
 // SetWorkloadId mocks base method.
-func (m *MockKernelReplica) SetWorkloadId(workloadId string) error {
+func (m *MockKernelReplica) SetWorkloadId(workloadId string) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetWorkloadId", workloadId)
-	ret0, _ := ret[0].(error)
-	return ret0
+	m.ctrl.Call(m, "SetWorkloadId", workloadId)
 }
 
 // SetWorkloadId indicates an expected call of SetWorkloadId.
@@ -10935,17 +10933,17 @@ func (m *MockAllocationManager) EXPECT() *MockAllocationManagerMockRecorder {
 }
 
 // AdjustKernelResourceRequest mocks base method.
-func (m *MockAllocationManager) AdjustKernelResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+func (m *MockAllocationManager) AdjustKernelResourceRequest(updatedSpec, oldSpec types.Spec, replicaId int32, kernelId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, replicaId, kernelId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AdjustKernelResourceRequest indicates an expected call of AdjustKernelResourceRequest.
-func (mr *MockAllocationManagerMockRecorder) AdjustKernelResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
+func (mr *MockAllocationManagerMockRecorder) AdjustKernelResourceRequest(updatedSpec, oldSpec, replicaId, kernelId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockAllocationManager)(nil).AdjustKernelResourceRequest), updatedSpec, oldSpec, container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockAllocationManager)(nil).AdjustKernelResourceRequest), updatedSpec, oldSpec, replicaId, kernelId)
 }
 
 // AdjustKernelResourceRequestCoordinated mocks base method.

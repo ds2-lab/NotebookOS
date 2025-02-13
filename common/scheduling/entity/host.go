@@ -1134,7 +1134,7 @@ func (h *Host) AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types
 	h.log.Debug("Updating resource reservation for just replica %d of kernel %s from [%v] to [%v].",
 		replicaId, kernelId, oldSpec.String(), updatedSpec.String())
 
-	err := h.allocationManager.AdjustKernelResourceRequest(updatedSpec, oldSpec, container)
+	err := h.allocationManager.AdjustKernelResourceRequest(updatedSpec, oldSpec, replicaId, kernelId)
 	if err != nil {
 		h.log.Warn("Failed to update resource reservation for just replica %d of kernel %s from [%v] to [%v].",
 			replicaId, kernelId, oldSpec.String(), updatedSpec.String())

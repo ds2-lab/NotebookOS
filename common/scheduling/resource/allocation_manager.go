@@ -775,7 +775,7 @@ func (m *AllocationManager) HasReservationForKernel(kernelId string) bool {
 
 // AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
-func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, replicaId int32, kernelId string) error {
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
@@ -783,9 +783,6 @@ func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldS
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	kernelId := container.KernelID()
-	replicaId := container.ReplicaId()
 
 	m.log.Debug("Attempting to adjust resource request for replica %d of kernel %s from [%v] to [%v].",
 		replicaId, kernelId, oldSpec, newSpec)
