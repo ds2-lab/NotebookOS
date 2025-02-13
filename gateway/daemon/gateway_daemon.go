@@ -6125,7 +6125,7 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 		return true
 	})
 
-	d.ClusterStatistics.NumSeenSessions.Store(d.cluster.Sessions().Len())
+	d.ClusterStatistics.NumSeenSessions.Store(int32(d.cluster.Sessions().Len()))
 	d.ClusterStatistics.NumRunningSessions.Store(int32(numRunning))
 	d.ClusterStatistics.NumIdleSessions.Store(int32(numIdle))
 	d.ClusterStatistics.NumTrainingSessions.Store(int32(numTraining))
@@ -6155,8 +6155,8 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	//////////////
 	// Sessions //
 	//////////////
-	d.ClusterStatistics.NumNonTerminatedSessions.Store(int32(d.numActiveKernels.Load()))
-	d.ClusterStatistics.NumRunningSessions.Store(d.cluster.Sessions().Len())
+	d.ClusterStatistics.NumNonTerminatedSessions.Store(d.numActiveKernels.Load())
+	d.ClusterStatistics.NumRunningSessions.Store(int32(d.cluster.Sessions().Len()))
 
 	d.lastFullStatisticsUpdate = time.Now()
 

@@ -1008,12 +1008,12 @@ func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto
 	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
 
 	s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		statistics.CumulativeRequestProcessingTimeClusterGateway += gatewayRequestProcessTime
-		statistics.CumulativeRequestProcessingTimeLocalDaemon += localDaemonRequestProcessTime
-		statistics.CumulativeRequestProcessingTimeKernel += kernelProcessingTime
+		statistics.CumulativeRequestProcessingTimeClusterGateway.Add(gatewayRequestProcessTime)
+		statistics.CumulativeRequestProcessingTimeLocalDaemon.Add(localDaemonRequestProcessTime)
+		statistics.CumulativeRequestProcessingTimeKernel.Add(kernelProcessingTime)
 
-		statistics.CumulativeResponseProcessingTimeClusterGateway += gatewayResponseProcessTime
-		statistics.CumulativeResponseProcessingTimeLocalDaemon += localDaemonResponseProcessTime
+		statistics.CumulativeResponseProcessingTimeClusterGateway.Add(gatewayResponseProcessTime)
+		statistics.CumulativeResponseProcessingTimeLocalDaemon.Add(localDaemonResponseProcessTime)
 	})
 }
 
@@ -1278,7 +1278,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			if s.StatisticsAndMetricsProvider != nil {
 				s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 					// We know we're in the Gateway if the StatisticsUpdaterProvider
-					statistics.NumJupyterMessagesReceivedByClusterGateway += 1
+					statistics.NumJupyterMessagesReceivedByClusterGateway.Add(1)
 				})
 			}
 		} else {

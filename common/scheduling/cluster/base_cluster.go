@@ -919,8 +919,8 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			var operationStatus string
 			if numProvisioned > 0 {
-				stats.NumSuccessfulScaleOutEvents += 1
-				stats.CumulativeNumHostsProvisioned += numProvisioned
+				stats.NumSuccessfulScaleOutEvents.Add(1)
+				stats.CumulativeNumHostsProvisioned.Add(int32(numProvisioned))
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -928,12 +928,12 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 					operationStatus = "partial_success"
 				}
 			} else {
-				stats.NumFailedScaleOutEvents += 1
+				stats.NumFailedScaleOutEvents.Add(1)
 				operationStatus = "total_failure"
 			}
 
 			duration, _ := scaleOp.GetDuration()
-			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts.Add(duration.Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -994,7 +994,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumActiveScaleInEvents += 1
+			stats.NumActiveScaleInEvents.Add(1)
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1040,8 +1040,8 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 			numReleased := currentNumNodes - int32(c.Len())
 			var operationStatus string
 			if numReleased > 0 {
-				stats.NumSuccessfulScaleInEvents += 1
-				stats.CumulativeNumHostsReleased += int(numReleased)
+				stats.NumSuccessfulScaleInEvents.Add(1)
+				stats.CumulativeNumHostsReleased.Add(numReleased)
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -1049,12 +1049,12 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 					operationStatus = "partial_success"
 				}
 			} else {
-				stats.NumFailedScaleInEvents += 1
+				stats.NumFailedScaleInEvents.Add(1)
 				operationStatus = "total_failure"
 			}
 
 			duration, _ := scaleOp.GetDuration()
-			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts.Add(duration.Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1121,7 +1121,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumActiveScaleInEvents += 1
+			stats.NumActiveScaleInEvents.Add(1)
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1164,8 +1164,8 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 			numReleased := currentNumNodes - int32(c.Len())
 			var operationStatus string
 			if numReleased > 0 {
-				stats.NumSuccessfulScaleInEvents += 1
-				stats.CumulativeNumHostsReleased += int(numReleased)
+				stats.NumSuccessfulScaleInEvents.Add(1)
+				stats.CumulativeNumHostsReleased.Add(numReleased)
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -1173,12 +1173,12 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 					operationStatus = "partial_success"
 				}
 			} else {
-				stats.NumFailedScaleInEvents += 1
+				stats.NumFailedScaleInEvents.Add(1)
 				operationStatus = "total_failure"
 			}
 
 			duration, _ := scaleOp.GetDuration()
-			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts.Add(duration.Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
