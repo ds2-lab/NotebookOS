@@ -168,7 +168,7 @@ class RemoteCheckpointer(Checkpointer):
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
-                           f"because: {ex}")
+                           f"because: {type(ex).__name__} {ex}")
             raise ex # re-raise
 
         if val is None:
@@ -214,7 +214,7 @@ class RemoteCheckpointer(Checkpointer):
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
-                           f"because: {ex}")
+                           f"because: {type(ex).__name__} {ex}")
             raise ex # re-raise
 
         if val is None:
@@ -326,6 +326,8 @@ class RemoteCheckpointer(Checkpointer):
             self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
             raise ex  # re-raise
 
+        buffer.seek(0)
+
         size_bytes: int = buffer.getbuffer().nbytes
 
         return buffer, size_bytes
@@ -374,7 +376,7 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'{buffer.getbuffer().nbytes} bytes uploaded to {self.storage_name} at key "{key}" in '
+            self.log.debug(f'{buffer.getbuffer().nbytes:,} bytes uploaded to {self.storage_name} at key "{key}" in '
                            f'{round(time_elapsed, 3):,}ms.')
 
         except Exception as ex:

@@ -254,6 +254,8 @@ class RedisProvider(RemoteStorageProvider):
 
             return await self.__chunk_data_async(key, value, size_mb=size_mb)
 
+        self.log.debug(f'Writing value of size {size_bytes:,} bytes to Redis at key "{key}".')
+
         start_time: float = time.time()
 
         await self._async_redis.set(key, value)
@@ -291,6 +293,8 @@ class RedisProvider(RemoteStorageProvider):
                              f'{self._size_limit_mb:,} MB: {size_mb:,} MB.')
 
             return self.__chunk_data(key, value, size_mb=size_mb)
+
+        self.log.debug(f'Writing value of size {size_bytes:,} bytes to Redis at key "{key}".')
 
         start_time: float = time.time()
 
@@ -331,6 +335,7 @@ class RedisProvider(RemoteStorageProvider):
         # If the value type is "none", then there's simply no data stored at
         # that key, in which case we can already raise an InvalidKeyError.
         if value_type== "none":
+            self.log.error(f'Type of value at key "{key}" is "none".')
             raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
         if value_type != "string" and value_type != "list":
@@ -397,6 +402,7 @@ class RedisProvider(RemoteStorageProvider):
         # If the value type is "none", then there's simply no data stored at
         # that key, in which case we can already raise an InvalidKeyError.
         if value_type== "none":
+            self.log.error(f'Type of value at key "{key}" is "none".')
             raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
         if value_type != "string" and value_type != "list":
