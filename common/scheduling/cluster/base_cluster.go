@@ -188,13 +188,37 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 	if initialConnPeriodEnabled {
 		c.inInitialConnectionPeriod.Store(true)
 
-		c.log.Debug("Initial Connection Period will end in %v.", c.initialConnectionPeriod)
-		time.Sleep(c.initialConnectionPeriod)
+		// Spawn a separate goroutine to formally exit "initial connection" mode after the configured
+		// interval of time has elapsed.
+		start := time.Now()
+		go func() {
+			c.log.Debug("Initial Connection Period will end in at most %v.", c.initialConnectionPeriod)
 
-		c.inInitialConnectionPeriod.Store(false)
+			// Sleep for the configured interval of time.
+			time.Sleep(c.initialConnectionPeriod)
 
-		c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
-			c.initialConnectionPeriod, c.Len())
+			// Exit "initial connection" mode.
+			c.inInitialConnectionPeriod.Store(false)
+
+			c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+				c.initialConnectionPeriod, c.Len())
+		}()
+
+		// Once a second for the duration of the "initial connection" period, we'll check the size of the cluster.
+		// If we reach the configured initial size, then we'll exit this loop and begin pre-warming containers
+		// on all the connected hosts. We do not need to wait for the full "initial connection" period to elapse
+		// before we start to pre-warm containers if all "<initial cluster size>" hosts have connected.
+		for c.Len() < c.initialClusterSize && c.inInitialConnectionPeriod.Load() {
+			time.Sleep(time.Second * 1)
+
+			// If we've reached the configured initial cluster size, then we can break out of the loop.
+			if c.Len() >= c.initialClusterSize {
+				c.log.Debug("Cluster has reached configured initial size of %d after %v.",
+					c.initialClusterSize, time.Since(start))
+
+				break
+			}
+		}
 	} else {
 		c.log.Debug("Initial Cluster Size specified as negative number (%d). "+
 			"Disabling 'initial connection period' feature.", c.initialClusterSize)
@@ -229,7 +253,12 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 	}
 
 	// Start the prewarmer when we return.
-	defer prewarmer.Run()
+	defer func(prewarmer scheduling.ContainerPrewarmer) {
+		err := prewarmer.Run()
+		if err != nil {
+			c.log.Error("ContainerPrewarmer encountered an error while running: %v", err)
+		}
+	}(prewarmer)
 
 	// If the target was 0, then return immediately to avoid printing the unnecessary log message below.
 	// We deferred `prewarmer.Run()`, so that'll run when we return.
