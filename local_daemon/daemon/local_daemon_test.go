@@ -492,6 +492,26 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				Expect(localScheduler.NumKernels()).To(Equal(0))
 				Expect(localScheduler.NumPrewarmContainers()).To(Equal(1))
+
+				By("Correctly handling the promotion of the prewarm container to a standard container")
+
+				promotionCtx, promotionCancel := context.WithTimeout(context.Background(), time.Second*5)
+				defer promotionCancel()
+
+				promotionRespChan := make(chan *proto.KernelConnectionInfo, 1)
+
+				go func() {
+					prewarmedKernelReplicaSpec := &proto.PrewarmedKernelReplicaSpec{}
+
+					resp, err := localScheduler.PromotePrewarmedContainer(promotionCtx, prewarmedKernelReplicaSpec)
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					promotionRespChan <- resp
+				}()
+
+				var promotionResp *proto.KernelConnectionInfo
+				Eventually(resultChan, ctx).Should(Receive(&promotionResp))
 			})
 		})
 	})

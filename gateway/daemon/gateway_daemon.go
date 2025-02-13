@@ -2385,8 +2385,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Info(
 		utils.LightBlueStyle.Render(
-			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v. ResourceSpec: %v."),
-		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in, in.ResourceSpec.ToDecimalSpec().String())
+			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v]"),
+		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 
 	// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
 	// unequal. If so, we'll log a message indicating as such.
@@ -2513,8 +2513,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Info(
 		utils.DarkGreenStyle.Render(
-			"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v. Success ✓"),
-		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
+			"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v]"),
+		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 
 	return info, nil
 }
