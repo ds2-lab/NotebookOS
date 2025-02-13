@@ -52,7 +52,7 @@ class LocalStorageProvider(RemoteStorageProvider):
         """
         return False # never too large!
 
-    async def write_value_async(self, key: str, value: Any):
+    async def write_value_async(self, key: str, value: Any)->bool:
         """
         Asynchronously write a value to Local In-Memory Storage at the specified key.
 
@@ -79,7 +79,9 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to {self.storage_name} at key "{key}" in {time_elapsed_ms:,} ms.')
 
-    def write_value(self, key: str, value: Any):
+        return True
+
+    def write_value(self, key: str, value: Any)->bool:
         """
         Write a value to Local In-Memory Storage at the specified key.
 
@@ -105,6 +107,8 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to {self.storage_name} '
                        f'at key "{key}" in {time_elapsed_ms:,} ms.')
+
+        return True
 
     async def read_value_async(self, key: str) -> Any:
         """
