@@ -52,7 +52,7 @@ class RandomCustomDataset(CustomDataset):
             num_training_samples: int = 512,
             num_test_samples: int = 64,
             root_dir:str = 'data',
-            batch_size: int = 64,
+            batch_size: int = 1,
             shuffle: bool = True,
             num_workers: int = 2,
             **kwargs):

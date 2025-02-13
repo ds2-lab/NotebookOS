@@ -151,7 +151,7 @@ class LibriSpeech(CustomDataset):
             self,
             root_dir: str = default_root_directory,
             folder_in_archive: str = datasets.librispeech.FOLDER_IN_ARCHIVE,
-            batch_size: int = 4,
+            batch_size: int = 1,
             shuffle: bool = True,
             num_workers: int = 2,
             # Default to test_clean, even though it's a test set, because it is small (good for unit tests)
@@ -347,7 +347,7 @@ class LibriSpeech(CustomDataset):
 
                     self.log.warn(f"Sleeping for {sleep_interval} seconds before trying again...")
                     time.sleep(sleep_interval)
-                    
+
                     num_tries += 1
 
             self.log.error(f"Failed to download the LibriSpeech dataset after {max_num_tries} tries.")

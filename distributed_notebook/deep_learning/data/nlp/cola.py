@@ -29,7 +29,7 @@ class CoLA(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             max_token_length: int = 128,
-            batch_size = 4,
+            batch_size: int = 1,
             **kwargs
     ):
         super().__init__(

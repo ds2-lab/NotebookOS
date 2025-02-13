@@ -60,7 +60,7 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             root_dir: str = default_root_directory,
             shuffle: bool = True,
             num_workers: int = 2,
-            batch_size: int = 4,
+            batch_size: int = 1,
             image_size: int = 224,  # 224 x 224 for ResNet-18, 299 x 299 for Inception v3.
             **kwargs
     ):
