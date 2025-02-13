@@ -151,7 +151,7 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         return value
 
-    async def delete_value_async(self, key: str):
+    async def delete_value_async(self, key: str)->bool:
         """
         Asynchronously delete the value stored at the specified key from Local In-Memory Storage.
 
@@ -175,7 +175,9 @@ class LocalStorageProvider(RemoteStorageProvider):
 
             self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
 
-    def delete_value(self, key: str):
+        return True
+
+    def delete_value(self, key: str)->bool:
         """
         Delete the value stored at the specified key from Local In-Memory Storage.
 
@@ -197,6 +199,8 @@ class LocalStorageProvider(RemoteStorageProvider):
         self._lifetime_num_objects_deleted += 1
 
         self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
+
+        return True
 
     async def close_async(self):
         self.close()
