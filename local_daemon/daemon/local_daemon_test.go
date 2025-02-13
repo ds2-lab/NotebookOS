@@ -155,7 +155,100 @@ var _ = Describe("Local Daemon Tests", func() {
 	Context("Newer Unit Tests", func() {
 		var (
 			localScheduler *LocalScheduler
+			workloadId     string
 		)
+
+		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) {
+			var kernelInvoker invoker.KernelInvoker
+			for kernelInvoker == nil {
+				time.Sleep(time.Millisecond * 250)
+				kernelInvoker, _ = localScheduler.getInvokerByKernelId(kernelId)
+			}
+
+			kernelInvoker.(invoker.ContainerInvoker).WaitForContainerToBeCreated()
+
+			var kernelFile, connFile string
+
+			items, _ := os.ReadDir("/tmp")
+			for _, item := range items {
+				if item.IsDir() {
+					continue
+				}
+
+				info, err := item.Info()
+				Expect(err).To(BeNil())
+
+				fileName := info.Name()
+
+				if kernelFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "config-kernel") {
+					kernelFile = path.Join("/tmp", info.Name())
+					continue
+				}
+
+				if connFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "connection-kernel") {
+					connFile = path.Join("/tmp", info.Name())
+					continue
+				}
+			}
+
+			Expect(kernelFile).ToNot(Equal(""))
+			Expect(connFile).ToNot(Equal(""))
+
+			// Remove the kernel file. We don't need it, so let's just clean it up now.
+			Expect(os.Remove(kernelFile)).To(BeNil())
+
+			var connInfo *jupyter.ConnectionInfo
+
+			file, err := os.Open(connFile)
+			Expect(err).To(BeNil())
+
+			decoder := json.NewDecoder(file)
+			Expect(decoder).ToNot(BeNil())
+
+			Expect(decoder.Decode(&connInfo)).To(BeNil())
+			_ = file.Close()
+			Expect(connInfo).ToNot(BeNil())
+
+			Expect(connInfo.Key).To(Equal(kernelKey))
+			Expect(connInfo.SignatureScheme).To(Equal(messaging.JupyterSignatureScheme))
+
+			// Remove the connection file. We don't need it anymore, so let's just clean it up now.
+			Expect(os.Remove(connFile)).To(BeNil())
+
+			regPayload := &KernelRegistrationPayload{
+				Kernel: &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					SignatureScheme: connInfo.SignatureScheme,
+					Key:             connInfo.Key,
+				},
+				ConnectionInfo:     connInfo,
+				PersistentId:       nil,
+				NodeName:           localScheduler.nodeName,
+				Key:                kernelKey,
+				PodOrContainerName: kernelId,
+				Op:                 "register",
+				SignatureScheme:    messaging.JupyterSignatureScheme,
+				WorkloadId:         workloadId,
+				ReplicaId:          replicaId,
+				NumReplicas:        numReplicas,
+				Cpu:                resourceSpec.Cpu,
+				Memory:             int32(resourceSpec.Memory),
+				Gpu:                resourceSpec.Gpu,
+				Join:               true,
+				PrewarmContainer:   prewarmContainer,
+			}
+
+			var containerType scheduling.ContainerType
+			if prewarmContainer {
+				containerType = scheduling.PrewarmContainer
+			} else {
+				containerType = scheduling.StandardContainer
+			}
+
+			respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", containerType)
+			Expect(respPayload).ToNot(BeNil())
+		}
 
 		Context("Middle-Ground Scheduling", func() {
 			middleGroundOpts := `{"Debug":true,"Verbose":true,"ProvisionerAddr":"gateway:8081","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-remote_storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":12001,"shell_port":12002,"stdin_port":12003,"hb_port":12000,"iopub_port":12004,"iosub_port":12005,"ack_port":12006,"starting_resource_port":12007,"num_resource_ports":4096,"DockerStorageBase":"","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"middle-ground","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":12080,"debug_port":12996,"election_timeout_seconds":3,"local_mode":false,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":true,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"initial-cluster-size":0,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"prewarming_enabled":true,"min_prewarm_containers_per_host":1,"max_prewarm_containers_per_host":3,"initial_num_containers_per_host":0,"prewarm_run_interval_sec":0,"prewarming_policy":"maintain_minimum_capacity","initial-connection-period":0,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":12080,"KernelRegistryPort":12075,"redis_port":6379,"redis_database":0}`
@@ -189,12 +282,23 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(os.Getenv(invoker.DockerInvokerKernelConnInfoIp)).To(Equal(dockerInvokerKernelConnInfoIp))
 			})
 
-			It("Will handle starting a kernel replica", func() {
+			AfterEach(func() {
+				if localScheduler != nil {
+					go localScheduler.cleanUpAfterClosed()
+					_ = localScheduler.Close()
+				}
+			})
+
+			It("Will handle creating a pre-warm container", func() {
+
+			})
+
+			It("Will handle creating a standard kernel replica", func() {
 				Expect(localScheduler).ToNot(BeNil())
 
 				kernelId := uuid.NewString()
 				kernelKey := uuid.NewString()
-				workloadId := uuid.NewString()
+				workloadId = uuid.NewString()
 				dataDirectory := uuid.NewString()
 
 				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
@@ -239,99 +343,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				}()
 
 				go func() {
-					var kernelInvoker invoker.KernelInvoker
-					for kernelInvoker == nil {
-						time.Sleep(time.Millisecond * 250)
-						kernelInvoker, _ = localScheduler.getInvokerByKernelId(kernelId)
-					}
-
-					kernelInvoker.(invoker.ContainerInvoker).WaitForContainerToBeCreated()
-
-					var kernelFile, connFile string
-
-					items, _ := os.ReadDir("/tmp")
-					for _, item := range items {
-						if item.IsDir() {
-							continue
-						}
-
-						info, err := item.Info()
-						Expect(err).To(BeNil())
-
-						fileName := info.Name()
-
-						if kernelFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "config-kernel") {
-							kernelFile = path.Join("/tmp", info.Name())
-							continue
-						}
-
-						if connFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "connection-kernel") {
-							connFile = path.Join("/tmp", info.Name())
-							continue
-						}
-					}
-
-					Expect(kernelFile).ToNot(Equal(""))
-					Expect(connFile).ToNot(Equal(""))
-
-					// Remove the kernel file. We don't need it, so let's just clean it up now.
-					Expect(os.Remove(kernelFile)).To(BeNil())
-
-					//var kernelInfo map[string]interface{}
-					//file, err := os.Open(kernelFile)
-					//Expect(err).To(BeNil())
-					//
-					//decoder := json.NewDecoder(file)
-					//Expect(decoder).ToNot(BeNil())
-					//
-					//Expect(decoder.Decode(&kernelInfo)).To(BeNil())
-					//_ = file.Close()
-					//Expect(kernelInfo).ToNot(BeNil())
-
-					var connInfo *jupyter.ConnectionInfo
-
-					file, err := os.Open(connFile)
-					Expect(err).To(BeNil())
-
-					decoder := json.NewDecoder(file)
-					Expect(decoder).ToNot(BeNil())
-
-					Expect(decoder.Decode(&connInfo)).To(BeNil())
-					_ = file.Close()
-					Expect(connInfo).ToNot(BeNil())
-
-					Expect(connInfo.Key).To(Equal(kernelKey))
-					Expect(connInfo.SignatureScheme).To(Equal(messaging.JupyterSignatureScheme))
-
-					// Remove the connection file. We don't need it anymore, so let's just clean it up now.
-					Expect(os.Remove(connFile)).To(BeNil())
-
-					regPayload := &KernelRegistrationPayload{
-						Kernel: &proto.KernelSpec{
-							Id:              kernelId,
-							Session:         kernelId,
-							SignatureScheme: connInfo.SignatureScheme,
-							Key:             connInfo.Key,
-						},
-						ConnectionInfo:     connInfo,
-						PersistentId:       nil,
-						NodeName:           nodeName,
-						Key:                kernelKey,
-						PodOrContainerName: kernelId,
-						Op:                 "register",
-						SignatureScheme:    messaging.JupyterSignatureScheme,
-						WorkloadId:         workloadId,
-						ReplicaId:          1,
-						NumReplicas:        3,
-						Cpu:                resourceSpec.Cpu,
-						Memory:             int32(resourceSpec.Memory),
-						Gpu:                resourceSpec.Gpu,
-						Join:               true,
-						PrewarmContainer:   false,
-					}
-
-					respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", scheduling.StandardContainer)
-					Expect(respPayload).ToNot(BeNil())
+					callRegisterKernel(kernelId, kernelKey, resourceSpec, false, 1, 3)
 				}()
 
 				var resp *proto.KernelConnectionInfo

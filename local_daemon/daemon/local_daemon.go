@@ -4003,10 +4003,7 @@ func (d *LocalScheduler) cleanUp() {
 	for {
 		select {
 		case <-d.closed:
-			// Router is closed, clean up all kernels.
-			d.kernels.Range(d.clearHandler)
-			// Signal that the cleanup is done.
-			close(d.cleaned)
+			d.cleanUpAfterClosed()
 			return
 		case <-timer.C:
 			// Clean up expired kernels.
@@ -4015,6 +4012,13 @@ func (d *LocalScheduler) cleanUp() {
 			timer.Reset(cleanUpInterval)
 		}
 	}
+}
+
+func (d *LocalScheduler) cleanUpAfterClosed() {
+	// Router is closed, clean up all kernels.
+	d.kernels.Range(d.clearHandler)
+	// Signal that the cleanup is done.
+	close(d.cleaned)
 }
 
 func (d *LocalScheduler) clearHandler(_ string, kernel scheduling.KernelReplica) (contd bool) {
