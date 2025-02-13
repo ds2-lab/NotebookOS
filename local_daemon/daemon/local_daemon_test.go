@@ -271,6 +271,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				policy   scheduling.Policy
 				options  *domain.LocalDaemonOptions
 				nodeName = "TestLocalDaemon1"
+				nodeId   = "ABC123-TestLocalDaemon1"
 			)
 
 			BeforeEach(func() {
@@ -282,6 +283,13 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				localScheduler = New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port,
 					devicePluginServer, nodeName, "TestDockerContainer")
+
+				resp, err := localScheduler.SetID(context.Background(), &proto.HostId{
+					Id:       nodeId,
+					NodeName: nodeName,
+				})
+				Expect(err).To(BeNil())
+				Expect(resp).ToNot(BeNil())
 
 				policy = localScheduler.schedulingPolicy
 				Expect(policy).ToNot(BeNil())
@@ -437,7 +445,6 @@ var _ = Describe("Local Daemon Tests", func() {
 				prewarmKernelId := uuid.NewString()
 				prewarmKernelKey := uuid.NewString()
 				workloadId = uuid.NewString()
-				dataDirectory := uuid.NewString()
 
 				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, prewarmKernelId)
 				Expect(err).To(BeNil())
@@ -450,7 +457,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				resourceSpec := proto.NewResourceSpec(128, 256, 2, 4)
 
-				kernelSpec := &proto.KernelSpec{
+				prewarmKernelSpec := &proto.KernelSpec{
 					Id:              prewarmKernelId,
 					Session:         prewarmKernelId,
 					Argv:            kernelArgv,
@@ -459,13 +466,13 @@ var _ = Describe("Local Daemon Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				kernelReplicaSpec := &proto.KernelReplicaSpec{
-					Kernel:                    kernelSpec,
+				prewarmKernelReplicaSpec := &proto.KernelReplicaSpec{
+					Kernel:                    prewarmKernelSpec,
 					ReplicaId:                 1,
 					Join:                      true,
 					NumReplicas:               3,
 					DockerModeKernelDebugPort: -1,
-					PersistentId:              &dataDirectory,
+					PersistentId:              nil,
 					WorkloadId:                workloadId,
 					Replicas:                  []string{},
 					PrewarmContainer:          true,
@@ -474,7 +481,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				resultChan := make(chan *proto.KernelConnectionInfo, 1)
 
 				go func() {
-					resp, err := localScheduler.StartKernelReplica(ctx, kernelReplicaSpec)
+					resp, err := localScheduler.StartKernelReplica(ctx, prewarmKernelReplicaSpec)
 					Expect(err).To(BeNil())
 					Expect(resp).ToNot(BeNil())
 
@@ -500,8 +507,37 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				promotionRespChan := make(chan *proto.KernelConnectionInfo, 1)
 
+				kernelId := uuid.NewString()
+				kernelKey := uuid.NewString()
+				workloadId = uuid.NewString()
+				dataDirectory := uuid.NewString()
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            kernelArgv,
+					SignatureScheme: messaging.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				kernelReplicaSpec := &proto.KernelReplicaSpec{
+					Kernel:                    kernelSpec,
+					ReplicaId:                 1,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &dataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{},
+					PrewarmContainer:          false,
+				}
+
 				go func() {
-					prewarmedKernelReplicaSpec := &proto.PrewarmedKernelReplicaSpec{}
+					prewarmedKernelReplicaSpec := &proto.PrewarmedKernelReplicaSpec{
+						KernelReplicaSpec:    kernelReplicaSpec,
+						PrewarmedContainerId: prewarmKernelId,
+					}
 
 					resp, err := localScheduler.PromotePrewarmedContainer(promotionCtx, prewarmedKernelReplicaSpec)
 					Expect(err).To(BeNil())

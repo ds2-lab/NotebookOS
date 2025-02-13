@@ -725,11 +725,6 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 	d.allocationManager.NodeId = d.id
 	d.finishedGatewayHandshake = true
 
-	// If prometheus is disabled, then just return.
-	if !d.prometheusEnabled {
-		return in, nil
-	}
-
 	// If we've never been initialized before, which will usually be the case, then call initPromMetrics.
 	if d.prometheusManager == nil {
 		return d.initPromMetrics(in)
@@ -748,6 +743,13 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 // initPromMetrics initializes prometheus metrics.
 func (d *LocalScheduler) initPromMetrics(in *proto.HostId) (*proto.HostId, error) {
 	d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, d.id)
+
+	// We just create the component because it is used by clients and servers and whatnot
+	// for non-prometheus-specific metrics.
+	if !d.prometheusEnabled {
+		return in, nil
+	}
+
 	err := d.prometheusManager.Start()
 	if err != nil {
 		d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
@@ -2313,7 +2315,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	// with its Local Scheduler before sending a response back to us.
 	wg.Wait()
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()
 	}
 
@@ -2598,7 +2600,7 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.TotalNumKernelsCounter.Inc()
 		d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
 
@@ -2675,7 +2677,7 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 	// Remove the kernel from our hash map.
 	d.kernels.Delete(in.Id)
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
 	}
 
@@ -3099,7 +3101,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	if shouldCallTrainingStopped {
 		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
 
-		if d.prometheusManager != nil {
+		if d.prometheusManager != nil && d.prometheusEnabled {
 			d.prometheusManager.TrainingTimeGaugeVec.
 				With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
 				Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
@@ -3111,7 +3113,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	//_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
 	}
 

@@ -220,6 +220,11 @@ func (m *basePrometheusManager) HandleRequest(c *gin.Context) {
 func (m *basePrometheusManager) initializeHttpServer() {
 	m.engine = gin.New()
 
+	if m.port <= 0 {
+		m.log.Debug("Prometheus Port is set to %d. Not serving HTTP server.", m.port)
+		return
+	}
+
 	// Commented-out for now as I don't want the log messages for Prometheus requests.
 	// m.engine.Use(gin.Logger())
 	m.engine.Use(gin.Recovery())

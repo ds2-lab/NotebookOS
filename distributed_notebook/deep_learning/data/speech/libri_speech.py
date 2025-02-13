@@ -3,6 +3,7 @@ import shutil
 import time
 import torch
 import os
+import traceback
 
 from typing import List, Optional, Dict, Union
 
@@ -177,48 +178,12 @@ class LibriSpeech(CustomDataset):
         self._test_split: Optional[str] = test_split
         self._folder_in_archive: str = folder_in_archive
 
-        try:
-            # Create the dataset without downloading it.
-            # If there's a RuntimeError, then it hasn't been downloaded yet.
-            if train_split is not None:
-                self._train_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
-                    root=root_dir, download=False, url=train_split, folder_in_archive = folder_in_archive)
-            else:
-                self._train_dataset: Optional[datasets.LIBRISPEECH] = None
-
-            if test_split is not None:
-                self._test_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
-                    root=root_dir, download=False, url=test_split, folder_in_archive = folder_in_archive)
-            else:
-                self._test_dataset: Optional[datasets.LIBRISPEECH] = None
-
-            self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
-
-            # No RuntimeError. The dataset must have already been downloaded.
-            self._dataset_already_downloaded: bool = True
-        except RuntimeError:
-            self._dataset_already_downloaded: bool = False
-
-            self.log.debug(f'Downloading {self.name} dataset to root directory "{root_dir}" now...')
-
-            self._download_start = time.time()
-
-            if train_split is not None:
-                self._train_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
-                    root=root_dir, download=True, url=train_split, folder_in_archive = folder_in_archive)
-            else:
-                self._train_dataset: Optional[datasets.LIBRISPEECH] = None
-
-            if test_split is not None:
-                self._test_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
-                    root=root_dir, download=True, url=test_split, folder_in_archive = folder_in_archive)
-            else:
-                self._test_dataset: Optional[datasets.LIBRISPEECH] = None
-
-            self._download_end = time.time()
-            self._download_duration_sec = self._download_end - self._download_start
-
-            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+        self.__init_dataset(
+            train_split=train_split,
+            test_split=test_split,
+            root_dir=root_dir,
+            folder_in_archive=folder_in_archive,
+        )
 
         if self._train_dataset is not None:
             self._train_loader: Optional[WrappedLoader] = WrappedLoader(
@@ -243,6 +208,108 @@ class LibriSpeech(CustomDataset):
             )
         else:
             self._test_loader: Optional[WrappedLoader] = None
+
+    def __init_dataset_no_download(self, train_split:str, test_split: str, root_dir: str, folder_in_archive: str):
+        """
+        Attempts to create the LibriSpeech dataset using the TorchAudio module without downloading anything.
+
+        That is, this tries to create the LibriSpeech dataset using files that are already downloaded locally.
+        """
+        # Create the dataset without downloading it.
+        # If there's a RuntimeError, then it hasn't been downloaded yet.
+        if train_split is not None:
+            self._train_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
+                root=root_dir, download=False, url=train_split, folder_in_archive = folder_in_archive)
+        else:
+            self._train_dataset: Optional[datasets.LIBRISPEECH] = None
+
+        if test_split is not None:
+            self._test_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
+                root=root_dir, download=False, url=test_split, folder_in_archive = folder_in_archive)
+        else:
+            self._test_dataset: Optional[datasets.LIBRISPEECH] = None
+
+        self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
+
+        # No RuntimeError. The dataset must have already been downloaded.
+        self._dataset_already_downloaded: bool = True
+
+    def __init_dataset_download(self, train_split:str, test_split:str, root_dir: str, folder_in_archive: str):
+        """
+        Attempts to create the LibriSpeech dataset using the TorchAudio module by downloading the data.
+        """
+        self._dataset_already_downloaded: bool = False
+
+        self.log.debug(f'Downloading {self.name} dataset to root directory "{root_dir}" now. '
+                       f'Specifying training URL="{train_split}" and test URL="{test_split}".')
+
+        self._download_start = time.time()
+
+        if train_split is not None:
+            self._train_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
+                root=root_dir, download=True, url=train_split, folder_in_archive = folder_in_archive)
+        else:
+            self._train_dataset: Optional[datasets.LIBRISPEECH] = None
+
+        if test_split is not None:
+            self._test_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
+                root=root_dir, download=True, url=test_split, folder_in_archive = folder_in_archive)
+        else:
+            self._test_dataset: Optional[datasets.LIBRISPEECH] = None
+
+        self._download_end = time.time()
+        self._download_duration_sec = self._download_end - self._download_start
+
+        self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+
+
+    def __init_dataset(self, train_split:str, test_split: str, root_dir: str, folder_in_archive: str):
+        """
+        Creates the LibriSpeech dataset using the TorchAudio module.
+        """
+        try:
+            self.__init_dataset_no_download(
+                train_split=train_split,
+                test_split=test_split,
+                root_dir=root_dir,
+                folder_in_archive=folder_in_archive,
+            )
+        except RuntimeError:
+            num_tries: int = 0
+            max_num_tries: int = 3
+
+            # We'll give it a few tries...
+            while num_tries < max_num_tries:
+                try:
+                    self.__init_dataset_download(
+                        train_split=train_split,
+                        test_split=test_split,
+                        root_dir=root_dir,
+                        folder_in_archive=folder_in_archive,
+                    )
+
+                    # If we got through the above with no exceptions, then we're good to go.
+                    return
+                except ConnectionRefusedError as ex:
+                    self.log.warn("ConnectionRefusedError encountered while attempting to download the LibriSpeech dataset.")
+                    self.log.warn(f'TrainSplit="{train_split}", TestSplit="{test_split}", RootDir="{root_dir}", FolderInArchive="{folder_in_archive}"')
+                    self.log.warn(f"Exception: {ex}")
+                    self.log.warn(traceback.format_exc())
+
+                    time.sleep(0.125)
+                    num_tries += 1
+                except Exception as ex:
+                    self.log.error(f"{type(ex).__name__} encountered while attempting to download the LibriSpeech dataset.")
+                    self.log.error(f'TrainSplit="{train_split}", TestSplit="{test_split}", RootDir="{root_dir}", FolderInArchive="{folder_in_archive}"')
+                    self.log.error(f"Exception: {ex}")
+                    self.log.error(traceback.format_exc())
+
+                    time.sleep(0.125)
+                    num_tries += 1
+
+            self.log.error(f"Failed to download the LibriSpeech dataset after {max_num_tries} tries.")
+            self.log.error(f'TrainSplit="{train_split}", TestSplit="{test_split}", RootDir="{root_dir}", FolderInArchive="{folder_in_archive}"')
+            raise ValueError(f"Failed to download the LibriSpeech dataset after {max_num_tries} tries.")
 
     def remove_local_files(self):
         """
