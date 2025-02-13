@@ -16,6 +16,7 @@ from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+from distributed_notebook.sync.remote_storage.error import InvalidKeyError
 from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
 
 
@@ -87,7 +88,7 @@ def test_read_empty():
         proposer_id=1,
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidKeyError):
         checkpointer.read_state_dicts(model_pointer)
 
 
