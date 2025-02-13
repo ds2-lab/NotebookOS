@@ -245,13 +245,31 @@ class LibriSpeech(CustomDataset):
 
         self._download_start = time.time()
 
+        _root: str | bytes = os.fspath(root_dir)
+        base_url: str = "http://www.openslr.org/resources/12/"
+        ext_archive: str = ".tar.gz"
+
         if train_split is not None:
+            training_filename: str = train_split + ext_archive
+            training_archive: str = os.path.join(_root, training_filename)
+            training_download_url: str = os.path.join(base_url, training_filename)
+
+            self.log.debug(f'Will attempt to download LibriSpeech split "{train_split}" from URL '
+                           f'"{training_download_url}" to local archive file "{training_archive}".')
+
             self._train_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
                 root=root_dir, download=True, url=train_split, folder_in_archive = folder_in_archive)
         else:
             self._train_dataset: Optional[datasets.LIBRISPEECH] = None
 
         if test_split is not None:
+            test_filename: str = train_split + ext_archive
+            test_archive: str = os.path.join(_root, test_filename)
+            test_download_url: str = os.path.join(base_url, test_filename)
+
+            self.log.debug(f'Will attempt to download LibriSpeech split "{test_split}" from URL '
+                           f'"{test_download_url}" to local archive file "{test_archive}".')
+
             self._test_dataset: Optional[datasets.LIBRISPEECH] = datasets.LIBRISPEECH(
                 root=root_dir, download=True, url=test_split, folder_in_archive = folder_in_archive)
         else:

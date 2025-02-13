@@ -11,6 +11,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -160,11 +161,13 @@ func createKernelReplica(mockController *gomock.Controller, kernelId string, ker
 var _ = Describe("Local Daemon Tests", func() {
 	Context("Newer Unit Tests", func() {
 		var (
-			localScheduler *LocalScheduler
-			workloadId     string
+			localScheduler             *LocalScheduler
+			mockCtrl                   *gomock.Controller
+			mockedClusterGatewayClient *mock_proto.MockClusterGatewayClient
+			workloadId                 string
 		)
 
-		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) {
+		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) *jupyter.ConnectionInfo {
 			var kernelInvoker invoker.KernelInvoker
 			for kernelInvoker == nil {
 				time.Sleep(time.Millisecond * 250)
@@ -262,7 +265,21 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", containerType)
 			Expect(respPayload).ToNot(BeNil())
+
+			return connInfo
 		}
+
+		BeforeEach(func() {
+			mockCtrl = gomock.NewController(GinkgoT())
+
+			mockedClusterGatewayClient = mock_proto.NewMockClusterGatewayClient(mockCtrl)
+		})
+
+		AfterEach(func() {
+			if mockCtrl != nil {
+				mockCtrl.Finish()
+			}
+		})
 
 		Context("Middle-Ground Scheduling", func() {
 			middleGroundOpts := `{"Debug":true,"Verbose":true,"ProvisionerAddr":"gateway:8081","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-remote_storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":12001,"shell_port":12002,"stdin_port":12003,"hb_port":12000,"iopub_port":12004,"iosub_port":12005,"ack_port":12006,"starting_resource_port":12007,"num_resource_ports":4096,"DockerStorageBase":"","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"middle-ground","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":12080,"debug_port":12996,"election_timeout_seconds":3,"local_mode":false,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":true,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"initial-cluster-size":0,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"prewarming_enabled":true,"min_prewarm_containers_per_host":1,"max_prewarm_containers_per_host":3,"initial_num_containers_per_host":0,"prewarm_run_interval_sec":0,"prewarming_policy":"maintain_minimum_capacity","initial-connection-period":0,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":12080,"KernelRegistryPort":12075,"redis_port":6379,"redis_database":0}`
@@ -283,6 +300,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				localScheduler = New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port,
 					devicePluginServer, nodeName, "TestDockerContainer")
+				localScheduler.provisioner = mockedClusterGatewayClient
 
 				resp, err := localScheduler.SetID(context.Background(), &proto.HostId{
 					Id:       nodeId,
@@ -488,8 +506,13 @@ var _ = Describe("Local Daemon Tests", func() {
 					resultChan <- resp
 				}()
 
+				connInfoChan := make(chan *jupyter.ConnectionInfo, 1)
+
 				go func() {
-					callRegisterKernel(prewarmKernelId, prewarmKernelKey, resourceSpec, true, 0, 3)
+					connInfo := callRegisterKernel(prewarmKernelId, prewarmKernelKey, resourceSpec, true, 0, 3)
+					Expect(connInfo).ToNot(BeNil())
+
+					connInfoChan <- connInfo
 				}()
 
 				var resp *proto.KernelConnectionInfo
@@ -533,6 +556,8 @@ var _ = Describe("Local Daemon Tests", func() {
 					PrewarmContainer:          false,
 				}
 
+				time.Sleep(time.Millisecond * 50)
+
 				go func() {
 					prewarmedKernelReplicaSpec := &proto.PrewarmedKernelReplicaSpec{
 						KernelReplicaSpec:    kernelReplicaSpec,
@@ -544,6 +569,57 @@ var _ = Describe("Local Daemon Tests", func() {
 					Expect(resp).ToNot(BeNil())
 
 					promotionRespChan <- resp
+				}()
+
+				mockedClusterGatewayClient.
+					EXPECT().
+					PingGateway(gomock.Any(), gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(nil, nil)
+
+				mockedClusterGatewayClient.
+					EXPECT().
+					NotifyKernelRegistered(gomock.Any(), gomock.Any()).
+					Times(1).
+					DoAndReturn(
+						func(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+
+						})
+
+				go func() {
+					time.Sleep(time.Millisecond * 100)
+
+					fmt.Printf("\n\nRegistering promoted PreWarm container \"%s\" now...\n\n", kernelId)
+
+					var connInfo *jupyter.ConnectionInfo
+					Eventually(connInfoChan, time.Millisecond*500, time.Millisecond*50).Should(Receive(&connInfo))
+
+					regPayload := &KernelRegistrationPayload{
+						Kernel: &proto.KernelSpec{
+							Id:              kernelId,
+							Session:         kernelId,
+							SignatureScheme: messaging.JupyterSignatureScheme,
+							Key:             kernelKey,
+						},
+						ConnectionInfo:     connInfo,
+						PersistentId:       nil,
+						NodeName:           localScheduler.nodeName,
+						Key:                kernelKey,
+						PodOrContainerName: kernelId,
+						Op:                 "register",
+						SignatureScheme:    messaging.JupyterSignatureScheme,
+						WorkloadId:         workloadId,
+						ReplicaId:          1,
+						NumReplicas:        3,
+						Cpu:                resourceSpec.Cpu,
+						Memory:             int32(resourceSpec.Memory),
+						Gpu:                resourceSpec.Gpu,
+						Join:               true,
+						PrewarmContainer:   false,
+					}
+
+					respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", scheduling.StandardContainer)
+					Expect(respPayload).ToNot(BeNil())
 				}()
 
 				var promotionResp *proto.KernelConnectionInfo
