@@ -2366,12 +2366,12 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		// Python object), but we receive the 3.908 as 3.9079999923706055, which leads to errors.
 		//
 		// So, we just round everything to 3 decimal places again here, to be safe.
-		originalSpec = in.ResourceSpec
+		originalSpec = in.ResourceSpec.Clone()
 		in.ResourceSpec = &proto.ResourceSpec{
-			Cpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)).InexactFloat64()),
-			Memory: float32(decimal.NewFromFloat(float64(in.ResourceSpec.Memory)).InexactFloat64()),
-			Gpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)).InexactFloat64()),
-			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).InexactFloat64()),
+			Cpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)).Round(0).InexactFloat64()),
+			Memory: float32(decimal.NewFromFloat(float64(in.ResourceSpec.Memory)).Round(3).InexactFloat64()),
+			Gpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)).Round(0).InexactFloat64()),
+			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).Round(3).InexactFloat64()),
 		}
 	} else {
 		// Assign a default, "empty" resource spec.

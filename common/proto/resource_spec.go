@@ -121,6 +121,16 @@ func (s *ResourceSpec) Equals(other types.Spec) bool {
 	return d1.GPUs.Equal(d2.GPUs) && d1.Millicpus.Equals(d2.Millicpus) && d1.VRam.Equal(d2.VRam) && d1.MemoryMb.Equal(d2.MemoryMb)
 }
 
+// Clone creates a copy of the target ResourceSpec and returns a pointer to it.
+func (s *ResourceSpec) Clone() *ResourceSpec {
+	return &ResourceSpec{
+		Cpu:    s.Cpu,
+		Memory: s.Memory,
+		Gpu:    s.Gpu,
+		Vram:   s.Vram,
+	}
+}
+
 // EqualsWithField returns a flag indicating whether the two Spec instances are equal.
 //
 // If they are not, then a string is returned indicating the resource type for which they are unequal.
