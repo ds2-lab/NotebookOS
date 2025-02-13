@@ -230,7 +230,8 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	// We largely disable the DevicePlugin server if we're running in LocalMode or if we're not running in Kubernetes mode.
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
-	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
+	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName,
+		disableDevicePluginServer)
 
 	globalLogger.Debug("Local Daemon SchedulerOptions:\n%s", options.PrettyString(2))
 

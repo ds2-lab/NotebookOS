@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -62,6 +63,22 @@ const (
 	TargetMountDir       = "{target_mount_dir}"
 
 	dockerErrorPrefix = "docker: Error response from daemon: "
+
+	// DisableActualContainerCreationEnv is an environment variable used during unit tests
+	// that prevents the DockerInvoker from actually creating any Docker containers.
+	DisableActualContainerCreationEnv = "DISABLE_CONTAINERS"
+
+	// DockerInvokerKernelConnInfoIp is used to modify what IP address is placed into the jupyter.ConnectionInfo
+	// structs created by the InvokeWithContext method of the DockerInvoker.
+	//
+	// DockerInvokerKernelConnInfoIp is intended to be used during unit testing.
+	DockerInvokerKernelConnInfoIp = "DOCKER_INVOKER_KERNEL_CONN_IP"
+
+	// DockerInvokerKernelConnInfoIpDefault is the default IP address is placed into the jupyter.ConnectionInfo
+	// structs created by the InvokeWithContext method of the DockerInvoker.
+	//
+	// This can be changed by setting a value for the DockerInvokerKernelConnInfoIp environment variable.
+	DockerInvokerKernelConnInfoIpDefault = "0.0.0.0"
 )
 
 var (
@@ -122,9 +139,6 @@ type DockerInvoker struct {
 	// closing indicates whether the container is closing/shutting down.
 	closing int32
 
-	// containerCreated is a bool indicating whether kernel the container has been created.
-	containerCreated bool
-
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
 	//
@@ -134,6 +148,37 @@ type DockerInvoker struct {
 
 	// RunKernelsInGdb indicates whether the kernels should be run in GDB.
 	RunKernelsInGdb bool
+
+	// DockerContainersDisabled is a flag that is set when the DisableActualContainerCreationEnv environment variable
+	// is set. When DockerContainersDisabled is true, the DockerInvoker will not actually create any Docker
+	// containers. This is useful for unit tests.
+	DockerContainersDisabled bool
+
+	// containerCreatedWg is a wait group that is set to 0 when the container is created.
+	// If there is an error while creating the container, then the wait group's counter will still be decremented,
+	// but the containerCreated variable will still hold the value false.
+	containerCreatedWg sync.WaitGroup
+
+	// containerCreated is a flag that is set to true if the container creation is successful.
+	containerCreated atomic.Bool
+
+	// kernelConnInfoIp is the IP address stored in the jupyter.ConnectionInfo structs created and returned
+	// by the DockerInvoker's InvokeWithContext method.
+	//
+	// The value of InfoIp is initialized to "0.0.0.0" by default; however, this can be changed/overridden by
+	// setting the DockerInvokerKernelConnInfoIp environment variable.
+	//
+	// Default: "0.0.0.0"
+	kernelConnInfoIp string
+
+	// overwriteIpWithContainerName instructs the DockerInvoker to overwrite the IP address in the
+	// jupyter.ConnectionInfo returned by the InvokeWithContext method with the name of the Docker container (when
+	// true). This is so the LocalScheduler can properly connect with the Docker container using its container name
+	// as its host name. However, during unit tests, if we change the value of kernelConnInfoIp by setting the
+	// DockerInvokerKernelConnInfoIp environment variable to something, then we will flip the
+	// overwriteIpWithContainerName flag to false so that the IP specified in the DockerInvokerKernelConnInfoIp
+	// environment variable is used.
+	overwriteIpWithContainerName bool
 }
 
 // DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
@@ -253,15 +298,17 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			KernelDebugPort:                      opts.KernelDebugPort,
 			simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
 		},
-		opts:                     opts,
-		RunKernelsInGdb:          opts.RunKernelsInGdb,
-		tempBase:                 utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
-		hostMountDir:             utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
-		targetMountDir:           utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
-		dockerNetworkName:        dockerNetworkName,
-		dockerStorageBase:        opts.DockerStorageBase,
-		containerMetricsProvider: containerMetricsProvider,
-		IsInDockerSwarm:          opts.IsInDockerSwarm,
+		opts:                         opts,
+		RunKernelsInGdb:              opts.RunKernelsInGdb,
+		tempBase:                     utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		hostMountDir:                 utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
+		targetMountDir:               utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
+		dockerNetworkName:            dockerNetworkName,
+		dockerStorageBase:            opts.DockerStorageBase,
+		containerMetricsProvider:     containerMetricsProvider,
+		IsInDockerSwarm:              opts.IsInDockerSwarm,
+		kernelConnInfoIp:             DockerInvokerKernelConnInfoIpDefault,
+		overwriteIpWithContainerName: true,
 	}
 
 	config.InitLogger(&invoker.log, invoker)
@@ -293,7 +340,30 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerImage,
 		utils.GetEnv(DockerImageName, DockerImageNameDefault))
 
+	val := os.Getenv(DisableActualContainerCreationEnv)
+	if val != "" {
+		invoker.log.Warn("Docker containers are DISABLED.")
+		invoker.DockerContainersDisabled = true
+	}
+
+	val = os.Getenv(DockerInvokerKernelConnInfoIp)
+	if val != "" {
+		invoker.log.Warn("Kernel ConnectionInfo IP address overridden: \"%s\"", val)
+		invoker.kernelConnInfoIp = val
+		invoker.overwriteIpWithContainerName = false
+	}
+
+	invoker.containerCreatedWg.Add(1)
+
 	return invoker
+}
+
+// WaitForContainerToBeCreated will block until the target DockerInvoker has created its container.
+//
+// If DockerContainersDisabled is set to true, then WaitForContainerToBeCreated will return whenever the DockerInvoker
+// would have created its container.
+func (ivk *DockerInvoker) WaitForContainerToBeCreated() {
+	ivk.containerCreatedWg.Wait()
 }
 
 func (ivk *DockerInvoker) initDeploymentMode(opts *DockerInvokerOptions) {
@@ -354,12 +424,12 @@ func (ivk *DockerInvoker) InitGpuCommand() string {
 
 // KernelCreated returns a bool indicating whether kernel the container has been created.
 func (ivk *DockerInvoker) KernelCreated() bool {
-	return ivk.containerCreated
+	return ivk.containerCreated.Load()
 }
 
 // KernelCreatedAt returns the time at which the DockerInvoker created the kernel container.
 func (ivk *DockerInvoker) KernelCreatedAt() (time.Time, bool) {
-	if !ivk.containerCreated {
+	if !ivk.KernelCreated() {
 		return time.Time{}, false
 	}
 
@@ -368,7 +438,7 @@ func (ivk *DockerInvoker) KernelCreatedAt() (time.Time, bool) {
 
 // TimeSinceContainerCreated returns the amount of time that has elapsed since the DockerInvoker created the kernel container.
 func (ivk *DockerInvoker) TimeSinceContainerCreated() (time.Duration, bool) {
-	if !ivk.containerCreated {
+	if !ivk.KernelCreated() {
 		return time.Duration(-1), false
 	}
 
@@ -461,7 +531,11 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(configFile))
 
 	ivk.containerName = kernelName
-	connectionInfo.IP = ivk.containerName // Overwrite IP with container name
+
+	if ivk.overwriteIpWithContainerName {
+		connectionInfo.IP = ivk.containerName // Overwrite IP with container name
+	}
+
 	cmd := strings.ReplaceAll(ivk.invokerCmd, VarContainerName, ivk.containerName)
 	cmd = strings.ReplaceAll(cmd, TargetMountDir, ivk.targetMountDir)
 	cmd = strings.ReplaceAll(cmd, HostMountDir, ivk.hostMountDir)
@@ -492,7 +566,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		return nil, ivk.reportLaunchError(err)
 	}
 
-	ivk.containerCreated = true
+	ivk.containerCreated.Store(true)
 	ivk.createdAt = time.Now()
 	ivk.setStatus(jupyter.KernelStatusRunning)
 	return connectionInfo, nil
@@ -726,7 +800,7 @@ func (ivk *DockerInvoker) extractKernelNamePort(spec *proto.KernelReplicaSpec) (
 func (ivk *DockerInvoker) prepareConnectionInfo(spec *proto.KernelSpec) (*jupyter.ConnectionInfo, error) {
 	// Write connection file
 	connectionInfo := &jupyter.ConnectionInfo{
-		IP:              "0.0.0.0",
+		IP:              ivk.kernelConnInfoIp,
 		Transport:       "tcp",
 		ControlPort:     ivk.connInfo.ControlPort,
 		ShellPort:       ivk.connInfo.ShellPort,
@@ -779,6 +853,12 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 }
 
 func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []string) error {
+	if ivk.DockerContainersDisabled {
+		ivk.log.Warn("Docker containers are disabled. Skipping kernel invocation.")
+		ivk.containerCreatedWg.Done()
+		return nil
+	}
+
 	ivk.log.Debug("Starting Docker container %s now...\n", name)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 
@@ -802,6 +882,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 			errorMessage = stderrOutput
 		}
 
+		ivk.containerCreatedWg.Done()
 		return fmt.Errorf("%w: %s", ErrDockerContainerCreationFailed, errorMessage)
 	}
 
@@ -813,6 +894,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 		ivk.log.Error("Failed to persist container creation latency metric because: %v", err)
 	}
 
+	ivk.containerCreatedWg.Done()
 	return nil
 }
 

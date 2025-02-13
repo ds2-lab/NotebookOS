@@ -2980,10 +2980,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
 			}
 
-			lastSpecCpu = stats.SpecCPUs
-			lastSpecMem = stats.SpecMemory
-			lastSpecGpu = stats.SpecGPUs
-			lastSpecVram = stats.SpecVRAM
+			lastSpecCpu = stats.SpecCPUs.Load()
+			lastSpecMem = stats.SpecMemory.Load()
+			lastSpecGpu = stats.SpecGPUs.Load()
+			lastSpecVram = stats.SpecVRAM.Load()
 		}
 
 		BeforeEach(func() {

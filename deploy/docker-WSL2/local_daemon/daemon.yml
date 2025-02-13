@@ -60,6 +60,7 @@ checkpointing_enabled: true
 docker_app_name: distributed_notebook
 election_timeout_seconds: 3
 simulate_checkpointing_latency: true
+pretty_print_options: true
 starting_resource_port: 16007
 num_resource_ports: 4096
 use_real_gpus: false

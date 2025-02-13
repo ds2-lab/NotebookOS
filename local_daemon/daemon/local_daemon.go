@@ -2409,28 +2409,19 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	// Validate that argument is non-nil.
 	if in == nil {
+		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica"))
 		d.log.Error("`kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
-
-		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		}
-
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
 		return nil, status.Error(codes.InvalidArgument, "received nil KernelReplicaSpec argument")
 	}
 
 	// Validate that required field of argument is non-nil.
 	if in.Kernel == nil {
+		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[IsPrewarm=%v]"), in.PrewarmContainer)
 		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
 		d.log.Error("kernelReplicaSpec: %v", in)
 
-		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		}
-
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
 		return nil, status.Error(codes.InvalidArgument, "KernelSpec field within KernelReplicaSpec argument cannot be nil")
 	}
 
@@ -2446,11 +2437,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			in.Kernel.Id, otherReplica.ReplicaID())
 
 		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, ErrExistingReplicaAlreadyRunning)
 		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, ErrExistingReplicaAlreadyRunning)
 		}
 
 		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
@@ -2463,11 +2454,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			in.ReplicaId, in.Kernel.Id, err)
 
 		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, err)
 		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, err)
 		}
 
 		return nil, err // Should already be compatible with gRPC
@@ -2480,13 +2471,13 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		if in.PrewarmContainer {
 			d.log.Error("Failed to prepare Kernel Invoker for new prewarm container %s: %v",
 				in.Kernel.Id, err)
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, err)
 		} else {
 			d.log.Error("Failed to prepare Kernel Invoker for new replica %d of kernel %s: %v",
 				in.ReplicaId, in.Kernel.Id, err)
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, err)
 		}
 
 		return nil, err // Should already be compatible with gRPC.
@@ -2518,11 +2509,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		})
 
 		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, err)
 		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, err)
 		}
 
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -2544,11 +2535,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	}
 
 	if in.PrewarmContainer {
-		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-			in.Kernel.Id)
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+			in.Kernel.Id, err)
 	} else {
-		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-			in.Kernel.Id, in)
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+			in.Kernel.Id, in, err)
 	}
 
 	return nil, err
