@@ -29,6 +29,8 @@ import (
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
 	"os"
+	"path"
+	"strings"
 	"time"
 )
 
@@ -150,80 +152,6 @@ func createKernelReplica(mockController *gomock.Controller, kernelId string, ker
 }
 
 var _ = Describe("Local Daemon Tests", func() {
-	var (
-		schedulerDaemon  *LocalScheduler
-		vgpuPluginServer device.VirtualGpuPluginServer
-		mockCtrl         *gomock.Controller
-		kernel1Replica1  *mock_scheduling.MockKernelReplica
-		kernel2Replica2  *mock_scheduling.MockKernelReplica
-		resourceManager  *resource.AllocationManager
-		hostSpec         *types.DecimalSpec
-		schedulingPolicy *mock_scheduling.MockPolicy
-		hostId           string
-		hostName         string
-
-		kernel1Key = "23d90942-8c3de3a713a5c3611792b7a5"
-		kernel2Key = "d2324990-3563adca181e235c77317a9b"
-		//kernel3Key          = "7d1657ee-0ec2-468b-9f08-60269954b181"
-		kernel1Id = "66902bac-9386-432e-b1b9-21ac853fa1c9"
-		kernel2Id = "c8fd0d64-b35d-4e14-80fa-4ed2d399bcb6"
-		//kernel3Id           = "a40f1f8b-ed62-4c0f-b3c6-e42c781c917e"
-		kernel1PersistentId = "63914d5f-57f6-4ff4-b95a-16d5a9e85946"
-
-		workloadId = uuid.NewString()
-
-		kernel1ResourceSpec = &proto.ResourceSpec{
-			Gpu:    2,
-			Cpu:    100,
-			Memory: 1000,
-			Vram:   4,
-		}
-
-		kernel1Spec = &proto.KernelSpec{
-			Id:              kernel1Id,
-			Session:         kernel1Id,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: "hmac-sha256",
-			Key:             kernel1Key,
-			ResourceSpec:    kernel1ResourceSpec,
-			WorkloadId:      workloadId,
-		}
-
-		kernel2ResourceSpec = &proto.ResourceSpec{
-			Gpu:    4,
-			Cpu:    2048,
-			Memory: 1250,
-			Vram:   12,
-		}
-
-		kernel2Spec = &proto.KernelSpec{
-			Id:              kernel2Id,
-			Session:         kernel2Id,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: "hmac-sha256",
-			Key:             kernel2Key,
-			ResourceSpec:    kernel2ResourceSpec,
-			WorkloadId:      workloadId,
-		}
-
-		//kernel3ResourceSpec = &proto.ResourceSpec{
-		//	Gpu:    8,
-		//	Cpu:    2048,
-		//	Memory: 1250,
-		//	Vram:   32,
-		//}
-		//
-		//kernel3Spec = &proto.KernelSpec{
-		//	Id:              kernel3Id,
-		//	Session:         kernel3Id,
-		//	Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-		//	SignatureScheme: "hmac-sha256",
-		//	Key:             kernel3Key,
-		//	ResourceSpec:    kernel3ResourceSpec,
-		//	workloadId:      workloadId,
-		//}
-	)
-
 	Context("Newer Unit Tests", func() {
 		var (
 			localScheduler *LocalScheduler
@@ -233,8 +161,9 @@ var _ = Describe("Local Daemon Tests", func() {
 			middleGroundOpts := `{"Debug":true,"Verbose":true,"ProvisionerAddr":"gateway:8081","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-remote_storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":12001,"shell_port":12002,"stdin_port":12003,"hb_port":12000,"iopub_port":12004,"iosub_port":12005,"ack_port":12006,"starting_resource_port":12007,"num_resource_ports":4096,"DockerStorageBase":"","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"middle-ground","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":12080,"debug_port":12996,"election_timeout_seconds":3,"local_mode":false,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":true,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"initial-cluster-size":0,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"prewarming_enabled":true,"min_prewarm_containers_per_host":1,"max_prewarm_containers_per_host":3,"initial_num_containers_per_host":0,"prewarm_run_interval_sec":0,"prewarming_policy":"maintain_minimum_capacity","initial-connection-period":0,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":12080,"KernelRegistryPort":12075,"redis_port":6379,"redis_database":0}`
 
 			var (
-				policy  scheduling.Policy
-				options *domain.LocalDaemonOptions
+				policy   scheduling.Policy
+				options  *domain.LocalDaemonOptions
+				nodeName = "TestLocalDaemon1"
 			)
 
 			BeforeEach(func() {
@@ -242,10 +171,10 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(err).To(BeNil())
 
 				devicePluginServer := device.NewVirtualGpuPluginServer(
-					&options.VirtualGpuPluginServerOptions, "TestLocalDaemon1", true)
+					&options.VirtualGpuPluginServerOptions, nodeName, true)
 
 				localScheduler = New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port,
-					devicePluginServer, "TestLocalDaemon1", "TestDockerContainer")
+					devicePluginServer, nodeName, "TestDockerContainer")
 
 				policy = localScheduler.schedulingPolicy
 				Expect(policy).ToNot(BeNil())
@@ -265,6 +194,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				kernelId := uuid.NewString()
 				kernelKey := uuid.NewString()
+				workloadId := uuid.NewString()
 				dataDirectory := uuid.NewString()
 
 				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
@@ -309,23 +239,187 @@ var _ = Describe("Local Daemon Tests", func() {
 				}()
 
 				go func() {
-					replicaSpec := &proto.KernelReplicaSpec{}
+					var kernelInvoker invoker.KernelInvoker
+					for kernelInvoker == nil {
+						time.Sleep(time.Millisecond * 250)
+						kernelInvoker, _ = localScheduler.getInvokerByKernelId(kernelId)
+					}
 
-					replica, connInfo := localScheduler.registerKernelReplicaDocker(replicaSpec, scheduling.StandardContainer)
-					Expect(replica).ToNot(BeNil())
+					kernelInvoker.(invoker.ContainerInvoker).WaitForContainerToBeCreated()
+
+					var kernelFile, connFile string
+
+					items, _ := os.ReadDir("/tmp")
+					for _, item := range items {
+						if item.IsDir() {
+							continue
+						}
+
+						info, err := item.Info()
+						Expect(err).To(BeNil())
+
+						fileName := info.Name()
+
+						if kernelFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "config-kernel") {
+							kernelFile = path.Join("/tmp", info.Name())
+							continue
+						}
+
+						if connFile == "" && strings.Contains(fileName, kernelId) && strings.Contains(fileName, "connection-kernel") {
+							connFile = path.Join("/tmp", info.Name())
+							continue
+						}
+					}
+
+					Expect(kernelFile).ToNot(Equal(""))
+					Expect(connFile).ToNot(Equal(""))
+
+					// Remove the kernel file. We don't need it, so let's just clean it up now.
+					Expect(os.Remove(kernelFile)).To(BeNil())
+
+					//var kernelInfo map[string]interface{}
+					//file, err := os.Open(kernelFile)
+					//Expect(err).To(BeNil())
+					//
+					//decoder := json.NewDecoder(file)
+					//Expect(decoder).ToNot(BeNil())
+					//
+					//Expect(decoder.Decode(&kernelInfo)).To(BeNil())
+					//_ = file.Close()
+					//Expect(kernelInfo).ToNot(BeNil())
+
+					var connInfo *jupyter.ConnectionInfo
+
+					file, err := os.Open(connFile)
+					Expect(err).To(BeNil())
+
+					decoder := json.NewDecoder(file)
+					Expect(decoder).ToNot(BeNil())
+
+					Expect(decoder.Decode(&connInfo)).To(BeNil())
+					_ = file.Close()
 					Expect(connInfo).ToNot(BeNil())
+
+					Expect(connInfo.Key).To(Equal(kernelKey))
+					Expect(connInfo.SignatureScheme).To(Equal(messaging.JupyterSignatureScheme))
+
+					// Remove the connection file. We don't need it anymore, so let's just clean it up now.
+					Expect(os.Remove(connFile)).To(BeNil())
+
+					regPayload := &KernelRegistrationPayload{
+						Kernel: &proto.KernelSpec{
+							Id:              kernelId,
+							Session:         kernelId,
+							SignatureScheme: connInfo.SignatureScheme,
+							Key:             connInfo.Key,
+						},
+						ConnectionInfo:     connInfo,
+						PersistentId:       nil,
+						NodeName:           nodeName,
+						Key:                kernelKey,
+						PodOrContainerName: kernelId,
+						Op:                 "register",
+						SignatureScheme:    messaging.JupyterSignatureScheme,
+						WorkloadId:         workloadId,
+						ReplicaId:          1,
+						NumReplicas:        3,
+						Cpu:                resourceSpec.Cpu,
+						Memory:             int32(resourceSpec.Memory),
+						Gpu:                resourceSpec.Gpu,
+						Join:               true,
+						PrewarmContainer:   false,
+					}
+
+					respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", scheduling.StandardContainer)
+					Expect(respPayload).ToNot(BeNil())
 				}()
 
 				var resp *proto.KernelConnectionInfo
 				Eventually(resultChan, ctx).Should(Receive(&resp))
 
 				Expect(resp).ToNot(BeNil())
+
+				Expect(localScheduler.NumKernels()).To(Equal(1))
 			})
 		})
 	})
 
 	// Not outdated, just older.
 	Context("Older Unit Tests", func() {
+		var (
+			schedulerDaemon  *LocalScheduler
+			vgpuPluginServer device.VirtualGpuPluginServer
+			mockCtrl         *gomock.Controller
+			kernel1Replica1  *mock_scheduling.MockKernelReplica
+			kernel2Replica2  *mock_scheduling.MockKernelReplica
+			resourceManager  *resource.AllocationManager
+			hostSpec         *types.DecimalSpec
+			schedulingPolicy *mock_scheduling.MockPolicy
+			hostId           string
+			hostName         string
+
+			kernel1Key = "23d90942-8c3de3a713a5c3611792b7a5"
+			kernel2Key = "d2324990-3563adca181e235c77317a9b"
+			//kernel3Key          = "7d1657ee-0ec2-468b-9f08-60269954b181"
+			kernel1Id = "66902bac-9386-432e-b1b9-21ac853fa1c9"
+			kernel2Id = "c8fd0d64-b35d-4e14-80fa-4ed2d399bcb6"
+			//kernel3Id           = "a40f1f8b-ed62-4c0f-b3c6-e42c781c917e"
+			kernel1PersistentId = "63914d5f-57f6-4ff4-b95a-16d5a9e85946"
+
+			workloadId = uuid.NewString()
+
+			kernel1ResourceSpec = &proto.ResourceSpec{
+				Gpu:    2,
+				Cpu:    100,
+				Memory: 1000,
+				Vram:   4,
+			}
+
+			kernel1Spec = &proto.KernelSpec{
+				Id:              kernel1Id,
+				Session:         kernel1Id,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: "hmac-sha256",
+				Key:             kernel1Key,
+				ResourceSpec:    kernel1ResourceSpec,
+				WorkloadId:      workloadId,
+			}
+
+			kernel2ResourceSpec = &proto.ResourceSpec{
+				Gpu:    4,
+				Cpu:    2048,
+				Memory: 1250,
+				Vram:   12,
+			}
+
+			kernel2Spec = &proto.KernelSpec{
+				Id:              kernel2Id,
+				Session:         kernel2Id,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: "hmac-sha256",
+				Key:             kernel2Key,
+				ResourceSpec:    kernel2ResourceSpec,
+				WorkloadId:      workloadId,
+			}
+
+			//kernel3ResourceSpec = &proto.ResourceSpec{
+			//	Gpu:    8,
+			//	Cpu:    2048,
+			//	Memory: 1250,
+			//	Vram:   32,
+			//}
+			//
+			//kernel3Spec = &proto.KernelSpec{
+			//	Id:              kernel3Id,
+			//	Session:         kernel3Id,
+			//	Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+			//	SignatureScheme: "hmac-sha256",
+			//	Key:             kernel3Key,
+			//	ResourceSpec:    kernel3ResourceSpec,
+			//	workloadId:      workloadId,
+			//}
+		)
+
 		BeforeEach(func() {
 			hostId = uuid.NewString()
 			hostName = "TestNode"

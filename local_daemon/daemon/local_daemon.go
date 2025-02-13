@@ -151,6 +151,11 @@ type LocalScheduler struct {
 	// kernels is a map from kernel ID to scheduling.KernelReplica. It is the primary mapping of kernels.
 	kernels hashmap.HashMap[string, scheduling.KernelReplica]
 
+	// kernelInvokers is a map from kernel ID to the associated invoker.KernelInvoker.
+	//
+	// kernelInvokers is mostly used during unit tests.
+	kernelInvokers hashmap.HashMap[string, invoker.KernelInvoker]
+
 	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed scheduling.KernelReplica.
 	prewarmKernels hashmap.HashMap[string, scheduling.KernelReplica]
 
@@ -306,6 +311,8 @@ type LocalScheduler struct {
 	createdAt time.Time
 }
 
+// KernelRegistrationPayload is sent by the Python DistributedKernel to its co-located LocalScheduler during
+// start-up as well as when a scheduling.PrewarmContainer is promoted to a scheduling.StandardContainer.
 type KernelRegistrationPayload struct {
 	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
 	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
@@ -382,6 +389,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		nodeName:                       nodeName,
 		kernelsStopping:                hashmap.NewThreadsafeCornelkMap[string, chan struct{}](128),
 		kernels:                        hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
+		kernelInvokers:                 hashmap.NewThreadsafeCornelkMap[string, invoker.KernelInvoker](128),
 		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
 		kernelClientCreationChannels:   hashmap.NewThreadsafeCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:               hashmap.NewThreadsafeCornelkMap[string, int](256),
@@ -1102,6 +1110,8 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+	d.kernelInvokers.Store(kernelReplicaSpec.Kernel.Id, dockerInvoker)
+
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 	kernel := client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
@@ -2345,6 +2355,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
 		// Note that we could pass d.prometheusManager directly in the call above.
 
 		d.kernelDebugPorts.Store(kernelId, int(in.DockerModeKernelDebugPort))
@@ -3972,6 +3983,10 @@ func (d *LocalScheduler) getInvoker(kernel scheduling.KernelReplica) invoker.Ker
 	return kernel.Context().Value(ctxKernelInvoker).(invoker.KernelInvoker)
 }
 
+func (d *LocalScheduler) getInvokerByKernelId(kernelId string) (invoker.KernelInvoker, bool) {
+	return d.kernelInvokers.Load(kernelId)
+}
+
 func (d *LocalScheduler) closeKernel(kernel scheduling.KernelReplica, reason string) {
 	if err := d.getInvoker(kernel).Close(); err != nil {
 		d.log.Warn("Failed to close %v after %s, failure: %v", kernel, reason, err)
@@ -4020,4 +4035,9 @@ func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelRepl
 		}
 	}
 	return true
+}
+
+// NumKernels returns the number of scheduling.KernelReplica instances currently running on the LocalScheduler.
+func (d *LocalScheduler) NumKernels() int {
+	return d.kernels.Len()
 }
