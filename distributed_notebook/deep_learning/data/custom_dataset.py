@@ -12,6 +12,12 @@ class CustomDataset(ABC):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers
+        self._download_start: float = -1
+        self._download_end: float = -1
+        self._download_duration_sec: float = 0.0
+        self._tokenize_start: float = -1.0
+        self._tokenize_end: float = -1.0
+        self._tokenize_duration: float = 0.0
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
