@@ -294,7 +294,7 @@ class LibriSpeech(CustomDataset):
             )
         except RuntimeError:
             num_tries: int = 0
-            max_num_tries: int = 3
+            max_num_tries: int = 1
 
             # We'll give it a few tries...
             while num_tries < max_num_tries:
