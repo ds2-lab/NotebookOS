@@ -3804,19 +3804,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					mockRouterProvider := mock_router.NewMockProvider(mockCtrl)
 					routerConnInfo := &jupyter.ConnectionInfo{
-						Transport:            "tcp",
-						Key:                  kernelKey,
-						SignatureScheme:      messaging.JupyterSignatureScheme,
-						IP:                   "127.0.0.1",
-						ControlPort:          port,
-						ShellPort:            port + 1,
-						StdinPort:            port + 2,
-						HBPort:               port + 3,
-						IOPubPort:            port + 4,
-						IOSubPort:            port + 5,
-						AckPort:              port + 6,
-						StartingResourcePort: 9000,
-						NumResourcePorts:     512,
+						Transport:        "tcp",
+						Key:              kernelKey,
+						SignatureScheme:  messaging.JupyterSignatureScheme,
+						IP:               "127.0.0.1",
+						ControlPort:      port,
+						ShellPort:        port + 1,
+						StdinPort:        port + 2,
+						HBPort:           port + 3,
+						IOPubPort:        port + 4,
+						IOSubPort:        port + 5,
+						AckPort:          port + 6,
+						NumResourcePorts: 512,
 					}
 
 					ctx, cancel := context.WithCancel(context.Background())
@@ -3848,19 +3847,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					fmt.Printf("\n\nSuccessfully started Router for TestNode-%d.\n", i)
 
 					jupyterConnInfo := &jupyter.ConnectionInfo{
-						Transport:            "tcp",
-						Key:                  kernelKey,
-						SignatureScheme:      messaging.JupyterSignatureScheme,
-						IP:                   "127.0.0.1",
-						ControlPort:          port,
-						ShellPort:            shellSocket.Port,
-						StdinPort:            port + 2,
-						HBPort:               port + 3,
-						IOPubPort:            ioPubSocket.Port,
-						IOSubPort:            port + 5,
-						AckPort:              port + 6,
-						StartingResourcePort: 9000,
-						NumResourcePorts:     512,
+						Transport:        "tcp",
+						Key:              kernelKey,
+						SignatureScheme:  messaging.JupyterSignatureScheme,
+						IP:               "127.0.0.1",
+						ControlPort:      port,
+						ShellPort:        shellSocket.Port,
+						StdinPort:        port + 2,
+						HBPort:           port + 3,
+						IOPubPort:        ioPubSocket.Port,
+						IOSubPort:        port + 5,
+						AckPort:          port + 6,
+						NumResourcePorts: 512,
 					}
 
 					routers = append(routers, routerServer)

@@ -1073,8 +1073,7 @@ func (d *LocalScheduler) connectToGateway(gatewayAddress string, finalize LocalD
 
 // registerKernelReplicaKube performs some Kubernetes-mode-specific registration steps.
 func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.KernelReplicaSpec,
-	registrationPayload *KernelRegistrationPayload, connInfo *jupyter.ConnectionInfo,
-	kernelRegistrationClient *KernelRegistrationClient) (*client.KernelReplicaClient, *proto.KernelConnectionInfo) {
+	registrationPayload *KernelRegistrationPayload, connInfo *jupyter.ConnectionInfo) (*client.KernelReplicaClient, *proto.KernelConnectionInfo, error) {
 
 	invokerOpts := &invoker.DockerInvokerOptions{
 		RemoteStorageEndpoint:                d.remoteStorageEndpoint,
@@ -1124,22 +1123,12 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 			Panicked:         false,
 		})
 
-		// Write an error back to the kernel that registered with us.
-		payload := map[string]interface{}{
-			"status":  "error",
-			"error":   "Failed to Register",
-			"message": fmt.Sprintf("Could not initialize kernel client because: %s", errorMessage),
-		}
-		payloadJson, _ := json.Marshal(payload)
-		_, _ = kernelRegistrationClient.conn.Write(payloadJson)
-
-		// TODO: Handle this more gracefully.
-		return nil, nil
+		return nil, nil, fmt.Errorf(errorMessage)
 	}
 
 	d.registerKernelWithExecReqForwarder(kernel)
 
-	return kernel, kernelConnectionInfo
+	return kernel, kernelConnectionInfo, nil
 }
 
 // registerKernelReplicaDocker performs some Docker-specific registration steps.
@@ -1175,45 +1164,12 @@ func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.Ke
 
 // Register a kernel that has started running on the same node that we are running on.
 // This method must be thread-safe.
-func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
+//
+// Return the response to write back to the kernel and an error, if one occurred.
+func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegistrationPayload, remoteIp string,
+	containerType scheduling.ContainerType) map[string]interface{} {
+
 	registeredAt := time.Now()
-
-	remoteIp, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
-	if err != nil {
-		errorMessage := fmt.Sprintf("Failed to extract remote address from kernel registration connection because: %v", err)
-		d.log.Error(errorMessage)
-		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Failed to Register kernel.",
-			Message:          errorMessage,
-			NotificationType: 0,
-			Panicked:         false,
-		})
-		return
-	}
-
-	var registrationPayload *KernelRegistrationPayload
-	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
-	err = jsonDecoder.Decode(&registrationPayload)
-	if err != nil {
-		errorMessage := fmt.Sprintf("Failed to decode registration payload: %v", err)
-		d.log.Error(errorMessage)
-		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Failed to Register kernel.",
-			Message:          errorMessage,
-			NotificationType: 0,
-			Panicked:         false,
-		})
-		return
-	}
-
-	containerType := kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
-	remoteAddr := kernelRegistrationClient.conn.RemoteAddr()
-	d.log.Debug("Registering %s kernel at (remote) address %s with registration payload: %v",
-		containerType.String(), remoteAddr.String(), registrationPayload.StringFormatted())
 
 	var connInfo *jupyter.ConnectionInfo
 	if d.LocalMode() {
@@ -1268,8 +1224,20 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		kernelConnectionInfo *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		kernel, kernelConnectionInfo = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload,
-			connInfo, kernelRegistrationClient)
+		var err error
+		kernel, kernelConnectionInfo, err = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload, connInfo)
+
+		// If both are nil, then there was an error.
+		if err != nil {
+			// Write an error back to the kernel that registered with us.
+			payload := map[string]interface{}{
+				"status":  "error",
+				"error":   "Failed to Register",
+				"message": fmt.Sprintf("Could not initialize kernel client because: %s", err.Error()),
+			}
+
+			return payload
+		}
 	} else {
 		kernel, kernelConnectionInfo = d.registerKernelReplicaDocker(kernelReplicaSpec, containerType)
 
@@ -1296,10 +1264,11 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
 	if registrationPayload.PrewarmContainer {
-		d.writeResponseToRegisteringKernelReplica(map[string]interface{}{
+		payload := map[string]interface{}{
 			"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
-		}, kernelRegistrationClient, containerType)
-		return
+		}
+
+		return payload
 	}
 
 	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
@@ -1337,7 +1306,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancelPing()
 
-	_, err = d.provisioner.PingGateway(pingCtx, proto.VOID)
+	_, err := d.provisioner.PingGateway(pingCtx, proto.VOID)
 	if err != nil {
 		d.log.Error("PingGateway RPC failed... we're in trouble. Error was: %v", err)
 	}
@@ -1448,10 +1417,8 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 			"error":   "Null Resource Spec",
 			"message": "The ResourceSpec included in the registration payload is nil",
 		}
-		payloadJson, _ := json.Marshal(payload)
-		_, _ = kernelRegistrationClient.conn.Write(payloadJson)
 
-		return
+		return payload
 	}
 
 	d.log.Debug("Resource spec for %s kernel %s: %v", containerType.String(), kernel.ID(), response.ResourceSpec)
@@ -1507,7 +1474,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
 
-	d.writeResponseToRegisteringKernelReplica(payload, kernelRegistrationClient, containerType)
+	return payload
 }
 
 // writeResponseToRegisteringKernelReplica writes the specified response back to the specified KernelRegistrationClient.
@@ -2801,7 +2768,7 @@ func (d *LocalScheduler) startKernelRegistryService() {
 		log.Fatalf("Failed to listen for kernel registry: %v", err)
 	}
 	defer func() {
-		err := registryListener.Close()
+		err = registryListener.Close()
 		if err != nil {
 			d.log.Error("Failed to cleanly shut down kernel registry listener: %v", err)
 		}
@@ -2818,7 +2785,52 @@ func (d *LocalScheduler) startKernelRegistryService() {
 
 		d.log.Info("Accepted kernel registry connection. Local: %s. Remote: %s.", conn.LocalAddr(), conn.RemoteAddr())
 		kernelRegistrationClient := &KernelRegistrationClient{conn: conn}
-		go d.registerKernelReplica(context.TODO(), kernelRegistrationClient)
+
+		var remoteIp string
+		remoteIp, _, err = net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
+		if err != nil {
+			errorMessage := fmt.Sprintf("Failed to extract remote address from kernel registration connection because: %v", err)
+			d.log.Error(errorMessage)
+			d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            "Failed to Register kernel.",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
+			return
+		}
+
+		var registrationPayload *KernelRegistrationPayload
+		jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
+		err = jsonDecoder.Decode(&registrationPayload)
+		if err != nil {
+			errorMessage := fmt.Sprintf("Failed to decode registration payload: %v", err)
+			d.log.Error(errorMessage)
+			d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            "Failed to Register kernel.",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
+			return
+		}
+
+		containerType := kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
+		remoteAddr := kernelRegistrationClient.conn.RemoteAddr()
+		d.log.Debug("Registering %s kernel at (remote) address %s with registration payload: %v",
+			containerType.String(), remoteAddr.String(), registrationPayload.StringFormatted())
+
+		go func() {
+			responsePayload := d.registerKernelReplica(registrationPayload, remoteIp, containerType)
+
+			if responsePayload != nil {
+				d.writeResponseToRegisteringKernelReplica(responsePayload, kernelRegistrationClient, containerType)
+			}
+		}()
 	}
 }
 

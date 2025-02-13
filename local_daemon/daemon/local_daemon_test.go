@@ -267,7 +267,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				kernelKey := uuid.NewString()
 				dataDirectory := uuid.NewString()
 
-				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.StartingResourcePort, kernelId)
+				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
 				Expect(err).To(BeNil())
 				Expect(sockets).ToNot(BeNil())
 				Expect(len(sockets) == 5).To(BeTrue())
@@ -306,6 +306,14 @@ var _ = Describe("Local Daemon Tests", func() {
 					Expect(resp).ToNot(BeNil())
 
 					resultChan <- resp
+				}()
+
+				go func() {
+					replicaSpec := &proto.KernelReplicaSpec{}
+
+					replica, connInfo := localScheduler.registerKernelReplicaDocker(replicaSpec, scheduling.StandardContainer)
+					Expect(replica).ToNot(BeNil())
+					Expect(connInfo).ToNot(BeNil())
 				}()
 
 				var resp *proto.KernelConnectionInfo
