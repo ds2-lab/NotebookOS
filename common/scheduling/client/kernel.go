@@ -329,9 +329,7 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx sc
 		if tx != nil {
 			err = container.Host().AdjustKernelResourceRequestCoordinated(newSpec, oldSpec, container, tx)
 		} else {
-			kernelId := container.KernelID()
-			replicaId := container.ReplicaId()
-			err = container.Host().AdjustKernelResourceRequest(newSpec, oldSpec, replicaId, kernelId)
+			err = container.Host().AdjustKernelResourceRequest(newSpec, oldSpec, container)
 		}
 
 		if err != nil {
