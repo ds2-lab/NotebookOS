@@ -184,7 +184,7 @@ func (g *Gateway) sendZmqMessage(msg *messaging.JupyterMessage, socket *messagin
 			SentMessage(g.GatewayId, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
 
 		if metricError != nil {
-			g.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			g.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
 		metricError = g.MetricsProvider.
@@ -192,7 +192,7 @@ func (g *Gateway) sendZmqMessage(msg *messaging.JupyterMessage, socket *messagin
 			SentMessageUnique(g.GatewayId, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
 
 		if metricError != nil {
-			g.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			g.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 	}
 

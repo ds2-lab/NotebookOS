@@ -1,5 +1,6 @@
 import shutil
 
+import random
 import time
 import torch
 import os
@@ -294,7 +295,9 @@ class LibriSpeech(CustomDataset):
             )
         except RuntimeError:
             num_tries: int = 0
-            max_num_tries: int = 1
+            base_retry_delay: int = 1
+            max_delay: int = 30
+            max_num_tries: int = 10
 
             # We'll give it a few tries...
             while num_tries < max_num_tries:
@@ -314,7 +317,18 @@ class LibriSpeech(CustomDataset):
                     self.log.warn(f"Exception: {ex}")
                     self.log.warn(traceback.format_exc())
 
-                    time.sleep(0.125)
+                    # Don't bother sleeping if we're just going to exit the loop.
+                    if num_tries + 1 == max_num_tries:
+                        break
+
+                    # Basic exponential backoff with jitter.
+                    sleep_interval: float = base_retry_delay * (2 ** num_tries) + random.uniform(0, 1)
+                    if sleep_interval > max_delay: # Clamp, but still add some Jitter.
+                        sleep_interval = max_delay + random.uniform(0, 1)
+
+                    self.log.warn(f"Sleeping for {sleep_interval} seconds before trying again...")
+                    time.sleep(sleep_interval)
+
                     num_tries += 1
                 except Exception as ex:
                     self.log.error(f"{type(ex).__name__} encountered while attempting to download the LibriSpeech dataset.")
@@ -322,7 +336,18 @@ class LibriSpeech(CustomDataset):
                     self.log.error(f"Exception: {ex}")
                     self.log.error(traceback.format_exc())
 
-                    time.sleep(0.125)
+                    # Don't bother sleeping if we're just going to exit the loop.
+                    if num_tries + 1 == max_num_tries:
+                        break
+
+                    # Basic exponential backoff with jitter.
+                    sleep_interval: float = base_retry_delay * (2 ** num_tries) + random.uniform(0, 1)
+                    if sleep_interval > max_delay: # Clamp, but still add some Jitter.
+                        sleep_interval = max_delay + random.uniform(0, 1)
+
+                    self.log.warn(f"Sleeping for {sleep_interval} seconds before trying again...")
+                    time.sleep(sleep_interval)
+                    
                     num_tries += 1
 
             self.log.error(f"Failed to download the LibriSpeech dataset after {max_num_tries} tries.")

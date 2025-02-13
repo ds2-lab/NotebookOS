@@ -168,6 +168,13 @@ var _ = Describe("Local Daemon Tests", func() {
 			workloadId                 string
 		)
 
+		It("Will work with the sockets", func() {
+			sockets, closeFunc, err := createKernelSockets(17000, "TestId")
+			Expect(err).To(BeNil())
+			Expect(sockets).ToNot(BeNil())
+			defer closeFunc()
+		})
+
 		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) *jupyter.ConnectionInfo {
 			var kernelInvoker invoker.KernelInvoker
 			for kernelInvoker == nil {
@@ -486,6 +493,8 @@ var _ = Describe("Local Daemon Tests", func() {
 							fmt.Printf("Recv Error: %v\n", err)
 							return
 						}
+
+						fmt.Printf("Received: %v\n", msg)
 
 						jMsg := messaging.NewJupyterMessage(&msg)
 

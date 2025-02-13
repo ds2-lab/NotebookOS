@@ -5053,11 +5053,11 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 
 	if d.MetricsProvider.PrometheusMetricsEnabled() {
 		if metricError := d.MetricsProvider.GetGatewayPrometheusManager().SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
-			d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			d.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
 		if metricError := d.MetricsProvider.GetGatewayPrometheusManager().SentMessageUnique(d.id, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
-			d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			d.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 	}
 
