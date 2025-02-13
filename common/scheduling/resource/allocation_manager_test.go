@@ -458,6 +458,70 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(len(gpuDeviceIds) == 2).To(BeTrue())
 		})
 
+		It("Will correctly pre-commit resources to an existing container", func() {
+			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+			gpuDeviceIDs := []int{0, 1}
+			execId := uuid.NewString()
+
+			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			Expect(err).To(BeNil())
+
+			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsPending()).To(BeTrue())
+			Expect(allocation.IsPreCommitted()).To(BeFalse())
+
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeFalse())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeTrue())
+
+			ids, err := allocationManager.PreCommitResourcesToExistingContainer(1, kernel1Id, execId, kernel1Spec, gpuDeviceIDs)
+			Expect(ids).ToNot(BeNil())
+			Expect(len(ids) == len(gpuDeviceIDs)).To(BeTrue())
+			Expect(ids).To(Equal(gpuDeviceIDs))
+			Expect(err).To(BeNil())
+
+			allocation, ok = allocationManager.GetAllocation(1, kernel1Id)
+			Expect(ok).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Id))
+			Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Spec.CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Spec.MemoryMB()))
+			Expect(allocation.GetGpus()).To(Equal(kernel1Spec.GPU()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Spec.VRAM()))
+			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsPending()).To(BeFalse())
+			Expect(allocation.IsPreCommitted()).To(BeTrue())
+
+			Expect(allocationManager.KernelHasCommittedResources(kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasCommittedResources(1, kernel1Id)).To(BeTrue())
+			Expect(allocationManager.ReplicaHasPendingGPUs(1, kernel1Id)).To(BeFalse())
+		})
+
+		It("Will correctly return an error when trying to pre-commit resources to a non-existant container", func() {
+			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+			gpuDeviceIDs := []int{0, 1}
+			execId := uuid.NewString()
+
+			ids, err := allocationManager.PreCommitResourcesToExistingContainer(1, kernel1Id, execId, kernel1Spec, gpuDeviceIDs)
+			Expect(ids).To(BeNil())
+			Expect(err).ToNot(BeNil())
+			Expect(errors.Is(err, resource.ErrContainerNotPresent)).To(BeTrue())
+		})
+
 		It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
 			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 			allocatedGpuResourceIds, err := allocationManager.CommitResourcesToExistingContainer(1, kernel1Id,
