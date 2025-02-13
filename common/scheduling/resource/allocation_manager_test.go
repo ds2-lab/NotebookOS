@@ -292,7 +292,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
 			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 
-			err := allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
+			_, err := allocationManager.GetGpuDeviceIdsAssignedToReplica(1, kernel1Id)
+			Expect(err).ToNot(BeNil())
+			Expect(errors.Is(err, resource.ErrAllocationNotFound)).To(BeTrue())
+
+			err = allocationManager.ContainerStartedRunningOnHost(1, kernel1Id, kernel1Spec)
 			Expect(err).To(BeNil())
 
 			Expect(allocationManager.SpecResources().Equals(hostSpec)).To(BeTrue())
@@ -312,6 +316,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocationManager.CommittedMemoryMB().Equals(decimal.Zero)).To(BeTrue())
 			Expect(allocationManager.CommittedGPUs().Equals(decimal.Zero)).To(BeTrue())
 			Expect(allocationManager.CommittedVRamGB().Equals(decimal.Zero)).To(BeTrue())
+
+			gpuDeviceIds, err := allocationManager.GetGpuDeviceIdsAssignedToReplica(1, kernel1Id)
+			Expect(err).To(BeNil())
+			Expect(gpuDeviceIds).ToNot(BeNil())
+			Expect(len(gpuDeviceIds) == 0).To(BeTrue())
 
 			allocation, ok := allocationManager.GetAllocation(1, kernel1Id)
 			Expect(ok).To(BeTrue())
@@ -442,6 +451,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(allocation.ToDecimalSpec().Equals(kernel1Spec)).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeTrue())
 			Expect(allocation.IsPending()).To(BeFalse())
+
+			gpuDeviceIds, err := allocationManager.GetGpuDeviceIdsAssignedToReplica(1, kernel1Id)
+			Expect(err).To(BeNil())
+			Expect(gpuDeviceIds).ToNot(BeNil())
+			Expect(len(gpuDeviceIds) == 2).To(BeTrue())
 		})
 
 		It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
