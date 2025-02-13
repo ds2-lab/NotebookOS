@@ -139,17 +139,16 @@ func (g *Gateway) ForwardResponse(from router.Info, typ messaging.MessageType, m
 			"Forward Response [SocketType='%v', MsgType=\"%s\", MsgId=\"%s\", KernelId=\"%s\"]"),
 		typ, msg.JupyterMessageType(), msg.JupyterMessageId(), from.ID())
 
-	panic("Implement me!")
-	//sendError := g.sendZmqMessage(msg, socket, from.ID())
+	err := g.sendZmqMessage(msg, socket, from.ID())
 
 	// TODO: Implement this.
-	//if sendError == nil {
+	//if err == nil {
 	//	g.clusterStatisticsMutex.Lock()
 	//	g.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
 	//	g.clusterStatisticsMutex.Unlock()
 	//}
 
-	//return sendError
+	return err // Will be nil on success.
 }
 
 // sendZmqMessage sends the specified *messaging.JupyterMessage on/using the specified *messaging.Socket.

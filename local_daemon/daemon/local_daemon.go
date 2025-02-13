@@ -3691,7 +3691,7 @@ func (d *LocalScheduler) processKernelResetReply(kernel scheduling.KernelReplica
 	}
 
 	d.log.Debug(utils.LightGreenStyle.Render("Successfully demoted replica %d of kernel \"%s\" to a %s container with ID=\"%s\"."),
-		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
+		prevReplicaId, prevKernelId, scheduling.PrewarmContainer, prewarmContainerId)
 
 	// Release any resources.
 	// TODO: I suspect there are many cases where the resources will have already been released.

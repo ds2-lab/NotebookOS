@@ -1756,6 +1756,9 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 
 			panic(err)
 		}
+
+		// Make sure to delete this entry as well.
+		m.allocationKernelReplicaMap.Delete(getKey(replicaId, kernelId))
 	} else {
 		m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s on host %s now.",
 			replicaId, kernelId, m.NodeName)
