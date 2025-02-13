@@ -286,10 +286,61 @@ type ClusterStatistics struct {
 }
 
 func NewClusterStatistics() *ClusterStatistics {
-	return &ClusterStatistics{
+	clusterStatistics := &ClusterStatistics{
 		JupyterTrainingStartLatenciesMillis: make([]float64, 0),
 		AggregateSessionLifetimesSec:        make([]float64, 0),
 		ClusterEvents:                       make([]*ClusterEvent, 0),
 		ExecuteRequestTraces:                make([]*proto.RequestTrace, 0),
 	}
+
+	// Initialize StatInt32 fields
+	clusterStatistics.Hosts.Store(0)
+	clusterStatistics.NumDisabledHosts.Store(0)
+	clusterStatistics.NumEmptyHosts.Store(0)
+	clusterStatistics.CumulativeNumHostsProvisioned.Store(0)
+	clusterStatistics.CumulativeNumHostsReleased.Store(0)
+	clusterStatistics.NumActiveScaleOutEvents.Store(0)
+	clusterStatistics.NumSuccessfulScaleOutEvents.Store(0)
+	clusterStatistics.NumFailedScaleOutEvents.Store(0)
+	clusterStatistics.NumActiveScaleInEvents.Store(0)
+	clusterStatistics.NumSuccessfulScaleInEvents.Store(0)
+	clusterStatistics.NumFailedScaleInEvents.Store(0)
+
+	// Initialize StatInt64 fields
+	clusterStatistics.NumJupyterMessagesReceivedByClusterGateway.Store(0)
+	clusterStatistics.NumJupyterRepliesSentByClusterGateway.Store(0)
+	clusterStatistics.CumulativeRequestProcessingTimeClusterGateway.Store(0)
+	clusterStatistics.CumulativeRequestProcessingTimeLocalDaemon.Store(0)
+	clusterStatistics.CumulativeRequestProcessingTimeKernel.Store(0)
+	clusterStatistics.CumulativeResponseProcessingTimeClusterGateway.Store(0)
+	clusterStatistics.CumulativeResponseProcessingTimeLocalDaemon.Store(0)
+
+	// Initialize StatFloat64 fields
+	clusterStatistics.CumulativeHostActiveTime.Store(0.0)
+	clusterStatistics.CumulativeHostIdleTime.Store(0.0)
+	clusterStatistics.AggregateHostLifetime.Store(0.0)
+	clusterStatistics.AggregateHostLifetimeOfRunningHosts.Store(0.0)
+	clusterStatistics.CumulativeTimeProvisioningHosts.Store(0.0)
+	clusterStatistics.CumulativeCudaInitMicroseconds.Store(0.0)
+	clusterStatistics.NumCudaRuntimesInitialized.Store(0.0)
+	clusterStatistics.CumulativeTimeDownloadTrainingDataMicroseconds.Store(0.0)
+	clusterStatistics.NumTimesDownloadTrainingDataMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeTokenizeDatasetMicroseconds.Store(0.0)
+	clusterStatistics.NumTimesTokenizeDatasetMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeTimeDownloadModelMicroseconds.Store(0.0)
+	clusterStatistics.NumTimesDownloadModelMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds.Store(0.0)
+	clusterStatistics.NumTimesUploadModelAndTrainingDataMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeTimeCopyDataHostToDeviceMicroseconds.Store(0.0)
+	clusterStatistics.NumTimesCopyDataHostToDeviceMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeTimeCopyDataDeviceToHostMicroseconds.Store(0.0)
+	clusterStatistics.NumTimesCopyDataDeviceToHostMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeExecutionTimeMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeLeaderElectionTimeMicroseconds.Store(0.0)
+	clusterStatistics.CumulativeKernelPreprocessRequestMillis.Store(0.0)
+	clusterStatistics.CumulativeKernelCreateElectionMillis.Store(0.0)
+	clusterStatistics.CumulativeKernelProposalVotePhaseMillis.Store(0.0)
+	clusterStatistics.CumulativeKernelPostprocessMillis.Store(0.0)
+
+	return clusterStatistics
 }
