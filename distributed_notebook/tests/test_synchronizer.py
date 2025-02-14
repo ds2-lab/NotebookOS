@@ -1,37 +1,36 @@
+import torch
 import asyncio
-import builtins as builtin_mod
 import random
 import types
 import uuid
-import pytest
-
 from typing import Any, Optional, Type
 from unittest import mock
 
+import builtins as builtin_mod
+import pytest
 from torch import Tensor
 from torch.nn import Parameter
 
 import distributed_notebook
 import distributed_notebook.sync
-from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+from distributed_notebook.deep_learning import ResNet18, VGG11, InceptionV3, \
+    Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
     CoLA, get_model_and_dataset
-from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
-from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel
-from distributed_notebook.sync import Synchronizer
-from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
-from distributed_notebook.sync.checkpointing.local_checkpointer import (
-    Checkpointer,
-)
+from distributed_notebook.sync import Synchronizer, RaftLog
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer
-from distributed_notebook.sync.log import SynchronizedValue
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.log import SynchronizedValue, SyncLog
 from distributed_notebook.sync.object import SyncObjectMeta
 from distributed_notebook.sync.raft_log import RaftLog
+from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
+from distributed_notebook.sync.remote_storage_log import RemoteStorageLog
 from distributed_notebook.sync.synchronizer import CHECKPOINT_AUTO
 
 example_data: dict[str, Any] = {
@@ -41,6 +40,7 @@ example_data: dict[str, Any] = {
     "Salary": [55000, 74000, 48000, 66000],
 }
 
+KERNEL_ID:str = str(uuid.uuid4())
 
 class DummyObject(object):
     def __init__(self, n: int = 10, lst: Optional[list[int]] = None):
@@ -127,20 +127,19 @@ def prepare_user_module():
     return user_module, user_ns
 
 
-def __get_raft_log(local_checkpointer: Checkpointer) -> RaftLog:
-    raft_log: RaftLog = RaftLog(
+def __get_raft_log() -> SyncLog|RaftLog|RemoteStorageLog:
+    raft_log: SyncLog|RaftLog|RemoteStorageLog = RemoteStorageLog(
         node_id=1,
-        kernel_id=str(uuid.uuid4()),
+        kernel_id=KERNEL_ID,
         skip_create_log_node=True,
         base_path="./store",
-        remote_checkpointer=local_checkpointer,
     )
 
     return raft_log
 
 
 def __get_synchronizer(
-        raft_log: RaftLog,
+        sync_log: SyncLog|RaftLog|RemoteStorageLog,
         user_module: types.ModuleType,
         checkpointer: Checkpointer,
 ) -> Synchronizer:
@@ -148,7 +147,7 @@ def __get_synchronizer(
         return large_object_pointer_committed(pointer, checkpointer)
 
     synchronizer: Synchronizer = Synchronizer(
-        raft_log,
+        sync_log,
         store_path="./store",
         module=user_module,
         opts=CHECKPOINT_AUTO,
@@ -164,30 +163,45 @@ def __get_synchronizer(
 def synchronize_variable(
         io_loop: asyncio.AbstractEventLoop,
         synchronizer: Synchronizer,
-        raft_log: RaftLog,
+        raft_log: SyncLog|RaftLog|RemoteStorageLog,
         val: Any,
         meta: SyncObjectMeta,
         key: str = "my_var",
 ):
     append_future = io_loop.create_future()
 
-    async def mocked_append(rlog: RaftLog, val: SynchronizedValue):
+    async def mocked_append(rlog: SyncLog|RaftLog|RemoteStorageLog, val: SynchronizedValue):
         print(f"Mocked RaftLog::append called with RaftLog {rlog} and SynchronizedValue {val}")
         append_future.set_result(val)
 
-    with mock.patch.object(
-            distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
-    ):
-        io_loop.run_until_complete(
-            synchronizer.sync_key(
-                sync_log=raft_log,
-                key=key,
-                val=val,
-                end_execution=True,
-                checkpointing=False,
-                meta=meta,
+    if isinstance(synchronizer.synclog, RaftLog):
+        with mock.patch.object(
+                distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
+        ):
+            io_loop.run_until_complete(
+                synchronizer.sync_key(
+                    sync_log=raft_log,
+                    key=key,
+                    val=val,
+                    end_execution=True,
+                    checkpointing=False,
+                    meta=meta,
+                )
             )
-        )
+    else:
+        with mock.patch.object(
+                distributed_notebook.sync.remote_storage_log.RemoteStorageLog, "append", mocked_append
+        ):
+            io_loop.run_until_complete(
+                synchronizer.sync_key(
+                    sync_log=raft_log,
+                    key=key,
+                    val=val,
+                    end_execution=True,
+                    checkpointing=False,
+                    meta=meta,
+                )
+            )
 
     assert append_future.done()
 
@@ -201,10 +215,11 @@ def test_sync_and_change_int_variable():
     """
     Test calling sync_key followed by change_handler for an int variable.
     """
-    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    local_checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
     assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    raft_log: SyncLog|RaftLog|RemoteStorageLog = __get_raft_log()
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
@@ -272,10 +287,11 @@ def test_sync_and_change_dummy_object_variable():
     """
     Test calling sync_key followed by change_handler for an DummyObject variable.
     """
-    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    local_checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
     assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    raft_log: SyncLog|RaftLog|RemoteStorageLog = __get_raft_log()
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
@@ -367,14 +383,147 @@ def test_sync_and_change_dummy_object_variable():
         assert user_module.my_var.lst == dummy_obj.lst
 
 
+def test_sync_and_change_large_deep_learning_model():
+    """
+    Test calling sync_key followed by change_handler for a DeepLearningModel variable.
+    """
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    local_checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
+    assert local_checkpointer is not None
+
+    sync_log: RemoteStorageLog = RemoteStorageLog(
+        node_id=1,
+        remote_storage_provider=LocalStorageProvider(),
+        base_path="./store",
+        prometheus_enabled=False,
+        kernel_id=KERNEL_ID,
+        workload_id=str(uuid.uuid4()),
+        remote_storage_write_latency_milliseconds=None,
+    )
+    assert sync_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        sync_log, user_module, local_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+
+    # Create the model.
+    initial_weights: float = 1.5
+    model: Bert = Bert(out_features=2)
+
+    output_layer = model.output_layer
+    for param in output_layer.parameters():
+        param.data.fill_(initial_weights)
+
+    weight: Parameter = model.output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    synchronize_variable(
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=sync_log,
+        val=model,
+        meta=meta,
+        key="model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")
+
+    assert "model" in synchronizer.global_ns
+    assert "model" in user_ns
+    assert hasattr(user_module, "model")
+
+    assert isinstance(user_ns["model"], SimpleModel)
+    assert isinstance(synchronizer.global_ns["model"], SimpleModel)
+    assert isinstance(user_module.model, SimpleModel)
+
+    weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    updated_weights: float = initial_weights
+
+    # Do this for 10 iterations.
+    for i in range(0, 10):
+        updated_weights = updated_weights + 1
+
+        with torch.no_grad():  # Manually modify weights
+            for param in model.model.parameters():
+                # Random weight updates
+                param.data.fill_(updated_weights)
+
+        weight: Parameter = model.output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        synchronize_variable(
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=sync_log,
+            val=model,
+            meta=meta,
+            key="model",
+        )
+
+        print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+        print(f"user_ns: {user_ns}")
+        print(f"user_module: {user_module}")
+
+        assert "model" in synchronizer.global_ns
+        assert "model" in user_ns
+        assert hasattr(user_module, "model")
+
+        assert isinstance(user_ns["model"], SimpleModel)
+        assert isinstance(synchronizer.global_ns["model"], SimpleModel)
+        assert isinstance(user_module.model, SimpleModel)
+
+        weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
 def test_sync_and_change_deep_learning_model():
     """
     Test calling sync_key followed by change_handler for a DeepLearningModel variable.
     """
-    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    local_checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
     assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    raft_log: SyncLog|RaftLog|RemoteStorageLog = __get_raft_log()
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
@@ -526,10 +675,11 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
     In this version of the unit test, we create a whole new SimpleModel object with new weights and sync that
     during the second round, rather than modify the weights of the original object and re-sync it.
     """
-    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    local_checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
     assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    raft_log: SyncLog|RaftLog|RemoteStorageLog = __get_raft_log()
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
@@ -688,10 +838,11 @@ def train_and_sync_model(
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
 
-    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    local_provider: LocalStorageProvider = LocalStorageProvider()
+    local_checkpointer: RemoteCheckpointer = RemoteCheckpointer(local_provider)
     assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    raft_log: SyncLog|RaftLog|RemoteStorageLog = __get_raft_log()
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()

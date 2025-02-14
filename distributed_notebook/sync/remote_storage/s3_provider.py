@@ -86,24 +86,28 @@ class S3Provider(RemoteStorageProvider):
     def storage_name(self) -> str:
         return "AWS S3"
 
-    async def write_value_async(self, key: str, value: Any)->bool:
+    async def write_value_async(self, key: str, value: Any, size_bytes:int = -1)->bool:
         """
         Asynchronously write a value to AWS S3 at the specified key.
 
         :param key: the key at which to store the value in AWS S3.
         :param value: the value to be written.
+        :param size_bytes: the size of the value to be written.
 
         :return: True if the write operation is successful, otherwise False.
         """
-        if isinstance(value, str):
-            value = value.encode('utf-8')
-            value_size: int = len(value)
-        elif isinstance(value, io.BytesIO):
+        if isinstance(value, io.BytesIO):
             value.seek(0)
-            value = value.getbuffer()
-            value_size: int = value.nbytes
-        else:
-            value_size: int = sys.getsizeof(value)
+
+        if size_bytes <= 0:
+            if isinstance(value, str):
+                value = value.encode('utf-8')
+                value_size: int = len(value)
+            elif isinstance(value, io.BytesIO):
+                value = value.getbuffer()
+                value_size: int = value.nbytes
+            else:
+                value_size: int = sys.getsizeof(value)
 
         async with self._aio_session.client('s3') as s3:
             try:
@@ -127,24 +131,28 @@ class S3Provider(RemoteStorageProvider):
 
         return True
 
-    def write_value(self, key: str, value: Any)->bool:
+    def write_value(self, key: str, value: Any, size_bytes:int = -1)->bool:
         """
         Write a value to AWS S3 at the specified key.
 
+        :param size_bytes: the size of the value to be written.
         :param key: the key at which to store the value in AWS S3.
         :param value: the value to be written.
 
         :return: True if the write operation is successful, otherwise False.
         """
-        if isinstance(value, str):
-            value = value.encode('utf-8')
-            value_size: int = len(value)
-        elif isinstance(value, io.BytesIO):
+        if isinstance(value, io.BytesIO):
             value.seek(0)
-            value = value.getbuffer()
-            value_size: int = value.nbytes
-        else:
-            value_size: int = sys.getsizeof(value)
+
+        if size_bytes <= 0:
+            if isinstance(value, str):
+                value = value.encode('utf-8')
+                value_size: int = len(value)
+            elif isinstance(value, io.BytesIO):
+                value = value.getbuffer()
+                value_size: int = value.nbytes
+            else:
+                value_size: int = sys.getsizeof(value)
 
         try:
             start_time: float = time.time()

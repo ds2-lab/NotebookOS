@@ -806,3 +806,7 @@ class Synchronizer:
             self.sync_swallow_exceptions(None, source="checkpoint", checkpointer=checkpointer),
             self._async_loop,
         )
+
+    @property
+    def synclog(self):
+        return self._synclog
