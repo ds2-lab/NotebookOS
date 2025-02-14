@@ -444,9 +444,9 @@ def test_sync_and_change_large_deep_learning_model():
     assert "model" in user_ns
     assert hasattr(user_module, "model")
 
-    assert isinstance(user_ns["model"], SimpleModel)
-    assert isinstance(synchronizer.global_ns["model"], SimpleModel)
-    assert isinstance(user_module.model, SimpleModel)
+    assert isinstance(user_ns["model"], Bert)
+    assert isinstance(synchronizer.global_ns["model"], Bert)
+    assert isinstance(user_module.model, Bert)
 
     weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
     for weight_vector in weight.data:
@@ -496,9 +496,9 @@ def test_sync_and_change_large_deep_learning_model():
         assert "model" in user_ns
         assert hasattr(user_module, "model")
 
-        assert isinstance(user_ns["model"], SimpleModel)
-        assert isinstance(synchronizer.global_ns["model"], SimpleModel)
-        assert isinstance(user_module.model, SimpleModel)
+        assert isinstance(user_ns["model"], Bert)
+        assert isinstance(synchronizer.global_ns["model"], Bert)
+        assert isinstance(user_module.model, Bert)
 
         weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
         for weight_vector in weight.data:
