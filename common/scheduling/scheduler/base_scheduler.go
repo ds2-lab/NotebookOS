@@ -227,8 +227,8 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 
 				littlesLawConfig := &prewarm.LittlesLawPrewarmerConfig{
 					PrewarmerConfig: prewarmerConfig,
-					W:               0,
-					Lambda:          0,
+					W:               time.Duration(b.options.LittlesLawW * float64(time.Minute)),
+					Lambda:          b.options.LittlesLawLambda,
 				}
 
 				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig, b.metricsProvider)

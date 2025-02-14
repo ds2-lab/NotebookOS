@@ -143,6 +143,11 @@ type SchedulerOptions struct {
 	InitialNumContainersPerHost int     `name:"initial_num_containers_per_host" json:"initial_num_containers_per_host" yaml:"initial_num_containers_per_host"`
 	PrewarmRunIntervalSec       float64 `name:"prewarm_run_interval_sec" json:"prewarm_run_interval_sec" yaml:"prewarm_run_interval_sec"`
 
+	// LittlesLawW is the average training event duration in minutes.
+	LittlesLawW float64 `name:"littles_law_prewarmer_w" json:"littles_law_prewarmer_w" yaml:"littles_law_prewarmer_w"`
+	// LittlesLawLambda is the average rate of arrival in #training events per minute.
+	LittlesLawLambda float64 `name:"littles_law_prewarmer_lambda" json:"littles_law_prewarmer_lambda" yaml:"littles_law_prewarmer_lambda"`
+
 	// PrewarmingPolicy indicates the policy to use to maintain the pool of warm containers.
 	// Valid options include "maintain_minimum_capacity" and "little_law_capacity".
 	PrewarmingPolicy string `name:"prewarming_policy" json:"prewarming_policy" yaml:"prewarming_policy"`
