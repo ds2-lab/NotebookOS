@@ -77,6 +77,7 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             num_workers=num_workers,
             hugging_face_dataset_name=TinyImageNet.hugging_face_dataset_name,
             hugging_face_dataset_config_name=TinyImageNet.hugging_face_dataset_config_name,
+            batch_size=batch_size,
             **kwargs
         )
 
@@ -89,7 +90,6 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         ])
 
-        self._batch_size: int = batch_size
         self._image_size: int = image_size
 
         self._train_dataset: _TinyImageNetDataset = _TinyImageNetDataset(self._dataset["train"], transform=self.transform)

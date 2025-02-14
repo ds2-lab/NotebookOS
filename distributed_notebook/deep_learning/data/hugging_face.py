@@ -23,6 +23,7 @@ class HuggingFaceDataset(CustomDataset, ABC):
             num_workers: int = 2,
             hugging_face_dataset_name: str = "",
             hugging_face_dataset_config_name: Optional[str] = None,
+            batch_size: int = 1,
             **kwargs
     ):
         assert root_dir is not None and root_dir != ""
@@ -37,6 +38,7 @@ class HuggingFaceDataset(CustomDataset, ABC):
             root_dir=root_dir,
             shuffle=shuffle,
             num_workers=num_workers,
+            batch_size=batch_size,
         )
 
         self._hugging_face_dataset_name: str = hugging_face_dataset_name

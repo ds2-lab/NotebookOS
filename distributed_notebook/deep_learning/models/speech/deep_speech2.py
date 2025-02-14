@@ -216,15 +216,39 @@ class DeepSpeech2(DeepLearningModel):
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
-                # Forward pass
                 forward_pass_start: float = time.time()
-                outputs = self.model(waveforms)
-                outputs = F.log_softmax(outputs, dim=2)
-                outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
 
-                # Compute loss
-                loss = self._criterion(outputs, labels, input_lengths, label_lengths)
+                # Forward pass
+                if self.gpu_available:
+                    outputs = self.model(waveforms)
+                    outputs = F.log_softmax(outputs, dim=2)
+                    outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
+
+                    loss_st: float = time.time()
+
+                    # Compute loss
+                    loss = self._criterion(outputs, labels, input_lengths, label_lengths)
+                else:
+                    self.log.warning("Simulating training because CUDA is unavailable.")
+
+                    # Simulate computation time for a batch
+                    time.sleep(target_training_duration_millis / 1.0e3)
+
+                    with torch.no_grad():  # Manually modify weights
+                        for param in self.model.parameters():
+                            param += 0.01 * torch.randn_like(param)  # Random weight updates
+
+                    # Simulate model outputs and labels
+                    outputs = torch.randn(len(waveforms), self._out_features, requires_grad=True)  # Fake predictions
+                    labels = torch.randn(len(waveforms), self._out_features, requires_grad=True)  # Fake ground truth
+
+                    loss_st: float = time.time()
+
+                    # Compute simulated loss
+                    loss = self._criterion(outputs, labels)
+
                 loss.backward()
+                self.log.debug(f"\tComputed loss in {round((time.time() - loss_st) * 1.0e3, 3):,} ms: {loss.item()}")
 
                 self._optimizer.step()
                 forward_pass_end: float = time.time()
