@@ -1,3 +1,4 @@
+import fakeredis
 import torch
 import asyncio
 import random
@@ -30,6 +31,7 @@ from distributed_notebook.sync.log import SynchronizedValue, SyncLog
 from distributed_notebook.sync.object import SyncObjectMeta
 from distributed_notebook.sync.raft_log import RaftLog
 from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
+from distributed_notebook.sync.remote_storage.redis_provider import RedisProvider
 from distributed_notebook.sync.remote_storage_log import RemoteStorageLog
 from distributed_notebook.sync.synchronizer import CHECKPOINT_AUTO
 
@@ -382,8 +384,149 @@ def test_sync_and_change_dummy_object_variable():
         assert user_module.my_var.lst == test_lst
         assert user_module.my_var.lst == dummy_obj.lst
 
+def test_sync_and_change_large_deep_learning_model_redis():
+    """
+    Test calling sync_key followed by change_handler for a DeepLearningModel variable.
+    """
+    server = fakeredis.FakeServer()
 
-def test_sync_and_change_large_deep_learning_model():
+    sync_log_redis_provider: RedisProvider = RedisProvider(
+        redis_client=fakeredis.FakeStrictRedis(server=server),
+        async_redis_client=fakeredis.FakeAsyncRedis(server=server),
+    )
+
+    sync_log: RemoteStorageLog = RemoteStorageLog(
+        node_id=1,
+        remote_storage_provider=sync_log_redis_provider,
+        base_path="./store",
+        prometheus_enabled=False,
+        kernel_id=KERNEL_ID,
+        workload_id=str(uuid.uuid4()),
+        remote_storage_write_latency_milliseconds=None,
+    )
+    assert sync_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer_redis_provider: RedisProvider = RedisProvider(
+        redis_client=fakeredis.FakeStrictRedis(server=server),
+        async_redis_client=fakeredis.FakeAsyncRedis(server=server),
+    )
+    synchronizer_redis_checkpointer: RemoteCheckpointer = RemoteCheckpointer(synchronizer_redis_provider)
+    assert synchronizer_redis_checkpointer is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        sync_log, user_module, synchronizer_redis_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+
+    # Create the model.
+    initial_weights: float = 1.5
+    model: Bert = Bert(out_features=2)
+
+    output_layer = model.output_layer
+    for param in output_layer.parameters():
+        param.data.fill_(initial_weights)
+
+    weight: Parameter = model.output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    synchronize_variable(
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=sync_log,
+        val=model,
+        meta=meta,
+        key="model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")
+
+    assert "model" in synchronizer.global_ns
+    assert "model" in user_ns
+    assert hasattr(user_module, "model")
+
+    assert isinstance(user_ns["model"], Bert)
+    assert isinstance(synchronizer.global_ns["model"], Bert)
+    assert isinstance(user_module.model, Bert)
+
+    weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    updated_weights: float = initial_weights
+
+    # Do this for 10 iterations.
+    for i in range(0, 10):
+        updated_weights = updated_weights + 1
+
+        with torch.no_grad():  # Manually modify weights
+            for param in model.model.parameters():
+                # Random weight updates
+                param.data.fill_(updated_weights)
+
+        weight: Parameter = model.output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        synchronize_variable(
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=sync_log,
+            val=model,
+            meta=meta,
+            key="model",
+        )
+
+        print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+        print(f"user_ns: {user_ns}")
+        print(f"user_module: {user_module}")
+
+        assert "model" in synchronizer.global_ns
+        assert "model" in user_ns
+        assert hasattr(user_module, "model")
+
+        assert isinstance(user_ns["model"], Bert)
+        assert isinstance(synchronizer.global_ns["model"], Bert)
+        assert isinstance(user_module.model, Bert)
+
+        weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+def test_sync_and_change_large_deep_learning_model_local():
     """
     Test calling sync_key followed by change_handler for a DeepLearningModel variable.
     """
