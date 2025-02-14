@@ -400,19 +400,26 @@ class DeepLearningModel(ABC):
                         loss = outputs.loss
                     else:
                         outputs = self.model(samples)
-                        self.log.debug("Computed outputs. Computing loss now.")
+                        self.log.debug("\tComputed outputs. Computing loss now.")
                         loss_st: float = time.time()
                         loss = self._criterion(outputs, labels)
                 else:
-                    self.log.warning("Simulating training because CUDA is unavailable.")
+                    sleep_interval_sec: float = target_training_duration_sec * 0.025
+
+                    self.log.warning(f"\tSimulating training because CUDA is unavailable. "
+                                     f"Sleeping for {round(sleep_interval_sec, 3):,f} seconds.")
 
                     # Simulate computation time for a batch
-                    time.sleep(target_training_duration_sec * 0.025)
+                    time.sleep(sleep_interval_sec)
+
+                    update_param_start: float = time.time()
 
                     with torch.no_grad():  # Manually modify weights
                         for param in self.model.parameters():
                             # Random weight updates
                             param.data = param.data + 0.01 * torch.randn_like(param)
+
+                    self.log.debug(f"\tUpdated parameters in {round((time.time() - update_param_start)*1.0e3, 3):,} ms.")
 
                     # Simulate model outputs and labels
                     outputs = torch.randn(len(samples), self._out_features, requires_grad=True)  # Fake predictions
