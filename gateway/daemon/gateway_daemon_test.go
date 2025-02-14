@@ -4423,6 +4423,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 							return true, mockCreateReplicaContainersAttempt
 						})
 
+					kernel.EXPECT().BindSession(gomock.Any()).Times(1)
+
 					kernels[kernelId] = kernel
 					kernelSpecs[kernelId] = kernelSpec
 
