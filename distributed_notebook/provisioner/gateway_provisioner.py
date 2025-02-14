@@ -66,7 +66,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 return 0
 
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to get kernel status: {e}")
 
     async def wait(self) -> Optional[int]:
@@ -88,7 +88,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 return 0
 
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to get wait kernel: {e}")
 
     async def send_signal(self, signum: int) -> None:
@@ -135,7 +135,7 @@ class GatewayProvisioner(KernelProvisionerBase):
             else:
                 self.log.debug(f"Cannot kill kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to kill kernel: {e}")
 
     async def terminate(self, restart: bool = False) -> None:
@@ -157,7 +157,7 @@ class GatewayProvisioner(KernelProvisionerBase):
             else:
                 self.log.debug(f"Cannot terminate kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to terminate kernel: {e}")
 
     async def launch_kernel(self, cmd: List[str], **kwargs: Any) -> KernelConnectionInfo:

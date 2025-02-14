@@ -366,11 +366,11 @@ func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
 	} else {
 		c.log.Warn("Attempt to schedule %d replica container(s) has failed.", c.targetNumReplicas)
 
-		statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusError)
-		if !statusChanged {
-			c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
-				jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusError.String(), c.status.String())
-		}
+		//statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusError)
+		//if !statusChanged {
+		//	c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+		//		jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusError.String(), c.status.String())
+		//}
 	}
 
 	c.createReplicaContainersAttempt = nil
@@ -627,7 +627,8 @@ func (c *DistributedKernelClient) setStatus(oldStatus jupyter.KernelStatus, newS
 	if swapped {
 		c.log.Debug("Swapped kernel status from %s to %s.", oldStatus.String(), newStatus.String())
 	} else {
-		c.log.Debug("Attempt to swap kernel status from %s to %s rejected.", oldStatus.String(), newStatus.String())
+		c.log.Debug("Attempt to swap kernel status from %s to %s rejected. (Current status: %s.)",
+			oldStatus.String(), newStatus.String(), c.status.String())
 	}
 
 	return
