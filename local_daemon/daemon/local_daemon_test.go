@@ -74,9 +74,9 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 	ioPort := startingPort + 4
 
 	zmqControl := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("control")))
-	controlSocket := messaging.NewSocket(zmqControl, controlPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
+	controlSocket := messaging.NewSocket(zmqControl, controlPort, messaging.ControlMessage, fmt.Sprintf("Kernel%s-Control", kernelId))
 	sockets[messaging.ControlMessage] = controlSocket
-	fmt.Printf("Created CONTROL socket for kernel \"%s\" with assigned port %d.\n", kernelId, controlSocket.Port)
+	fmt.Printf("\nCreated CONTROL socket for kernel \"%s\" with assigned port %d.\n", kernelId, controlSocket.Port)
 
 	zmqShell := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("shell")))
 	shellSocket := messaging.NewSocket(zmqShell, shellPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
@@ -84,28 +84,29 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 	fmt.Printf("Created SHELL socket for kernel \"%s\" with assigned port %d.\n", kernelId, shellSocket.Port)
 
 	zmqStdin := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("stdin")))
-	stdinSocket := messaging.NewSocket(zmqStdin, stdinPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
+	stdinSocket := messaging.NewSocket(zmqStdin, stdinPort, messaging.StdinMessage, fmt.Sprintf("Kernel%s-Stdin", kernelId))
 	sockets[messaging.StdinMessage] = stdinSocket
 	fmt.Printf("Created STDIN socket for kernel \"%s\" with assigned port %d.\n", kernelId, stdinSocket.Port)
 
 	zmqHeartbeat := zmq4.NewRep(context.Background())
-	hbSocket := messaging.NewSocket(zmqHeartbeat, hbPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
+	hbSocket := messaging.NewSocket(zmqHeartbeat, hbPort, messaging.HBMessage, fmt.Sprintf("Kernel%s-HB", kernelId))
 	sockets[messaging.HBMessage] = hbSocket
 	fmt.Printf("Created HEARTBEAT socket for kernel \"%s\" with assigned port %d.\n", kernelId, hbSocket.Port)
 
 	zmqIoPub := zmq4.NewPub(context.Background())
-	ioPubSocket := messaging.NewSocket(zmqIoPub, ioPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
+	ioPubSocket := messaging.NewSocket(zmqIoPub, ioPort, messaging.IOMessage, fmt.Sprintf("Kernel%s-IOPub", kernelId))
 	sockets[messaging.IOMessage] = ioPubSocket
-	fmt.Printf("Created IOPUB socket for kernel \"%s\" with assigned port %d.\n", kernelId, ioPubSocket.Port)
+	fmt.Printf("Created IOPUB socket for kernel \"%s\" with assigned port %d.\n\n", kernelId, ioPubSocket.Port)
 
-	for socketType, socket := range sockets {
+	for _, socket := range sockets {
 		err = socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
+		socketType := socket.Type
 		if err != nil {
 			closeFunc()
 			return nil, nil, nil, err
 		}
 
-		fmt.Printf("Bound %s socket for kernel \"%s\" to port %d.\n", socketType.String(), kernelId, socket.Port)
+		fmt.Printf("\nBound %s socket for kernel \"%s\" to port %d.\n", socketType.String(), kernelId, socket.Port)
 
 		messageQueue := queue.NewThreadsafeFifo[*messaging.JupyterMessage](4)
 		messageQueues[socketType] = messageQueue
@@ -120,10 +121,18 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 		}
 
 		// Start handler.
-		go func(sock *messaging.Socket, messageQueue *queue.ThreadsafeFifo[*messaging.JupyterMessage]) {
+		go func(socketTyp messaging.MessageType, messageQueue *queue.ThreadsafeFifo[*messaging.JupyterMessage]) {
+			sock := sockets[socketTyp]
+			if sock == nil {
+				panic(fmt.Sprintf("nil %v socket", socketTyp))
+			}
+
 			defer closeSocket(sock)
 
 			numReceived := 0
+
+			fmt.Printf("\nServing %v socket on port %d for kernel \"%s\" now.\n\n",
+				sock.Type, sock.Port, kernelId)
 
 			for {
 				msg, recvErr := sock.Recv()
@@ -145,7 +154,7 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 
 				messageQueue.Enqueue(jMsg)
 			}
-		}(socket, messageQueue)
+		}(socketType, messageQueue)
 	}
 
 	return sockets, messageQueues, closeFunc, nil
@@ -192,80 +201,11 @@ var _ = Describe("Local Daemon Tests", func() {
 	Context("Newer Unit Tests", func() {
 		var (
 			localScheduler             *LocalScheduler
+			hostSpec                   *types.DecimalSpec
 			mockCtrl                   *gomock.Controller
 			mockedClusterGatewayClient *mock_proto.MockClusterGatewayClient
 			workloadId                 string
 		)
-
-		It("Will work with the sockets", func() {
-			sockets, messageQueues, closeFunc, err := createKernelSockets(17000, "TestId")
-			Expect(err).To(BeNil())
-			Expect(sockets).ToNot(BeNil())
-			defer closeFunc()
-
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sendMessage := func(msgType messaging.MessageType) {
-				dealer := messaging.NewSocket(zmq4.NewDealer(ctx), 0, msgType, "Dealer")
-				err = dealer.Listen(fmt.Sprintf("tcp://:%d", dealer.Port))
-				Expect(err).To(BeNil())
-
-				dealer.Port = dealer.Addr().(*net.TCPAddr).Port
-				Expect(dealer.Port > 0).To(BeTrue())
-
-				// Connect to the server
-				serverAddress := fmt.Sprintf("tcp://localhost:%d", sockets[msgType].Port)
-				err = dealer.Dial(serverAddress)
-				Expect(err).To(BeNil())
-
-				messageHeader := &messaging.MessageHeader{
-					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-					Username: "TestIdUser",
-					Session:  "TestIdSession",
-					Date:     "2024-04-03T22:55:52.605Z",
-					MsgType:  "sample_request",
-					Version:  "5.2",
-				}
-
-				unsignedFrames := [][]byte{
-					[]byte("<IDS|MSG>"),
-					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-					[]byte(""), /* Header */
-					[]byte(""), /* Parent headerKernel1*/
-					[]byte(fmt.Sprintf("{\"socket_type\": \"%s\"}", msgType.String())), /* Metadata */
-					[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
-				}
-				jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
-				err = jFrames.EncodeHeader(messageHeader)
-				Expect(err).To(BeNil())
-
-				msg := &zmq4.Msg{
-					Frames: jFrames.Frames,
-					Type:   zmq4.UsrMsg,
-				}
-
-				// Send a message to the server
-				err = dealer.Send(*msg)
-				Expect(err).To(BeNil())
-
-				fmt.Printf("Client sent %v message:\n%s\n", msgType, jFrames.StringFormatted())
-
-				Eventually(func() *messaging.JupyterMessage {
-					msgQueue := messageQueues[messaging.ControlMessage]
-					msg, ok := msgQueue.Peek()
-					if ok {
-						return msg
-					}
-
-					return nil
-				}, time.Millisecond*500, time.Millisecond*50).ShouldNot(BeNil())
-			}
-
-			sendMessage(messaging.ControlMessage)
-			sendMessage(messaging.ShellMessage)
-			sendMessage(messaging.StdinMessage)
-		})
 
 		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) *jupyter.ConnectionInfo {
 			var kernelInvoker invoker.KernelInvoker
@@ -369,6 +309,76 @@ var _ = Describe("Local Daemon Tests", func() {
 			return connInfo
 		}
 
+		It("Will work with the sockets", func() {
+			sockets, messageQueues, closeFunc, err := createKernelSockets(17000, "TestId")
+			Expect(err).To(BeNil())
+			Expect(sockets).ToNot(BeNil())
+			defer closeFunc()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sendMessage := func(msgType messaging.MessageType) {
+				dealer := messaging.NewSocket(zmq4.NewDealer(ctx), 0, msgType, "Dealer")
+				err = dealer.Listen(fmt.Sprintf("tcp://:%d", dealer.Port))
+				Expect(err).To(BeNil())
+
+				dealer.Port = dealer.Addr().(*net.TCPAddr).Port
+				Expect(dealer.Port > 0).To(BeTrue())
+
+				// Connect to the server
+				serverAddress := fmt.Sprintf("tcp://localhost:%d", sockets[msgType].Port)
+				err = dealer.Dial(serverAddress)
+				Expect(err).To(BeNil())
+
+				messageHeader := &messaging.MessageHeader{
+					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+					Username: "TestIdUser",
+					Session:  "TestIdSession",
+					Date:     "2024-04-03T22:55:52.605Z",
+					MsgType:  "sample_request",
+					Version:  "5.2",
+				}
+
+				unsignedFrames := [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent headerKernel1*/
+					[]byte(fmt.Sprintf("{\"socket_type\": \"%s\"}", msgType.String())), /* Metadata */
+					[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+				}
+				jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+				err = jFrames.EncodeHeader(messageHeader)
+				Expect(err).To(BeNil())
+
+				msg := &zmq4.Msg{
+					Frames: jFrames.Frames,
+					Type:   zmq4.UsrMsg,
+				}
+
+				// Send a message to the server
+				err = dealer.Send(*msg)
+				Expect(err).To(BeNil())
+
+				fmt.Printf("Client sent %v message:\n%s\n", msgType, jFrames.StringFormatted())
+
+				Eventually(func() *messaging.JupyterMessage {
+					msgQueue := messageQueues[messaging.ControlMessage]
+					msg, ok := msgQueue.Peek()
+					if ok {
+						return msg
+					}
+
+					return nil
+				}, time.Millisecond*500, time.Millisecond*50).ShouldNot(BeNil())
+			}
+
+			sendMessage(messaging.ControlMessage)
+			sendMessage(messaging.ShellMessage)
+			sendMessage(messaging.StdinMessage)
+		})
+
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 
@@ -420,6 +430,8 @@ var _ = Describe("Local Daemon Tests", func() {
 				err = os.Setenv(invoker.DockerInvokerKernelConnInfoIp, dockerInvokerKernelConnInfoIp)
 				Expect(err).To(BeNil())
 				Expect(os.Getenv(invoker.DockerInvokerKernelConnInfoIp)).To(Equal(dockerInvokerKernelConnInfoIp))
+
+				hostSpec = localScheduler.allocationManager.SpecResources()
 			})
 
 			AfterEach(func() {
@@ -560,6 +572,9 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				Expect(localScheduler).ToNot(BeNil())
 
+				allocationManager := localScheduler.allocationManager
+				Expect(allocationManager).ToNot(BeNil())
+
 				prewarmKernelId := uuid.NewString()
 				prewarmKernelKey := uuid.NewString()
 				workloadId = uuid.NewString()
@@ -636,6 +651,25 @@ var _ = Describe("Local Daemon Tests", func() {
 				kernelKey := uuid.NewString()
 				workloadId = uuid.NewString()
 				dataDirectory := uuid.NewString()
+
+				GinkgoWriter.Printf("allocationManager.IdleResources: %s\n",
+					allocationManager.IdleResources().String())
+				GinkgoWriter.Printf("allocationManager.PendingResources: %s\n",
+					allocationManager.PendingResources().String())
+				GinkgoWriter.Printf("allocationManager.CommittedResources: %s\n",
+					allocationManager.CommittedResources().String())
+				GinkgoWriter.Printf("hostSpec: %s\n", hostSpec.String())
+
+				Expect(allocationManager.NumPendingAllocations()).To(Equal(0))
+				Expect(allocationManager.NumAllocations()).To(Equal(0))
+				Expect(allocationManager.NumCommittedAllocations()).To(Equal(0))
+
+				Expect(allocationManager.KernelHasCommittedResources(kernelId)).To(BeFalse())
+				Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernelId)).To(BeFalse())
+				Expect(allocationManager.ReplicaHasCommittedResources(1, kernelId)).To(BeFalse())
+				Expect(allocationManager.ReplicaHasPendingGPUs(1, kernelId)).To(BeFalse())
+				Expect(allocationManager.PendingResources().Equals(hostSpec))
+				Expect(allocationManager.CommittedResources().IsZero()).To(BeTrue())
 
 				kernelSpec := &proto.KernelSpec{
 					Id:              kernelId,
@@ -773,7 +807,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				controlQueue := messageQueues[messaging.ControlMessage]
 				Expect(controlQueue).ToNot(BeNil())
 
-				promoteKernelRequestMsg, ok := controlQueue.Peek()
+				promoteKernelRequestMsg, ok := controlQueue.Dequeue()
 				Expect(ok).To(BeTrue())
 				Expect(promoteKernelRequestMsg).ToNot(BeNil())
 
@@ -808,6 +842,153 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				var promotionResp *proto.KernelConnectionInfo
 				Eventually(promotionRespChan, time.Second*3, time.Millisecond*250).Should(Receive(&promotionResp))
+
+				resourceSpecDecimal := resourceSpec.ToDecimalSpec()
+
+				GinkgoWriter.Printf("allocationManager.IdleResources: %s\n",
+					allocationManager.IdleResources().String())
+				GinkgoWriter.Printf("hostSpec: %s\n",
+					hostSpec.String())
+				GinkgoWriter.Printf("resourceSpecDecimal: %s\n",
+					resourceSpecDecimal.String())
+				GinkgoWriter.Printf("hostSpec.Subtract(resourceSpecDecimal): %s\n",
+					hostSpec.Subtract(resourceSpecDecimal).String())
+
+				Expect(allocationManager.NumPendingAllocations()).To(Equal(0))
+				Expect(allocationManager.NumAllocations()).To(Equal(1))
+				Expect(allocationManager.NumCommittedAllocations()).To(Equal(1))
+
+				Expect(allocationManager.PendingResources().Equals(resourceSpecDecimal))
+				Expect(allocationManager.IdleResources().Equals(hostSpec.Subtract(resourceSpecDecimal))).To(BeTrue())
+				Expect(allocationManager.IdleCPUs().Equals(hostSpec.Millicpus.Sub(resourceSpecDecimal.Millicpus))).To(BeTrue())
+				Expect(allocationManager.IdleMemoryMB().Equals(hostSpec.MemoryMb.Sub(resourceSpecDecimal.MemoryMb))).To(BeTrue())
+				Expect(allocationManager.IdleGPUs().Equals(hostSpec.GPUs.Sub(resourceSpecDecimal.GPUs))).To(BeTrue())
+				Expect(allocationManager.IdleVRamGB().Equals(hostSpec.VRam.Sub(resourceSpecDecimal.VRam))).To(BeTrue())
+				Expect(allocationManager.CommittedResources().IsZero()).To(BeFalse())
+				Expect(allocationManager.CommittedCPUs().Equals(resourceSpecDecimal.Millicpus)).To(BeTrue())
+				Expect(allocationManager.CommittedMemoryMB().Equals(resourceSpecDecimal.MemoryMb)).To(BeTrue())
+				Expect(allocationManager.CommittedGPUs().Equals(resourceSpecDecimal.GPUs)).To(BeTrue())
+				Expect(allocationManager.CommittedVRamGB().Equals(resourceSpecDecimal.VRam)).To(BeTrue())
+
+				gpuDeviceIds, err := allocationManager.GetGpuDeviceIdsAssignedToReplica(1, kernelId)
+				Expect(err).To(BeNil())
+				Expect(gpuDeviceIds).ToNot(BeNil())
+				Expect(len(gpuDeviceIds) == 2).To(BeTrue())
+
+				allocation, ok := allocationManager.GetAllocation(1, kernelId)
+				Expect(ok).To(BeTrue())
+				Expect(allocation).ToNot(BeNil())
+				Expect(allocation.GetKernelId()).To(Equal(kernelId))
+				Expect(allocation.GetReplicaId()).To(Equal(int32(1)))
+				Expect(allocation.GetMillicpus()).To(Equal(resourceSpec.CPU()))
+				Expect(allocation.GetMemoryMb()).To(Equal(resourceSpec.MemoryMB()))
+				Expect(allocation.GetGpus()).To(Equal(resourceSpec.GPU()))
+				Expect(allocation.GetVramGb()).To(Equal(resourceSpec.VRAM()))
+				Expect(allocation.ToDecimalSpec().Equals(resourceSpec)).To(BeTrue())
+				Expect(allocation.IsCommitted()).To(BeTrue())
+				Expect(allocation.IsPending()).To(BeFalse())
+				Expect(allocation.IsNonZero()).To(BeTrue())
+
+				Expect(allocationManager.KernelHasCommittedResources(kernelId)).To(BeTrue())
+				Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernelId)).To(BeTrue())
+				Expect(allocationManager.ReplicaHasCommittedResources(1, kernelId)).To(BeTrue())
+				Expect(allocationManager.ReplicaHasPendingGPUs(1, kernelId)).To(BeFalse())
+
+				By("Correctly stopping the kernel replica when instructed to do so")
+
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second*2)
+				defer stopCancel()
+
+				stopRespCan := make(chan struct{}, 1)
+
+				go func() {
+					restart := false
+
+					resp, err := localScheduler.StopKernel(stopCtx, &proto.KernelId{
+						Id:      kernelId,
+						Restart: &restart,
+					})
+
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					stopRespCan <- struct{}{}
+				}()
+
+				// Python kernel should receive "shutdown_request"
+				Eventually(func() *messaging.JupyterMessage {
+					controlQueue := messageQueues[messaging.ControlMessage]
+					Expect(controlQueue).ToNot(BeNil())
+
+					val, ok := controlQueue.Peek()
+					if ok {
+						return val
+					}
+
+					return nil
+				}, time.Second*4, time.Millisecond*250).ShouldNot(BeNil())
+
+				messageHeader = &messaging.MessageHeader{
+					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+					Username: kernelId,
+					Session:  kernelId,
+					Date:     "2024-04-03T22:55:52.605Z",
+					MsgType:  "shutdown_reply",
+					Version:  "5.2",
+				}
+
+				unsignedFrames = [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent headerKernel1*/
+					[]byte(""), /* Metadata */
+					[]byte(""),
+				}
+				jFrames = messaging.NewJupyterFramesFromBytes(unsignedFrames)
+				err = jFrames.EncodeHeader(messageHeader)
+				Expect(err).To(BeNil())
+
+				shutdownRequestMsg, ok := controlQueue.Dequeue()
+				Expect(ok).To(BeTrue())
+				Expect(shutdownRequestMsg).ToNot(BeNil())
+
+				msg = zmq4.Msg{
+					Frames: jFrames.Frames,
+					Type:   zmq4.UsrMsg,
+				}
+
+				identityFrames = nil
+				for idx, frame := range shutdownRequestMsg.JupyterFrames.Frames {
+					if bytes.Equal(frame, messaging.JupyterFrameIDSMSG) {
+						identityFrames = shutdownRequestMsg.JupyterFrames.Frames[0:idx]
+						break
+					}
+				}
+
+				Expect(identityFrames).ToNot(BeNil())
+				Expect(len(identityFrames)).To(Equal(2)) // the zmq identity and the dest.req thing.
+
+				jFrames.Frames = append(identityFrames, jFrames.Frames...)
+
+				msg = zmq4.Msg{
+					Frames: jFrames.Frames,
+					Type:   zmq4.UsrMsg,
+				}
+
+				err = controlSocket.Send(msg)
+				Expect(err).To(BeNil())
+
+				Eventually(stopRespCan, time.Millisecond*2250, time.Millisecond*250).Should(Receive())
+
+				Expect(allocationManager.NumPendingAllocations()).To(Equal(0))
+				Expect(allocationManager.NumAllocations()).To(Equal(0))
+				Expect(allocationManager.NumCommittedAllocations()).To(Equal(0))
+
+				Expect(allocationManager.KernelHasCommittedResources(kernelId)).To(BeFalse())
+				Expect(allocationManager.ReplicaHasCommittedGPUs(1, kernelId)).To(BeFalse())
+				Expect(allocationManager.ReplicaHasCommittedResources(1, kernelId)).To(BeFalse())
+				Expect(allocationManager.ReplicaHasPendingGPUs(1, kernelId)).To(BeFalse())
 			})
 		})
 	})

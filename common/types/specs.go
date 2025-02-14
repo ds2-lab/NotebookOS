@@ -157,10 +157,10 @@ func (d *DecimalSpec) Subtract(spec Spec) *DecimalSpec {
 	d2 := ToDecimalSpec(spec)
 
 	return &DecimalSpec{
+		Millicpus: d.Millicpus.Sub(d2.Millicpus),
+		MemoryMb:  d.MemoryMb.Sub(d2.MemoryMb),
 		GPUs:      d.GPUs.Sub(d2.GPUs),
 		VRam:      d.VRam.Sub(d2.VRam),
-		MemoryMb:  d.MemoryMb.Sub(d2.MemoryMb),
-		Millicpus: d.Millicpus.Sub(d2.Millicpus),
 	}
 }
 
