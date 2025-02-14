@@ -217,10 +217,10 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				messageHeader := &messaging.MessageHeader{
 					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-					Username: fmt.Sprintf("%s_execute_request", msgType.String()),
-					Session:  "TestId",
+					Username: "TestIdUser",
+					Session:  "TestIdSession",
 					Date:     "2024-04-03T22:55:52.605Z",
-					MsgType:  messaging.JupyterMessageType(fmt.Sprintf("%s_execute_request", msgType.String())),
+					MsgType:  "sample_request",
 					Version:  "5.2",
 				}
 
@@ -229,7 +229,7 @@ var _ = Describe("Local Daemon Tests", func() {
 					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
 					[]byte(""), /* Header */
 					[]byte(""), /* Parent headerKernel1*/
-					[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
+					[]byte(fmt.Sprintf("{\"socket_type\": \"%s\"}", msgType.String())), /* Metadata */
 					[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 				}
 				jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
