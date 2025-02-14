@@ -202,59 +202,65 @@ var _ = Describe("Local Daemon Tests", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			controlDealer := messaging.NewSocket(zmq4.NewDealer(ctx), 0, messaging.ControlMessage, "Dealer")
-			err = controlDealer.Listen(fmt.Sprintf("tcp://:%d", controlDealer.Port))
-			Expect(err).To(BeNil())
+			sendMessage := func(msgType messaging.MessageType) {
+				dealer := messaging.NewSocket(zmq4.NewDealer(ctx), 0, msgType, "Dealer")
+				err = dealer.Listen(fmt.Sprintf("tcp://:%d", dealer.Port))
+				Expect(err).To(BeNil())
 
-			controlDealer.Port = controlDealer.Addr().(*net.TCPAddr).Port
-			Expect(controlDealer.Port > 0).To(BeTrue())
+				dealer.Port = dealer.Addr().(*net.TCPAddr).Port
+				Expect(dealer.Port > 0).To(BeTrue())
 
-			// Connect to the server
-			serverAddress := fmt.Sprintf("tcp://localhost:%d", sockets[messaging.ControlMessage].Port)
-			err = controlDealer.Dial(serverAddress)
-			Expect(err).To(BeNil())
+				// Connect to the server
+				serverAddress := fmt.Sprintf("tcp://localhost:%d", sockets[msgType].Port)
+				err = dealer.Dial(serverAddress)
+				Expect(err).To(BeNil())
 
-			messageHeader := &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-				Username: "",
-				Session:  "TestId",
-				Date:     "2024-04-03T22:55:52.605Z",
-				MsgType:  "execute_request",
-				Version:  "5.2",
-			}
-
-			unsignedFrames := [][]byte{
-				[]byte("<IDS|MSG>"),
-				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-				[]byte(""), /* Header */
-				[]byte(""), /* Parent headerKernel1*/
-				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
-				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
-			}
-			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
-			err = jFrames.EncodeHeader(messageHeader)
-			Expect(err).To(BeNil())
-
-			msg := &zmq4.Msg{
-				Frames: jFrames.Frames,
-				Type:   zmq4.UsrMsg,
-			}
-
-			// Send a message to the server
-			err = controlDealer.Send(*msg)
-			Expect(err).To(BeNil())
-
-			fmt.Printf("Client sent:\n%s\n", jFrames.StringFormatted())
-
-			Eventually(func() *messaging.JupyterMessage {
-				msgQueue := messageQueues[messaging.ControlMessage]
-				msg, ok := msgQueue.Peek()
-				if ok {
-					return msg
+				messageHeader := &messaging.MessageHeader{
+					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+					Username: fmt.Sprintf("%s_execute_request", msgType.String()),
+					Session:  "TestId",
+					Date:     "2024-04-03T22:55:52.605Z",
+					MsgType:  messaging.JupyterMessageType(fmt.Sprintf("%s_execute_request", msgType.String())),
+					Version:  "5.2",
 				}
 
-				return nil
-			}, time.Millisecond*500, time.Millisecond*50).ShouldNot(BeNil())
+				unsignedFrames := [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent headerKernel1*/
+					[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
+					[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+				}
+				jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+				err = jFrames.EncodeHeader(messageHeader)
+				Expect(err).To(BeNil())
+
+				msg := &zmq4.Msg{
+					Frames: jFrames.Frames,
+					Type:   zmq4.UsrMsg,
+				}
+
+				// Send a message to the server
+				err = dealer.Send(*msg)
+				Expect(err).To(BeNil())
+
+				fmt.Printf("Client sent %v message:\n%s\n", msgType, jFrames.StringFormatted())
+
+				Eventually(func() *messaging.JupyterMessage {
+					msgQueue := messageQueues[messaging.ControlMessage]
+					msg, ok := msgQueue.Peek()
+					if ok {
+						return msg
+					}
+
+					return nil
+				}, time.Millisecond*500, time.Millisecond*50).ShouldNot(BeNil())
+			}
+
+			sendMessage(messaging.ControlMessage)
+			sendMessage(messaging.ShellMessage)
+			sendMessage(messaging.StdinMessage)
 		})
 
 		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) *jupyter.ConnectionInfo {
