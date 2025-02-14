@@ -399,7 +399,13 @@ class RedisProvider(RemoteStorageProvider):
             num_values=num_values_read
         )
 
-        self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+        units: str = "bytes"
+        if value_size > 1.0e6:
+            value_size = round(value_size / 1.0e6, 3)
+            units = "MB"
+
+        self.log.debug(f'Read value of size {value_size:,} {units} from Redis from key "{key}" '
+                       f'in {time_elapsed_ms:,} ms.')
 
         return value
 
@@ -470,7 +476,13 @@ class RedisProvider(RemoteStorageProvider):
             num_values=num_values_read
         )
 
-        self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+        units: str = "bytes"
+        if value_size > 1.0e6:
+            value_size = round(value_size / 1.0e6, 3)
+            units = "MB"
+
+        self.log.debug(f'Read value of size {value_size:,} {units} from Redis from key "{key}" '
+                       f'in {time_elapsed_ms:,} ms.')
 
         return value
 

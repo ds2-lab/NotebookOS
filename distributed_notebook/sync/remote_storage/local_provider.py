@@ -146,7 +146,12 @@ class LocalStorageProvider(RemoteStorageProvider):
             num_values=1
         )
 
-        self.log.debug(f'Read value of size {value_size} bytes from {self.storage_name} from key "{key}" '
+        units: str = "bytes"
+        if value_size > 1.0e6:
+            value_size = round(value_size / 1.0e6, 3)
+            units = "MB"
+
+        self.log.debug(f'Read value of size {value_size:,} {units} from {self.storage_name} from key "{key}" '
                        f'in {time_elapsed_ms:,} ms.')
 
         return value
