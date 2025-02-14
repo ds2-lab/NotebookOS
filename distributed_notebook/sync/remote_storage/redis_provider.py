@@ -169,7 +169,7 @@ class RedisProvider(RemoteStorageProvider):
             size_mb = size_bytes / 1.0e6
 
         chunks: List[ByteString] = split_bytes_buffer(value)  # Default chunk_size is 128MB.
-        chunk_sizes: List[str] = [f'{len(chunk) / 1.0e6:,} MB' for chunk in chunks]
+        chunk_sizes: List[str] = [f'{round(len(chunk) / 1.0e6, 3):,} MB' for chunk in chunks]
 
         self.log.debug(f'Split value of size {size_mb:,} MB to be stored at key '
                        f'"{key}" into {len(chunks)} chunks of size 128MB each. '
