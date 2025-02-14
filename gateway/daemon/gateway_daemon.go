@@ -2435,8 +2435,12 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	} else {
-		d.log.Info("Restarting %v...", kernel)
+		d.log.Info("Restarting kernel \"%s\".", kernel.ID())
 		kernel.BindSession(in.Session)
+
+		// If we're restarting the kernel, then the resource spec being used is probably outdated.
+		// So, we'll replace it with the current resource spec.
+		in.ResourceSpec = proto.ResourceSpecFromSpec(kernel.ResourceSpec())
 	}
 
 	d.kernelIdToKernel.Store(in.Id, kernel)
