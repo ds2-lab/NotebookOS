@@ -1,3 +1,4 @@
+import time
 import random
 from typing import Optional, Tuple, Any, Type, List, Dict
 
@@ -105,13 +106,24 @@ def get_model_and_dataset(
 
     if dataset_kwargs is not None:
         dataset_arguments.update(dataset_kwargs)
+
+    create_dataset_start: float = time.time()
+
     dataset = dataset_class(**dataset_arguments)
+
+    logger.debug(f'Created instance of "{category}" DataSet "{dataset_name}" '
+                 f'in {round((time.time() - create_dataset_start) * 1.0e3, 3):,} milliseconds.')
 
     # If this particular dataset has a 'model_constructor_args' method, then call it.
     if hasattr(dataset_class, "model_constructor_args"):
         model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
         model_arguments.update(model_constructor_args)
 
+    model_create_start: float = time.time()
+
     model = model_class(created_for_first_time=True, **model_arguments)
+
+    logger.debug(f'Created instance of "{category}" DeepLearningModel "{model_class.model_name()}" '
+                 f'in {round((time.time() - model_create_start) * 1.0e3, 3):,} milliseconds.')
 
     return model, dataset

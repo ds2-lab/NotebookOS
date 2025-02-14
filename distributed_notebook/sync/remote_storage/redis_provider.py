@@ -188,7 +188,7 @@ class RedisProvider(RemoteStorageProvider):
             num_values=len(chunks),
         )
 
-        self.log.debug(f'Wrote %d chunks with total size of {size_mb:,} MB '
+        self.log.debug(f'Wrote {len(chunks)} chunks with total size of {size_mb:,} MB '
                        f'to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
         return True
@@ -231,7 +231,7 @@ class RedisProvider(RemoteStorageProvider):
             num_values=len(chunks),
         )
 
-        self.log.debug(f'Wrote %d chunks with total size of {size_mb:,} MB '
+        self.log.debug(f'Wrote {len(chunks)} chunks with total size of {size_mb:,} MB '
                        f'to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
         return True
