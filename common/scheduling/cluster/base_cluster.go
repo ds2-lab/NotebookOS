@@ -1352,6 +1352,23 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	return nil
 }
 
+// GetHostEvenIfDisabled returns the Host with the given ID, if one exists, regardless of
+// whether the Host is enabled or disabled.
+func (c *BaseCluster) GetHostEvenIfDisabled(hostId string) (host scheduling.Host, enabled bool, err error) {
+	var loaded bool
+	host, loaded = c.hosts.Load(hostId)
+	if loaded {
+		return host, true, nil
+	}
+
+	host, loaded = c.DisabledHosts.Load(hostId)
+	if loaded {
+		return host, false, nil
+	}
+
+	return nil, false, fmt.Errorf("%w: host \"%s\"", scheduling.ErrHostNotFound, hostId)
+}
+
 // GetHost returns the host with the given ID, if one exists.
 func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 	return c.hosts.Load(hostId)

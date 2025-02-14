@@ -2896,7 +2896,20 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 
 	host, loaded := d.cluster.GetHost(hostId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
+		host, enabled, err := d.cluster.GetHostEvenIfDisabled(hostId)
+		if err != nil {
+			d.log.Error("Expected to find existing Host with ID \"%v\": %v", hostId, err)
+			panic(err)
+		}
+
+		d.log.Error("Registering replica %d of kernel %s on disabled host %s (ID=%s)...",
+			replicaId, kernelId, host.GetNodeName(), hostId)
+
+		errorTitle := fmt.Sprintf("Received Registration from Replica %d of Kernel \"%s\" On DISABLED Host %s (ID=%s)",
+			replicaId, kernelId, host.GetNodeName(), hostId)
+		d.notifyDashboardOfError(errorTitle, "")
+
+		return nil, status.Error(codes.Internal, fmt.Errorf("%w: cannot register kernel replica", scheduling.ErrHostDisabled).Error())
 	}
 
 	// If this is the first replica we're registering, then its ID should be 1.
@@ -4740,7 +4753,7 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 
 	err = d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest)
 	if err != nil {
-		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
+		d.log.Warn("Failed to update resource spec of kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
 

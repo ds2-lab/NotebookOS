@@ -3136,12 +3136,13 @@ func (d *LocalScheduler) updateKernelResourceSpec(kernel scheduling.KernelReplic
 		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
 	err := d.allocationManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
 	if err != nil {
-		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
+		d.log.Warn("Failed to adjust pending resources assigned to kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
 
 	err = kernel.UpdateResourceSpec(newSpec, nil)
 	if err != nil {
+		// This should succeed.
 		d.log.Error("Failed to update kernel %s's resource spec to [%v]: %v", kernel.ID(), newSpec, err)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*90)
