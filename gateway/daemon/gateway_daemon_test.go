@@ -1928,6 +1928,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 
 			mockedKernel.EXPECT().ReplicasAreScheduled().Times(2).Return(false)
+			mockedKernel.EXPECT().BindSession(gomock.Any()).Times(1)
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
 
@@ -2948,36 +2949,36 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 		// This is used to check that the ClusterStatistics is reporting the correct resource counts.
 		assertClusterResourceCounts := func(stats *metrics.ClusterStatistics, expectDiff bool, clusterSize int) {
-			Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
-			Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
-			Expect(stats.PendingGPUs).To(Equal(0.0))
-			Expect(stats.CommittedGPUs).To(Equal(0.0))
+			Expect(stats.IdleGPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.SpecGPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.PendingGPUs.Load()).To(Equal(0.0))
+			Expect(stats.CommittedGPUs.Load()).To(Equal(0.0))
 
-			Expect(stats.IdleCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
-			Expect(stats.SpecCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
-			Expect(stats.PendingCPUs).To(Equal(0.0))
-			Expect(stats.CommittedCPUs).To(Equal(0.0))
+			Expect(stats.IdleCPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.SpecCPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.PendingCPUs.Load()).To(Equal(0.0))
+			Expect(stats.CommittedCPUs.Load()).To(Equal(0.0))
 
-			Expect(stats.IdleVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
-			Expect(stats.SpecVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
-			Expect(stats.PendingVRAM).To(Equal(0.0))
-			Expect(stats.CommittedVRAM).To(Equal(0.0))
+			Expect(stats.IdleVRAM.Load()).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.SpecVRAM.Load()).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.PendingVRAM.Load()).To(Equal(0.0))
+			Expect(stats.CommittedVRAM.Load()).To(Equal(0.0))
 
-			Expect(stats.IdleMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
-			Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
-			Expect(stats.PendingMemory).To(Equal(0.0))
-			Expect(stats.CommittedMemory).To(Equal(0.0))
+			Expect(stats.IdleMemory.Load()).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.SpecMemory.Load()).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.PendingMemory.Load()).To(Equal(0.0))
+			Expect(stats.CommittedMemory.Load()).To(Equal(0.0))
 
 			if expectDiff {
-				Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs))
-				Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory))
-				Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs))
-				Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM))
+				Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs.Load()))
+				Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory.Load()))
+				Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs.Load()))
+				Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM.Load()))
 			} else {
-				Expect(lastSpecCpu).To(Equal(stats.SpecCPUs))
-				Expect(lastSpecMem).To(Equal(stats.SpecMemory))
-				Expect(lastSpecGpu).To(Equal(stats.SpecGPUs))
-				Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
+				Expect(lastSpecCpu).To(Equal(stats.SpecCPUs.Load()))
+				Expect(lastSpecMem).To(Equal(stats.SpecMemory.Load()))
+				Expect(lastSpecGpu).To(Equal(stats.SpecGPUs.Load()))
+				Expect(lastSpecVram).To(Equal(stats.SpecVRAM.Load()))
 			}
 
 			lastSpecCpu = stats.SpecCPUs.Load()
@@ -4093,6 +4094,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
 				kernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
 				kernel.EXPECT().RecordContainerCreated(false).AnyTimes()
+				kernel.EXPECT().BindSession(gomock.Any()).Times(1)
 
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)

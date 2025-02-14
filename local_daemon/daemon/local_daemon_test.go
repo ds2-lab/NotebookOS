@@ -14,6 +14,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
@@ -29,6 +30,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
+	"net"
 	"os"
 	"path"
 	"strings"
@@ -53,8 +55,9 @@ var (
 // createKernelSockets creates a control, shell, stdin, heartbeat, and iopub socket.
 //
 // The sockets bind to (i.e., listen on) startingPort, startingPort + 1, ..., respectively.
-func createKernelSockets(startingPort int, kernelId string) (sockets map[messaging.MessageType]*messaging.Socket, closeFunc func(), err error) {
+func createKernelSockets(startingPort int, kernelId string) (sockets map[messaging.MessageType]*messaging.Socket, messageQueues map[messaging.MessageType]*queue.ThreadsafeFifo[*messaging.JupyterMessage], closeFunc func(), err error) {
 	sockets = make(map[messaging.MessageType]*messaging.Socket)
+	messageQueues = make(map[messaging.MessageType]*queue.ThreadsafeFifo[*messaging.JupyterMessage])
 
 	closeFunc = func() {
 		for _, socket := range sockets {
@@ -71,54 +74,77 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 	zmqControl := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("control")))
 	controlSocket := messaging.NewSocket(zmqControl, controlPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.ControlMessage] = controlSocket
-	err = controlSocket.Listen(fmt.Sprintf("tcp://:%d", controlSocket.Port))
-	if err != nil {
-		defer closeFunc()
-		return nil, nil, err
-	}
-	fmt.Printf("Created and bound CONTROL socket for kernel \"%s\" to port %d.\n", kernelId, controlSocket.Port)
+	fmt.Printf("Created CONTROL socket for kernel \"%s\" with assigned port %d.\n", kernelId, controlSocket.Port)
 
 	zmqShell := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("shell")))
 	shellSocket := messaging.NewSocket(zmqShell, shellPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.ShellMessage] = shellSocket
-	err = shellSocket.Listen(fmt.Sprintf("tcp://:%d", shellSocket.Port))
-	if err != nil {
-		defer closeFunc()
-		return nil, nil, err
-	}
-	fmt.Printf("Created and bound SHELL socket for kernel \"%s\" to port %d.\n", kernelId, shellSocket.Port)
+	fmt.Printf("Created SHELL socket for kernel \"%s\" with assigned port %d.\n", kernelId, shellSocket.Port)
 
 	zmqStdin := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("stdin")))
 	stdinSocket := messaging.NewSocket(zmqStdin, stdinPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.StdinMessage] = stdinSocket
-	err = stdinSocket.Listen(fmt.Sprintf("tcp://:%d", stdinSocket.Port))
-	if err != nil {
-		defer closeFunc()
-		return nil, nil, err
-	}
-	fmt.Printf("Created and bound STDIN socket for kernel \"%s\" to port %d.\n", kernelId, stdinSocket.Port)
+	fmt.Printf("Created STDIN socket for kernel \"%s\" with assigned port %d.\n", kernelId, stdinSocket.Port)
 
 	zmqHeartbeat := zmq4.NewRep(context.Background())
 	hbSocket := messaging.NewSocket(zmqHeartbeat, hbPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.HBMessage] = hbSocket
-	err = hbSocket.Listen(fmt.Sprintf("tcp://:%d", hbSocket.Port))
-	if err != nil {
-		defer closeFunc()
-		return nil, nil, err
-	}
-	fmt.Printf("Created and bound HEARTBEAT socket for kernel \"%s\" to port %d.\n", kernelId, hbSocket.Port)
+	fmt.Printf("Created HEARTBEAT socket for kernel \"%s\" with assigned port %d.\n", kernelId, hbSocket.Port)
 
 	zmqIoPub := zmq4.NewPub(context.Background())
 	ioPubSocket := messaging.NewSocket(zmqIoPub, ioPort, messaging.ShellMessage, fmt.Sprintf("Kernel%s-Shell", kernelId))
 	sockets[messaging.IOMessage] = ioPubSocket
-	err = ioPubSocket.Listen(fmt.Sprintf("tcp://:%d", ioPubSocket.Port))
-	if err != nil {
-		defer closeFunc()
-		return nil, nil, err
-	}
-	fmt.Printf("Created and bound IOPUB socket for kernel \"%s\" to port %d.\n", kernelId, ioPubSocket.Port)
+	fmt.Printf("Created IOPUB socket for kernel \"%s\" with assigned port %d.\n", kernelId, ioPubSocket.Port)
 
-	return sockets, closeFunc, nil
+	for socketType, socket := range sockets {
+		err = socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
+		if err != nil {
+			closeFunc()
+			return nil, nil, nil, err
+		}
+
+		fmt.Printf("Bound %s socket for kernel \"%s\" to port %d.\n", socketType.String(), kernelId, socket.Port)
+
+		messageQueue := queue.NewThreadsafeFifo[*messaging.JupyterMessage](4)
+		messageQueues[socketType] = messageQueue
+
+		closeSocket := func(sock *messaging.Socket) {
+			_ = sock.Close()
+		}
+
+		// Start handler.
+		go func(sock *messaging.Socket, messageQueue *queue.ThreadsafeFifo[*messaging.JupyterMessage]) {
+			defer closeSocket(sock)
+
+			numReceived := 0
+
+			for {
+				msg, recvErr := sock.Recv()
+				if recvErr != nil {
+					fmt.Printf("Error while reading/receiving from %v socket for kernel \"%s\": %v",
+						sock.Type, kernelId, recvErr)
+
+					_ = sock.Close()
+					return
+				}
+
+				//fmt.Printf("Received %v message #%d for kernel \"%s\":\n%s",
+				//	sock.Type, numReceived, kernelId, msg.String())
+
+				numReceived += 1
+				jMsg := messaging.NewJupyterMessage(&msg)
+				msgType := jMsg.JupyterMessageType()
+				msgId := jMsg.JupyterMessageId()
+
+				fmt.Printf("Received %v message #%d with MsgType=\"%s\" and MsgId=\"%s\" for kernel \"%s\":\n%s",
+					sock.Type, numReceived, msgType, msgId, kernelId, jMsg.StringFormatted())
+
+				messageQueue.Enqueue(jMsg)
+			}
+		}(socket, messageQueue)
+	}
+
+	return sockets, messageQueues, closeFunc, nil
 }
 
 func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *LocalScheduler, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica, updatedResourceSpec *types.Float64Spec) *messaging.JupyterMessage {
@@ -167,12 +193,69 @@ var _ = Describe("Local Daemon Tests", func() {
 			workloadId                 string
 		)
 
-		//It("Will work with the sockets", func() {
-		//	sockets, closeFunc, err := createKernelSockets(17000, "TestId")
-		//	Expect(err).To(BeNil())
-		//	Expect(sockets).ToNot(BeNil())
-		//	defer closeFunc()
-		//})
+		It("Will work with the sockets", func() {
+			sockets, messageQueues, closeFunc, err := createKernelSockets(17000, "TestId")
+			Expect(err).To(BeNil())
+			Expect(sockets).ToNot(BeNil())
+			defer closeFunc()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			controlDealer := messaging.NewSocket(zmq4.NewDealer(ctx), 0, messaging.ControlMessage, "Dealer")
+			err = controlDealer.Listen(fmt.Sprintf("tcp://:%d", controlDealer.Port))
+			Expect(err).To(BeNil())
+
+			controlDealer.Port = controlDealer.Addr().(*net.TCPAddr).Port
+			Expect(controlDealer.Port > 0).To(BeTrue())
+
+			// Connect to the server
+			serverAddress := fmt.Sprintf("tcp://localhost:%d", sockets[messaging.ControlMessage].Port)
+			err = controlDealer.Dial(serverAddress)
+			Expect(err).To(BeNil())
+
+			messageHeader := &messaging.MessageHeader{
+				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+				Username: "",
+				Session:  "TestId",
+				Date:     "2024-04-03T22:55:52.605Z",
+				MsgType:  "execute_request",
+				Version:  "5.2",
+			}
+
+			unsignedFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent headerKernel1*/
+				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+			err = jFrames.EncodeHeader(messageHeader)
+			Expect(err).To(BeNil())
+
+			msg := &zmq4.Msg{
+				Frames: jFrames.Frames,
+				Type:   zmq4.UsrMsg,
+			}
+
+			// Send a message to the server
+			err = controlDealer.Send(*msg)
+			Expect(err).To(BeNil())
+
+			fmt.Printf("Client sent:\n%s\n", jFrames.StringFormatted())
+
+			Eventually(func() *messaging.JupyterMessage {
+				msgQueue := messageQueues[messaging.ControlMessage]
+				msg, ok := msgQueue.Peek()
+				if ok {
+					return msg
+				}
+
+				return nil
+			}, time.Millisecond*500, time.Millisecond*50).ShouldNot(BeNil())
+		})
 
 		callRegisterKernel := func(kernelId, kernelKey string, resourceSpec *proto.ResourceSpec, prewarmContainer bool, replicaId, numReplicas int32) *jupyter.ConnectionInfo {
 			var kernelInvoker invoker.KernelInvoker
@@ -344,7 +427,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				workloadId = uuid.NewString()
 				dataDirectory := uuid.NewString()
 
-				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
+				sockets, _, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
 				Expect(err).To(BeNil())
 				Expect(sockets).ToNot(BeNil())
 				Expect(len(sockets) == 5).To(BeTrue())
@@ -407,7 +490,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				workloadId = uuid.NewString()
 				dataDirectory := uuid.NewString()
 
-				sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
+				sockets, _, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
 				Expect(err).To(BeNil())
 				Expect(sockets).ToNot(BeNil())
 				Expect(len(sockets) == 5).To(BeTrue())
