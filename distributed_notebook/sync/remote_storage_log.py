@@ -283,7 +283,7 @@ class RemoteStorageLog(object):
 
         data = pickle.dumps(data)
 
-        await self.storage_provider.write_value_async(key, data)
+        await self.storage_provider.write_value_async(key, data, size_bytes = len(data))
         time_elapsed: float = time.time() - start_time
 
         self.log.debug(f'Wrote RemoteStorageLog metadata for term {term_number} with {len(self._variables_written)} '
@@ -404,7 +404,7 @@ class RemoteStorageLog(object):
 
         data = pickle.dumps(val)
 
-        await self.storage_provider.write_value_async(key, data)
+        await self.storage_provider.write_value_async(key, data, size_bytes = len(data))
         time_elapsed: float = time.time() - start_time
 
         self._num_changes += 1
