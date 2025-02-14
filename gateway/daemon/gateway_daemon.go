@@ -2898,12 +2898,16 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	if !loaded {
 		host, enabled, err := d.cluster.GetHostEvenIfDisabled(hostId)
 		if err != nil {
-			d.log.Error("Expected to find existing Host with ID \"%v\": %v", hostId, err)
+			d.log.Error("Expected to find existing Host (enabled or disabled) with ID \"%v\": %v", hostId, err)
 			panic(err)
 		}
 
-		d.log.Error("Registering replica %d of kernel %s on disabled host %s (ID=%s)...",
-			replicaId, kernelId, host.GetNodeName(), hostId)
+		if !enabled {
+			d.log.Error("Registering replica %d of kernel %s on disabled host %s (ID=%s)...",
+				replicaId, kernelId, host.GetNodeName(), hostId)
+		} else {
+			panic("what is going on")
+		}
 
 		errorTitle := fmt.Sprintf("Received Registration from Replica %d of Kernel \"%s\" On DISABLED Host %s (ID=%s)",
 			replicaId, kernelId, host.GetNodeName(), hostId)
