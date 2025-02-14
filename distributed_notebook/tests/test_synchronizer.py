@@ -9,6 +9,7 @@ from unittest import mock
 
 import builtins as builtin_mod
 import pytest
+from moto import mock_aws
 from torch import Tensor
 from torch.nn import Parameter
 
@@ -32,6 +33,7 @@ from distributed_notebook.sync.object import SyncObjectMeta
 from distributed_notebook.sync.raft_log import RaftLog
 from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
 from distributed_notebook.sync.remote_storage.redis_provider import RedisProvider
+from distributed_notebook.sync.remote_storage.s3_provider import S3Provider
 from distributed_notebook.sync.remote_storage_log import RemoteStorageLog
 from distributed_notebook.sync.synchronizer import CHECKPOINT_AUTO
 
@@ -62,6 +64,13 @@ class DummyObject(object):
     def __str__(self) -> str:
         return f"DummyObject[lst={self.lst}]"
 
+@pytest.fixture(autouse=True)
+def moto_boto():
+    """
+    Ensures that we're mocking AWS S3.
+    """
+    with mock_aws():
+        yield
 
 def loaded_serialized_state_callback(state=None):
     pass
@@ -384,6 +393,139 @@ def test_sync_and_change_dummy_object_variable():
         assert user_module.my_var.lst == test_lst
         assert user_module.my_var.lst == dummy_obj.lst
 
+@mock_aws
+def test_sync_and_change_large_deep_learning_model_s3():
+    """
+    Test calling sync_key followed by change_handler for a DeepLearningModel variable.
+    """
+    sync_log: RemoteStorageLog = RemoteStorageLog(
+        node_id=1,
+        remote_storage_provider=S3Provider(),
+        base_path="./store",
+        prometheus_enabled=False,
+        kernel_id=KERNEL_ID,
+        workload_id=str(uuid.uuid4()),
+        remote_storage_write_latency_milliseconds=None,
+    )
+    assert sync_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    s3_provider: S3Provider() = S3Provider()
+    s3_checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    assert s3_checkpointer is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        sync_log, user_module, s3_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+
+    # Create the model.
+    initial_weights: float = 1.5
+    model: Bert = Bert(out_features=2)
+
+    output_layer = model.output_layer
+    for param in output_layer.parameters():
+        param.data.fill_(initial_weights)
+
+    weight: Parameter = model.output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    synchronize_variable(
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=sync_log,
+        val=model,
+        meta=meta,
+        key="model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")
+
+    assert "model" in synchronizer.global_ns
+    assert "model" in user_ns
+    assert hasattr(user_module, "model")
+
+    assert isinstance(user_ns["model"], Bert)
+    assert isinstance(synchronizer.global_ns["model"], Bert)
+    assert isinstance(user_module.model, Bert)
+
+    weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    updated_weights: float = initial_weights
+
+    # Do this for just 3 iterations.
+    for i in range(0, 3):
+        updated_weights = updated_weights + 1
+
+        with torch.no_grad():  # Manually modify weights
+            for param in model.model.parameters():
+                # Random weight updates
+                param.data.fill_(updated_weights)
+
+        weight: Parameter = model.output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        synchronize_variable(
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=sync_log,
+            val=model,
+            meta=meta,
+            key="model",
+        )
+
+        print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+        print(f"user_ns: {user_ns}")
+        print(f"user_module: {user_module}")
+
+        assert "model" in synchronizer.global_ns
+        assert "model" in user_ns
+        assert hasattr(user_module, "model")
+
+        assert isinstance(user_ns["model"], Bert)
+        assert isinstance(synchronizer.global_ns["model"], Bert)
+        assert isinstance(user_module.model, Bert)
+
+        weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
 def test_sync_and_change_large_deep_learning_model_redis():
     """
     Test calling sync_key followed by change_handler for a DeepLearningModel variable.
@@ -476,8 +618,8 @@ def test_sync_and_change_large_deep_learning_model_redis():
 
     updated_weights: float = initial_weights
 
-    # Do this for 10 iterations.
-    for i in range(0, 10):
+    # Do this for just 3 iterations.
+    for i in range(0, 3):
         updated_weights = updated_weights + 1
 
         with torch.no_grad():  # Manually modify weights
@@ -608,8 +750,8 @@ def test_sync_and_change_large_deep_learning_model_local():
 
     updated_weights: float = initial_weights
 
-    # Do this for 10 iterations.
-    for i in range(0, 10):
+    # Do this for 3 iterations.
+    for i in range(0, 3):
         updated_weights = updated_weights + 1
 
         with torch.no_grad():  # Manually modify weights

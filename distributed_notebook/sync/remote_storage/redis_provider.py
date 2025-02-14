@@ -176,7 +176,10 @@ class RedisProvider(RemoteStorageProvider):
                        f'Actual chunk sizes: {",".join(chunk_sizes)}')
 
         start_time: float = time.time()
-        await self._async_redis.lpush(key, *chunks)
+
+        # Reverse order, so when we read it via lrange, we read it in the right order.
+        await self._async_redis.lpush(key, *chunks[::-1])
+
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
@@ -219,7 +222,10 @@ class RedisProvider(RemoteStorageProvider):
                        f'Actual chunk sizes: {",".join(chunk_sizes)}')
 
         start_time: float = time.time()
-        self._redis.lpush(key, *chunks)
+
+        # Reverse order, so when we read it via lrange, we read it in the right order.
+        self._redis.lpush(key, *chunks[::-1])
+
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)

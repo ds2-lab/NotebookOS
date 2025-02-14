@@ -164,7 +164,7 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
+            self.log.debug(f'Read {sys.getsizeof(val):,} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
@@ -210,7 +210,7 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
+            self.log.debug(f'Read {sys.getsizeof(val):,} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "

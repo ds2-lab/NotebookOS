@@ -102,12 +102,12 @@ class S3Provider(RemoteStorageProvider):
         if size_bytes <= 0:
             if isinstance(value, str):
                 value = value.encode('utf-8')
-                value_size: int = len(value)
+                size_bytes = len(value)
             elif isinstance(value, io.BytesIO):
                 value = value.getbuffer()
-                value_size: int = value.nbytes
+                size_bytes = value.nbytes
             else:
-                value_size: int = sys.getsizeof(value)
+                size_bytes = sys.getsizeof(value)
 
         async with self._aio_session.client('s3') as s3:
             try:
@@ -115,17 +115,17 @@ class S3Provider(RemoteStorageProvider):
                 await s3.upload_fileobj(Fileobj=io.BytesIO(value), Bucket=self._bucket_name, Key=key)
                 time_elapsed: float = time.time() - start_time
             except Exception as e:
-                self.log.error(f'Error uploading data of size {value_size} bytes '
+                self.log.error(f'Error uploading data of size {size_bytes} bytes '
                                f'to AWS S3 bucket/key "{self._bucket_name}/{key}": {e}')
                 return False
 
-        self.log.debug(f'{value_size} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
+        self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
                        f'in {round(time_elapsed, 3):,}ms.')
 
         # Update internal metrics.
         self.update_write_stats(
             time_elapsed_ms=time_elapsed,
-            size_bytes=value_size,
+            size_bytes=size_bytes,
             num_values=1
         )
 
@@ -147,29 +147,29 @@ class S3Provider(RemoteStorageProvider):
         if size_bytes <= 0:
             if isinstance(value, str):
                 value = value.encode('utf-8')
-                value_size: int = len(value)
+                size_bytes = len(value)
             elif isinstance(value, io.BytesIO):
                 value = value.getbuffer()
-                value_size: int = value.nbytes
+                size_bytes = value.nbytes
             else:
-                value_size: int = sys.getsizeof(value)
+                size_bytes = sys.getsizeof(value)
 
         try:
             start_time: float = time.time()
             self._s3_client.upload_fileobj(Fileobj=io.BytesIO(value), Bucket=self._bucket_name, Key=key)
             time_elapsed: float = time.time() - start_time
         except Exception as e:
-            self.log.error(f'Error uploading data of size {value_size} bytes '
+            self.log.error(f'Error uploading data of size {size_bytes} bytes '
                            f'to AWS S3 bucket/key "{self._bucket_name}/{key}": {e}')
             return False
 
-        self.log.debug(f'{value_size} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
+        self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
                        f'in {round(time_elapsed, 3):,}ms.')
 
         # Update internal metrics.
         self.update_write_stats(
             time_elapsed_ms=time_elapsed,
-            size_bytes=value_size,
+            size_bytes=size_bytes,
             num_values=1
         )
 
