@@ -14,7 +14,7 @@ handler.setFormatter(colored_log_formatter)
 
 # Get the root logger and add the handler
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
+# root_logger.setLevel(logging.DEBUG)
 root_logger.addHandler(handler)
 
 import faulthandler

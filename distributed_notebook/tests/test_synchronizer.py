@@ -37,6 +37,80 @@ from distributed_notebook.sync.remote_storage.s3_provider import S3Provider
 from distributed_notebook.sync.remote_storage_log import RemoteStorageLog
 from distributed_notebook.sync.synchronizer import CHECKPOINT_AUTO
 
+from collections.abc import Awaitable, Callable, Iterator
+from dataclasses import dataclass
+from typing import Any, TypeVar
+
+import aiobotocore
+import aiobotocore.endpoint
+import aiobotocore.httpchecksum
+import aiobotocore.response
+import botocore.awsrequest
+import botocore.httpchecksum
+
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+# Need to batch
+# https://github.com/aio-libs/aiobotocore/issues/755#issuecomment-2602810530
+
+@dataclass
+class _PatchedAWSResponseContent:
+    """Patched version of `botocore.awsrequest.AWSResponse.content`"""
+
+    content: bytes | Awaitable[bytes]
+
+    def __await__(self) -> Iterator[bytes]:
+        async def _generate_async() -> bytes:
+            if isinstance(self.content, Awaitable):
+                return await self.content
+            else:
+                return self.content
+
+        return _generate_async().__await__()
+
+    def decode(self, encoding: str) -> str:
+        assert isinstance(self.content, bytes)
+        return self.content.decode(encoding)
+
+
+class PatchedAWSResponse:
+    """Patched version of `botocore.awsrequest.AWSResponse`"""
+
+    def __init__(self, response: botocore.awsrequest.AWSResponse) -> None:
+        self._response = response
+        self.status_code = response.status_code
+        self.content = _PatchedAWSResponseContent(response.content)
+        self.raw = response.raw
+        if not hasattr(self.raw, "raw_headers"):
+            self.raw.raw_headers = {}
+
+
+def _factory(
+        original: Callable[[botocore.awsrequest.AWSResponse, T], Awaitable[R]],
+) -> Callable[[botocore.awsrequest.AWSResponse, T], Awaitable[R]]:
+    """Factory for patching `aiobotocore.endpoint.convert_to_response_dict`"""
+
+    async def patched_convert_to_response_dict(http_response: botocore.awsrequest.AWSResponse, operation_model: T) -> R:
+        return await original(PatchedAWSResponse(http_response), operation_model)  # type: ignore[arg-type]
+
+    return patched_convert_to_response_dict
+
+
+aiobotocore.endpoint.convert_to_response_dict = _factory(aiobotocore.endpoint.convert_to_response_dict)  # type: ignore[assignment]
+
+
+async def _patched_read(self: aiobotocore.response.StreamingBody, _amt: Any = None) -> Any:
+    """Patched version of `aiobotocore.response.StreamingBody.read`"""
+    return self.__wrapped__.read()
+
+
+aiobotocore.response.StreamingBody.read = _patched_read  # type: ignore[assignment]
+
+# Remove the async version of the function, which is not compatible with Moto.
+del aiobotocore.httpchecksum.AioAwsChunkedWrapper._make_chunk  # noqa: SLF001
+
 example_data: dict[str, Any] = {
     "Name": ["Alice", "Bob", "Charlie", "Dave"],
     "Age": [25, 32, 22, 45],
@@ -393,6 +467,16 @@ def test_sync_and_change_dummy_object_variable():
         assert user_module.my_var.lst == test_lst
         assert user_module.my_var.lst == dummy_obj.lst
 
+async def mocked_s3_provider_write_value_async(s3_provider: S3Provider, key: str, value: Any, size_bytes:int = -1):
+    return s3_provider.write_value(key, value, size_bytes)
+
+async def mocked_s3_provider_read_value_async(s3_provider: S3Provider, key: str):
+    return s3_provider.read_value(key)
+
+@mock.patch.object(distributed_notebook.sync.remote_storage.s3_provider.S3Provider, "write_value_async",
+                   mocked_s3_provider_write_value_async)
+@mock.patch.object(distributed_notebook.sync.remote_storage.s3_provider.S3Provider, "read_value_async",
+                   mocked_s3_provider_read_value_async)
 @mock_aws
 def test_sync_and_change_large_deep_learning_model_s3():
     """
@@ -437,6 +521,8 @@ def test_sync_and_change_large_deep_learning_model_s3():
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
+
+    model.requires_checkpointing = True
 
     synchronize_variable(
         io_loop=io_loop,
@@ -489,6 +575,8 @@ def test_sync_and_change_large_deep_learning_model_s3():
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
+
+        model.requires_checkpointing = True
 
         synchronize_variable(
             io_loop=io_loop,
@@ -580,6 +668,8 @@ def test_sync_and_change_large_deep_learning_model_redis():
         for w in weight_vector:
             assert w == initial_weights
 
+    model.requires_checkpointing = True
+
     synchronize_variable(
         io_loop=io_loop,
         synchronizer=synchronizer,
@@ -631,6 +721,8 @@ def test_sync_and_change_large_deep_learning_model_redis():
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
+
+        model.requires_checkpointing = True
 
         synchronize_variable(
             io_loop=io_loop,
@@ -712,6 +804,8 @@ def test_sync_and_change_large_deep_learning_model_local():
         for w in weight_vector:
             assert w == initial_weights
 
+    model.requires_checkpointing = True
+
     synchronize_variable(
         io_loop=io_loop,
         synchronizer=synchronizer,
@@ -763,6 +857,8 @@ def test_sync_and_change_large_deep_learning_model_local():
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
+
+        model.requires_checkpointing = True
 
         synchronize_variable(
             io_loop=io_loop,

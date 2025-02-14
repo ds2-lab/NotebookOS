@@ -708,6 +708,7 @@ class Synchronizer:
                     f'DeepLearningModel for variable "{model_pointer.user_namespace_variable_name}" '
                     f'("{key}"): {value_error}'
                 )
+                raise value_error # re-raise
 
             self.log.debug(f'Finished writing state dictionaries of model "{val.name}" '
                            f'variable "{key}" to remote storage.')

@@ -128,6 +128,13 @@ class DeepLearningModel(ABC):
         """
         return self._requires_checkpointing
 
+    @requires_checkpointing.setter
+    def requires_checkpointing(self, requires_checkpointing: bool):
+        """
+        Return a bool indicating whether this model has updated state that needs to be checkpointed.
+        """
+        self._requires_checkpointing = requires_checkpointing
+
     @property
     def cpu_to_gpu_times(self) -> list[float]:
         """
