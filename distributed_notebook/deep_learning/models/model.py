@@ -399,13 +399,18 @@ class DeepLearningModel(ABC):
                     self.log.debug("Computed outputs. Computing loss now.")
                     loss_st: float = time.time()
                     loss = self._criterion(outputs, labels)
-                    self.log.debug("Computed loss")
 
                 # Backward pass and optimization
                 loss.backward()
                 loss_et: float = time.time()
+                self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms: {loss.item()}")
+
+                opt_step_st: float = time.time()
                 self._optimizer.step()
                 forward_pass_end: float = time.time()
+
+                self.log.debug(f"\tPerformed optimizer step in "
+                               f"{round((forward_pass_end - opt_step_st) * 1.0e3, 3):,} ms.")
 
                 # Add this line to clear grad tensors
                 self._optimizer.zero_grad(set_to_none=True)
@@ -422,7 +427,6 @@ class DeepLearningModel(ABC):
                                f"Time elapsed: {round(time_elapsed_ms, 6):,} / "
                                f"{round(target_training_duration_millis, 3)} ms "
                                f"({round((time_elapsed_ms / target_training_duration_millis) * 100.0, 2):,}%).")
-                self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms.")
 
                 if self.gpu_available:
                     del samples

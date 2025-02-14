@@ -67,6 +67,10 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
         assert image_size > 0
         assert batch_size > 0
 
+        self.log.debug(f'Creating Tiny ImageNet dataset with root directory "{root_dir}", batch size = {batch_size}, '
+                       f'shuffle = {shuffle}, number of workers = {num_workers}, '
+                       f'and image size = ({image_size}, {image_size}).')
+
         super().__init__(
             root_dir=root_dir,
             shuffle=shuffle,
@@ -75,10 +79,6 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             hugging_face_dataset_config_name=TinyImageNet.hugging_face_dataset_config_name,
             **kwargs
         )
-
-        self.log.debug(f'Creating Tiny ImageNet dataset with root directory "{root_dir}", batch size = {batch_size}, '
-                       f'shuffle = {shuffle}, number of workers = {num_workers}, '
-                       f'and image size = ({image_size}, {image_size}).')
 
         self.transform = transforms.Compose([
             transforms.Resize((image_size, image_size)),
