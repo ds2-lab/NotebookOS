@@ -37,9 +37,6 @@ def test_train_deep_speech2_cpu():
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
 
-if __name__ == "__main__":
-    test_train_deep_speech2_cpu()
-
 def test_train_deep_speech2():
     """
     Train the Deep Speech 2 model on the LibriSpeech dataset.
@@ -69,3 +66,7 @@ def test_train_deep_speech2():
 
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
+
+if __name__ == "__main__":
+    # test_train_deep_speech2()
+    test_train_deep_speech2_cpu()

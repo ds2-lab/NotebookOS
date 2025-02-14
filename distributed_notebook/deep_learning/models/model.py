@@ -394,17 +394,25 @@ class DeepLearningModel(ABC):
 
                 # Forward pass
                 if self.gpu_available:
+                    outputs_st: float = time.time()
                     if attention_mask is not None:
                         outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
+
+                        self.log.debug(f"\tComputed outputs in {round((time.time() - outputs_st)*1.0e3, 3):,} ms. "
+                                       f"Computing loss now.")
+
                         loss_st: float = time.time()
                         loss = outputs.loss
                     else:
                         outputs = self.model(samples)
-                        self.log.debug("\tComputed outputs. Computing loss now.")
+
+                        self.log.debug(f"\tComputed outputs in {round((time.time() - outputs_st)*1.0e3, 3):,} ms. "
+                                       f"Computing loss now.")
+
                         loss_st: float = time.time()
                         loss = self._criterion(outputs, labels)
                 else:
-                    sleep_interval_sec: float = target_training_duration_sec * 0.025
+                    sleep_interval_sec: float = target_training_duration_sec * 0.1
 
                     self.log.warning(f"\tSimulating training because CUDA is unavailable. "
                                      f"Sleeping for {round(sleep_interval_sec, 3):,f} seconds.")
@@ -423,7 +431,6 @@ class DeepLearningModel(ABC):
 
                     # Simulate model outputs and labels
                     outputs = torch.randn(len(samples), self._out_features, requires_grad=True)  # Fake predictions
-                    labels = torch.randn(len(samples), self._out_features, requires_grad=True)  # Fake ground truth
 
                     loss_st: float = time.time()
 
