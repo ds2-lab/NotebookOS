@@ -20,6 +20,16 @@ It is also designed to provide a high degree of interactivity, making it well-su
 
   - Grafana for real-time data visualization and log viewing 📊
 
+### Running the Unit Tests
+
+The `run_unit_tests_swarm.sh` file in the project root directory will run all Golang unit tests.
+
+If you set the `VERBOSE` environment variable to any non-empty value (e.g., `VERBOSE=1`), then debug logging will be
+enabled during the unit tests.
+
+There is another script `distributed-notebook/distributed_notebook/tests/run_unit_tests.sh` which will run the Python
+unit tests. 
+
 ## System Installation
 
 ### Prerequisites

@@ -368,7 +368,13 @@ func (p *BaseContainerPrewarmer) Stop() error {
 //
 // RequestPrewarmedContainer is explicitly thread safe (i.e., it uses a mutex).
 func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host) (scheduling.PrewarmedContainer, error) {
-	//p.log.Debug("Received request[Host %s (ID=%s)].", host.GetNodeName(), host.GetID())
+	if !host.Enabled() {
+		p.log.Warn("Prewarm container requested for DISABLED host %s (ID=%s)...",
+			host.GetNodeName(), host.GetID())
+
+		return nil, fmt.Errorf("%w: cannot fulfill prewarm container request for disabled host %s (ID=%s)",
+			scheduling.ErrHostDisabled, host.GetNodeName(), host.GetID())
+	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()

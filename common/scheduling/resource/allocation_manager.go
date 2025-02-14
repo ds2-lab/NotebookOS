@@ -705,13 +705,13 @@ func (m *AllocationManager) ReplicaHasPendingGPUs(replicaId int32, kernelId stri
 		return false
 	}
 
-	// If it is a pending GPU allocation, then we may return true.
-	if alloc.IsPending() {
-		return alloc.GetGpus() > 0
+	if alloc.IsCommitted() {
+		// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
+		return false
 	}
 
-	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
-	return false
+	// If it is a pending GPU allocation, then we may return true.
+	return alloc.GetGpus() > 0
 }
 
 // ReplicaHasCommittedResources returns true if the specified kernel replica has any HostResources committed to it.
@@ -744,7 +744,7 @@ func (m *AllocationManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId st
 	}
 
 	// It is an "actual" GPU allocation.
-	return alloc.GetGpus() > 0
+	return alloc.GetGpus() > 0 && alloc.IsCommitted()
 }
 
 // KernelHasCommittedResources returns true if any replica of the specified kernel has resources committed to it.
@@ -775,7 +775,7 @@ func (m *AllocationManager) HasReservationForKernel(kernelId string) bool {
 
 // AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
-func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, replicaId int32, kernelId string) error {
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
@@ -783,9 +783,6 @@ func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldS
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	kernelId := container.KernelID()
-	replicaId := container.ReplicaId()
 
 	m.log.Debug("Attempting to adjust resource request for replica %d of kernel %s from [%v] to [%v].",
 		replicaId, kernelId, oldSpec, newSpec)
@@ -1101,8 +1098,8 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	if allocation.IsCommitted() {
 		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
 			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
-		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
-			scheduling.ErrInvalidOperation, replicaId, kernelId)
+		return fmt.Errorf("%w: replica %d of kernel %s",
+			scheduling.ErrResourcesAlreadyCommitted, replicaId, kernelId)
 	}
 
 	// First, release the original amount of pending resources.
@@ -1756,6 +1753,10 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 
 			panic(err)
 		}
+
+		// Make sure to delete this entry as well.
+		m.allocationKernelReplicaMap.Delete(getKey(replicaId, kernelId))
+		m.kernelAllocationMap.Delete(kernelId)
 	} else {
 		m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s on host %s now.",
 			replicaId, kernelId, m.NodeName)

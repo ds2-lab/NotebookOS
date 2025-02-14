@@ -118,4 +118,10 @@ type ContainerInvoker interface {
 	// ContainerIsPrewarm returns true if the CurrentContainerType of the target KernelInvoker is
 	// scheduling.PrewarmContainer.
 	ContainerIsPrewarm() bool
+
+	// WaitForContainerToBeCreated will block until the target DockerInvoker has created its container.
+	//
+	// If DockerContainersDisabled is set to true, then WaitForContainerToBeCreated will return whenever the DockerInvoker
+	// would have created its container.
+	WaitForContainerToBeCreated()
 }

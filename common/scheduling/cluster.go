@@ -67,6 +67,10 @@ type ClusterHostManager interface {
 	// GetHost returns the Host with the given ID, if one exists.
 	GetHost(hostId string) (Host, bool)
 
+	// GetHostEvenIfDisabled returns the Host with the given ID, if one exists, regardless of
+	// whether the Host is enabled or disabled.
+	GetHostEvenIfDisabled(hostId string) (host Host, enabled bool, err error)
+
 	// RangeOverHosts executes the provided function on each enabled Host in the Cluster.
 	//
 	// Importantly, this function does NOT lock the hostsMutex.

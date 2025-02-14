@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 import os
 import logging
 
+from typing import Optional
+
 from distributed_notebook.logs import ColoredLogFormatter
 
 from torchvision.datasets.utils import check_integrity
@@ -12,6 +14,13 @@ class CustomDataset(ABC):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers
+        self._download_start: float = -1
+        self._download_end: float = -1
+        self._download_duration_sec: float = 0.0
+        self._tokenize_start: float = -1.0
+        self._tokenize_end: float = -1.0
+        self._tokenize_duration: float = 0.0
+        self._dataset_already_downloaded: Optional[bool] = None
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)

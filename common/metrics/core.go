@@ -220,6 +220,11 @@ func (m *basePrometheusManager) HandleRequest(c *gin.Context) {
 func (m *basePrometheusManager) initializeHttpServer() {
 	m.engine = gin.New()
 
+	if m.port <= 0 {
+		m.log.Debug("Prometheus Port is set to %d. Not serving HTTP server.", m.port)
+		return
+	}
+
 	// Commented-out for now as I don't want the log messages for Prometheus requests.
 	// m.engine.Use(gin.Logger())
 	m.engine.Use(gin.Recovery())
@@ -403,7 +408,7 @@ func (m *basePrometheusManager) AddMessageE2ELatencyObservation(latency time.Dur
 	socketType messaging.MessageType, jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record message E2E latency observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record message E2E latency observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -427,7 +432,7 @@ func (m *basePrometheusManager) AddNumSendAttemptsRequiredObservation(sendsRequi
 	nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -447,7 +452,7 @@ func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType Nod
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -468,7 +473,7 @@ func (m *basePrometheusManager) SentMessage(nodeId string, sendLatency time.Dura
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"JupyterMessagesSent\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"JupyterMessagesSent\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -496,7 +501,7 @@ func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeTy
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"JupyterUniqueMessagesSent\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"JupyterUniqueMessagesSent\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -514,7 +519,7 @@ func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeTy
 // AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
 func (m *basePrometheusManager) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"AckLatencyMicroseconds\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"AckLatencyMicroseconds\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 

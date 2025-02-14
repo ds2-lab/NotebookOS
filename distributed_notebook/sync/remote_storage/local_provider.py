@@ -52,7 +52,7 @@ class LocalStorageProvider(RemoteStorageProvider):
         """
         return False # never too large!
 
-    async def write_value_async(self, key: str, value: Any):
+    async def write_value_async(self, key: str, value: Any)->bool:
         """
         Asynchronously write a value to Local In-Memory Storage at the specified key.
 
@@ -79,7 +79,9 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to {self.storage_name} at key "{key}" in {time_elapsed_ms:,} ms.')
 
-    def write_value(self, key: str, value: Any):
+        return True
+
+    def write_value(self, key: str, value: Any)->bool:
         """
         Write a value to Local In-Memory Storage at the specified key.
 
@@ -105,6 +107,8 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to {self.storage_name} '
                        f'at key "{key}" in {time_elapsed_ms:,} ms.')
+
+        return True
 
     async def read_value_async(self, key: str) -> Any:
         """
@@ -147,7 +151,7 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         return value
 
-    async def delete_value_async(self, key: str):
+    async def delete_value_async(self, key: str)->bool:
         """
         Asynchronously delete the value stored at the specified key from Local In-Memory Storage.
 
@@ -163,15 +167,13 @@ class LocalStorageProvider(RemoteStorageProvider):
             time_elapsed: float = end_time - start_time
             time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
-            self._delete_time += time_elapsed
-            self._num_objects_deleted += 1
-
-            self._lifetime_delete_time += time_elapsed
-            self._lifetime_num_objects_deleted += 1
+            self.update_delete_stats(time_elapsed, 1)
 
             self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
 
-    def delete_value(self, key: str):
+        return True
+
+    def delete_value(self, key: str)->bool:
         """
         Delete the value stored at the specified key from Local In-Memory Storage.
 
@@ -186,13 +188,11 @@ class LocalStorageProvider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
-        self._delete_time += time_elapsed
-        self._num_objects_deleted += 1
-
-        self._lifetime_delete_time += time_elapsed
-        self._lifetime_num_objects_deleted += 1
+        self.update_delete_stats(time_elapsed, 1)
 
         self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
+
+        return True
 
     async def close_async(self):
         self.close()

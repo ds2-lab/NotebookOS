@@ -659,21 +659,15 @@ class Synchronizer:
 
         if key in self._tags:
             existed = self._tags[key]
-            self.log.debug(
-                f'SyncObjectWrapper already exists for variable "{key}" of type {type(existed.object).__name__}'
-            )
+            self.log.debug(f'SyncObjectWrapper already exists for variable "{key}" of type {type(val).__name__}')
         else:
             if checkpointing:
-                self.log.error(
-                    f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False..."
-                )
+                self.log.error(f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False...")
 
             # TODO: Add support to SyncObject factory
             existed = SyncObjectWrapper(self._referer)
             self._tags[key] = existed
-            self.log.debug(
-                f'Creating new SyncObjectWrapper for variable "{key}" of type {type(existed.object).__name__}'
-            )
+            self.log.debug(f'Creating new SyncObjectWrapper for variable "{key}" of type {type(val).__name__}')
 
         # self._log.debug("Syncing {}...".format(key))
 
@@ -713,14 +707,11 @@ class Synchronizer:
                     f'("{key}"): {value_error}'
                 )
 
-            self.log.debug(
-                f'Finished writing state dictionaries of model "{val.name}" variable "{key}" to remote storage.'
-            )
+            self.log.debug(f'Finished writing state dictionaries of model "{val.name}" '
+                           f'variable "{key}" to remote storage.')
             val = model_pointer
         else:
-            self.log.debug(
-                f'Synchronizing {type(val).__name__} "{key}" [checkpointing={checkpointing}].'
-            )
+            self.log.debug(f'Synchronizing {type(val).__name__} "{key}" [checkpointing={checkpointing}].')
 
         if checkpointing:
             sync_val = existed.dump(meta=meta)

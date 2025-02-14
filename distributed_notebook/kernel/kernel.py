@@ -552,7 +552,14 @@ class DistributedKernel(IPythonKernel):
         ########################
         # Execution/Data State #
         ########################
-        self.current_execution_stats: Optional[ExecutionStats] = None
+
+        # Tracks all overheads and activity during execution.
+        #
+        # We create this when the kernel is first created so that any overheads that occur during the initial,
+        # first-time start-up of the kernel are recorded.
+        #
+        # The current_execution_stats field is reset each time an "execute_reply" is sent back to the client.
+        self.current_execution_stats: ExecutionStats = ExecutionStats()
 
         # Indicates if the CUDA runtime initialized.
         # This is only used when simulating the use of real GPUs.
@@ -898,7 +905,7 @@ class DistributedKernel(IPythonKernel):
             )
 
         self.log.info(
-            "CPU: %.2f, Memory: %.2f, GPUs: %d, VRAM: %.2f."
+            "CPU: %.2f, Memory: %f, GPUs: %d, VRAM: %.6f."
             % (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb)
         )
 
@@ -1974,6 +1981,38 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name
 
+    def __validate_resource_spec_metadata(self, metadata: Dict[str, Any]):
+        """
+        Validate the 'resource_request' and 'required-X' entries (where X is 'gpus', 'millicpus', 'memory-mb',
+        or 'vram-gb'). They should be consistent with each other.
+        """
+        resource_request: Optional[Dict[str, Any]] = metadata["resource_request"]
+        if resource_request is None:
+            return
+
+        required_keys: list[str] = ['required-millicpus', 'required-memory-mb', 'required-gpus', 'required-vram-gb']
+        resource_request_keys: list[str] = ['cpus', 'memory', 'gpus', 'vram']
+
+        for required_key, resource_request_key in list(zip(required_keys, resource_request_keys)):
+            # If either key is not present, then skip it.
+            if required_key not in metadata or resource_request_key not in resource_request:
+                continue
+
+            if metadata[required_key] != resource_request[resource_request_key]:
+                self.log.error(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                               f"and current resource request '{resource_request_key}' "
+                               f"({resource_request[resource_request_key]}).")
+
+                self.report_error(f"Inconsistent '{required_key}' Field and "
+                                  f"Resource Request '{resource_request_key}' Field",
+                                  f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                                  f"and current resource request '{resource_request_key}' "
+                                  f"({resource_request[resource_request_key]}).")
+
+                raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                                 f"and current resource request '{resource_request_key}' "
+                                 f"({resource_request[resource_request_key]}).")
+
     async def process_execute_request_metadata(
             self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
     ) -> tuple[Optional[str], list[int]]:
@@ -1982,43 +2021,32 @@ class DistributedKernel(IPythonKernel):
 
         :return: a tuple where the first element is the remote remote_storage name and the second is a list of GPU device IDs.
         """
-        self.log.debug(
-            f'Processing metadata of "{msg_type}" request "{msg_id}": {metadata}'
-        )
+        self.log.debug(f'Processing metadata of "{msg_type}" request "{msg_id}": {metadata}')
 
         if metadata is None:
             return None, []
 
         resource_request: Dict[str, Any] = metadata.get("resource_request", {})
 
-        remote_storage_definition: Dict[str, Any] = metadata.get(
-            "remote_storage_definition", {}
-        )
+        remote_storage_definition: Dict[str, Any] = metadata.get("remote_storage_definition", {})
 
         workload_id: str = metadata.get("workload_id", "")
 
         if len(resource_request) > 0:
-            self.log.debug(
-                f'Extracted ResourceRequest from "{msg_type}" metadata: {resource_request}'
-            )
+            self.log.debug(f'Extracted ResourceRequest from "{msg_type}" metadata: {resource_request}')
 
             self.resource_requests.append(resource_request)
             self.current_resource_request = resource_request
+            self.__validate_resource_spec_metadata(metadata)
 
         remote_storage_name: Optional[str] = None
         if len(remote_storage_definition) > 0:
-            self.log.debug(
-                f'Extracted ResourceRequest from "{msg_type}" metadata: {remote_storage_definition}'
-            )
+            self.log.debug(f'Extracted ResourceRequest from "{msg_type}" metadata: {remote_storage_definition}')
 
-            remote_storage_name = self.register_remote_storage_definition(
-                remote_storage_definition
-            )
+            remote_storage_name = self.register_remote_storage_definition(remote_storage_definition)
 
         if len(workload_id) > 0:
-            self.log.debug(
-                f'Extracted workload ID from "{msg_type}" metadata: {workload_id}'
-            )
+            self.log.debug(f'Extracted workload ID from "{msg_type}" metadata: {workload_id}')
 
         gpu_device_ids: list[int] = metadata.get("gpu_device_ids", [])
 
@@ -2028,15 +2056,10 @@ class DistributedKernel(IPythonKernel):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
 
-        # Reset the current ExecutionStats object.
-        self.current_execution_stats = ExecutionStats()
-
         parent_header: dict[str, Any] = extract_header(parent)
 
-        self.log.debug(
-            f"execute_request called for message with msg_id=\"{parent_header['msg_id']}\". "
-            f"identity frame(s): {str(ident)}"
-        )
+        self.log.debug(f"execute_request called for message with msg_id=\"{parent_header['msg_id']}\". "
+                       f"identity frame(s): {str(ident)}")
 
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
 
@@ -2045,6 +2068,12 @@ class DistributedKernel(IPythonKernel):
 
         if not self.session:
             self.log.error("We don't have a Session. Cannot process 'execute_request'.")
+
+            # Commented-out because it's unclear if we should reset the execution stats here or not...
+            #
+            # Reset the current ExecutionStats object.
+            # self.current_execution_stats = ExecutionStats()
+
             return
         try:
             content = parent["content"]
@@ -2058,9 +2087,14 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error("Got bad msg: ")
             self.log.error("%s", parent)
-            self.report_error(
-                'Got Bad "execute_request" Message', f"Error: {ex}. Message: {parent}"
-            )
+            self.report_error('Got Bad "execute_request" Message',
+                              f"Error: {ex}. Message: {parent}")
+
+            # Commented-out because it's unclear if we should reset the execution stats here or not...
+            # 
+            # Reset the current ExecutionStats object.
+            # self.current_execution_stats = ExecutionStats()
+
             return
 
         stop_on_error = content.get("stop_on_error", True)
@@ -2086,7 +2120,7 @@ class DistributedKernel(IPythonKernel):
 
         target_model: Optional[str] = metadata.get("model", ResNet18.model_name())
         target_dataset: Optional[str] = metadata.get("dataset", CIFAR10.dataset_name())
-        batch_size: Optional[int] = metadata.get("batch_size", 8)
+        batch_size: Optional[int] = metadata.get("batch_size", 1)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -2107,7 +2141,7 @@ class DistributedKernel(IPythonKernel):
             training_duration_millis=training_duration_millis,
             gpu_device_ids=gpu_device_ids,
             deep_learning_model_name=target_model,
-            execute_request_metdata=metadata,
+            execute_request_metadata=metadata,
             dataset=target_dataset,
             batch_size=batch_size,
         )
@@ -2321,6 +2355,9 @@ class DistributedKernel(IPythonKernel):
 
         if self.prometheus_enabled:
             self.execute_request_latency.observe(duration_ms)
+
+        # Reset the current ExecutionStats object.
+        self.current_execution_stats = ExecutionStats()
 
     async def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
         """
@@ -3258,7 +3295,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
-            batch_size: Optional[int] = None,
+            batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
             *,
             cell_meta=None,
@@ -3269,6 +3306,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param execute_request_metadata: the metadata of the execute request.
             :param dataset: the dataset to be used for deep learning training
             :param deep_learning_model_name: the model to be used for deep learning training
             :param batch_size: batch size to pass to dataset constructor
@@ -3387,7 +3425,7 @@ class DistributedKernel(IPythonKernel):
                 deep_learning_model_name=deep_learning_model_name,
                 dataset=dataset,
                 batch_size=batch_size,
-                execute_request_metdata=execute_request_metdata,
+                execute_request_metadata=execute_request_metadata,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -3416,9 +3454,9 @@ class DistributedKernel(IPythonKernel):
 
             reply_content = gen_error_response(dme)
         except Exception as e:
-            self.log.error("Execution error: {}...".format(e))
+            self.log.error(f"Execution error: {e}")
             self.log.error(traceback.format_exc())
-            self.report_error("Execution Error", str(e))
+            self.report_error("Execution Error", f"{type(e).__name__}: {e}")
 
             reply_content = gen_error_response(e)
 
@@ -3427,7 +3465,7 @@ class DistributedKernel(IPythonKernel):
     def __validate_gpu_id_args(
             self,
             gpu_device_ids: list[int] = None,
-            execute_request_metdata: Optional[Dict[str, Any]] = None,
+            execute_request_metadata: Optional[Dict[str, Any]] = None,
     ):
         # If we're simulating training using time.sleep, then we have
         # no expectations regarding the GPU device IDs. We can return.
@@ -3439,17 +3477,18 @@ class DistributedKernel(IPythonKernel):
             return
 
         # At this point, the GPU device IDs are either none or empty.
-        if execute_request_metdata is not None and "required-gpus" in execute_request_metdata:
+        if execute_request_metadata is not None and "required-gpus" in execute_request_metadata:
             # If in the request metadata, we were told that we don't actually need any GPUs
             # for this training, then we're okay to return.
-            assert execute_request_metdata["required-gpus"] == 0
-            return
+            if execute_request_metadata["required-gpus"] == 0:
+                return
 
-        if execute_request_metdata is not None and "resource_request" in execute_request_metdata:
+        if execute_request_metadata is not None and "resource_request" in execute_request_metadata:
             # If the latest/current resource request is embedded in the metadata, then we can
             # check that to verify that we do not in fact require any GPU device IDs.
-            resource_request: Dict[str, int|float] = execute_request_metdata["resource_request"]
-            assert "gpus" in resource_request and resource_request["gpus"] == 0
+            resource_request: Dict[str, int|float] = execute_request_metadata["resource_request"]
+            if "gpus" in resource_request and resource_request["gpus"] == 0:
+                return
 
         # If our current execution request is not None and there is a "gpus" entry,
         # then check that it is 0. If so, then it is OK that we did not receive any
@@ -3458,8 +3497,8 @@ class DistributedKernel(IPythonKernel):
         # Note that our current resource request will/should have been set to the value of the "resource_request"
         # entry in the "execute_request" metadata frame, so the last if-statement check would've found this...
         if self.current_resource_request is not None and "gpus" in self.current_resource_request:
-            assert self.current_resource_request["gpus"] == 0
-            return
+            if self.current_resource_request["gpus"] == 0:
+                return
 
         # Something is wrong. We should have received GPU device IDs.
         error_title:str = (f'Kernel "{self.kernel_id}" Received 0 GPU device IDs for '
@@ -3480,8 +3519,8 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
-            batch_size: Optional[int] = None,
-            execute_request_metdata: Optional[Dict[str, Any]] = None,
+            batch_size: Optional[int] = 1,
+            execute_request_metadata: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3492,7 +3531,10 @@ class DistributedKernel(IPythonKernel):
                  - (3) the code that was executed (which may have been updated/changed)
         """
         if not self.simulate_training_using_sleep:
-            self.__validate_gpu_id_args()
+            self.__validate_gpu_id_args(
+                gpu_device_ids = gpu_device_ids,
+                execute_request_metadata = execute_request_metadata
+            )
 
         performed_dl_training: bool = False
 
@@ -3908,11 +3950,11 @@ class DistributedKernel(IPythonKernel):
             )
             await simulation_func(size_bytes=int(vram_bytes))
         except Exception as exc:
-            traceback.print_exc()
             self.log.error(
                 f"{type(exc).__name__} while simulating checkpointing with remote remote_storage "
                 f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}"
             )
+            self.log.error(traceback.format_exc())
             self.report_error(
                 f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
                 f"{type(exc).__name__} while simulating checkpointing with remote remote_storage "
@@ -4874,11 +4916,11 @@ class DistributedKernel(IPythonKernel):
                     dataset_pointer
                 )
             except Exception as exc:
-                self.log.error(f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'")
+                self.log.error(f"Failed to load Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}'")
                 self.log.error(traceback.format_exc())
                 self.report_error(
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
-                    f"Dataset '{dataset_pointer.model_name}' for variable '{var_name}' "
+                    f"Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}' "
                     f"while catching-up",
                     str(exc),
                 )
@@ -4886,7 +4928,7 @@ class DistributedKernel(IPythonKernel):
 
             et: float = time.time()
             self.log.debug(
-                f"Successfully retrieved Dataset '{dataset_pointer.model_name}' for variable "
+                f"Successfully retrieved Dataset '{dataset_pointer.dataset_name}' for variable "
                 f"'{var_name}' from remote remote_storage in {et - st} seconds."
             )
 
@@ -4973,9 +5015,9 @@ class DistributedKernel(IPythonKernel):
                 **constructor_args_state,  # out_features should/will be in this dictionary.
             )
         except Exception as exc:
-            self.log.error(f'Failed to load committed dataset "{pointer.model_name}" because: {exc}')
-            self.report_error(f'Failed to Load Committed Dataset "{pointer.name}"', str(exc))
-            traceback.print_exc()
+            self.log.error(f'Failed to load committed model "{pointer.model_name}" because: {exc}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Load Committed Model "{pointer.model_name}"', str(exc))
             return None
 
         return model
@@ -4992,17 +5034,17 @@ class DistributedKernel(IPythonKernel):
 
                 # If they match, then we're done here.
                 # It is necessarily already downloaded by virtue of being one of our Dataset objects.
-                if existing_variable.name == pointer.dataset_name:
+                if existing_variable.name == pointer.large_object_name:
                     return None
 
                 self.log.warning(f'Existing dataset "{var_name}" does not match freshly-committed '
-                                 f'dataset "{pointer.dataset_name}".')
+                                 f'dataset "{pointer.large_object_name}".')
                 self.log.warning(f"Will overwrite existing {existing_variable.name} dataset "
-                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+                                 f"\"{var_name}\" with '{pointer.large_object_name}' dataset.")
             else:
                 self.log.warning(f'Found existing variable "{var_name}" of type {type(existing_variable).__name__}...')
                 self.log.warning(f"Will overwrite existing {type(existing_variable).__name__} variable "
-                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+                                 f"\"{var_name}\" with '{pointer.large_object_name}' dataset.")
 
         try:
             st: float = time.time()
@@ -5010,8 +5052,8 @@ class DistributedKernel(IPythonKernel):
             et: float = time.time()
         except Exception as exc:
             self.log.error(f'Failed to load committed dataset "{pointer.large_object_name}" because: {exc}')
-            self.report_error('Failed to Load Committed Dataset "{pointer.name}"', str(exc))
-            traceback.print_exc()
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Load Committed Dataset "{pointer.large_object_name}"', str(exc))
             return None
 
         if self.prometheus_enabled:
@@ -5036,14 +5078,14 @@ class DistributedKernel(IPythonKernel):
         if pointer.proposer_id == self.smr_node_id:
             if self.synclog.needs_to_catch_up:
                 self.log.debug(
-                    f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
+                    f"Received committed '{pointer.large_object_name}' Dataset pointer proposed by ourselves "
                     f"while catching up. Saving for later."
                 )
                 self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
                 return None
             else:
                 self.log.debug(
-                    f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves. "
+                    f"Received committed '{pointer.large_object_name}' Dataset pointer proposed by ourselves. "
                     f"Ignoring."
                 )
                 return None

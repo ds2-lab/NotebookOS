@@ -347,7 +347,7 @@ type KernelReplica interface {
 	ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool)
 	LastTrainingStartedAt() time.Time
 	WorkloadId() string
-	SetWorkloadId(workloadId string) error
+	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
 	GetPodOrContainerName() string

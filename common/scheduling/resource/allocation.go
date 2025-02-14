@@ -219,12 +219,16 @@ func (a *Allocation) ToSpec() types.Spec {
 
 // ToDecimalSpec converts the Allocation to a types.DecimalSpec struct with the same resource values as the
 // Allocation's resource values and returns a pointer to it (the newly-created types.DecimalSpec).
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func (a *Allocation) ToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
-		GPUs:      a.GPUs.Copy(),
-		Millicpus: a.Millicpus.Copy(),
-		MemoryMb:  a.MemoryMB.Copy(),
-		VRam:      a.VramGB.Copy(),
+		GPUs:      a.GPUs.Copy().Round(0),
+		Millicpus: a.Millicpus.Copy().Round(0),
+		MemoryMb:  a.MemoryMB.Copy().Round(3),
+		VRam:      a.VramGB.Copy().Round(6),
 	}
 }
 

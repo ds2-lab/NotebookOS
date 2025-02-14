@@ -457,10 +457,22 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					By("Correctly identifying three candidate hosts")
 
 					fmt.Printf("\nSearching for candidate hosts again.\n\n")
-					candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec)
-					Expect(err).To(BeNil())
-					Expect(candidateHosts).ToNot(BeNil())
-					Expect(len(candidateHosts)).To(Equal(3))
+
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+					defer cancel()
+
+					candidateHostChan := make(chan []scheduling.Host, 1)
+
+					go func() {
+						candidateHosts, err = dockerScheduler.GetCandidateHosts(ctx, kernelSpec)
+						Expect(err).To(BeNil())
+						Expect(candidateHosts).ToNot(BeNil())
+						Expect(len(candidateHosts)).To(Equal(3))
+
+						candidateHostChan <- candidateHosts
+					}()
+
+					Eventually(candidateHostChan, ctx).Should(Receive(&candidateHosts))
 
 					Expect(dockerCluster.Len()).To(Equal(6))
 					Expect(dockerCluster.NumScalingOperationsAttempted()).To(Equal(1))

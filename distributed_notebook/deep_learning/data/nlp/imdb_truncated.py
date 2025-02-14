@@ -28,7 +28,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             model_name: Optional[str] = None,
-            batch_size=4,
+            batch_size: int = 1,
             **kwargs
     ):
         super().__init__(

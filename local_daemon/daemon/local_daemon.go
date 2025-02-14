@@ -151,6 +151,11 @@ type LocalScheduler struct {
 	// kernels is a map from kernel ID to scheduling.KernelReplica. It is the primary mapping of kernels.
 	kernels hashmap.HashMap[string, scheduling.KernelReplica]
 
+	// kernelInvokers is a map from kernel ID to the associated invoker.KernelInvoker.
+	//
+	// kernelInvokers is mostly used during unit tests.
+	kernelInvokers hashmap.HashMap[string, invoker.KernelInvoker]
+
 	// prewarmKernels is a mapping from prewarm/temporary kernel ID to prewarmed scheduling.KernelReplica.
 	prewarmKernels hashmap.HashMap[string, scheduling.KernelReplica]
 
@@ -306,6 +311,8 @@ type LocalScheduler struct {
 	createdAt time.Time
 }
 
+// KernelRegistrationPayload is sent by the Python DistributedKernel to its co-located LocalScheduler during
+// start-up as well as when a scheduling.PrewarmContainer is promoted to a scheduling.StandardContainer.
 type KernelRegistrationPayload struct {
 	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
 	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
@@ -382,6 +389,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		nodeName:                       nodeName,
 		kernelsStopping:                hashmap.NewThreadsafeCornelkMap[string, chan struct{}](128),
 		kernels:                        hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
+		kernelInvokers:                 hashmap.NewThreadsafeCornelkMap[string, invoker.KernelInvoker](128),
 		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
 		kernelClientCreationChannels:   hashmap.NewThreadsafeCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:               hashmap.NewThreadsafeCornelkMap[string, int](256),
@@ -717,11 +725,6 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 	d.allocationManager.NodeId = d.id
 	d.finishedGatewayHandshake = true
 
-	// If prometheus is disabled, then just return.
-	if !d.prometheusEnabled {
-		return in, nil
-	}
-
 	// If we've never been initialized before, which will usually be the case, then call initPromMetrics.
 	if d.prometheusManager == nil {
 		return d.initPromMetrics(in)
@@ -740,6 +743,13 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 // initPromMetrics initializes prometheus metrics.
 func (d *LocalScheduler) initPromMetrics(in *proto.HostId) (*proto.HostId, error) {
 	d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, d.id)
+
+	// We just create the component because it is used by clients and servers and whatnot
+	// for non-prometheus-specific metrics.
+	if !d.prometheusEnabled {
+		return in, nil
+	}
+
 	err := d.prometheusManager.Start()
 	if err != nil {
 		d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
@@ -1073,8 +1083,7 @@ func (d *LocalScheduler) connectToGateway(gatewayAddress string, finalize LocalD
 
 // registerKernelReplicaKube performs some Kubernetes-mode-specific registration steps.
 func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.KernelReplicaSpec,
-	registrationPayload *KernelRegistrationPayload, connInfo *jupyter.ConnectionInfo,
-	kernelRegistrationClient *KernelRegistrationClient) (*client.KernelReplicaClient, *proto.KernelConnectionInfo) {
+	registrationPayload *KernelRegistrationPayload, connInfo *jupyter.ConnectionInfo) (*client.KernelReplicaClient, *proto.KernelConnectionInfo, error) {
 
 	invokerOpts := &invoker.DockerInvokerOptions{
 		RemoteStorageEndpoint:                d.remoteStorageEndpoint,
@@ -1103,6 +1112,8 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+	d.kernelInvokers.Store(kernelReplicaSpec.Kernel.Id, dockerInvoker)
+
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 	kernel := client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
@@ -1124,22 +1135,12 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 			Panicked:         false,
 		})
 
-		// Write an error back to the kernel that registered with us.
-		payload := map[string]interface{}{
-			"status":  "error",
-			"error":   "Failed to Register",
-			"message": fmt.Sprintf("Could not initialize kernel client because: %s", errorMessage),
-		}
-		payloadJson, _ := json.Marshal(payload)
-		_, _ = kernelRegistrationClient.conn.Write(payloadJson)
-
-		// TODO: Handle this more gracefully.
-		return nil, nil
+		return nil, nil, fmt.Errorf(errorMessage)
 	}
 
 	d.registerKernelWithExecReqForwarder(kernel)
 
-	return kernel, kernelConnectionInfo
+	return kernel, kernelConnectionInfo, nil
 }
 
 // registerKernelReplicaDocker performs some Docker-specific registration steps.
@@ -1175,45 +1176,12 @@ func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.Ke
 
 // Register a kernel that has started running on the same node that we are running on.
 // This method must be thread-safe.
-func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
+//
+// Return the response to write back to the kernel and an error, if one occurred.
+func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegistrationPayload, remoteIp string,
+	containerType scheduling.ContainerType) map[string]interface{} {
+
 	registeredAt := time.Now()
-
-	remoteIp, _, err := net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
-	if err != nil {
-		errorMessage := fmt.Sprintf("Failed to extract remote address from kernel registration connection because: %v", err)
-		d.log.Error(errorMessage)
-		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Failed to Register kernel.",
-			Message:          errorMessage,
-			NotificationType: 0,
-			Panicked:         false,
-		})
-		return
-	}
-
-	var registrationPayload *KernelRegistrationPayload
-	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
-	err = jsonDecoder.Decode(&registrationPayload)
-	if err != nil {
-		errorMessage := fmt.Sprintf("Failed to decode registration payload: %v", err)
-		d.log.Error(errorMessage)
-		d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Failed to Register kernel.",
-			Message:          errorMessage,
-			NotificationType: 0,
-			Panicked:         false,
-		})
-		return
-	}
-
-	containerType := kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
-	remoteAddr := kernelRegistrationClient.conn.RemoteAddr()
-	d.log.Debug("Registering %s kernel at (remote) address %s with registration payload: %v",
-		containerType.String(), remoteAddr.String(), registrationPayload.StringFormatted())
 
 	var connInfo *jupyter.ConnectionInfo
 	if d.LocalMode() {
@@ -1268,8 +1236,20 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		kernelConnectionInfo *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		kernel, kernelConnectionInfo = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload,
-			connInfo, kernelRegistrationClient)
+		var err error
+		kernel, kernelConnectionInfo, err = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload, connInfo)
+
+		// If both are nil, then there was an error.
+		if err != nil {
+			// Write an error back to the kernel that registered with us.
+			payload := map[string]interface{}{
+				"status":  "error",
+				"error":   "Failed to Register",
+				"message": fmt.Sprintf("Could not initialize kernel client because: %s", err.Error()),
+			}
+
+			return payload
+		}
 	} else {
 		kernel, kernelConnectionInfo = d.registerKernelReplicaDocker(kernelReplicaSpec, containerType)
 
@@ -1296,10 +1276,11 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
 	if registrationPayload.PrewarmContainer {
-		d.writeResponseToRegisteringKernelReplica(map[string]interface{}{
+		payload := map[string]interface{}{
 			"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
-		}, kernelRegistrationClient, containerType)
-		return
+		}
+
+		return payload
 	}
 
 	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
@@ -1337,7 +1318,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancelPing()
 
-	_, err = d.provisioner.PingGateway(pingCtx, proto.VOID)
+	_, err := d.provisioner.PingGateway(pingCtx, proto.VOID)
 	if err != nil {
 		d.log.Error("PingGateway RPC failed... we're in trouble. Error was: %v", err)
 	}
@@ -1448,10 +1429,8 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 			"error":   "Null Resource Spec",
 			"message": "The ResourceSpec included in the registration payload is nil",
 		}
-		payloadJson, _ := json.Marshal(payload)
-		_, _ = kernelRegistrationClient.conn.Write(payloadJson)
 
-		return
+		return payload
 	}
 
 	d.log.Debug("Resource spec for %s kernel %s: %v", containerType.String(), kernel.ID(), response.ResourceSpec)
@@ -1507,7 +1486,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 
 	payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
 
-	d.writeResponseToRegisteringKernelReplica(payload, kernelRegistrationClient, containerType)
+	return payload
 }
 
 // writeResponseToRegisteringKernelReplica writes the specified response back to the specified KernelRegistrationClient.
@@ -2017,9 +1996,12 @@ func (d *LocalScheduler) initializeKernelClient(in *proto.KernelReplicaSpec, con
 	_ = kernel.AddIOHandler(messaging.MessageTypeSMRLeadTask, d.handleSMRLeadTask)
 	_ = kernel.AddIOHandler(messaging.MessageTypeErrorReport, d.handleErrorReport)
 
-	// Register all sessions already associated with the kernel. Usually, there will be only one session used by the KernelManager (manager.py).
-	for _, session := range kernel.Sessions() {
-		d.kernels.Store(session, kernel)
+	// Register all sessions already associated with the kernel.
+	// Usually, there will be only one session used by the KernelManager (manager.py).
+	if !in.PrewarmContainer {
+		for _, session := range kernel.Sessions() {
+			d.kernels.Store(session, kernel)
+		}
 	}
 
 	info := &proto.KernelConnectionInfo{
@@ -2121,7 +2103,8 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		// Promote the container (just with respect to the KernelInvoker's internal bookkeeping).
 		promoted := containerInvoker.PromotePrewarmedContainer()
 		if !promoted {
-			d.log.Error("Expected to promote container of KernelInvoker")
+			d.log.Error("Expected to promote container of KernelInvoker for pre-warmed container \"%s\"; "+
+				"however, apparently we did not do so.", prewarmedContainerId)
 
 			d.log.Error(
 				utils.RedStyle.Render(
@@ -2333,7 +2316,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	// with its Local Scheduler before sending a response back to us.
 	wg.Wait()
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()
 	}
 
@@ -2378,6 +2361,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
 		// Note that we could pass d.prometheusManager directly in the call above.
 
 		d.kernelDebugPorts.Store(kernelId, int(in.DockerModeKernelDebugPort))
@@ -2409,33 +2393,23 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	// Validate that argument is non-nil.
 	if in == nil {
+		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica"))
 		d.log.Error("`kernelReplicaSpec` argument is nil in call to StartKernelReplica...")
-
-		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		}
-
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
 		return nil, status.Error(codes.InvalidArgument, "received nil KernelReplicaSpec argument")
 	}
 
 	// Validate that required field of argument is non-nil.
 	if in.Kernel == nil {
+		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[IsPrewarm=%v]"), in.PrewarmContainer)
 		d.log.Error("The `KernelSpec` field within the *proto.KernelReplicaSpec argument is nil in call to StartKernelReplica...")
 		d.log.Error("kernelReplicaSpec: %v", in)
 
-		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
-		}
-
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica Failure ✗"))
 		return nil, status.Error(codes.InvalidArgument, "KernelSpec field within KernelReplicaSpec argument cannot be nil")
 	}
 
 	if in.PrewarmContainer {
-		d.log.Debug("LocalScheduler::StartKernelReplica called for prewarm container \"%s\"", in.Kernel.Id)
 		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[PrewarmID=%s]"), in.Kernel.Id)
 	} else {
 		d.log.Debug(utils.LightBlueStyle.Render("↪ StartKernelReplica[KernelId=%s, Spec=%v]"), in.Kernel.Id, in)
@@ -2447,11 +2421,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			in.Kernel.Id, otherReplica.ReplicaID())
 
 		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, ErrExistingReplicaAlreadyRunning)
 		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, ErrExistingReplicaAlreadyRunning)
 		}
 
 		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
@@ -2464,11 +2438,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			in.ReplicaId, in.Kernel.Id, err)
 
 		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, err)
 		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, err)
 		}
 
 		return nil, err // Should already be compatible with gRPC
@@ -2481,13 +2455,13 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		if in.PrewarmContainer {
 			d.log.Error("Failed to prepare Kernel Invoker for new prewarm container %s: %v",
 				in.Kernel.Id, err)
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, err)
 		} else {
 			d.log.Error("Failed to prepare Kernel Invoker for new replica %d of kernel %s: %v",
 				in.ReplicaId, in.Kernel.Id, err)
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, err)
 		}
 
 		return nil, err // Should already be compatible with gRPC.
@@ -2519,11 +2493,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		})
 
 		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, err)
 		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-				in.Kernel.Id, in)
+			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+				in.Kernel.Id, in, err)
 		}
 
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -2535,7 +2509,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	if err == nil {
 		if in.PrewarmContainer {
 			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Success ✓"),
-				in.Kernel.Id)
+				in.Kernel.Id, in)
 		} else {
 			d.log.Debug(utils.GreenStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Success ✓"),
 				in.Kernel.Id, in)
@@ -2545,11 +2519,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	}
 
 	if in.PrewarmContainer {
-		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] Failure ✗"),
-			in.Kernel.Id)
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
+			in.Kernel.Id, in, err)
 	} else {
-		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] Failure ✗"),
-			in.Kernel.Id, in)
+		d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
+			in.Kernel.Id, in, err)
 	}
 
 	return nil, err
@@ -2627,7 +2601,7 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.TotalNumKernelsCounter.Inc()
 		d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
 
@@ -2704,7 +2678,7 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 	// Remove the kernel from our hash map.
 	d.kernels.Delete(in.Id)
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
 	}
 
@@ -2811,7 +2785,7 @@ func (d *LocalScheduler) startKernelRegistryService() {
 		log.Fatalf("Failed to listen for kernel registry: %v", err)
 	}
 	defer func() {
-		err := registryListener.Close()
+		err = registryListener.Close()
 		if err != nil {
 			d.log.Error("Failed to cleanly shut down kernel registry listener: %v", err)
 		}
@@ -2828,7 +2802,52 @@ func (d *LocalScheduler) startKernelRegistryService() {
 
 		d.log.Info("Accepted kernel registry connection. Local: %s. Remote: %s.", conn.LocalAddr(), conn.RemoteAddr())
 		kernelRegistrationClient := &KernelRegistrationClient{conn: conn}
-		go d.registerKernelReplica(context.TODO(), kernelRegistrationClient)
+
+		var remoteIp string
+		remoteIp, _, err = net.SplitHostPort(kernelRegistrationClient.conn.RemoteAddr().String())
+		if err != nil {
+			errorMessage := fmt.Sprintf("Failed to extract remote address from kernel registration connection because: %v", err)
+			d.log.Error(errorMessage)
+			d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            "Failed to Register kernel.",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
+			return
+		}
+
+		var registrationPayload *KernelRegistrationPayload
+		jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
+		err = jsonDecoder.Decode(&registrationPayload)
+		if err != nil {
+			errorMessage := fmt.Sprintf("Failed to decode registration payload: %v", err)
+			d.log.Error(errorMessage)
+			d.log.Error("Cannot register kernel.") // TODO(Ben): Handle this more elegantly.
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            "Failed to Register kernel.",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
+			return
+		}
+
+		containerType := kernelRegistrationClient.AssignContainerType(registrationPayload.PrewarmContainer)
+		remoteAddr := kernelRegistrationClient.conn.RemoteAddr()
+		d.log.Debug("Registering %s kernel at (remote) address %s with registration payload: %v",
+			containerType.String(), remoteAddr.String(), registrationPayload.StringFormatted())
+
+		go func() {
+			responsePayload := d.registerKernelReplica(registrationPayload, remoteIp, containerType)
+
+			if responsePayload != nil {
+				d.writeResponseToRegisteringKernelReplica(responsePayload, kernelRegistrationClient, containerType)
+			}
+		}()
 	}
 }
 
@@ -3083,7 +3102,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	if shouldCallTrainingStopped {
 		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
 
-		if d.prometheusManager != nil {
+		if d.prometheusManager != nil && d.prometheusEnabled {
 			d.prometheusManager.TrainingTimeGaugeVec.
 				With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
 				Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
@@ -3095,7 +3114,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	//_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
-	if d.prometheusManager != nil {
+	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
 	}
 
@@ -3117,12 +3136,13 @@ func (d *LocalScheduler) updateKernelResourceSpec(kernel scheduling.KernelReplic
 		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
 	err := d.allocationManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
 	if err != nil {
-		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
+		d.log.Warn("Failed to adjust pending resources assigned to kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
 
 	err = kernel.UpdateResourceSpec(newSpec, nil)
 	if err != nil {
+		// This should succeed.
 		d.log.Error("Failed to update kernel %s's resource spec to [%v]: %v", kernel.ID(), newSpec, err)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*90)
@@ -3185,12 +3205,18 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 
 	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
 	// then we can just return.
-	if kernel.ResourceSpec().Equals(requestMetadata.ResourceRequest) {
+	specsAreEqual, firstUnequalField := kernel.ResourceSpec().EqualsWithField(requestMetadata.ResourceRequest)
+	if specsAreEqual {
+		d.log.Debug("Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
+			requestMetadata.ResourceRequest.String(), kernel.ResourceSpec().String(), kernel.ID())
 		return targetReplicaId, metadataDict, nil
 	}
 
-	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
-		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\". "+
+		"Old spec: %v. New spec: %v. Differ in field '%v' [old=%f, new=%f].",
+		kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec().String(), requestMetadata.ResourceRequest.String(),
+		firstUnequalField, kernel.ResourceSpec().GetResourceQuantity(firstUnequalField),
+		requestMetadata.ResourceRequest.GetResourceQuantity(firstUnequalField))
 
 	// Attempt to update the kernel's resource request.
 	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
@@ -3686,7 +3712,7 @@ func (d *LocalScheduler) processKernelResetReply(kernel scheduling.KernelReplica
 	}
 
 	d.log.Debug(utils.LightGreenStyle.Render("Successfully demoted replica %d of kernel \"%s\" to a %s container with ID=\"%s\"."),
-		kernel.ReplicaID(), kernel.ID(), scheduling.PrewarmContainer, prewarmContainerId)
+		prevReplicaId, prevKernelId, scheduling.PrewarmContainer, prewarmContainerId)
 
 	// Release any resources.
 	// TODO: I suspect there are many cases where the resources will have already been released.
@@ -3964,6 +3990,10 @@ func (d *LocalScheduler) getInvoker(kernel scheduling.KernelReplica) invoker.Ker
 	return kernel.Context().Value(ctxKernelInvoker).(invoker.KernelInvoker)
 }
 
+func (d *LocalScheduler) getInvokerByKernelId(kernelId string) (invoker.KernelInvoker, bool) {
+	return d.kernelInvokers.Load(kernelId)
+}
+
 func (d *LocalScheduler) closeKernel(kernel scheduling.KernelReplica, reason string) {
 	if err := d.getInvoker(kernel).Close(); err != nil {
 		d.log.Warn("Failed to close %v after %s, failure: %v", kernel, reason, err)
@@ -3980,10 +4010,7 @@ func (d *LocalScheduler) cleanUp() {
 	for {
 		select {
 		case <-d.closed:
-			// Router is closed, clean up all kernels.
-			d.kernels.Range(d.clearHandler)
-			// Signal that the cleanup is done.
-			close(d.cleaned)
+			d.cleanUpAfterClosed()
 			return
 		case <-timer.C:
 			// Clean up expired kernels.
@@ -3992,6 +4019,13 @@ func (d *LocalScheduler) cleanUp() {
 			timer.Reset(cleanUpInterval)
 		}
 	}
+}
+
+func (d *LocalScheduler) cleanUpAfterClosed() {
+	// Router is closed, clean up all kernels.
+	d.kernels.Range(d.clearHandler)
+	// Signal that the cleanup is done.
+	close(d.cleaned)
 }
 
 func (d *LocalScheduler) clearHandler(_ string, kernel scheduling.KernelReplica) (contd bool) {
@@ -4012,4 +4046,14 @@ func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelRepl
 		}
 	}
 	return true
+}
+
+// NumKernels returns the number of scheduling.KernelReplica instances currently running on the LocalScheduler.
+func (d *LocalScheduler) NumKernels() int {
+	return d.kernels.Len()
+}
+
+// NumPrewarmContainers returns the number of scheduling.PrewarmContainer instances currently running on the LocalScheduler.
+func (d *LocalScheduler) NumPrewarmContainers() int {
+	return d.prewarmKernels.Len()
 }

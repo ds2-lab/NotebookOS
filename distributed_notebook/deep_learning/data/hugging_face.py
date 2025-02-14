@@ -52,7 +52,7 @@ class HuggingFaceDataset(CustomDataset, ABC):
         self._download_end: float = time.time()
 
         if not self._dataset_already_downloaded:
-            self._download_duration_sec: float = self._download_end - self._download_start
+            self._download_duration_sec = self._download_end - self._download_start
             print(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" in "
                   f"{self._download_duration_sec} seconds.")
         else:

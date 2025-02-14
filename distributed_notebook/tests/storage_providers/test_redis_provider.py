@@ -36,6 +36,10 @@ def test_upload_and_download_string(redis_client, async_redis_client):
     assert success
 
     data_from_redis: str | bytes = redis_provider.read_value(obj_name)
+
+    if isinstance(data_from_redis, bytes):
+        data_from_redis = data_from_redis.decode()
+
     assert data_from_redis == data
 
     success = redis_provider.delete_value(obj_name)
@@ -60,6 +64,10 @@ def test_write_and_read_large_data(redis_client):
     assert success
 
     data_from_redis: str | bytes = redis_provider.read_value(obj_name)
+
+    # if isinstance(data_from_redis, bytes):
+    #     data_from_redis = data_from_redis.decode()
+
     assert data_from_redis == data
 
     success = redis_provider.delete_value(obj_name)
@@ -67,6 +75,6 @@ def test_write_and_read_large_data(redis_client):
 
     assert data is not None
 
-    assert redis_provider.num_objects_read == 1
+    assert redis_provider.num_objects_read == 4
     assert redis_provider.num_objects_written == 4
     assert redis_provider.num_objects_deleted == 1

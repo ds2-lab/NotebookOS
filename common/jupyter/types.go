@@ -56,19 +56,18 @@ func (s KernelStatus) String() string {
 // We convert this struct to a `ConnectionInfoForKernel` when we want to pass configuration to a kernel.
 // The definition is compatible with github.com/Scusemua/go-utils/config.SchedulerOptions
 type ConnectionInfo struct {
-	IP                   string `json:"ip" name:"ip" description:"The IP address of the kernel."`
-	Transport            string `json:"transport" name:"transport"`
-	SignatureScheme      string `json:"signature_scheme"`
-	Key                  string `json:"key"`
-	ControlPort          int    `json:"control_port" name:"control-port" description:"The port for control messages."`
-	ShellPort            int    `json:"shell_port" name:"shell-port" description:"The port for shell messages."`
-	StdinPort            int    `json:"stdin_port" name:"stdin-port" description:"The port for stdin messages."`
-	HBPort               int    `json:"hb_port" name:"hb-port" description:"The port for heartbeat messages."`
-	IOPubPort            int    `json:"iopub_port" name:"iopub-port" description:"The port for iopub messages on the kernel (for the pub socket). In clients, we'll create a SUB socket using this to connect to the kernel's PUB socket."`
-	IOSubPort            int    `json:"iosub_port" name:"iosub-port" description:"The port for iopub messages (for the sub socket)."`
-	AckPort              int    `json:"ack_port" name:"ack-port" description:"The port to use for the ACK socket."`
-	StartingResourcePort int    `json:"starting_resource_port" name:"starting-resource-port" description:"The first 'resource port'. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
-	NumResourcePorts     int    `json:"num_resource_ports" name:"num-resource-ports" description:"The total number of available resource ports. If the 'starting-port' is 9006 and there are 20 resource ports, then the following ports are available: 9006, 9007, 9008, ..., 9024, 9025, 9026. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
+	IP               string `json:"ip" name:"ip" description:"The IP address of the kernel."`
+	Transport        string `json:"transport" name:"transport"`
+	SignatureScheme  string `json:"signature_scheme"`
+	Key              string `json:"key"`
+	ControlPort      int    `json:"control_port" name:"control-port" description:"The port for control messages."`
+	ShellPort        int    `json:"shell_port" name:"shell-port" description:"The port for shell messages."`
+	StdinPort        int    `json:"stdin_port" name:"stdin-port" description:"The port for stdin messages."`
+	HBPort           int    `json:"hb_port" name:"hb-port" description:"The port for heartbeat messages."`
+	IOPubPort        int    `json:"iopub_port" name:"iopub-port" description:"The port for iopub messages on the kernel (for the pub socket). In clients, we'll create a SUB socket using this to connect to the kernel's PUB socket."`
+	IOSubPort        int    `json:"iosub_port" name:"iosub-port" description:"The port for iopub messages (for the sub socket)."`
+	AckPort          int    `json:"ack_port" name:"ack-port" description:"The port to use for the ACK socket."`
+	NumResourcePorts int    `json:"num_resource_ports" name:"num-resource-ports" description:"The total number of available resource ports. If the 'starting-port' is 9006 and there are 20 resource ports, then the following ports are available: 9006, 9007, 9008, ..., 9024, 9025, 9026. Resource ports are the ports exposed by the Kubernetes services that are available for ZMQ sockets to listen on."`
 }
 
 func (info *ConnectionInfo) String() string {

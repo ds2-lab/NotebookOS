@@ -44,7 +44,7 @@ def test_upload_and_download_string(s3_provider: S3Provider):
     data: io.BytesIO = s3_provider.read_value(obj_name)
     assert isinstance(data, io.BytesIO)
 
-    print("Read data:", data.getvalue().decode("utf-8"))
+    print("Read data:", data.getbuffer().tobytes().decode("utf-8"))
 
     success = s3_provider.delete_value(obj_name)
     assert success

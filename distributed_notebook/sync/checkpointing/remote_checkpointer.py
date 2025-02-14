@@ -168,7 +168,7 @@ class RemoteCheckpointer(Checkpointer):
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
-                           f"because: {ex}")
+                           f"because: {type(ex).__name__} {ex}")
             raise ex # re-raise
 
         if val is None:
@@ -214,7 +214,7 @@ class RemoteCheckpointer(Checkpointer):
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
-                           f"because: {ex}")
+                           f"because: {type(ex).__name__} {ex}")
             raise ex # re-raise
 
         if val is None:
@@ -318,6 +318,9 @@ class RemoteCheckpointer(Checkpointer):
             return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
     def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, int]:
+        if state_dict is None:
+            raise ValueError(f'State dictionary is None for model "{model_name}"')
+
         buffer: io.BytesIO = io.BytesIO()
 
         try:
@@ -325,6 +328,8 @@ class RemoteCheckpointer(Checkpointer):
         except Exception as ex:
             self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
             raise ex  # re-raise
+
+        buffer.seek(0)
 
         size_bytes: int = buffer.getbuffer().nbytes
 
@@ -374,7 +379,7 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'{buffer.getbuffer().nbytes} bytes uploaded to {self.storage_name} at key "{key}" in '
+            self.log.debug(f'{buffer.getbuffer().nbytes:,} bytes uploaded to {self.storage_name} at key "{key}" in '
                            f'{round(time_elapsed, 3):,}ms.')
 
         except Exception as ex:

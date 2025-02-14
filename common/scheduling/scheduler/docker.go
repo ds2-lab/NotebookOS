@@ -10,6 +10,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/local_daemon/device"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strings"
@@ -345,8 +346,17 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 
 	replicaConnInfo, err := targetHost.PromotePrewarmedContainer(ctx, spec)
 	if err != nil {
-		s.log.Warn(
-			utils.YellowStyle.Render(
+		// These are normal/to be expected during regular operation.
+		if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) || errors.Is(err, device.ErrInsufficientResourcesAvailable) {
+			s.log.Warn(
+				utils.YellowStyle.Render(
+					"Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v"),
+				replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID(), err)
+			return err
+		}
+
+		s.log.Error(
+			utils.RedStyle.Render(
 				"Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v"),
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID(), err)
 		return err

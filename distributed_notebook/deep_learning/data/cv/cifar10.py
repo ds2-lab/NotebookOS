@@ -17,7 +17,7 @@ class CIFAR10(ComputerVisionDataset):
     def __init__(
             self,
             root_dir: str = default_root_directory,
-            batch_size: int = 4,
+            batch_size: int = 1,
             shuffle: bool = True,
             num_workers: int = 2,
             image_size: int = 224,

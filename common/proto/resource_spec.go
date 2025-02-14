@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 )
@@ -23,6 +24,24 @@ func ResourceSpecFromSpec(spec types.Spec) *ResourceSpec {
 		Gpu:    int32(spec.GPU()),
 		Vram:   float32(spec.VRAM()),
 	}
+}
+
+// GetResourceQuantity returns the quantity of the given ResourceType encoded by the target ResourceSpec.
+func (s *ResourceSpec) GetResourceQuantity(typ types.ResourceType) float64 {
+	switch typ {
+	case types.Millicpus:
+		return float64(s.Cpu)
+	case types.Memory:
+		return float64(s.Memory)
+	case types.GPUs:
+		return float64(s.Gpu)
+	case types.VRAM:
+		return float64(s.Vram)
+	case types.NoResource:
+		return -1
+	}
+
+	panic(fmt.Sprintf("Unknown resource quantity: %s", typ.String()))
 }
 
 // GPU returns the number of GPUs required.
@@ -72,12 +91,16 @@ func (s *ResourceSpec) VRAM() float64 {
 }
 
 // ToDecimalSpec converts the ResourceSpec to a types.DecimalSpec.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func (s *ResourceSpec) ToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
-		Millicpus: decimal.NewFromFloat(float64(s.Cpu)),
-		MemoryMb:  decimal.NewFromFloat(float64(s.Memory)),
-		GPUs:      decimal.NewFromFloat(float64(s.Gpu)),
-		VRam:      decimal.NewFromFloat(float64(s.Vram)),
+		Millicpus: decimal.NewFromFloat(float64(s.Cpu)).Round(0),
+		MemoryMb:  decimal.NewFromFloat(float64(s.Memory)).Round(3),
+		GPUs:      decimal.NewFromFloat(float64(s.Gpu)).Round(0),
+		VRam:      decimal.NewFromFloat(float64(s.Vram)).Round(6),
 	}
 }
 
@@ -100,6 +123,47 @@ func (s *ResourceSpec) Equals(other types.Spec) bool {
 	d2 := types.ToDecimalSpec(other)
 
 	return d1.GPUs.Equal(d2.GPUs) && d1.Millicpus.Equals(d2.Millicpus) && d1.VRam.Equal(d2.VRam) && d1.MemoryMb.Equal(d2.MemoryMb)
+}
+
+// Clone creates a copy of the target ResourceSpec and returns a pointer to it.
+func (s *ResourceSpec) Clone() *ResourceSpec {
+	return &ResourceSpec{
+		Cpu:    s.Cpu,
+		Memory: s.Memory,
+		Gpu:    s.Gpu,
+		Vram:   s.Vram,
+	}
+}
+
+// EqualsWithField returns a flag indicating whether the two Spec instances are equal.
+//
+// If they are not, then a string is returned indicating the resource type for which they are unequal.
+//
+// Resources are checked in this order: CPU, Memory, GPU, VRAM.
+//
+// If the Spec instances are unequal, then the first resource type for which they are unequal (in the order in which
+// resource types are checked/compared) will be the one that is returned.
+func (s *ResourceSpec) EqualsWithField(other types.Spec) (bool, types.ResourceType) {
+	d1 := types.ToDecimalSpec(s)
+	d2 := types.ToDecimalSpec(other)
+
+	if !d1.Millicpus.Equals(d2.Millicpus) {
+		return false, types.Millicpus
+	}
+
+	if !d1.MemoryMb.Equal(d2.MemoryMb) {
+		return false, types.Memory
+	}
+
+	if !d1.GPUs.Equal(d2.GPUs) {
+		return false, types.GPUs
+	}
+
+	if !d1.VRam.Equal(d2.VRam) {
+		return false, types.VRAM
+	}
+
+	return true, types.NoResource
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.
@@ -125,16 +189,20 @@ func (x *KernelReplicaSpec) FullSpecFromKernelReplicaSpec() *types.Float64Spec {
 // *proto.KernelSpec to a *DecimalSpec and returns the resulting *DecimalSpec.
 //
 // If the proto.KernelSpec argument is nil, then FullSpecFromKernelSpec will return nil.
+//
+// Important: millicpu and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularities
+// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
 func (x *KernelSpec) DecimalSpecFromKernelSpec() *types.DecimalSpec {
 	if x == nil {
 		return nil
 	}
 
 	return &types.DecimalSpec{
-		Millicpus: decimal.NewFromFloat(float64(x.ResourceSpec.Cpu)),
-		MemoryMb:  decimal.NewFromFloat(float64(x.ResourceSpec.Memory)),
-		GPUs:      decimal.NewFromFloat(float64(x.ResourceSpec.Gpu)),
-		VRam:      decimal.NewFromFloat(float64(x.ResourceSpec.Vram)),
+		Millicpus: decimal.NewFromFloat(float64(x.ResourceSpec.Cpu)).Round(0),
+		MemoryMb:  decimal.NewFromFloat(float64(x.ResourceSpec.Memory)).Round(3),
+		GPUs:      decimal.NewFromFloat(float64(x.ResourceSpec.Gpu)).Round(0),
+		VRam:      decimal.NewFromFloat(float64(x.ResourceSpec.Vram)).Round(6),
 	}
 }
 

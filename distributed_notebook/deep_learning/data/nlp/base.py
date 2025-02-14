@@ -107,7 +107,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenized_datasets.save_to_disk(dataset_dict_path=self._dataset_dict_path)
 
             self._tokenize_end: float = time.time()
-            self._tokenize_duration: float = self._tokenize_end - self._tokenize_start
+            self._tokenize_duration = self._tokenize_end - self._tokenize_start
 
             print(f'Wrote the tokenized {self.name} dataset to directory "{self._dataset_dict_path}" in '
                   f'{time.time() - write_start} seconds. '
