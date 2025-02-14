@@ -111,9 +111,10 @@ local_daemon_docker_image_tag: latest
 ##################################################################
 
 redis_port: 6379
-redis_maxmemory: 1024mb
+redis_maxmemory: 0
 redis_password: ""
 redis_database: 0
+redis_appendonly: "no"
 
 ##################################################################
 # Jupyter Server
