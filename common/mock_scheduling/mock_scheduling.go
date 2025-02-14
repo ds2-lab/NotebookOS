@@ -207,6 +207,22 @@ func (mr *MockClusterMockRecorder) GetHost(hostId any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHost", reflect.TypeOf((*MockCluster)(nil).GetHost), hostId)
 }
 
+// GetHostEvenIfDisabled mocks base method.
+func (m *MockCluster) GetHostEvenIfDisabled(hostId string) (scheduling.Host, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHostEvenIfDisabled", hostId)
+	ret0, _ := ret[0].(scheduling.Host)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetHostEvenIfDisabled indicates an expected call of GetHostEvenIfDisabled.
+func (mr *MockClusterMockRecorder) GetHostEvenIfDisabled(hostId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHostEvenIfDisabled", reflect.TypeOf((*MockCluster)(nil).GetHostEvenIfDisabled), hostId)
+}
+
 // GetIndex mocks base method.
 func (m *MockCluster) GetIndex(category string, expected any) (scheduling.IndexProvider, bool) {
 	m.ctrl.T.Helper()

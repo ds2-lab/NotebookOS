@@ -7,6 +7,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math/rand"
 	"strings"
 	"time"
@@ -217,18 +218,19 @@ func (c *DockerCluster) unsafeEnableHost(id string) error {
 func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan interface{}, scaleOpId string) func() {
 	return func() {
 		// Record the current scale, before the scale-out operation is executed.
-		currentScale := c.Len()
+		initialScale := c.Len()
 
 		// The number of disabled hosts we'll need in order to fully satisfy the scale-out request/operation.
-		numHostsRequired := targetScale - int32(currentScale)
+		numHostsRequired := targetScale - int32(initialScale)
 
 		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d. ScaleOpId: %s.",
 			targetScale, c.Len(), numHostsRequired, c.DisabledHosts.Len(), scaleOpId)
 
 		// If we have no disabled hosts, then we can just return.
 		if c.DisabledHosts.Len() == 0 {
-			c.log.Warn("Could not satisfy scale-out request to %d nodes using disabled nodes. "+
-				"There are no disabled nodes available whatsoever.", targetScale)
+			c.log.Warn("❗ Cannot scale-out from %d → %d nodes as there are no disabled hosts.",
+				initialScale, targetScale)
+
 			doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
 				scheduling.ErrUnsupportedOperation)
 			return
@@ -240,26 +242,34 @@ func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan inte
 
 		// If we found one or more hosts to enable, then let's enable them.
 		if len(hostsToEnable) > 0 {
+			c.log.Debug("Found %d disabled host(s) to use in scale-out operation from %d → %d (ID=%s).",
+				len(hostsToEnable), targetScale, numHostsRequired, scaleOpId)
+
 			// We found one or more hosts to enable.
 			// Let's enable them now.
 			c.unsafeEnableDisabledHostsForScaleOut(hostsToEnable, scaleOpId, scaleOutDuration)
+			numHostsRequired -= int32(len(hostsToEnable))
 		}
 
 		// Check if we satisfied the scale-out request using disabled nodes, in which case we do not
 		// need to execute a Docker CLI command and can just return immediately.
 		if numHostsRequired == 0 {
-			// Note that currentScale should be outdated at this point, but its old/outdated
+			// Note that initialScale should be outdated at this point, but its old/outdated
 			// value can be used to calculate how many disabled hosts we must have used
 			// in order to satisfy the scale-out request.
-			c.log.Debug("Satisfied scale-out request to %d nodes using %d disabled nodes.",
-				targetScale, len(hostsToEnable))
+			c.log.Debug(
+				utils.LightGreenStyle.Render(
+					"✓ Satisfied scale-out request from %d → %d nodes using %d disabled nodes."),
+				initialScale, targetScale, len(hostsToEnable))
 			doneChan <- struct{}{}
 			return
 		}
 
-		c.log.Warn("Could not satisfy scale-out request to %d nodes using disabled nodes.", targetScale)
+		c.log.Warn(
+			utils.YellowStyle.Render(
+				"❗ Could not satisfy scale-out request to %d nodes using disabled nodes."), targetScale)
 		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
-			len(hostsToEnable), targetScale-int32(currentScale))
+			len(hostsToEnable), targetScale-int32(initialScale))
 		doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
 			scheduling.ErrUnsupportedOperation)
 	}
