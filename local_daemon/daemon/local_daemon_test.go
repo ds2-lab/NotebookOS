@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
@@ -30,6 +31,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 	"net"
 	"os"
 	"path"
@@ -112,6 +114,11 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 			_ = sock.Close()
 		}
 
+		// We don't want to start serving or call Recv on the IO Pub socket, as they cannot receive messages.
+		if socketType == messaging.IOMessage {
+			continue
+		}
+
 		// Start handler.
 		go func(sock *messaging.Socket, messageQueue *queue.ThreadsafeFifo[*messaging.JupyterMessage]) {
 			defer closeSocket(sock)
@@ -121,22 +128,19 @@ func createKernelSockets(startingPort int, kernelId string) (sockets map[messagi
 			for {
 				msg, recvErr := sock.Recv()
 				if recvErr != nil {
-					fmt.Printf("Error while reading/receiving from %v socket for kernel \"%s\": %v",
+					fmt.Printf("\n\n\n\n[ERROR] Failed to read/recv from %v socket for kernel \"%s\": %v\n\n\n\n",
 						sock.Type, kernelId, recvErr)
 
 					_ = sock.Close()
 					return
 				}
 
-				//fmt.Printf("Received %v message #%d for kernel \"%s\":\n%s",
-				//	sock.Type, numReceived, kernelId, msg.String())
-
 				numReceived += 1
 				jMsg := messaging.NewJupyterMessage(&msg)
 				msgType := jMsg.JupyterMessageType()
 				msgId := jMsg.JupyterMessageId()
 
-				fmt.Printf("Received %v message #%d with MsgType=\"%s\" and MsgId=\"%s\" for kernel \"%s\":\n%s",
+				fmt.Printf("\n\n\n\nReceived %v message #%d with MsgType=\"%s\" and MsgId=\"%s\" for kernel \"%s\":\n%s\n\n\n\n",
 					sock.Type, numReceived, msgType, msgId, kernelId, jMsg.StringFormatted())
 
 				messageQueue.Enqueue(jMsg)
@@ -378,7 +382,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		})
 
 		Context("Middle-Ground Scheduling", func() {
-			middleGroundOpts := `{"Debug":true,"Verbose":true,"ProvisionerAddr":"gateway:8081","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-remote_storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":12001,"shell_port":12002,"stdin_port":12003,"hb_port":12000,"iopub_port":12004,"iosub_port":12005,"ack_port":12006,"starting_resource_port":12007,"num_resource_ports":4096,"DockerStorageBase":"","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"middle-ground","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":12080,"debug_port":12996,"election_timeout_seconds":3,"local_mode":false,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":true,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"initial-cluster-size":0,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"prewarming_enabled":true,"min_prewarm_containers_per_host":1,"max_prewarm_containers_per_host":3,"initial_num_containers_per_host":0,"prewarm_run_interval_sec":0,"prewarming_policy":"maintain_minimum_capacity","initial-connection-period":0,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":12080,"KernelRegistryPort":12075,"redis_port":6379,"redis_database":0}`
+			middleGroundOpts := `{"Debug":true,"Verbose":true,"ProvisionerAddr":"gateway:8081","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-remote_storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":12000,"shell_port":12001,"stdin_port":12002,"hb_port":12003,"iopub_port":12004,"iosub_port":12005,"ack_port":12006,"starting_resource_port":12007,"num_resource_ports":4096,"DockerStorageBase":"","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"middle-ground","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":12080,"debug_port":12996,"election_timeout_seconds":3,"local_mode":false,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":true,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"initial-cluster-size":0,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"prewarming_enabled":true,"min_prewarm_containers_per_host":1,"max_prewarm_containers_per_host":3,"initial_num_containers_per_host":0,"prewarm_run_interval_sec":0,"prewarming_policy":"maintain_minimum_capacity","initial-connection-period":0,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":12080,"KernelRegistryPort":12075,"redis_port":6379,"redis_database":0}`
 
 			var (
 				policy   scheduling.Policy
@@ -433,7 +437,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				workloadId = uuid.NewString()
 				dataDirectory := uuid.NewString()
 
-				sockets, _, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
+				sockets, _, closeFunc, err := createKernelSockets(options.ConnectionInfo.ControlPort, kernelId)
 				Expect(err).To(BeNil())
 				Expect(sockets).ToNot(BeNil())
 				Expect(len(sockets) == 5).To(BeTrue())
@@ -496,7 +500,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				workloadId = uuid.NewString()
 				dataDirectory := uuid.NewString()
 
-				sockets, _, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, kernelId)
+				sockets, _, closeFunc, err := createKernelSockets(options.ConnectionInfo.ControlPort, kernelId)
 				Expect(err).To(BeNil())
 				Expect(sockets).ToNot(BeNil())
 				Expect(len(sockets) == 5).To(BeTrue())
@@ -551,217 +555,260 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(localScheduler.NumPrewarmContainers()).To(Equal(0))
 			})
 
-			//It("Will handle promoting a pre-warmed container to a standard container", func() {
-			//	By("First creating the pre-warm container")
-			//
-			//	Expect(localScheduler).ToNot(BeNil())
-			//
-			//	prewarmKernelId := uuid.NewString()
-			//	prewarmKernelKey := uuid.NewString()
-			//	workloadId = uuid.NewString()
-			//
-			//	sockets, closeFunc, err := createKernelSockets(options.ConnectionInfo.HBPort, prewarmKernelId)
-			//	Expect(err).To(BeNil())
-			//	Expect(sockets).ToNot(BeNil())
-			//	Expect(len(sockets) == 5).To(BeTrue())
-			//	defer closeFunc()
-			//
-			//	controlSocket := sockets[messaging.ControlMessage]
-			//	Expect(controlSocket).ToNot(BeNil())
-			//
-			//	controlSocket.Handler = func(info messaging.JupyterServerInfo, messageType messaging.MessageType, message *messaging.JupyterMessage) error {
-			//		fmt.Printf("\n\n\n\nReceived message on Control socket: %v\n\n\n\n", message.StringFormatted())
-			//		return nil
-			//	}
-			//
-			//	go func(sock *messaging.Socket) {
-			//		for {
-			//			msg, err := controlSocket.Recv()
-			//			if err != nil {
-			//				fmt.Printf("Recv Error: %v\n", err)
-			//				return
-			//			}
-			//
-			//			fmt.Printf("Received: %v\n", msg)
-			//
-			//			jMsg := messaging.NewJupyterMessage(&msg)
-			//
-			//			err = sock.Handler(nil, sock.Type, jMsg)
-			//			if err != nil {
-			//				fmt.Printf("Handling Error: %v\n", err)
-			//				return
-			//			}
-			//		}
-			//	}(controlSocket)
-			//
-			//	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-			//	defer cancel()
-			//
-			//	resourceSpec := proto.NewResourceSpec(128, 256, 2, 4)
-			//
-			//	prewarmKernelSpec := &proto.KernelSpec{
-			//		Id:              prewarmKernelId,
-			//		Session:         prewarmKernelId,
-			//		Argv:            kernelArgv,
-			//		SignatureScheme: messaging.JupyterSignatureScheme,
-			//		Key:             prewarmKernelKey,
-			//		ResourceSpec:    resourceSpec,
-			//	}
-			//
-			//	prewarmKernelReplicaSpec := &proto.KernelReplicaSpec{
-			//		Kernel:                    prewarmKernelSpec,
-			//		ReplicaId:                 1,
-			//		Join:                      true,
-			//		NumReplicas:               3,
-			//		DockerModeKernelDebugPort: -1,
-			//		PersistentId:              nil,
-			//		WorkloadId:                workloadId,
-			//		Replicas:                  []string{},
-			//		PrewarmContainer:          true,
-			//	}
-			//
-			//	resultChan := make(chan *proto.KernelConnectionInfo, 1)
-			//
-			//	go func() {
-			//		resp, err := localScheduler.StartKernelReplica(ctx, prewarmKernelReplicaSpec)
-			//		Expect(err).To(BeNil())
-			//		Expect(resp).ToNot(BeNil())
-			//
-			//		resultChan <- resp
-			//	}()
-			//
-			//	connInfoChan := make(chan *jupyter.ConnectionInfo, 1)
-			//
-			//	go func() {
-			//		connInfo := callRegisterKernel(prewarmKernelId, prewarmKernelKey, resourceSpec, true, 0, 3)
-			//		Expect(connInfo).ToNot(BeNil())
-			//
-			//		connInfoChan <- connInfo
-			//	}()
-			//
-			//	var resp *proto.KernelConnectionInfo
-			//	Eventually(resultChan, ctx).Should(Receive(&resp))
-			//
-			//	Expect(resp).ToNot(BeNil())
-			//
-			//	Expect(localScheduler.NumKernels()).To(Equal(0))
-			//	Expect(localScheduler.NumPrewarmContainers()).To(Equal(1))
-			//
-			//	By("Correctly handling the promotion of the prewarm container to a standard container")
-			//
-			//	promotionCtx, promotionCancel := context.WithTimeout(context.Background(), time.Second*5)
-			//	defer promotionCancel()
-			//
-			//	promotionRespChan := make(chan *proto.KernelConnectionInfo, 1)
-			//
-			//	kernelId := uuid.NewString()
-			//	kernelKey := uuid.NewString()
-			//	workloadId = uuid.NewString()
-			//	dataDirectory := uuid.NewString()
-			//
-			//	kernelSpec := &proto.KernelSpec{
-			//		Id:              kernelId,
-			//		Session:         kernelId,
-			//		Argv:            kernelArgv,
-			//		SignatureScheme: messaging.JupyterSignatureScheme,
-			//		Key:             kernelKey,
-			//		ResourceSpec:    resourceSpec,
-			//	}
-			//
-			//	kernelReplicaSpec := &proto.KernelReplicaSpec{
-			//		Kernel:                    kernelSpec,
-			//		ReplicaId:                 1,
-			//		Join:                      true,
-			//		NumReplicas:               3,
-			//		DockerModeKernelDebugPort: -1,
-			//		PersistentId:              &dataDirectory,
-			//		WorkloadId:                workloadId,
-			//		Replicas:                  []string{},
-			//		PrewarmContainer:          false,
-			//	}
-			//
-			//	time.Sleep(time.Millisecond * 50)
-			//
-			//	go func() {
-			//		prewarmedKernelReplicaSpec := &proto.PrewarmedKernelReplicaSpec{
-			//			KernelReplicaSpec:    kernelReplicaSpec,
-			//			PrewarmedContainerId: prewarmKernelId,
-			//		}
-			//
-			//		resp, err := localScheduler.PromotePrewarmedContainer(promotionCtx, prewarmedKernelReplicaSpec)
-			//		Expect(err).To(BeNil())
-			//		Expect(resp).ToNot(BeNil())
-			//
-			//		promotionRespChan <- resp
-			//	}()
-			//
-			//	Expect(localScheduler.provisioner).To(Equal(mockedClusterGatewayClient))
-			//
-			//	mockedClusterGatewayClient.
-			//		EXPECT().
-			//		PingGateway(gomock.Any(), gomock.Any(), gomock.Any()).
-			//		Times(1).
-			//		Return(nil, nil)
-			//
-			//	mockedClusterGatewayClient.
-			//		EXPECT().
-			//		NotifyKernelRegistered(gomock.Any(), gomock.Any()).
-			//		Times(1).
-			//		DoAndReturn(
-			//			func(ctx context.Context, in *proto.KernelRegistrationNotification, opts ...*grpc.CallOption) (*proto.KernelRegistrationNotificationResponse, error) {
-			//				resp := &proto.KernelRegistrationNotificationResponse{
-			//					Id:                              in.ReplicaId,
-			//					Replicas:                        map[int32]string{1: "127.0.0.1:12345", 2: "127.0.0.1:12343", 3: "127.0.0.1:12323"},
-			//					PersistentId:                    &dataDirectory,
-			//					ResourceSpec:                    kernelSpec.ResourceSpec,
-			//					SmrPort:                         int32(localScheduler.smrPort), // The kernel should already have this info, but we'll send it anyway.
-			//					ShouldReadDataFromRemoteStorage: false,
-			//				}
-			//
-			//				return resp, nil
-			//			})
-			//
-			//	go func() {
-			//		defer GinkgoRecover()
-			//
-			//		time.Sleep(time.Millisecond * 100)
-			//
-			//		fmt.Printf("\n\nRegistering promoted PreWarm container \"%s\" now...\n\n", kernelId)
-			//
-			//		var connInfo *jupyter.ConnectionInfo
-			//		Eventually(connInfoChan, time.Millisecond*500, time.Millisecond*50).Should(Receive(&connInfo))
-			//
-			//		regPayload := &KernelRegistrationPayload{
-			//			Kernel: &proto.KernelSpec{
-			//				Id:              kernelId,
-			//				Session:         kernelId,
-			//				SignatureScheme: messaging.JupyterSignatureScheme,
-			//				Key:             kernelKey,
-			//			},
-			//			ConnectionInfo:     connInfo,
-			//			PersistentId:       nil,
-			//			NodeName:           localScheduler.nodeName,
-			//			Key:                kernelKey,
-			//			PodOrContainerName: kernelId,
-			//			Op:                 "register",
-			//			SignatureScheme:    messaging.JupyterSignatureScheme,
-			//			WorkloadId:         workloadId,
-			//			ReplicaId:          1,
-			//			NumReplicas:        3,
-			//			Cpu:                resourceSpec.Cpu,
-			//			Memory:             int32(resourceSpec.Memory),
-			//			Gpu:                resourceSpec.Gpu,
-			//			Join:               true,
-			//			PrewarmContainer:   false,
-			//		}
-			//
-			//		respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", scheduling.StandardContainer)
-			//		Expect(respPayload).ToNot(BeNil())
-			//	}()
-			//
-			//	var promotionResp *proto.KernelConnectionInfo
-			//	Eventually(resultChan, ctx).Should(Receive(&promotionResp))
-			//})
+			It("Will handle promoting a pre-warmed container to a standard container", func() {
+				By("First creating the pre-warm container")
+
+				Expect(localScheduler).ToNot(BeNil())
+
+				prewarmKernelId := uuid.NewString()
+				prewarmKernelKey := uuid.NewString()
+				workloadId = uuid.NewString()
+
+				sockets, messageQueues, closeFunc, err := createKernelSockets(options.ConnectionInfo.ControlPort, prewarmKernelId)
+				Expect(err).To(BeNil())
+				Expect(sockets).ToNot(BeNil())
+				Expect(messageQueues).ToNot(BeNil())
+				Expect(len(sockets) == 5).To(BeTrue())
+				Expect(len(messageQueues) == 5).To(BeTrue())
+				defer closeFunc()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+				defer cancel()
+
+				resourceSpec := proto.NewResourceSpec(128, 256, 2, 4)
+
+				prewarmKernelSpec := &proto.KernelSpec{
+					Id:              prewarmKernelId,
+					Session:         prewarmKernelId,
+					Argv:            kernelArgv,
+					SignatureScheme: messaging.JupyterSignatureScheme,
+					Key:             prewarmKernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				prewarmKernelReplicaSpec := &proto.KernelReplicaSpec{
+					Kernel:                    prewarmKernelSpec,
+					ReplicaId:                 1,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              nil,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{},
+					PrewarmContainer:          true,
+				}
+
+				resultChan := make(chan *proto.KernelConnectionInfo, 1)
+
+				go func() {
+					resp, err := localScheduler.StartKernelReplica(ctx, prewarmKernelReplicaSpec)
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					resultChan <- resp
+				}()
+
+				connInfoChan := make(chan *jupyter.ConnectionInfo, 1)
+
+				go func() {
+					connInfo := callRegisterKernel(prewarmKernelId, prewarmKernelKey, resourceSpec, true, 0, 3)
+					Expect(connInfo).ToNot(BeNil())
+
+					connInfoChan <- connInfo
+				}()
+
+				var resp *proto.KernelConnectionInfo
+				Eventually(resultChan, ctx).Should(Receive(&resp))
+
+				Expect(resp).ToNot(BeNil())
+
+				Expect(localScheduler.NumKernels()).To(Equal(0))
+				Expect(localScheduler.NumPrewarmContainers()).To(Equal(1))
+
+				By("Correctly handling the promotion of the prewarm container to a standard container")
+
+				promotionCtx, promotionCancel := context.WithTimeout(context.Background(), time.Second*5)
+				defer promotionCancel()
+
+				promotionRespChan := make(chan *proto.KernelConnectionInfo, 1)
+
+				kernelId := uuid.NewString()
+				kernelKey := uuid.NewString()
+				workloadId = uuid.NewString()
+				dataDirectory := uuid.NewString()
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            kernelArgv,
+					SignatureScheme: messaging.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				kernelReplicaSpec := &proto.KernelReplicaSpec{
+					Kernel:                    kernelSpec,
+					ReplicaId:                 1,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &dataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{},
+					PrewarmContainer:          false,
+				}
+
+				time.Sleep(time.Millisecond * 50)
+
+				go func() {
+					prewarmedKernelReplicaSpec := &proto.PrewarmedKernelReplicaSpec{
+						KernelReplicaSpec:    kernelReplicaSpec,
+						PrewarmedContainerId: prewarmKernelId,
+					}
+
+					resp, err := localScheduler.PromotePrewarmedContainer(promotionCtx, prewarmedKernelReplicaSpec)
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					promotionRespChan <- resp
+				}()
+
+				Expect(localScheduler.provisioner).To(Equal(mockedClusterGatewayClient))
+
+				mockedClusterGatewayClient.
+					EXPECT().
+					PingGateway(gomock.Any(), gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(nil, nil)
+
+				mockedClusterGatewayClient.
+					EXPECT().
+					NotifyKernelRegistered(gomock.Any(), gomock.Any()).
+					Times(1).
+					DoAndReturn(
+						func(ctx context.Context, in *proto.KernelRegistrationNotification, opts ...*grpc.CallOption) (*proto.KernelRegistrationNotificationResponse, error) {
+							resp := &proto.KernelRegistrationNotificationResponse{
+								Id:                              in.ReplicaId,
+								Replicas:                        map[int32]string{1: "127.0.0.1:12345", 2: "127.0.0.1:12343", 3: "127.0.0.1:12323"},
+								PersistentId:                    &dataDirectory,
+								ResourceSpec:                    kernelSpec.ResourceSpec,
+								SmrPort:                         int32(localScheduler.smrPort), // The kernel should already have this info, but we'll send it anyway.
+								ShouldReadDataFromRemoteStorage: false,
+							}
+
+							return resp, nil
+						})
+
+				Eventually(func() *messaging.JupyterMessage {
+					controlQueue := messageQueues[messaging.ControlMessage]
+					Expect(controlQueue).ToNot(BeNil())
+
+					val, ok := controlQueue.Peek()
+					if ok {
+						return val
+					}
+
+					return nil
+				}, time.Second*4, time.Millisecond*250).ShouldNot(BeNil())
+
+				go func() {
+					defer GinkgoRecover()
+
+					time.Sleep(time.Millisecond * 100)
+
+					fmt.Printf("\n\nRegistering promoted PreWarm container \"%s\" now...\n\n", kernelId)
+
+					var connInfo *jupyter.ConnectionInfo
+					Eventually(connInfoChan, time.Millisecond*500, time.Millisecond*50).Should(Receive(&connInfo))
+
+					regPayload := &KernelRegistrationPayload{
+						Kernel: &proto.KernelSpec{
+							Id:              kernelId,
+							Session:         kernelId,
+							SignatureScheme: messaging.JupyterSignatureScheme,
+							Key:             kernelKey,
+						},
+						ConnectionInfo:     connInfo,
+						PersistentId:       nil,
+						NodeName:           localScheduler.nodeName,
+						Key:                kernelKey,
+						PodOrContainerName: kernelId,
+						Op:                 "register",
+						SignatureScheme:    messaging.JupyterSignatureScheme,
+						WorkloadId:         workloadId,
+						ReplicaId:          1,
+						NumReplicas:        3,
+						Cpu:                resourceSpec.Cpu,
+						Memory:             int32(resourceSpec.Memory),
+						Gpu:                resourceSpec.Gpu,
+						Join:               true,
+						PrewarmContainer:   false,
+					}
+
+					respPayload := localScheduler.registerKernelReplica(regPayload, "127.0.0.1", scheduling.StandardContainer)
+					Expect(respPayload).ToNot(BeNil())
+				}()
+
+				messageHeader := &messaging.MessageHeader{
+					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+					Username: kernelId,
+					Session:  kernelId,
+					Date:     "2024-04-03T22:55:52.605Z",
+					MsgType:  "promote_prewarm_reply",
+					Version:  "5.2",
+				}
+
+				unsignedFrames := [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent headerKernel1*/
+					[]byte(""), /* Metadata */
+					[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+				}
+				jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+				err = jFrames.EncodeHeader(messageHeader)
+				Expect(err).To(BeNil())
+
+				controlQueue := messageQueues[messaging.ControlMessage]
+				Expect(controlQueue).ToNot(BeNil())
+
+				promoteKernelRequestMsg, ok := controlQueue.Peek()
+				Expect(ok).To(BeTrue())
+				Expect(promoteKernelRequestMsg).ToNot(BeNil())
+
+				msg := zmq4.Msg{
+					Frames: jFrames.Frames,
+					Type:   zmq4.UsrMsg,
+				}
+
+				var identityFrames [][]byte
+				for idx, frame := range promoteKernelRequestMsg.JupyterFrames.Frames {
+					if bytes.Equal(frame, messaging.JupyterFrameIDSMSG) {
+						identityFrames = promoteKernelRequestMsg.JupyterFrames.Frames[0:idx]
+						break
+					}
+				}
+
+				Expect(identityFrames).ToNot(BeNil())
+				Expect(len(identityFrames)).To(Equal(2)) // the zmq identity and the dest.req thing.
+
+				jFrames.Frames = append(identityFrames, jFrames.Frames...)
+
+				msg = zmq4.Msg{
+					Frames: jFrames.Frames,
+					Type:   zmq4.UsrMsg,
+				}
+
+				controlSocket := sockets[messaging.ControlMessage]
+				Expect(controlSocket).ToNot(BeNil())
+
+				err = controlSocket.Send(msg)
+				Expect(err).To(BeNil())
+
+				var promotionResp *proto.KernelConnectionInfo
+				Eventually(promotionRespChan, time.Second*3, time.Millisecond*250).Should(Receive(&promotionResp))
+			})
 		})
 	})
 

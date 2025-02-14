@@ -1391,7 +1391,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 					if s.StatisticsAndMetricsProvider != nil {
 						if err := s.StatisticsAndMetricsProvider.AddMessageE2ELatencyObservation(e2eLatency,
 							s.ComponentId, s.nodeType, request.MessageType(), request.JupyterMessageType()); err != nil {
-							s.Log.Warn("Could not record E2E latency of %v for %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
+							s.Log.Warn("Could not record E2E latency of %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
 								request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),
 								request.JupyterMessageId(), err)
 						}

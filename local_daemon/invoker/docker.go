@@ -610,40 +610,57 @@ func (ivk *DockerInvoker) Shutdown() error {
 }
 
 func (ivk *DockerInvoker) Close() error {
+	ivk.log.Debug("Closing DockerInvoker for %v container \"%s\" [currentContainerType=%v].",
+		ivk.currentContainerType, ivk.containerName, ivk.currentContainerType)
+
 	if ivk.containerName == "" {
-		ivk.log.Error("Cannot stop kernel container. The kernel container has not been launched yet. [DockerInvoker ID = \"%s\"]", ivk.id)
+		ivk.log.Error("Cannot stop %v kernel container. The kernel container has not been launched yet. [DockerInvoker ID = \"%s\"]",
+			ivk.currentContainerType, ivk.id)
 		return jupyter.ErrKernelNotLaunched
 	}
 
 	if !atomic.CompareAndSwapInt32(&ivk.closing, 0, 1) {
-		ivk.log.Debug("Container %s is already closing. Waiting for it to close.", ivk.containerName)
+		ivk.log.Debug("%v container %s is already closing. Waiting for it to close.",
+			ivk.currentContainerType, ivk.containerName)
+
 		// Wait for the closing to be done.
 		<-ivk.closed
 		return nil
 	}
 
 	argv := strings.Split(strings.ReplaceAll(dockerShutdownCmd, VarContainerName, ivk.containerName), " ")
-	ivk.log.Debug("Stopping container %s via %s.", ivk.containerName, argv)
-	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
+	ivk.log.Debug("Stopping %v container %s via %s.", ivk.currentContainerType, ivk.containerName, argv)
 
-	var outb, errb bytes.Buffer
-	cmd.Stdout = &outb
-	cmd.Stderr = &errb
+	// Only execute the actual Docker command if containers are not disabled (which they are during unit tests).
+	if !ivk.DockerContainersDisabled {
+		cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 
-	if err := cmd.Run(); err != nil {
-		errrorMessage := errb.String()
-		ivk.log.Error("Failed to stop container/kenel %s: %v\n", ivk.containerName, errrorMessage)
-		return err
+		var outb, errb bytes.Buffer
+		cmd.Stdout = &outb
+		cmd.Stderr = &errb
+
+		if err := cmd.Run(); err != nil {
+			ivk.log.Error("Failed to stop %v container/kernel %s: %v\n",
+				ivk.currentContainerType, ivk.containerName, errb.String())
+			return err
+		}
 	}
 
 	ivk.closedAt = time.Now()
 	close(ivk.closed)
-	ivk.closed = nil
-	ivk.log.Debug("Closed container/kernel %s.\n", ivk.containerName)
+	// TODO: Commented out because it can cause deadlocks (receiving on a nil channel leads to indefinite blocking).
+	//		 Why did we do this in the first place...?
+	//ivk.closed = nil
+	ivk.log.Debug("Closed %v container/kernel %s.\n", ivk.currentContainerType, ivk.containerName)
 	ivk.setStatus(jupyter.KernelStatusExited)
 
 	// Status will not change anymore, reset the handler.
 	ivk.statusChanged = ivk.defaultStatusChangedHandler
+
+	// If Docker containers are disabled, then return now. Don't try to rename/remove anything.
+	if ivk.DockerContainersDisabled {
+		return nil
+	}
 
 	if ivk.SaveStoppedKernelContainers {
 		return ivk.renameStoppedContainer()
@@ -936,7 +953,7 @@ func (ivk *DockerInvoker) PromotePrewarmedContainer() bool {
 
 	ivk.log.Debug("Promoted container \"%s\" to a %s container.",
 		ivk.containerName, scheduling.StandardContainer)
-	
+
 	return true
 }
 
