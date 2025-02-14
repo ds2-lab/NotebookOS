@@ -237,7 +237,7 @@ class DeepSpeech2(DeepLearningModel):
                 num_minibatches_processed += 1
                 num_samples_processed += len(waveforms)
 
-                self.log.debug(f"Processed {len(waveforms)} samples in "
+                self.log.debug(f"Processed {len(waveforms)} sample(s) in "
                                f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
                                f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
 
@@ -272,11 +272,11 @@ class DeepSpeech2(DeepLearningModel):
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
                            f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for " 
                            f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
-                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
+                           f"Processed {num_minibatches_processed} mini-batch(es); {num_samples_processed} sample(s).")
         else:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
                            f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
-                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
+                           f"Processed {num_minibatches_processed} mini-batch(es); {num_samples_processed} sample(s).")
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")

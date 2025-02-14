@@ -2459,7 +2459,9 @@ class DistributedKernel(IPythonKernel):
             await self.__close_synclog_remote_storage_client()
 
         self.log.debug("Closing Synchronizer")
-        self.synchronizer.close()
+
+        if hasattr(self, "synchronizer") and self.synchronizer is not None:
+            self.synchronizer.close()
 
         self.synchronizer = None
         self.synclog = None
