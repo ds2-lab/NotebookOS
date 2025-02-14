@@ -541,6 +541,8 @@ class Synchronizer:
         """
         Note: `execution_ast` may be None if the user's code had a syntax error.
         TODO(Ben): See what happens if there are other errors, such as dividing by zero or array out-of-bounds.
+
+        :return: True if synchronization was successful, False if not.
         """
         self.log.debug("Synchronizing execution AST: %s" % str(execution_ast))
         sync_log = self._synclog
@@ -637,12 +639,12 @@ class Synchronizer:
             tb = traceback.format_exc()
             self.log.error("SyncError: {}".format(se))
             self.log.error(tb)
-            return False
+            raise se # Re-raise
         except Exception as e:
             tb = traceback.format_exc()
             self.log.error(f"Exception Encountered: {e}")
             self.log.error(tb)
-            return False
+            raise e # Re-raise
 
         # If there were keys we were unable to sync, then return an error.
         if len(unknown_keys) > 0:
@@ -784,12 +786,23 @@ class Synchronizer:
         # self._log.debug("in should_checkpoint_callback: {}".format(cp))
         return cp
 
+    async def sync_swallow_exceptions(
+            self,
+            execution_ast: ast.Module,
+            source: Optional[str] = None,
+            checkpointer: Optional[Checkpointer] = None,
+    )->bool:
+        try:
+            return await self.sync(execution_ast, source, checkpointer)
+        except Exception:
+            return False
+
     def checkpoint_callback(self, checkpointer: Checkpointer) -> None:
         self.log.debug("Checkpointing...")
         checkpointer.lead(self._ast.execution_count)
         # await self.sync(None, source="checkpoint", checkpointer=checkpointer)
         # checkpointer.close()
         asyncio.run_coroutine_threadsafe(
-            self.sync(None, source="checkpoint", checkpointer=checkpointer),
+            self.sync_swallow_exceptions(None, source="checkpoint", checkpointer=checkpointer),
             self._async_loop,
         )
