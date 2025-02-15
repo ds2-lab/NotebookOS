@@ -926,6 +926,7 @@ message KernelRegistrationNotificationResponse {
   bool shouldReadDataFromRemoteStorage = 5;
   optional string persistentId = 6;
   bool prewarmContainer = 7;
+  bool ok = 8;
   // optional string dataDirectory = 6;
   // int32 dockerKernelDebugPort = 7;
 }

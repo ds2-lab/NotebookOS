@@ -48,7 +48,7 @@ type KernelScheduler interface {
 	// It simply provides an explanation for why the migration failed.
 	//
 	// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
+	MigrateKernelReplica(ctx context.Context, kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
 	DeployKernelReplicas(ctx context.Context, kernel Kernel, blacklistedHosts []Host) error
@@ -56,7 +56,7 @@ type KernelScheduler interface {
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
+	ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error

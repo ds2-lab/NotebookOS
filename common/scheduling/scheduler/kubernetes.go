@@ -127,7 +127,7 @@ func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) 
 	panic("Not implemented")
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ scheduling.Host, _ []scheduling.Host, forTraining bool) error {
+func (s *KubernetesScheduler) ScheduleKernelReplica(ctx context.Context, spec *proto.KernelReplicaSpec, _ scheduling.Host, _ []scheduling.Host, forTraining bool) error {
 	if err := s.kubeClient.ScaleOutCloneSet(spec.Kernel.Id); err != nil {
 		s.log.Error("Failed to add replica %d to kernel %s. Could not scale-up CloneSet because: %v",
 			spec.ReplicaId, spec.Kernel.Id, err)

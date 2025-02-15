@@ -1376,6 +1376,19 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 				if len(details) > 0 {
 					d.log.Error("Additional details associated with gRPC error: %v", details)
 				}
+
+				// Terminate the container.
+				go func() {
+					_, err = d.StopKernel(context.Background(), &proto.KernelId{
+						Id: registrationPayload.Kernel.Id,
+					})
+					if err != nil {
+						d.log.Error("Failed to stop kernel \"%s\" after receiving error from Gateway "+
+							"during registration notification: %v", err)
+					}
+				}()
+
+				return nil
 			}
 
 			// Attempt to re-establish connection with Cluster Gateway.
@@ -2498,7 +2511,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 
 		if in.PrewarmContainer {
 			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
-				in.Kernel.Id, err)
+				in.Kernel.Id, in, err)
 		} else {
 			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
 				in.Kernel.Id, in, err)

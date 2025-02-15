@@ -981,9 +981,9 @@ func (mr *MockSchedulerMockRecorder) HostRemoved(host any) *gomock.Call {
 }
 
 // MigrateKernelReplica mocks base method.
-func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error, error) {
+func (m *MockScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MigrateKernelReplica", kernelReplica, targetHostId, forTraining)
+	ret := m.ctrl.Call(m, "MigrateKernelReplica", ctx, kernelReplica, targetHostId, forTraining)
 	ret0, _ := ret[0].(*proto.MigrateKernelResponse)
 	ret1, _ := ret[1].(error)
 	ret2, _ := ret[2].(error)
@@ -991,9 +991,9 @@ func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 }
 
 // MigrateKernelReplica indicates an expected call of MigrateKernelReplica.
-func (mr *MockSchedulerMockRecorder) MigrateKernelReplica(kernelReplica, targetHostId, forTraining any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) MigrateKernelReplica(ctx, kernelReplica, targetHostId, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrateKernelReplica", reflect.TypeOf((*MockScheduler)(nil).MigrateKernelReplica), kernelReplica, targetHostId, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrateKernelReplica", reflect.TypeOf((*MockScheduler)(nil).MigrateKernelReplica), ctx, kernelReplica, targetHostId, forTraining)
 }
 
 // MinimumCapacity mocks base method.
@@ -1152,17 +1152,17 @@ func (mr *MockSchedulerMockRecorder) ReserveResourcesForReplica(kernel, replica,
 }
 
 // ScheduleKernelReplica mocks base method.
-func (m *MockScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) error {
+func (m *MockScheduler) ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ScheduleKernelReplica", replicaSpec, targetHost, blacklistedHosts, forTraining)
+	ret := m.ctrl.Call(m, "ScheduleKernelReplica", ctx, replicaSpec, targetHost, blacklistedHosts, forTraining)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ScheduleKernelReplica indicates an expected call of ScheduleKernelReplica.
-func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts, forTraining any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(ctx, replicaSpec, targetHost, blacklistedHosts, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), replicaSpec, targetHost, blacklistedHosts, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), ctx, replicaSpec, targetHost, blacklistedHosts, forTraining)
 }
 
 // SelectReplicaForMigration mocks base method.
