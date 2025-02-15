@@ -377,6 +377,21 @@ class DistributedKernel(IPythonKernel):
         config=False
     )
 
+    # If true, then retrieve datasets from our own S3 bucket.
+    # The path to each dataset would be: "s3://<bucket_name>/datasets/<dataset_filename>"
+    # Each dataset would be stored downloaded as a tar.gz file.
+    retrieve_datasets_from_s3: Bool = Bool(default_value=False).tag(
+        default_value=False,
+        config=True,
+    )
+
+    # If `retrieve_data_from_s3` is True, then this is the S3 bucket from which the kernel should retrieve datasets.
+    # The path to each dataset would be: "s3://<bucket_name>/datasets/<dataset_filename>"
+    # Each dataset would be stored downloaded as a tar.gz file.
+    datasets_s3_bucket: Union[str, Unicode] = Unicode(
+        default_value="distributed-notebook-storage"
+    ).tag(config=True, default_value="distributed-notebook-storage")
+
     prewarm_container: Bool = (Bool(False,
                                     help="Indicates whether this Kernel was created to serve as a pre-warm container, "
                                          "or if it was created as an actual kernel container.").

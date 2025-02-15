@@ -257,6 +257,12 @@ type DockerInvokerOptions struct {
 	// BindGPUs indicates whether we should bind GPUs to the container or not.
 	// We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
 	BindGPUs bool
+
+	// RetrieveDatasetsFromS3 is a bool flag that, when true, instructs the KernelInvoker to configure the kernels to retrieve datasets from an S3 bucket.
+	RetrieveDatasetsFromS3 bool
+
+	// DatasetsS3Bucket is the S3 bucket from which the kernels retrieve the datasets when RetrieveDatasetsFromS3 is set to true.
+	DatasetsS3Bucket string
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
@@ -297,6 +303,8 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			RedisDatabase:                        opts.RedisDatabase,
 			KernelDebugPort:                      opts.KernelDebugPort,
 			simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
+			RetrieveDatasetsFromS3:               opts.RetrieveDatasetsFromS3,
+			DatasetsS3Bucket:                     opts.DatasetsS3Bucket,
 		},
 		opts:                         opts,
 		RunKernelsInGdb:              opts.RunKernelsInGdb,
@@ -861,6 +869,8 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			SmrEnabled:                   ivk.SmrEnabled,
 			SimulateTrainingUsingSleep:   ivk.SimulateTrainingUsingSleep,
 			PrewarmContainer:             spec.PrewarmContainer,
+			RetrieveDatasetsFromS3:       ivk.RetrieveDatasetsFromS3,
+			DatasetsS3Bucket:             ivk.DatasetsS3Bucket,
 		},
 	}
 	if spec.PersistentId != nil {

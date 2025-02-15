@@ -99,6 +99,8 @@ type LocalInvoker struct {
 	BindDebugpyPort                      bool    // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
 	SaveStoppedKernelContainers          bool    // If true, then do not fully remove stopped kernel containers.
 	SmrEnabled                           bool    // SmrEnabled indicates if SMR is enabled.
+	RetrieveDatasetsFromS3               bool    // RetrieveDatasetsFromS3 is a bool flag that, when true, instructs the KernelInvoker to configure the kernels to retrieve datasets from an S3 bucket.
+	DatasetsS3Bucket                     string  // DatasetsS3Bucket is the S3 bucket from which the kernels retrieve the datasets when RetrieveDatasetsFromS3 is set to true.
 
 	status jupyter.KernelStatus
 
