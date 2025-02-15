@@ -383,7 +383,7 @@ func (s *DockerScheduler) scheduleKernelReplicaOnDemand(ctx context.Context, rep
 
 	replicaConnInfo, err := s.placer.Place(targetHost, replicaSpec)
 	if err != nil {
-		s.log.Warn("Failed to start replica %d of kernel %s using on-demand container %s on host %s (ID=%s): %v",
+		s.log.Warn("Failed to start replica %d of kernel %s using on-demand container on host %s (ID=%s): %v",
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), err)
 		return err
 	}

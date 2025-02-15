@@ -3883,11 +3883,11 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 		}
 
 		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-		_, err = d.addResourceSnapshotToJupyterMessage(jMsg, kernel)
-		if err != nil {
-			d.log.Warn("Failed to embed resource snapshot in \"%s\" message \"%s\" for kernel \"%s\" because: %v",
-				jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), kernel.ID(), err)
-		}
+		// _, err = d.addResourceSnapshotToJupyterMessage(jMsg, kernel)
+		//if err != nil {
+		//	d.log.Warn("Failed to embed resource snapshot in \"%s\" message \"%s\" for kernel \"%s\" because: %v",
+		//		jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), kernel.ID(), err)
+		//}
 
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = kernel.KernelStartedTraining(time.UnixMilli(leadMessage.UnixMilliseconds))

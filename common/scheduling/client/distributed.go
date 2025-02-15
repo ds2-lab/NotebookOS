@@ -758,6 +758,13 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 
 	delete(c.replicas, r.ReplicaID())
 
+	// Stop the replica FIRST -- before we call any other methods -- as we don't want to release the resources
+	// until the replica has actually been stopped and the local daemon has released its resources.
+	host, stopReplicaError := c.stopReplicaLocked(r, remover, noop) // We'll handle the stopReplicaError later.
+	if stopReplicaError != nil {
+		c.log.Error("Failed to stop replica %d of kernel \"%s\": %v", r.ReplicaID(), c.id, stopReplicaError)
+	}
+
 	var err error
 	if r.IsTraining() {
 		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
@@ -800,20 +807,21 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 		}
 	}
 
-	host, stopReplicaError := c.stopReplicaLocked(r, remover, noop)
-	if stopReplicaError != nil {
-		return host, stopReplicaError
-	}
-
 	r.Container().SetHost(nil) // Set the host to nil...
 
 	err = r.Close()
 	if err != nil {
 		c.log.Error("Failed to cleanly close replica %d of kernel \"%s\": %v",
 			r.ReplicaID(), c.id, err)
+
+		if stopReplicaError != nil {
+			err = errors.Join(stopReplicaError, err)
+		}
+
+		return host, err // Will include stopReplicaErr if stopReplicaErr is non-nil
 	}
 
-	return host, err
+	return host, stopReplicaError // Will be nil on success
 }
 
 // RemoveReplica removes a kernel peer from the kernel. Returns the host that the scheduling.KernelReplica was
