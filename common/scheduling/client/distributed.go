@@ -78,8 +78,6 @@ type DistributedKernelClient struct {
 	spec     *proto.KernelSpec
 	replicas map[int32]scheduling.KernelReplica
 
-	removingReplicas atomic.Int32
-
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
 
@@ -923,9 +921,6 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	c.replicasMutex.Lock()
 	defer c.replicasMutex.Unlock()
-
-	c.removingReplicas.Store(1)
-	defer c.removingReplicas.Store(0)
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 

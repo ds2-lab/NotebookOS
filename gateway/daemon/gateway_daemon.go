@@ -818,8 +818,10 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 		var kernelsToReclaim []scheduling.Kernel
 
 		// Keep track of which kernels we've seen, as there may be duplicates in the kernels map.
-		kernelsSeen := make(map[string]struct{})
+		kernelsSeen := make(map[string]scheduling.Kernel)
 
+		// This locks the kernels map, so we'll just copy all the kernels to this other map while
+		// also removing any duplicates.
 		d.kernels.Range(func(kernelId string, kernel scheduling.Kernel) (contd bool) {
 			// If we've already seen this kernel, then skip it.
 			// The kernels map may have duplicate values, such as when multiple sessions map to the same kernel.
@@ -828,23 +830,27 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			}
 
 			// Record that we've now seen this kernel.
-			kernelsSeen[kernel.ID()] = struct{}{}
+			kernelsSeen[kernel.ID()] = kernel
+			return true
+		})
 
+		// Now we can iterate without locking the kernels map.
+		for kernelId, kernel := range kernelsSeen {
 			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
 			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() {
-				return true
+				continue
 			}
 
 			// If the kernel's containers are actively being scheduled right now, then we shouldn't reclaim it.
 			if kernel.ReplicaContainersAreBeingScheduled() {
-				return true
+				continue
 			}
 
 			// If the kernel is actively training (as in, it is literally executing code, or the client has submitted
 			// code to be executed but the kernel has not necessarily started executing code yet), then we should not
 			// reclaim this kernel.
 			if kernel.HasActiveTraining() {
-				return true
+				continue
 			}
 
 			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
@@ -867,22 +873,22 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 
 			if timeElapsedSinceLastTrainingSubmitted < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
-				return true
+				continue
 			}
 
 			if timeElapsedSinceLastTrainingBegan < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
-				return true
+				continue
 			}
 
 			if timeElapsedSinceLastTrainingEnded < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
-				return true
+				continue
 			}
 
 			if timeElapsedSinceContainersCreated < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
 				// Skip this container
-				return true
+				continue
 			}
 
 			reclaimerLog.Debug(utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
@@ -896,8 +902,8 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 
 			kernelsToReclaim = append(kernelsToReclaim, kernel)
 
-			return true
-		})
+			continue
+		}
 
 		// If there is at least one idle kernel, then we'll start reclaiming.
 		if len(kernelsToReclaim) > 0 {
@@ -5265,18 +5271,17 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
 	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
 	// the execution failed.
-	kernel, ok := d.kernels.Load(from.ID())
-	if ok && kernel != nil && kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
-		return
-	}
-
-	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
-
 	kernel, loaded := d.kernels.Load(from.ID())
 	if !loaded {
 		d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
 		return
 	}
+
+	if kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
+		return
+	}
+
+	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 	if !d.Scheduler().Policy().ReuseWarmContainers() {
 		_ = d.removeAllReplicasOfKernel(kernel, true, false, false)
