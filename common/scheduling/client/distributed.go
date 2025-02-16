@@ -1968,7 +1968,7 @@ func (c *DistributedKernelClient) clearReplicasLocked() {
 	c.replicas.Range(func(_ int32, replica scheduling.KernelReplica) (contd bool) {
 		c.log.Debug("Closing replica %d now.", replica.ReplicaID())
 
-		err := kernel.Close()
+		err := replica.Close()
 		if err != nil {
 			// TODO(Ben): Handle this more cleanly.
 			c.log.Error("Error while trying to close replica %d: %v", replica.ReplicaID(), err)
