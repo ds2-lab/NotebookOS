@@ -837,7 +837,7 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 		// Now we can iterate without locking the kernels map.
 		for kernelId, kernel := range kernelsSeen {
 			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
-			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() {
+			if kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() || !kernel.ReplicasAreScheduled() {
 				continue
 			}
 
@@ -4045,7 +4045,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 			d.log.Debug("Target kernel \"%s\" of \"execute_request\" \"%s\" is being descheduled as of %v ago.",
 				kernel.ID(), msg.JupyterMessageId(), time.Since(descheduleAttempt.StartedAt))
 
-			// Wait for the replicas to be descheduled (or until we time-out, in which case we return an error).
+			// Wait for the replicas to be descheduled (or until we time out, in which case we return an error).
 			if err := d.waitForDeschedulingToEnd(kernel, descheduleAttempt); err != nil {
 				return nil, false, fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
 					ErrKernelNotReady, kernel.ID(), time.Since(descheduleAttempt.StartedAt))

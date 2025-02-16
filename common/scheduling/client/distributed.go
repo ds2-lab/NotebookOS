@@ -92,6 +92,9 @@ type DistributedKernelClient struct {
 	// replicasMutex provides atomicity for operations that add or remove kernel replicas from the replicas slice.
 	replicasMutex sync.RWMutex
 
+	// removingAllReplicas indicates whether a removal is occurring.
+	removingAllReplicas atomic.Int32
+
 	status            jupyter.KernelStatus
 	targetNumReplicas int32
 
@@ -744,19 +747,22 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 	return nil
 }
 
-// unsafeRemoveReplica is like RemoveReplica but unsafeRemoveReplica does not acquire or release any locks.
+// removeReplica is like RemoveReplica but removeReplica does not acquire or release any locks.
 //
-// Important: unsafeRemoveReplica must be called with mu and replicasMutex already locked.
-func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+// Important: removeReplica must be called with mu and replicasMutex already locked.
+func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
 
+	c.replicasMutex.Lock()
 	if c.replicas[r.ReplicaID()] != r {
+		c.replicasMutex.Unlock()
 		// This is bad and should never happen.
 		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
 		return nil, scheduling.ErrReplicaNotFound
 	}
 
 	delete(c.replicas, r.ReplicaID())
+	c.replicasMutex.Unlock()
 
 	// Stop the replica FIRST -- before we call any other methods -- as we don't want to release the resources
 	// until the replica has actually been stopped and the local daemon has released its resources.
@@ -851,7 +857,7 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	if r.IsTraining() {
 		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
 			r.ReplicaID(), r.ID())
-		err := r.KernelStoppedTraining(reason)
+		err = r.KernelStoppedTraining(reason)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)
@@ -927,11 +933,19 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.replicasMutex.Lock()
-	defer c.replicasMutex.Unlock()
+	if !c.removingAllReplicas.CompareAndSwap(0, 1) {
+		c.log.Error("'Removing All Replicas' flag is already set to 1...")
+	}
+
+	defer func() {
+		if !c.removingAllReplicas.CompareAndSwap(1, 0) {
+			c.log.Error("'Removing All Replicas' flag is already set to 0...")
+		}
+	}()
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 
+	c.replicasMutex.RLock()
 	if int32(len(c.replicas)) < c.targetNumReplicas {
 		c.log.Error("Only have %d replica(s); however, supposed to have %d...", len(c.replicas), c.targetNumReplicas)
 	}
@@ -943,6 +957,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	for idx, replica := range c.replicas {
 		replicas[idx] = replica
 	}
+	c.replicasMutex.RUnlock()
 
 	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
 	// requests to prompt the containers to persist any important state to remote remote_storage.
@@ -1043,7 +1058,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	// Iterate over the copy, removing replicas one-by-one.
 	for _, replica := range replicas {
-		_, err := c.unsafeRemoveReplica(replica, remover, noop)
+		_, err := c.removeReplica(replica, remover, noop)
 		if err != nil {
 			c.log.Error("Failed to remove replica %d of kernel \"%s\": %v", replica.ReplicaID(), c.id, err)
 
@@ -1909,6 +1924,11 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 // ReplicasAreScheduled returns a flag indicating whether the replicas of this kernel are scheduled.
 // Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
+	// If we're in the middle of a removal, then just return false.
+	if c.removingAllReplicas.Load() == 1 {
+		return false
+	}
+
 	c.replicasMutex.RLock()
 	defer c.replicasMutex.RUnlock()
 
