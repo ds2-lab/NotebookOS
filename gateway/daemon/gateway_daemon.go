@@ -311,7 +311,7 @@ type ClusterGatewayImpl struct {
 	//
 	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
 	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
-	kernelsStarting *hashmap.ThreadsafeCornelkMap[string, chan struct{}]
+	kernelsStarting hashmap.HashMap[string, chan struct{}]
 
 	// kernelsWithReplicasBeingCreated is a map whose keys are kernel IDs.
 	// The entries in the kernelsWithReplicasBeingCreated map correspond to kernels whose replicas are in the process
@@ -321,7 +321,7 @@ type ClusterGatewayImpl struct {
 
 	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
 	// to keep track of the notifications that we've received so we can discard duplicates.
-	kernelRegisteredNotifications *hashmap.ThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification]
+	kernelRegisteredNotifications hashmap.HashMap[string, *proto.KernelRegistrationNotification]
 
 	log logger.Logger
 
