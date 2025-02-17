@@ -273,7 +273,7 @@ kubectl_bin_path: "/usr/bin/kubectl"
 python_version: "3.12.6"
 python_short_version: "3.12"
 python_build_dir: "/home/ubuntu"
-python_virtual_env_dir: "/home/{{ remote_username }}/distributed-notebook-python-venv"
+python_virtual_env_dir: "/home/{{ remote_username }}/virtual-environments/distributed-notebook-python-venv"
 
 ##################################################################
 # ZooKeeper
