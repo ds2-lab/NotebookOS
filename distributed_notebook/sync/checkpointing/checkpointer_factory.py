@@ -13,6 +13,7 @@ def get_local_checkpointer(**kwargs)->RemoteCheckpointer:
 def get_s3_checkpointer(
         bucket_name: str = DEFAULT_S3_BUCKET_NAME,
         aws_region: str = DEFAULT_AWS_S3_REGION,
+        **kwargs,
 )->RemoteCheckpointer:
     s3_provider: S3Provider = S3Provider(bucket_name = bucket_name, aws_region = aws_region)
     return RemoteCheckpointer(s3_provider)
