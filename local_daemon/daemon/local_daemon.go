@@ -23,6 +23,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -3655,7 +3656,11 @@ func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaIn
 	// err := socket.Send(*msg)
 	err = sender.SendRequest(request, socket)
 	if err != nil {
-		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		if request.JupyterMessageType() != "kernel_info_reply" && !strings.Contains(err.Error(), "write: broken pipe") {
+			d.log.Warn("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		} else {
+			d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		}
 	}
 
 	return nil // Will be nil on success.
