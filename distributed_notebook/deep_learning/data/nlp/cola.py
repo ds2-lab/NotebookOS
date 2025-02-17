@@ -30,6 +30,10 @@ class CoLA(NLPDataset):
             model_name: Optional[str] = None,
             max_token_length: int = 128,
             batch_size: int = 1,
+            hugging_face_dataset_name = hugging_face_dataset_name,
+            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
+            text_feature_column_name = text_feature_column_name,
+            postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
             **kwargs
     ):
         super().__init__(
@@ -37,10 +41,10 @@ class CoLA(NLPDataset):
             model_name = model_name,
             shuffle = shuffle,
             num_workers = num_workers,
-            hugging_face_dataset_name = CoLA.hugging_face_dataset_name,
-            hugging_face_dataset_config_name = CoLA.hugging_face_dataset_config_name,
-            text_feature_column_name = CoLA.text_feature_column_name,
-            postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
+            hugging_face_dataset_name = hugging_face_dataset_name,
+            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
+            text_feature_column_name = text_feature_column_name,
+            postprocess_tokenized_dataset = postprocess_tokenized_dataset,
             max_token_length = max_token_length,
             tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
             batch_size = batch_size,

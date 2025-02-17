@@ -10,7 +10,14 @@ from distributed_notebook.logs import ColoredLogFormatter
 from torchvision.datasets.utils import check_integrity
 
 class CustomDataset(ABC):
-    def __init__(self, root_dir: str = "", shuffle: bool = True, num_workers: int = 2, **kwargs):
+    def __init__(
+            self,
+            root_dir: str = "",
+            shuffle: bool = True,
+            num_workers: int = 2,
+            batch_size: int = 1,
+            **kwargs
+    ):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers
@@ -21,6 +28,7 @@ class CustomDataset(ABC):
         self._tokenize_end: float = -1.0
         self._tokenize_duration: float = 0.0
         self._dataset_already_downloaded: Optional[bool] = None
+        self._batch_size: int = batch_size
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)

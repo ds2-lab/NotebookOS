@@ -2,18 +2,18 @@ import asyncio
 import logging
 import os
 import pickle
-import sys
 import threading
-import time
 import traceback
 from collections import OrderedDict
 from pickle import PickleError
 from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 
 import debugpy
+import sys
+import time
 
 from .checkpoint import Checkpoint
-from .election import Election
+from .election import Election, ElectionAlreadyDecidedError, ElectionNotStartedError
 from .errors import (
     print_trace,
     SyncError,
@@ -306,6 +306,7 @@ class RaftLog(object):
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
         catchup_start_time: float = time.time()
+
         def caught_up_callback(f: Any):
             self._restore_namespace_time_seconds = time.time() - catchup_start_time
             self.log.debug(f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds.")
@@ -1201,9 +1202,12 @@ class RaftLog(object):
         self.log.debug(f"Trying to pick winner for election {term_number}.")
 
         if self._current_election is None:
-            raise ValueError(
-                f"cannot try to pick winner for election {term_number}; current election field is null."
-            )
+            raise ValueError(f"cannot try to pick winner for election {term_number}; "
+                             f"current election field is null.")
+
+        if self._current_election.voting_phase_completed_successfully:
+            self.log.debug(f"Voting phase has already completed for election {term_number}.")
+            return False
 
         if self._future_io_loop is None:
             try:
@@ -1256,6 +1260,12 @@ class RaftLog(object):
                     ),
                 )
                 return True
+        except ElectionAlreadyDecidedError as ex:
+            self.log.debug(f"Winner already selected for election {term_number}.")
+        except ElectionNotStartedError as ex:
+            self.log.error(f"ElectionNotStartedError encountered while trying "
+                           f"to pick winner for election {term_number}: {ex}")
+            raise ex  # Re-raise.
         except ValueError as ex:
             self.log.debug(f"No winner to propose yet for election in term "
                            f"{self._current_election.term_number} because: {ex}")
@@ -1660,7 +1670,7 @@ class RaftLog(object):
             raise ex
 
     @property
-    def restore_namespace_time_seconds(self)->float:
+    def restore_namespace_time_seconds(self) -> float:
         """
         Return the time spent restoring the user namespace.
         """
@@ -2521,7 +2531,7 @@ class RaftLog(object):
         return is_leading
 
     @property
-    def restoration_time_seconds(self)->float:
+    def restoration_time_seconds(self) -> float:
         """
         Return the time spent on restoring previous state.
         """
@@ -2544,7 +2554,7 @@ class RaftLog(object):
 
         return self.current_election.is_active
 
-    async def catchup_with_peers(self)->None:
+    async def catchup_with_peers(self) -> None:
         """
         Propose a new value and wait for it to be commited to know that we're "caught up".
         """

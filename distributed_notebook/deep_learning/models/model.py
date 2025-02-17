@@ -128,6 +128,13 @@ class DeepLearningModel(ABC):
         """
         return self._requires_checkpointing
 
+    @requires_checkpointing.setter
+    def requires_checkpointing(self, requires_checkpointing: bool):
+        """
+        Return a bool indicating whether this model has updated state that needs to be checkpointed.
+        """
+        self._requires_checkpointing = requires_checkpointing
+
     @property
     def cpu_to_gpu_times(self) -> list[float]:
         """
@@ -345,6 +352,8 @@ class DeepLearningModel(ABC):
         if target_training_duration_millis <= 0:
             return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
+        target_training_duration_sec: float = target_training_duration_millis / 1.0e3
+
         self.log.debug(f"Training for {target_training_duration_millis} milliseconds.")
 
         self.model.train()
@@ -389,23 +398,63 @@ class DeepLearningModel(ABC):
                 self.log.debug("Zeroed optimizer gradients. Beginning forward pass now.")
 
                 forward_pass_start: float = time.time()
+
                 # Forward pass
-                if attention_mask is not None:
-                    outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
-                    loss_st: float = time.time()
-                    loss = outputs.loss
+                if self.gpu_available:
+                    outputs_st: float = time.time()
+                    if attention_mask is not None:
+                        outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
+
+                        self.log.debug(f"\tComputed outputs in {round((time.time() - outputs_st)*1.0e3, 3):,} ms. "
+                                       f"Computing loss now.")
+
+                        loss_st: float = time.time()
+                        loss = outputs.loss
+                    else:
+                        outputs = self.model(samples)
+
+                        self.log.debug(f"\tComputed outputs in {round((time.time() - outputs_st)*1.0e3, 3):,} ms. "
+                                       f"Computing loss now.")
+
+                        loss_st: float = time.time()
+                        loss = self._criterion(outputs, labels)
                 else:
-                    outputs = self.model(samples)
-                    self.log.debug("Computed outputs. Computing loss now.")
+                    sleep_interval_sec: float = target_training_duration_sec * 0.1
+
+                    self.log.warning(f"\tSimulating training because CUDA is unavailable. "
+                                     f"Sleeping for {round(sleep_interval_sec, 3):,f} seconds.")
+
+                    # Simulate computation time for a batch
+                    time.sleep(sleep_interval_sec)
+
+                    update_param_start: float = time.time()
+
+                    with torch.no_grad():  # Manually modify weights
+                        for param in self.model.parameters():
+                            # Random weight updates
+                            param.data = param.data + 0.01 * torch.randn_like(param)
+
+                    self.log.debug(f"\tUpdated parameters in {round((time.time() - update_param_start)*1.0e3, 3):,} ms.")
+
+                    # Simulate model outputs and labels
+                    outputs = torch.randn(len(samples), self._out_features, requires_grad=True)  # Fake predictions
+
                     loss_st: float = time.time()
+
+                    # Compute simulated loss
                     loss = self._criterion(outputs, labels)
-                    self.log.debug("Computed loss")
 
                 # Backward pass and optimization
                 loss.backward()
                 loss_et: float = time.time()
+                self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms: {round(loss.item(), 3):,}")
+
+                opt_step_st: float = time.time()
                 self._optimizer.step()
                 forward_pass_end: float = time.time()
+
+                self.log.debug(f"\tPerformed optimizer step in "
+                               f"{round((forward_pass_end - opt_step_st) * 1.0e3, 3):,} ms.")
 
                 # Add this line to clear grad tensors
                 self._optimizer.zero_grad(set_to_none=True)
@@ -419,10 +468,9 @@ class DeepLearningModel(ABC):
 
                 self.log.debug(f"Processed {len(samples)} samples in "
                                f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} ms. "
-                               f"Time elapsed: {round(time_elapsed_ms, 6):,} / "
+                               f"Time elapsed: {round(time_elapsed_ms, 3):,} / "
                                f"{round(target_training_duration_millis, 3)} ms "
-                               f"({round((time_elapsed_ms / target_training_duration_millis) * 100.0, 2)}%).")
-                self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms.")
+                               f"({round((time_elapsed_ms / target_training_duration_millis) * 100.0, 2):,}%).\n")
 
                 if self.gpu_available:
                     del samples
@@ -451,20 +499,6 @@ class DeepLearningModel(ABC):
         self.total_training_time_seconds += time_spent_training_sec
         true_training_time_ms: float = time_spent_training_sec * 1.0e3
 
-        if true_training_time_ms > target_training_duration_millis:
-            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
-                           f"Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
-                           f"{colors.YELLOW}Trained for "
-                           f"{round(true_training_time_ms - target_training_duration_millis, 9)} "
-                           f"ms too long.{colors.END} "
-                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
-        else:
-            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
-                           f"Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
-                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
-
         if self.gpu_available:
             self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
@@ -479,6 +513,20 @@ class DeepLearningModel(ABC):
             self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
         self._requires_checkpointing = True
+
+        if true_training_time_ms > target_training_duration_millis:
+            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
+                           f"Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
+                           f"{colors.YELLOW}Trained for "
+                           f"{round(true_training_time_ms - target_training_duration_millis, 9)} "
+                           f"ms too long.{colors.END} "
+                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).\n\n")
+        else:
+            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
+                           f"Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
+                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).\n\n")
 
         return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 

@@ -29,6 +29,10 @@ class IMDbLargeMovieReview(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             batch_size: int = 1,
+            hugging_face_dataset_name = hugging_face_dataset_name,
+            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
+            text_feature_column_name = text_feature_column_name,
+            postprocess_tokenized_dataset = imdb_postprocess_tokenized_dataset,
             **kwargs
     ):
         super().__init__(
@@ -36,10 +40,10 @@ class IMDbLargeMovieReview(NLPDataset):
             model_name=model_name,
             shuffle=shuffle,
             num_workers=num_workers,
-            hugging_face_dataset_name=IMDbLargeMovieReview.hugging_face_dataset_name,
-            hugging_face_dataset_config_name=IMDbLargeMovieReview.hugging_face_dataset_config_name,
-            text_feature_column_name=IMDbLargeMovieReview.text_feature_column_name,
-            postprocess_tokenized_dataset=imdb_postprocess_tokenized_dataset,
+            hugging_face_dataset_name = hugging_face_dataset_name,
+            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
+            text_feature_column_name = text_feature_column_name,
+            postprocess_tokenized_dataset=postprocess_tokenized_dataset,
             max_token_length=max_token_length,
             tokenized_dataset_directory=IMDbLargeMovieReview.get_tokenized_dataset_directory(model_name),
             batch_size=batch_size,

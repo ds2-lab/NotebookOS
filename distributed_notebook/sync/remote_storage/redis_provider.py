@@ -1,4 +1,5 @@
 import asyncio
+import io
 from typing import Any, Optional, List, ByteString
 
 import redis
@@ -168,14 +169,17 @@ class RedisProvider(RemoteStorageProvider):
             size_mb = size_bytes / 1.0e6
 
         chunks: List[ByteString] = split_bytes_buffer(value)  # Default chunk_size is 128MB.
-        chunk_sizes: List[str] = [f'{len(chunk) / 1.0e6:,} MB' for chunk in chunks]
+        chunk_sizes: List[str] = [f'{round(len(chunk) / 1.0e6, 3):,} MB' for chunk in chunks]
 
         self.log.debug(f'Split value of size {size_mb:,} MB to be stored at key '
                        f'"{key}" into {len(chunks)} chunks of size 128MB each. '
                        f'Actual chunk sizes: {",".join(chunk_sizes)}')
 
         start_time: float = time.time()
-        await self._async_redis.lpush(key, *chunks)
+
+        # Reverse order, so when we read it via lrange, we read it in the right order.
+        await self._async_redis.lpush(key, *chunks[::-1])
+
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
@@ -187,7 +191,7 @@ class RedisProvider(RemoteStorageProvider):
             num_values=len(chunks),
         )
 
-        self.log.debug(f'Wrote %d chunks with total size of {size_mb:,} MB '
+        self.log.debug(f'Wrote {len(chunks)} chunks with total size of {size_mb:,} MB '
                        f'to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
         return True
@@ -218,7 +222,10 @@ class RedisProvider(RemoteStorageProvider):
                        f'Actual chunk sizes: {",".join(chunk_sizes)}')
 
         start_time: float = time.time()
-        self._redis.lpush(key, *chunks)
+
+        # Reverse order, so when we read it via lrange, we read it in the right order.
+        self._redis.lpush(key, *chunks[::-1])
+
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
@@ -230,31 +237,41 @@ class RedisProvider(RemoteStorageProvider):
             num_values=len(chunks),
         )
 
-        self.log.debug(f'Wrote %d chunks with total size of {size_mb:,} MB '
+        self.log.debug(f'Wrote {len(chunks)} chunks with total size of {size_mb:,} MB '
                        f'to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
         return True
 
-    async def write_value_async(self, key: str, value: Any) -> bool:
+    async def write_value_async(self, key: str, value: Any, size_bytes:int = -1) -> bool:
         """
         Asynchronously write a value to Redis at the specified key.
 
+        :param size_bytes: the known size of the data to be written, if available.
         :param key: the key at which to store the value in Redis.
         :param value: the value to be written.
         """
         self.__ensure_async_redis()
 
-        size_bytes: int = sys.getsizeof(value)
+        if size_bytes <= 0:
+            if isinstance(value, bytes):
+                size_bytes = len(value)
+            elif isinstance(value, io.BytesIO):
+                value.seek(0)
+                size_bytes = value.getbuffer().nbytes
+            else:
+                size_bytes = sys.getsizeof(value)
+
         size_mb: float = size_bytes / 1.0e6
 
         if self.is_too_large(size_bytes):
-            self.log.warning(f'Cannot write value with key="{key}" to {self.storage_name}. '
-                             f'Model state is larger than maximum size of '
+            self.log.warning(f'Cannot write value (of type "{type(value).__name__}") with key="{key}" '
+                             f'to {self.storage_name}. Model state is larger than maximum size of '
                              f'{self._size_limit_mb:,} MB: {size_mb:,} MB.')
 
             return await self.__chunk_data_async(key, value, size_mb=size_mb)
 
-        self.log.debug(f'Writing value of size {size_bytes:,} bytes to Redis at key "{key}".')
+        self.log.debug(f'Writing value of type "{type(value).__name__}" size {size_bytes:,} '
+                       f'bytes to Redis at key "{key}".')
 
         start_time: float = time.time()
 
@@ -275,26 +292,36 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    def write_value(self, key: str, value: Any) -> bool:
+    def write_value(self, key: str, value: Any, size_bytes:int = -1) -> bool:
         """
         Write a value to Redis at the specified key.
 
+        :param size_bytes: the known size of the data to be written, if available.
         :param key: the key at which to store the value in Redis.
         :param value: the value to be written.
         """
         self.__ensure_redis()
 
-        size_bytes: int = sys.getsizeof(value)
+        if size_bytes <= 0:
+            if isinstance(value, bytes):
+                size_bytes = len(value)
+            elif isinstance(value, io.BytesIO):
+                value.seek(0)
+                size_bytes = value.getbuffer().nbytes
+            else:
+                size_bytes = sys.getsizeof(value)
+
         size_mb: float = size_bytes / 1.0e6
 
         if self.is_too_large(size_bytes):
-            self.log.warning(f'Cannot write value with key="{key}" to {self.storage_name}. '
-                             f'Model state is larger than maximum size of '
+            self.log.warning(f'Cannot write value (of type "{type(value).__name__}") with key="{key}" '
+                             f'to {self.storage_name}. Model state is larger than maximum size of '
                              f'{self._size_limit_mb:,} MB: {size_mb:,} MB.')
 
             return self.__chunk_data(key, value, size_mb=size_mb)
 
-        self.log.debug(f'Writing value of size {size_bytes:,} bytes to Redis at key "{key}".')
+        self.log.debug(f'Writing value of type "{type(value).__name__}" size {size_bytes:,} '
+                       f'bytes to Redis at key "{key}".')
 
         start_time: float = time.time()
 
@@ -378,7 +405,13 @@ class RedisProvider(RemoteStorageProvider):
             num_values=num_values_read
         )
 
-        self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+        units: str = "bytes"
+        if value_size > 1.0e6:
+            value_size = round(value_size / 1.0e6, 3)
+            units = "MB"
+
+        self.log.debug(f'Read value of size {value_size:,} {units} from Redis from key "{key}" '
+                       f'in {time_elapsed_ms:,} ms.')
 
         return value
 
@@ -449,7 +482,13 @@ class RedisProvider(RemoteStorageProvider):
             num_values=num_values_read
         )
 
-        self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+        units: str = "bytes"
+        if value_size > 1.0e6:
+            value_size = round(value_size / 1.0e6, 3)
+            units = "MB"
+
+        self.log.debug(f'Read value of size {value_size:,} {units} from Redis from key "{key}" '
+                       f'in {time_elapsed_ms:,} ms.')
 
         return value
 

@@ -377,6 +377,21 @@ class DistributedKernel(IPythonKernel):
         config=False
     )
 
+    # If true, then retrieve datasets from our own S3 bucket.
+    # The path to each dataset would be: "s3://<bucket_name>/datasets/<dataset_filename>"
+    # Each dataset would be stored downloaded as a tar.gz file.
+    retrieve_datasets_from_s3: Bool = Bool(default_value=False).tag(
+        default_value=False,
+        config=True,
+    )
+
+    # If `retrieve_data_from_s3` is True, then this is the S3 bucket from which the kernel should retrieve datasets.
+    # The path to each dataset would be: "s3://<bucket_name>/datasets/<dataset_filename>"
+    # Each dataset would be stored downloaded as a tar.gz file.
+    datasets_s3_bucket: Union[str, Unicode] = Unicode(
+        default_value="distributed-notebook-storage"
+    ).tag(config=True, default_value="distributed-notebook-storage")
+
     prewarm_container: Bool = (Bool(False,
                                     help="Indicates whether this Kernel was created to serve as a pre-warm container, "
                                          "or if it was created as an actual kernel container.").
@@ -1317,8 +1332,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error(traceback.format_exc())
 
             return False
-        finally:
-            faulthandler.dump_traceback(file=sys.stderr)
+        #finally:
+        #    faulthandler.dump_traceback(file=sys.stderr)
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""
@@ -2459,7 +2474,9 @@ class DistributedKernel(IPythonKernel):
             await self.__close_synclog_remote_storage_client()
 
         self.log.debug("Closing Synchronizer")
-        self.synchronizer.close()
+
+        if hasattr(self, "synchronizer") and self.synchronizer is not None:
+            self.synchronizer.close()
 
         self.synchronizer = None
         self.synclog = None
@@ -3623,28 +3640,28 @@ class DistributedKernel(IPythonKernel):
 
         try:
             # Do the synchronization
-            await self.synchronizer.sync(self.execution_ast, self.source)
-            synchronized_successfully = True
+            synchronized_successfully: bool = await self.synchronizer.sync(self.execution_ast, self.source)
         except Exception as exc:
             self.log.error(f"Synchronization failed: {exc}")
-            synchronized_successfully = False
             self.kernel_notification_service_stub.Notify(
                 gateway_pb2.KernelNotification(
                     title="Synchronization Error",
-                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {exc}.",
+                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} "
+                            f"has experienced a synchronization error: {exc}.",
                     notificationType=ErrorNotification,
                     kernelId=self.kernel_id,
                     replicaId=self.smr_node_id,
                 )
             )
+
+            synchronized_successfully: bool = False
+
         sync_end_time: float = time.time() * 1.0e3
         sync_duration_millis: float = sync_end_time - sync_start_time
 
         if synchronized_successfully:
-            self.log.debug(
-                f"Successfully synchronized updated state from term {term_number} "
-                f"with peers in {sync_duration_millis} ms."
-            )
+            self.log.debug(f"Successfully synchronized updated state from term "
+                           f"{term_number} with peers in {sync_duration_millis} ms.")
             self.current_execution_stats.sync_start_unix_millis = sync_start_time
             self.current_execution_stats.sync_end_unix_millis = sync_end_time
             self.current_execution_stats.sync_duration_millis = sync_duration_millis
@@ -3652,7 +3669,8 @@ class DistributedKernel(IPythonKernel):
         self.execution_ast = None
         self.source = None
 
-        assert self.execution_count is not None
+        if self.execution_count is None:
+            raise ValueError(f'Execution Count is None.')
 
     async def extract_mem_copy_times(
             self,

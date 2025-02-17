@@ -227,8 +227,8 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 
 				littlesLawConfig := &prewarm.LittlesLawPrewarmerConfig{
 					PrewarmerConfig: prewarmerConfig,
-					W:               0,
-					Lambda:          0,
+					W:               time.Duration(b.options.LittlesLawW * float64(time.Minute)),
+					Lambda:          b.options.LittlesLawLambda,
 				}
 
 				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig, b.metricsProvider)
@@ -667,7 +667,10 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in RemoteStorage.
-func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, targetHost scheduling.Host, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host, forTraining bool) (*scheduling.AddReplicaOperation, error) {
+func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, targetHost scheduling.Host,
+	opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host,
+	forTraining bool) (*scheduling.AddReplicaOperation, error) {
+
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -715,7 +718,9 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, targetHost scheduling.
 	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
 	// our state needs to be set up BEFORE that call occurs.
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	err := s.cluster.Scheduler().ScheduleKernelReplica(newReplicaSpec, targetHost, blacklistedHosts, forTraining)
+	err := s.cluster.Scheduler().ScheduleKernelReplica(ctx, newReplicaSpec, targetHost,
+		blacklistedHosts, forTraining)
+
 	if err != nil {
 		return addReplicaOp, err
 	}
@@ -911,8 +916,13 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining)
 		p := s.cluster.RequestHosts(context.Background(), 1)
 		if err := p.Error(); err != nil {
-			s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
-				replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(err, scheduling.ErrUnsupportedOperation) {
+				s.log.Warn("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			} else {
+				s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			}
 
 			return nil, err
 		}
@@ -929,7 +939,7 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 // It simply provides an explanation for why the migration failed.
 //
 // The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
+func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
 	if kernelReplica == nil {
 		s.log.Error("MigrateContainer received nil KernelReplica")
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
@@ -1062,7 +1072,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 
 	var addReplicaOp *scheduling.AddReplicaOperation
-	addReplicaOp, err = s.addReplica(replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
+	addReplicaOp, err = s.addReplica(ctx, replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
 
 	// If there's an error here, it's presumably a "real" error, as we already picked out a viable host up above.
 	if err != nil {
@@ -1362,7 +1372,9 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 
 	migrateContainer := func(containerId string, container scheduling.KernelContainer) error {
 		// Pass true for `noNewHost`, as we don't want to create a new host for this.
-		_, failedMigrationReason, err := s.MigrateKernelReplica(container.GetClient(), "", forTraining)
+		_, failedMigrationReason, err := s.MigrateKernelReplica(context.Background(), container.GetClient(),
+			"", forTraining)
+
 		if err != nil {
 			// We cannot migrate the Container due to an actual error.
 			s.log.Error("Abandoning the release of idle host %s (ID=%s) because we encountered an error while migrating one of the containers: %v",

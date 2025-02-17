@@ -86,7 +86,8 @@ func (p *prewarmHost) Compare(o interface{}) float64 {
 type LittlesLawPrewarmerConfig struct {
 	*PrewarmerConfig `json:",inline"`
 
-	// W is the average time that a scheduling.KernelContainer remains in the system.
+	// W is the average time that a scheduling.KernelContainer remains in the system. We use the minutes to calculate
+	// the number of pre-warm containers to provision.
 	//
 	// The value of W will vary depending upon the scheduling.Policy that is used.
 	//
@@ -98,7 +99,7 @@ type LittlesLawPrewarmerConfig struct {
 	W time.Duration `json:"w"`
 
 	// Lambda is the long-term, average effective arrival rate of scheduling.KernelContainer instances in the system
-	// whose units are events/second.
+	// whose units are events/minute.
 	//
 	// Just like the W parameter, the value of Lambda will vary depending upon the scheduling.Policy that is used.
 	//
@@ -136,12 +137,15 @@ func NewLittlesLawPrewarmer(cluster scheduling.Cluster, configuration *LittlesLa
 	base.instance = warmer
 	warmer.instance = warmer
 
-	warmer.TargetPoolSize = int32(math.Ceil(configuration.Lambda * configuration.W.Seconds()))
+	warmer.TargetPoolSize = int32(math.Ceil(configuration.Lambda * configuration.W.Minutes()))
 
 	if warmer.TargetPoolSize < 0 {
-		panic(fmt.Sprintf("Invalid target pool size computed by Little's Law Prewarmer: %d. Lambda: %.4f events/second, W: %.4f seconds.",
-			warmer.TargetPoolSize, configuration.Lambda, configuration.W.Seconds()))
+		panic(fmt.Sprintf("Invalid target pool size computed by Little's Law Prewarmer: %d. Lambda: %.4f events/minute, W: %.2f minutes.",
+			warmer.TargetPoolSize, configuration.Lambda, configuration.W.Minutes()))
 	}
+
+	warmer.log.Debug("Created Little's Law Prewarmer with target pool size of %d (Lambda: %.4f events/minute, W: %.2f minutes).",
+		warmer.TargetPoolSize, configuration.Lambda, configuration.W.Minutes())
 
 	return warmer
 }

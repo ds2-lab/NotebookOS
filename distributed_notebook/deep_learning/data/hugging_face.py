@@ -23,6 +23,7 @@ class HuggingFaceDataset(CustomDataset, ABC):
             num_workers: int = 2,
             hugging_face_dataset_name: str = "",
             hugging_face_dataset_config_name: Optional[str] = None,
+            batch_size: int = 1,
             **kwargs
     ):
         assert root_dir is not None and root_dir != ""
@@ -37,6 +38,7 @@ class HuggingFaceDataset(CustomDataset, ABC):
             root_dir=root_dir,
             shuffle=shuffle,
             num_workers=num_workers,
+            batch_size=batch_size,
         )
 
         self._hugging_face_dataset_name: str = hugging_face_dataset_name
@@ -53,10 +55,10 @@ class HuggingFaceDataset(CustomDataset, ABC):
 
         if not self._dataset_already_downloaded:
             self._download_duration_sec = self._download_end - self._download_start
-            print(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" in "
+            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" in "
                   f"{self._download_duration_sec} seconds.")
         else:
-            print(f"The {self.name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
+            self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
     def remove_local_files(self):
         """

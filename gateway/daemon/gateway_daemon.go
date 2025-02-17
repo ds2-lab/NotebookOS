@@ -16,7 +16,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
-	"golang.org/x/sync/semaphore"
 	"log"
 	"math"
 	"math/rand"
@@ -133,68 +132,6 @@ type DistributedClientProvider interface {
 	// GetBuilder() DistributedClientBuilder
 }
 
-// kernelDescheduleAttempt encapsulates an attempt to deschedule (i.e., remove all replicas/containers of)
-// a particular scheduling.Kernel.
-type kernelDescheduleAttempt struct {
-	// Semaphore is used to enable waiting with a timeout for the de-scheduling operation to complete.
-	Semaphore *semaphore.Weighted
-
-	// StartedAt is the time at which the de-scheduling operation began.
-	StartedAt time.Time
-
-	// Complete indicates whether the de-scheduling operation has completed.
-	Complete atomic.Bool
-
-	// KernelId is the ID of the associated scheduling.Kernel.
-	KernelId string
-
-	// Kernel is the target of the associated de-scheduling operation.
-	Kernel scheduling.Kernel
-}
-
-// newKernelDescheduleAttempt creates a new kernelDescheduleAttempt struct and returns a pointer to it.
-func newKernelDescheduleAttempt(kernel scheduling.Kernel) *kernelDescheduleAttempt {
-	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
-
-	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
-	err := weightedSemaphore.Acquire(context.Background(), maxSemaphoreWeight)
-	if err != nil {
-		panic(err)
-	}
-
-	return &kernelDescheduleAttempt{
-		Semaphore: weightedSemaphore,
-		StartedAt: time.Now(),
-		KernelId:  kernel.ID(),
-		Kernel:    kernel,
-	}
-}
-
-// Wait blocks until the target kernelDescheduleAttempt is finished, or until the given context.Context is cancelled.
-func (a *kernelDescheduleAttempt) Wait(ctx context.Context) error {
-	return a.Semaphore.Acquire(ctx, 1)
-}
-
-// IsComplete returns true if the target kernelDescheduleAttempt has finished.
-//
-// Note that if IsComplete is true, that doesn't necessarily mean that the target kernelDescheduleAttempt finished
-// successfully. It may have encountered errors or timed-out on its own.
-func (a *kernelDescheduleAttempt) IsComplete() bool {
-	return a.Complete.Load()
-}
-
-// SetDone records that the target kernelDescheduleAttempt has finished.
-//
-// SetDone used to be called Done so that it would match the sync.WaitGroup API, but then I switched
-// to using semaphore.Weighted to support timing-out, and I kept calling Done() as if it were returning
-// a bool indicating whether the target kernelDescheduleAttempt was finished or not (which is what
-// IsComplete is used for). So, I changed the name from Done to SetDone.
-func (a *kernelDescheduleAttempt) SetDone() {
-	// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
-	a.Semaphore.Release(maxSemaphoreWeight)
-	a.Complete.Store(true)
-}
-
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
 // This interface exists so that we can spoof it during unit tests.
 type ClusterGateway interface {
@@ -295,10 +232,6 @@ type ClusterGatewayImpl struct {
 	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
 	kernels hashmap.HashMap[string, scheduling.Kernel]
 
-	// kernelsBeingDescheduled is a map from kernel ID to kernels who are being de-scheduled.
-	// This map is used to prevent handling execute requests targeting kernels that are being de-scheduled.
-	kernelsBeingDescheduled hashmap.HashMap[string, *kernelDescheduleAttempt]
-
 	// kernelIdToKernel is a map from kernel ID to client.DistributedKernelClient.
 	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
 
@@ -311,17 +244,17 @@ type ClusterGatewayImpl struct {
 	//
 	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
 	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
-	kernelsStarting *hashmap.ThreadsafeCornelkMap[string, chan struct{}]
+	kernelsStarting hashmap.HashMap[string, chan struct{}]
 
 	// kernelsWithReplicasBeingCreated is a map whose keys are kernel IDs.
-	// The entries in the kernelsWithReplicasBeingCreated map correspond to kernels whose replicas are in the process
+	// The entries in the kernelsWithReplicasBeingCreated map correspond to Kernels whose replicas are in the process
 	// of being created/scheduled. This is used to prevent multiple concurrent requests to schedule the kernel replicas
 	// and kernel replica containers of the same kernel.
 	// kernelsWithReplicasBeingCreated *hashmap.ThreadsafeCornelkMap[string, *kernelCreateContainers]
 
 	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
 	// to keep track of the notifications that we've received so we can discard duplicates.
-	kernelRegisteredNotifications *hashmap.ThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification]
+	kernelRegisteredNotifications hashmap.HashMap[string, *proto.KernelRegistrationNotification]
 
 	log logger.Logger
 
@@ -409,6 +342,8 @@ type ClusterGatewayImpl struct {
 	// value of the IdleSessionReclamationEnabled flag.
 	IdleSessionReclamationInterval time.Duration
 
+	idleSessionReclaimer *IdleSessionReclaimer
+
 	mu sync.RWMutex
 
 	clusterStatisticsMutex sync.Mutex
@@ -462,20 +397,18 @@ type ClusterGatewayImpl struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
 	clusterGateway := &ClusterGatewayImpl{
-		id:                uuid.New().String(),
-		connectionOptions: opts,
-		createdAt:         time.Now(),
-		transport:         "tcp",
-		ip:                opts.IP,
-		DebugMode:         clusterDaemonOptions.CommonOptions.DebugMode,
-		kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
-		// kernelsWithReplicasBeingCreated: hashmap.NewThreadsafeCornelkMap[string, *kernelCreateContainers](128),
-		kernelsBeingDescheduled:         hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
-		kernelIdToKernel:                hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
-		kernelSpecs:                     hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
-		waitGroups:                      hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
-		kernelRegisteredNotifications:   hashmap.NewThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification](128),
-		kernelsStarting:                 hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
+		id:                              uuid.New().String(),
+		connectionOptions:               opts,
+		createdAt:                       time.Now(),
+		transport:                       "tcp",
+		ip:                              opts.IP,
+		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
+		kernels:                         hashmap.NewConcurrentMap[scheduling.Kernel](32),
+		kernelIdToKernel:                hashmap.NewConcurrentMap[scheduling.Kernel](32),
+		kernelSpecs:                     hashmap.NewConcurrentMap[*proto.KernelSpec](32),
+		waitGroups:                      hashmap.NewConcurrentMap[*registrationWaitGroups](32),
+		kernelRegisteredNotifications:   hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](64),
+		kernelsStarting:                 hashmap.NewCornelkMap[string, chan struct{}](64),
 		cleaned:                         make(chan struct{}),
 		smrPort:                         clusterDaemonOptions.SMRPort,
 		remoteStorageEndpoint:           clusterDaemonOptions.RemoteStorageEndpoint,
@@ -773,7 +706,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	clusterGateway.gatherClusterStatistics()
 
 	if clusterGateway.IdleSessionReclamationEnabled {
-		go clusterGateway.idleSessionReclaimer()
+		idleReclaimFunc := func(kernel scheduling.Kernel, inSeparateGoroutine bool, noop bool) error {
+			return clusterGateway.removeAllReplicasOfKernel(kernel, inSeparateGoroutine, true, noop)
+		}
+
+		clusterGateway.idleSessionReclaimer = NewIdleSessionReclaimer(clusterGateway.kernels,
+			clusterGateway.IdleSessionReclamationInterval, clusterGateway.NumReplicas(), idleReclaimFunc)
+
+		clusterGateway.idleSessionReclaimer.Start()
 	}
 
 	return clusterGateway
@@ -788,159 +728,6 @@ func (d *ClusterGatewayImpl) containerPrewarmer() scheduling.ContainerPrewarmer 
 
 	return clusterScheduler.ContainerPrewarmer()
 }
-
-// idleSessionReclaimer runs a loop and searches for scheduling.Kernel instances that are idle.
-func (d *ClusterGatewayImpl) idleSessionReclaimer() {
-	// Let the Idle Session Reclaimer goroutine have its own logger.
-	reclaimerLog := config.GetLogger("IdleSessionReclaimer ")
-
-	// Validate that we're supposed to run in the first place.
-	if !d.IdleSessionReclamationEnabled || d.IdleSessionReclamationInterval <= 0 {
-		reclaimerLog.Warn("Idle session reclamation is NOT enabled. Exiting.")
-		return
-	}
-
-	// Run every 1/60th of the reclamation interval, with the limit being once a second.
-	// So, if sessions are reclaimed after 30 minutes of being idle, then this goroutine
-	// runs every 30 seconds (1,800 seconds / 60 = 30 seconds).
-	frequency := d.IdleSessionReclamationInterval / 60
-	if frequency < time.Second {
-		frequency = time.Second
-	}
-
-	reclaimerLog.Debug("Idle Session Reclaimer initialized with frequency=%v and reclamation_interval=%v",
-		frequency, d.IdleSessionReclamationInterval)
-
-	// Keep running until the Cluster Gateway is stopped.
-	for atomic.LoadInt32(&d.closed) == 0 {
-		startTime := time.Now()
-
-		var kernelsToReclaim []scheduling.Kernel
-
-		// Keep track of which kernels we've seen, as there may be duplicates in the kernels map.
-		kernelsSeen := make(map[string]struct{})
-
-		d.kernels.Range(func(kernelId string, kernel scheduling.Kernel) (contd bool) {
-			// If we've already seen this kernel, then skip it.
-			// The kernels map may have duplicate values, such as when multiple sessions map to the same kernel.
-			if _, loaded := kernelsSeen[kernel.ID()]; loaded {
-				return true
-			}
-
-			// Record that we've now seen this kernel.
-			kernelsSeen[kernel.ID()] = struct{}{}
-
-			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
-			if !kernel.ReplicasAreScheduled() || kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() {
-				return true
-			}
-
-			// If the kernel's containers are actively being scheduled right now, then we shouldn't reclaim it.
-			if kernel.ReplicaContainersAreBeingScheduled() {
-				return true
-			}
-
-			// If the kernel is actively training (as in, it is literally executing code, or the client has submitted
-			// code to be executed but the kernel has not necessarily started executing code yet), then we should not
-			// reclaim this kernel.
-			if kernel.HasActiveTraining() {
-				return true
-			}
-
-			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
-			timeElapsedSinceLastTrainingSubmitted := time.Since(kernel.LastTrainingSubmittedAt())
-			timeElapsedSinceLastTrainingBegan := time.Since(kernel.LastTrainingStartedAt())
-			timeElapsedSinceLastTrainingEnded := time.Since(kernel.LastTrainingEndedAt())
-			timeElapsedSinceContainersCreated := time.Since(kernel.ReplicaContainersStartedAt())
-
-			// May want to use this to dynamically adjust the interval required for a kernel to be considered idle.
-			multiplier := 1.0
-
-			// If the kernel has never trained before, then we increase the interval by a factor of 1.5.
-			if kernel.NumCompletedTrainings() == 0 {
-				multiplier = 1.5
-			}
-
-			// Compute how long it has been since the kernel last submitted a training event, last began training,
-			// and last completed training. If the idle interval has elapsed for all of these times, then the
-			// session is eligible for idle reclamation.
-
-			if timeElapsedSinceLastTrainingSubmitted < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				return true
-			}
-
-			if timeElapsedSinceLastTrainingBegan < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				return true
-			}
-
-			if timeElapsedSinceLastTrainingEnded < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				return true
-			}
-
-			if timeElapsedSinceContainersCreated < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				return true
-			}
-
-			reclaimerLog.Debug(utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
-				"and last finished training %v ago, and its replica container(s) were created %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
-				kernelId, timeElapsedSinceLastTrainingSubmitted, timeElapsedSinceLastTrainingBegan,
-				timeElapsedSinceLastTrainingEnded, timeElapsedSinceContainersCreated, kernel.ID())
-
-			if kernelsToReclaim == nil {
-				kernelsToReclaim = make([]scheduling.Kernel, 0, 1)
-			}
-
-			kernelsToReclaim = append(kernelsToReclaim, kernel)
-
-			return true
-		})
-
-		// If there is at least one idle kernel, then we'll start reclaiming.
-		if len(kernelsToReclaim) > 0 {
-			reclaimerLog.Debug("Identified %d idle kernel(s) to reclaim.", len(kernelsToReclaim))
-
-			// TODO: If this ends up being slow, then we can spawn helper goroutines to handle it.
-			for _, kernel := range kernelsToReclaim {
-				reclamationStartTime := time.Now()
-				err := d.removeAllReplicasOfKernel(kernel, false, true, false)
-				if err != nil {
-					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
-				} else {
-					reclaimerLog.Debug(utils.LightPurpleStyle.Render("Successfully removed all %d replica(s) of idle kernel \"%s\" in %v."),
-						d.NumReplicas(), kernel.ID(), time.Since(reclamationStartTime))
-					reclaimerLog.Debug("Status of idle-reclaimed kernel \"%s\": %v", kernel.ID(), kernel.Status())
-					reclaimerLog.Debug("Aggregate busy status of idle-reclaimed kernel \"%s\": %v", kernel.ID(), kernel.AggregateBusyStatus())
-				}
-			}
-		}
-
-		// Sleep until we're supposed to run again.
-		//
-		// If the amount of time we spent checking if the kernels are idle and reclaiming the idle kernels
-		// is greater than our frequency interval, then we will skip sleeping.
-		//
-		// Otherwise, we'll sleep for our frequencyInterval - timeElapsed.
-		//
-		// For example, if we're supposed to run every 5,000ms, and we spent 125ms on checking + reclaiming, then
-		// we'll sleep for 5,000ms - 125ms = 4,875ms.
-		//
-		// If, as another example, we spent 6,500ms checking + reclaiming, then we'll just skip the sleep and
-		// immediately check again.
-		//
-		// If we just check and find no idle kernels, then the loop will be very quick. If we have to reclaim any
-		// idle kernels, though, then it could take a lot longer. That's why we have this check.
-		timeElapsed := time.Since(startTime)
-		timeRemaining := frequency - timeElapsed
-		if timeRemaining > 0 {
-			time.Sleep(timeRemaining)
-		}
-	}
-}
-
 func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider DistributedClientProvider) {
 	d.DistributedClientProvider = provider
 }
@@ -2010,7 +1797,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// fact scheduled. This may occur if, for example, a previous attempt concludes.
 	for {
 		// Try to start a new attempt at scheduling the replica container(s) of this kernel.
-		startedScheduling, attempt = kernel.BeginSchedulingReplicaContainers()
+		startedScheduling, attempt = kernel.InitSchedulingReplicaContainersOperation()
 
 		// If we started a new attempt, then we'll break out of the loop and orchestrate the creation of
 		// the containers for the replicas of the target kernel.
@@ -2116,7 +1903,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// Wait for all replicas to be created.
 	// Note that creation just means that the Container/Pod was created.
 	// It does not mean that the Container/Pod has entered the active/running state.
-	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %d.",
+	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of Kernels starting: %d.",
 		in.Id, d.kernelsStarting.Len())
 	created.Wait()
 	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
@@ -2129,7 +1916,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	// Clean up.
 	d.kernelsStarting.Delete(in.Id)
-	d.log.Debug("All %d replica(s) of new kernel %s have registered and joined their SMR cluster. Number of kernels starting: %d.",
+	d.log.Debug("All %d replica(s) of new kernel %s have registered and joined their SMR cluster. Number of Kernels starting: %d.",
 		d.NumReplicas(), in.Id, d.kernelsStarting.Len())
 
 	// Sanity check.
@@ -2435,8 +2222,12 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	} else {
-		d.log.Info("Restarting %v...", kernel)
+		d.log.Info("Restarting kernel \"%s\".", kernel.ID())
 		kernel.BindSession(in.Session)
+
+		// If we're restarting the kernel, then the resource spec being used is probably outdated.
+		// So, we'll replace it with the current resource spec.
+		in.ResourceSpec = proto.ResourceSpecFromSpec(kernel.ResourceSpec())
 	}
 
 	d.kernelIdToKernel.Store(in.Id, kernel)
@@ -2666,25 +2457,26 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	}
 
 	// Register the Container with the Session.
-	d.log.Debug("Registering/adding scheduling.Container for replica %d of kernel %s with the associated scheduling.Session",
+	d.log.Debug("Registering/adding Container for replica %d of kernel %s with the associated Session during migration",
 		replicaSpec.ReplicaId, addReplicaOp.KernelId())
 
 	err = session.AddReplica(container)
 	if err != nil {
 		if errors.Is(err, entity.ErrInvalidContainer) {
-			d.log.Error("Error while registering container %v with session %v:\n%v", container, session, err)
+			d.log.Error("Error while registering container %v with session %v during migration:\n%v", container, session, err)
 		} else {
-			d.log.Error("Unexpected error while registering container %v with session %v:\n%v", container, session, err)
+			d.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v", container, session, err)
 		}
 
-		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
-		panic(err)
+		go d.notifyDashboardOfError("Failed to Register Container with Session During Migration", err.Error())
+
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.GetID(), replicaSpec.Kernel.ResourceSpec)
+	d.log.Debug("Adding replica for kernel %s, replica %d on host %s during migration. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.GetID(), replicaSpec.Kernel.ResourceSpec)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("kernel::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("kernel::AddReplica call failed during migration: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaID, in.kernelId, waitGroup.NumReplicas())
@@ -2707,7 +2499,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 
 	// d.mu.Unlock()
 
-	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
+	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during migration \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
 
 	err = addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
@@ -2971,8 +2763,10 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	// Register the Container with the Session.
 	if err := session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
-		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
-		panic(err)
+		go d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
+
+		// TODO: Handle this more gracefully.
+		return nil, err
 	}
 
 	// d.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
@@ -2980,8 +2774,10 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	// Add the Container to the Host.
 	if err := host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
-		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
-		panic(err)
+		go d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+
+		// TODO: Handle this more gracefully.
+		return nil, err
 	}
 
 	d.log.Debug("Validating new kernel for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
@@ -3005,7 +2801,6 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	if err != nil {
 		d.log.Error("kernel::AddReplica call failed: %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
-		// panic(fmt.Sprintf("kernel::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
@@ -3027,6 +2822,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		ResourceSpec:                    kernelSpec.ResourceSpec,
 		SmrPort:                         int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
 		ShouldReadDataFromRemoteStorage: d.shouldKernelReplicaReadStateFromRemoteStorage(kernel, false),
+		Ok:                              true,
 	}
 
 	d.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v",
@@ -3588,7 +3384,7 @@ func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	return d.kubeClient.GetKubernetesNodes()
 }
 
-func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
+func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
 	startTime := time.Now()
 	replicaInfo := in.TargetReplica
 	targetNodeId := in.GetTargetNodeId()
@@ -3623,7 +3419,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		return nil, err
 	}
 
-	resp, reason, err := d.cluster.Scheduler().MigrateKernelReplica(kernelReplica, targetNodeId, in.ForTraining)
+	resp, reason, err := d.cluster.Scheduler().MigrateKernelReplica(ctx, kernelReplica, targetNodeId, in.ForTraining)
 
 	duration := time.Since(startTime)
 	if err != nil || reason != nil {
@@ -3738,6 +3534,10 @@ func (d *ClusterGatewayImpl) Close() error {
 		if err := d.router.Close(); err != nil {
 			d.log.Error("Failed to cleanly shutdown router because: %v", err)
 		}
+	}
+
+	if d.idleSessionReclaimer != nil {
+		d.idleSessionReclaimer.Close()
 	}
 
 	if d.started.Load() {
@@ -3988,22 +3788,62 @@ func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel
 // delete the record of it and return.
 //
 // If the attempt is not finished, then waitForDeschedulingToEnd will wait for (as of the time of writing this
-// comment) 3 minutes. If after 3 minutes, the attempt has not completed, then waitForDeschedulingToEnd will return
+// comment) 7.5 minutes. If after 6 minutes, the attempt has not completed, then waitForDeschedulingToEnd will return
 // an error.
 //
 // It's possible that there is simply a large network I/O occurring or something like that, so the fact that the attempt
 // has not resolved is not necessarily indicative that something is wrong.
-func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, descheduleAttempt *kernelDescheduleAttempt) error {
-	timeoutInterval := time.Second * 180
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
+func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, removalAttempt scheduling.RemoveReplicaContainersAttempt) error {
+	// If the removal attempt is nil, then there is nothing to wait for.
+	if removalAttempt == nil {
+		d.log.Debug("Nil removal attempt passed for kernel \"%s\". Nothing to wait for.", kernel.ID())
+		return nil
+	}
 
-	err := descheduleAttempt.Wait(ctx)
-	if err != nil {
-		d.log.Warn("Timed-out waiting for descheduling of kernel \"%s\" to complete after %v. Deschedule attempt has been in-progress for %v.",
-			kernel.ID(), timeoutInterval, time.Since(descheduleAttempt.StartedAt))
+	// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
+	if !removalAttempt.IsComplete() {
+		d.log.Debug("Target kernel \"%s\" is being descheduled as of %v ago.",
+			kernel.ID(), removalAttempt.TimeElapsed())
 
-		return err
+		startTime := time.Now()
+
+		// We do this in a loop so we can incrementally print warning messages after we've been waiting for a while,
+		// in the event that the descheduling operation does not resolve quickly.
+		for i := 0; i < 3; i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*150 /* 2.5 minutes */)
+
+			// Wait for the replicas to finish being descheduled.
+			err := removalAttempt.Wait(ctx)
+			cancel()
+
+			// No error means that the descheduling attempt concluded successfully.
+			if err == nil {
+				d.log.Debug("Descheduling complete for kernel \"%s\". Waited: %v. Time to reschedule.",
+					kernel.ID(), time.Since(startTime))
+				return nil
+			}
+
+			// Not necessarily an error. Context timeout is set to a low value so that we can incrementally print
+			// warning messages after we've been waiting for a while, in the event that the descheduling operation
+			// does not resolve quickly.
+			d.log.Warn("Awaiting the completion of replica descheduling for kernel \"%s\". Time elapsed: %v.",
+				kernel.ID(), time.Since(startTime))
+
+			// But if the error is NOT a context.DeadlineExceeded error, then something went wrong.
+			if !errors.Is(err, context.DeadlineExceeded) {
+				// TODO: How to handle?
+				d.log.Error("Attempt to remove replicas of kernel %s resulted in an error: %v",
+					kernel.ID(), err)
+
+				errorTitle := fmt.Sprintf("Failed to Remove Replicas of Kernel \"%s\"", kernel.ID())
+				go d.notifyDashboardOfError(errorTitle, err.Error())
+
+				return err
+			}
+		}
+
+		return fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
+			ErrKernelNotReady, kernel.ID(), time.Since(removalAttempt.StartedAt()))
 	}
 
 	return nil
@@ -4024,21 +3864,9 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 		kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
 
 	// Check if the kernel is being descheduled. If so, then we'll wait for a bit for it to finish being descheduled.
-	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
-		// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
-		if !descheduleAttempt.IsComplete() {
-			d.log.Debug("Target kernel \"%s\" of \"execute_request\" \"%s\" is being descheduled as of %v ago.",
-				kernel.ID(), msg.JupyterMessageId(), time.Since(descheduleAttempt.StartedAt))
-
-			// Wait for the replicas to be descheduled (or until we time-out, in which case we return an error).
-			if err := d.waitForDeschedulingToEnd(kernel, descheduleAttempt); err != nil {
-				return nil, false, fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
-					ErrKernelNotReady, kernel.ID(), time.Since(descheduleAttempt.StartedAt))
-			}
-		}
-
-		// Delete the record of the descheduling attempt. It either already was complete, or we waited and it finished.
-		d.kernelsBeingDescheduled.Delete(kernel.ID())
+	_, removalAttempt := kernel.ReplicaContainersAreBeingRemoved()
+	if err := d.waitForDeschedulingToEnd(kernel, removalAttempt); err != nil {
+		return nil, false, err
 	}
 
 	// If the replica(s) are scheduled, then we have nothing to do.
@@ -4138,7 +3966,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 			d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-			d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
+			d.log.Error("Valid Kernels/sessions are (%d):", d.kernels.Len())
 			d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 				d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
 				return true
@@ -4158,7 +3986,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 		d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-		d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
+		d.log.Error("Valid Kernels/sessions are (%d):", d.kernels.Len())
 		d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 			d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
 			return true
@@ -4735,7 +4563,7 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 		return nil
 	}
 
-	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
+	// Are we permitted to dynamically change the resource request(s) of Kernels? If not, then we'll just return.
 	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
 		return nil
 	}
@@ -5256,18 +5084,17 @@ func (d *ClusterGatewayImpl) cleanUpBeforeForwardingExecuteReply(from router.Inf
 	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
 	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
 	// the execution failed.
-	kernel, ok := d.kernels.Load(from.ID())
-	if ok && kernel != nil && kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
-		return
-	}
-
-	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
-
 	kernel, loaded := d.kernels.Load(from.ID())
 	if !loaded {
 		d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
 		return
 	}
+
+	if kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
+		return
+	}
+
+	d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 	if !d.Scheduler().Policy().ReuseWarmContainers() {
 		_ = d.removeAllReplicasOfKernel(kernel, true, false, false)
@@ -5510,24 +5337,73 @@ func (d *ClusterGatewayImpl) kernelReplicaResponseForwarder(from scheduling.Kern
 func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool,
 	isIdleReclaim bool, noop bool) error {
 
-	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
-		d.log.Error("Instructed to remove all replicas of kernel \"%s\"; however, another attempt that began %v ago is still in progress...",
-			kernel.ID(), time.Since(descheduleAttempt.StartedAt))
+	var (
+		startedRemoving   bool
+		descheduleAttempt scheduling.RemoveReplicaContainersAttempt
+	)
 
-		return fmt.Errorf("%w: kernel \"%s\"", ErrConcurrentRemoval, kernel.ID())
+	// We'll keep executing this loop as long as the replicas of the target kernel are not removed.
+	// We break from the loop internally if (a) we claim ownership over a container removal descheduleAttempt, in which case we
+	// break out so that we can orchestrate the container removal descheduleAttempt, or (b) if we find that the replicas are in
+	// fact removed. This may occur if, for example, a previous descheduleAttempt concludes.
+	for {
+		// Try to start a new descheduleAttempt at scheduling the replica container(s) of this kernel.
+		startedRemoving, descheduleAttempt = kernel.InitRemovingReplicaContainersOperation()
+
+		// If we started a new descheduleAttempt, then we'll break out of the loop and orchestrate the removal of the containers
+		// of the replicas of the target kernel.
+		if startedRemoving {
+			d.log.Debug(
+				utils.LightBlueStyle.Render(
+					"Started descheduleAttempt to remove %d replica container(s) for kernel \"%s\"."), d.NumReplicas(), kernel.ID())
+			break
+		}
+
+		// We didn't start a new removal descheduleAttempt.
+		// If the returned descheduleAttempt is also nil, then that means that there was also not an active descheduleAttempt.
+		// So, the replicas are apparently already removed.
+		if descheduleAttempt == nil {
+			d.log.Debug("Tried to start descheduleAttempt to remove replica container(s) for kernel \"%s\", but apparently they're already removed.",
+				kernel.ID())
+
+			// Double-check that the kernel's replicas are removed. If they are, then we'll just return entirely.
+			kernelSize := kernel.Size()
+			if kernelSize == 0 {
+				return nil
+			}
+
+			// This would be truly bizarre, but if this occurs, then we'll just sleep briefly and then try again...
+			d.log.Error("Thought kernel \"%s\" was fully descheduled, but kernel has %d replica(s).",
+				kernel.ID(), kernelSize)
+
+			time.Sleep(time.Millisecond * (5 + time.Duration(rand.Intn(25))))
+			continue
+		}
+
+		// If we did not start a new descheduleAttempt, then a previous descheduleAttempt must still be active.
+		// We'll just wait for the descheduleAttempt to conclude.
+		// If the scheduling is successful, then this will eventually return nil.
+		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
+		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
+			kernel.ID(), descheduleAttempt.TimeElapsed())
+
+		return d.waitForDeschedulingToEnd(kernel, descheduleAttempt)
 	}
-
-	descheduleAttempt := newKernelDescheduleAttempt(kernel)
-
-	// We use a wait group to keep track of whether we're in the process of de-scheduling a kernel's replicas.
-	// It will be cleaned up the next time an "execute_request" arrives.
-	d.kernelsBeingDescheduled.Store(kernel.ID(), descheduleAttempt)
 
 	// doRemoveReplicas removes the kernel's replicas and returns an error if one occurs.
 	doRemoveReplicas := func() error {
-		defer descheduleAttempt.SetDone()
+		err := kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, noop, isIdleReclaim)
+		if err != nil {
+			d.log.Error("Failed to remove all replicas of kernel \"%s\" because: %v", kernel.ID(), err)
+		}
 
-		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, noop, isIdleReclaim)
+		setDoneErr := descheduleAttempt.SetDone(err /* will be nil on success */)
+		if setDoneErr != nil {
+			d.log.Error("Error while calling SetDone on deschedule attempt for kernel \"%s\": %v",
+				kernel.ID(), setDoneErr)
+		}
+
+		return err // Will be nil on success.
 	}
 
 	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.
@@ -5546,8 +5422,6 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	// This will be nil if de-schedule was successful,
 	// or if the caller specified that we should use a separate goroutine for the replica removal.
 	if err != nil {
-		d.log.Error("Failed to remove one or more replicas of kernel \"%s\": %v", kernel.ID(), err)
-
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Remove One or More Replicas of kernel \"%s\"",
 			kernel.ID()), err.Error())
 

@@ -164,7 +164,7 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
+            self.log.debug(f'Read {sys.getsizeof(val):,} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
@@ -210,7 +210,7 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
+            self.log.debug(f'Read {sys.getsizeof(val):,} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
@@ -350,7 +350,7 @@ class RemoteCheckpointer(Checkpointer):
                        f"Model size: {size_mb:,} MB.")
 
         try:
-            self.storage_provider.write_value(key, buffer.getbuffer())
+            self.storage_provider.write_value(key, buffer.getbuffer(), size_bytes = size_bytes)
         except Exception as ex:
             self.log.error(f"Failed to write state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                            f"(model size: {size_mb} MB) because: {ex}")
@@ -375,7 +375,7 @@ class RemoteCheckpointer(Checkpointer):
 
         try:
             st: float = time.time()
-            await self.storage_provider.write_value_async(key, buffer.getbuffer())
+            await self.storage_provider.write_value_async(key, buffer.getbuffer(), size_bytes = size_bytes)
             et: float = time.time()
             time_elapsed: float = et - st
 

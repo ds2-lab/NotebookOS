@@ -239,7 +239,7 @@ func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelR
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
 // If targetHost is nil, then a candidate Host is identified automatically by the Scheduler.
-func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) (err error) {
+func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) (err error) {
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
 	if targetHost == nil {
@@ -278,7 +278,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			s.log.Debug("Found pre-warmed container on host %s (ID=%s). Using for replica %d of kernel %s.",
 				targetHost.GetNodeName(), targetHost.GetID(), replicaSpec.ReplicaId, kernelId)
 
-			err = s.scheduleKernelReplicaPrewarm(replicaSpec, container, targetHost)
+			err = s.scheduleKernelReplicaPrewarm(ctx, replicaSpec, container, targetHost)
 
 			if err == nil {
 				return nil
@@ -287,7 +287,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			if errors.Is(err, prewarm.ErrPrewarmedContainerAlreadyUsed) {
 				s.log.Error("Will use on-demand container for replica %d of kernel \"%s\" since pre-warmed container was already used...",
 					replicaSpec.ReplicaId, kernelId)
-				return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
+				return s.scheduleKernelReplicaOnDemand(ctx, replicaSpec, targetHost)
 			}
 
 			return err
@@ -296,12 +296,12 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 		s.log.Debug("No pre-warmed containers available on host %s: %v.", targetHost.GetNodeName(), unavailErr)
 	}
 
-	return s.scheduleKernelReplicaOnDemand(replicaSpec, targetHost)
+	return s.scheduleKernelReplicaOnDemand(ctx, replicaSpec, targetHost)
 }
 
 // scheduleKernelReplicaPrewarm creates a new scheduling.KernelReplica using an existing, pre-warmed scheduling.PrewarmedContainer
 // that is available on the specified scheduling.Host.
-func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.KernelReplicaSpec,
+func (s *DockerScheduler) scheduleKernelReplicaPrewarm(ctx context.Context, replicaSpec *proto.KernelReplicaSpec,
 	container scheduling.PrewarmedContainer, targetHost scheduling.Host) error {
 
 	// Validate argument.
@@ -335,10 +335,6 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 	s.log.Debug("Launching replica %d of kernel %s in pre-warmed container \"%s\" on targetHost %s (ID=%s) now.",
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID())
 
-	// We'll wait up to 5 minutes for the operation to complete.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
-	defer cancel()
-
 	spec := &proto.PrewarmedKernelReplicaSpec{
 		KernelReplicaSpec:    replicaSpec,
 		PrewarmedContainerId: container.ID(),
@@ -348,6 +344,15 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 	if err != nil {
 		// These are normal/to be expected during regular operation.
 		if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) || errors.Is(err, device.ErrInsufficientResourcesAvailable) {
+			s.log.Warn(
+				utils.YellowStyle.Render(
+					"Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v"),
+				replicaSpec.ReplicaId, replicaSpec.Kernel.Id, container.ID(), targetHost.GetNodeName(), targetHost.GetID(), err)
+			return err
+		}
+
+		// Timed-out. Not necessarily catastrophic, but something might have gone wrong.
+		if errors.Is(err, context.DeadlineExceeded) {
 			s.log.Warn(
 				utils.YellowStyle.Render(
 					"Failed to start replica %d of kernel %s using pre-warmed container %s on host %s (ID=%s): %v"),
@@ -372,13 +377,13 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(replicaSpec *proto.Kernel
 
 // scheduleKernelReplicaOnDemand uses the scheduling.Placer to create a new scheduling.KernelContainer on the specified
 // scheduling.Host for the specified scheduling.KernelReplica.
-func (s *DockerScheduler) scheduleKernelReplicaOnDemand(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host) error {
+func (s *DockerScheduler) scheduleKernelReplicaOnDemand(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host) error {
 	s.log.Debug("Launching replica %d of kernel %s in on-demand container on targetHost %s (ID=%s) now.",
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID())
 
 	replicaConnInfo, err := s.placer.Place(targetHost, replicaSpec)
 	if err != nil {
-		s.log.Warn("Failed to start replica %d of kernel %s using on-demand container %s on host %s (ID=%s): %v",
+		s.log.Warn("Failed to start replica %d of kernel %s using on-demand container on host %s (ID=%s): %v",
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID(), err)
 		return err
 	}
@@ -395,7 +400,7 @@ func (s *DockerScheduler) scheduleKernelReplicaOnDemand(replicaSpec *proto.Kerne
 //
 // scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
 // have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) <-chan *schedulingNotification {
+func (s *DockerScheduler) scheduleKernelReplicas(ctx context.Context, in *proto.KernelSpec, hosts []scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) <-chan *schedulingNotification {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan *schedulingNotification, 3)
@@ -415,7 +420,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
 
 			var schedulingError error
-			if schedulingError = s.ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts, forTraining); schedulingError != nil {
+			if schedulingError = s.ScheduleKernelReplica(ctx, replicaSpec, targetHost, blacklistedHosts, forTraining); schedulingError != nil {
 				// An error occurred. Send it over the channel.
 				resultChan <- &schedulingNotification{
 					SchedulingCompletedAt: time.Now(),
@@ -591,7 +596,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 	kernel.RecordContainerPlacementStarted()
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
-	resultChan := s.scheduleKernelReplicas(kernelSpec, hosts, blacklistedHosts, false)
+	resultChan := s.scheduleKernelReplicas(ctx, kernelSpec, hosts, blacklistedHosts, false)
 
 	// Keep looping until we've received all responses or the context times-out.
 	responsesReceived := make([]*schedulingNotification, 0, len(hosts))

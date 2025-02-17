@@ -31,6 +31,8 @@ type CommonOptions struct {
 	SimulateTrainingUsingSleep         bool   `name:"simulate_training_using_sleep" json:"simulate_training_using_sleep" yaml:"simulate_training_using_sleep" description:"Flag which informs system whether to use real GPUs for training or not."`
 	BindDebugPyPort                    bool   `name:"bind_debugpy_port" json:"bind_debugpy_port" yaml:"bind_debugpy_port" description:"If true, bind a port to the kernel for debugpy."`
 	SaveStoppedKernelContainers        bool   `name:"save_stopped_kernel_containers" json:"save_stopped_kernel_containers" yaml:"save_stopped_kernel_containers" description:"If true, rename stopped kernel containers to save/persist them."`
+	RetrieveDatasetsFromS3             bool   `name:"retrieve_datasets_from_s3" json:"retrieve_datasets_from_s3" json:"retrieve_datasets_from_s3"`
+	DatasetsS3Bucket                   string `name:"datasets_s3_bucket" json:"datasets_s3_bucket" yaml:"datasets_s3_bucket"`
 
 	// PrettyPrintOptions, when true, instructs the Cluster Gateway's driver script to pretty-print
 	// the ClusterGatewayOptions struct when the program first begins running.

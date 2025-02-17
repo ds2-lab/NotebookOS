@@ -52,12 +52,15 @@ class LocalStorageProvider(RemoteStorageProvider):
         """
         return False # never too large!
 
-    async def write_value_async(self, key: str, value: Any)->bool:
+    async def write_value_async(self, key: str, value: Any, size_bytes:int = -1)->bool:
         """
-        Asynchronously write a value to Local In-Memory Storage at the specified key.
+        Asynchronously write a value to AWS S3 at the specified key.
 
-        :param key: the key at which to store the value in Local In-Memory Storage.
+        :param key: the key at which to store the value in AWS S3.
         :param value: the value to be written.
+        :param size_bytes: the size of the value to be written.
+
+        :return: True if the write operation is successful, otherwise False.
         """
         async with self._async_lock:
             value_size: int = sys.getsizeof(value)
@@ -81,12 +84,13 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         return True
 
-    def write_value(self, key: str, value: Any)->bool:
+    def write_value(self, key: str, value: Any, size_bytes:int = -1)->bool:
         """
         Write a value to Local In-Memory Storage at the specified key.
 
         :param key: the key at which to store the value in Local In-Memory Storage.
         :param value: the value to be written.
+        :param size_bytes: the size of the value to be written.
         """
         value_size: int = sys.getsizeof(value)
 
@@ -146,7 +150,12 @@ class LocalStorageProvider(RemoteStorageProvider):
             num_values=1
         )
 
-        self.log.debug(f'Read value of size {value_size} bytes from {self.storage_name} from key "{key}" '
+        units: str = "bytes"
+        if value_size > 1.0e6:
+            value_size = round(value_size / 1.0e6, 3)
+            units = "MB"
+
+        self.log.debug(f'Read value of size {value_size:,} {units} from {self.storage_name} from key "{key}" '
                        f'in {time_elapsed_ms:,} ms.')
 
         return value

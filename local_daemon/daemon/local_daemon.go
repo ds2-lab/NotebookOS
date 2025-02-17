@@ -23,6 +23,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -387,12 +388,12 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		ip:                             ip,
 		id:                             dockerNodeId,
 		nodeName:                       nodeName,
-		kernelsStopping:                hashmap.NewThreadsafeCornelkMap[string, chan struct{}](128),
-		kernels:                        hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
-		kernelInvokers:                 hashmap.NewThreadsafeCornelkMap[string, invoker.KernelInvoker](128),
-		prewarmKernels:                 hashmap.NewThreadsafeCornelkMap[string, scheduling.KernelReplica](128),
-		kernelClientCreationChannels:   hashmap.NewThreadsafeCornelkMap[string, chan *proto.KernelConnectionInfo](128),
-		kernelDebugPorts:               hashmap.NewThreadsafeCornelkMap[string, int](256),
+		kernelsStopping:                hashmap.NewConcurrentMap[chan struct{}](32),
+		kernels:                        hashmap.NewConcurrentMap[scheduling.KernelReplica](32),
+		kernelInvokers:                 hashmap.NewConcurrentMap[invoker.KernelInvoker](32),
+		prewarmKernels:                 hashmap.NewConcurrentMap[scheduling.KernelReplica](32),
+		kernelClientCreationChannels:   hashmap.NewConcurrentMap[chan *proto.KernelConnectionInfo](32),
+		kernelDebugPorts:               hashmap.NewConcurrentMap[int](32),
 		closed:                         make(chan struct{}),
 		cleaned:                        make(chan struct{}),
 		kernelRegistryPort:             kernelRegistryPort,
@@ -1109,6 +1110,8 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		RedisPassword:                        d.RedisPassword,
 		RedisPort:                            d.RedisPort,
 		RedisDatabase:                        d.RedisDatabase,
+		RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
+		DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1374,6 +1377,19 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 				if len(details) > 0 {
 					d.log.Error("Additional details associated with gRPC error: %v", details)
 				}
+
+				// Terminate the container.
+				go func() {
+					_, err = d.StopKernel(context.Background(), &proto.KernelId{
+						Id: registrationPayload.Kernel.Id,
+					})
+					if err != nil {
+						d.log.Error("Failed to stop kernel \"%s\" after receiving error from Gateway "+
+							"during registration notification: %v", err)
+					}
+				}()
+
+				return nil
 			}
 
 			// Attempt to re-establish connection with Cluster Gateway.
@@ -2359,6 +2375,8 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			KernelDebugPort:                      in.DockerModeKernelDebugPort,
 			WorkloadId:                           in.WorkloadId,
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
+			RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
+			DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
@@ -2494,7 +2512,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 
 		if in.PrewarmContainer {
 			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
-				in.Kernel.Id, err)
+				in.Kernel.Id, in, err)
 		} else {
 			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
 				in.Kernel.Id, in, err)
@@ -3638,7 +3656,11 @@ func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaIn
 	// err := socket.Send(*msg)
 	err = sender.SendRequest(request, socket)
 	if err != nil {
-		d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		if request.JupyterMessageType() != "kernel_info_reply" && !strings.Contains(err.Error(), "write: broken pipe") {
+			d.log.Warn("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		} else {
+			d.log.Error("Error while forwarding %v response from kernel %s: %s", typ, from.ID(), err.Error())
+		}
 	}
 
 	return nil // Will be nil on success.
@@ -3866,11 +3888,11 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 		}
 
 		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-		_, err = d.addResourceSnapshotToJupyterMessage(jMsg, kernel)
-		if err != nil {
-			d.log.Warn("Failed to embed resource snapshot in \"%s\" message \"%s\" for kernel \"%s\" because: %v",
-				jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), kernel.ID(), err)
-		}
+		// _, err = d.addResourceSnapshotToJupyterMessage(jMsg, kernel)
+		//if err != nil {
+		//	d.log.Warn("Failed to embed resource snapshot in \"%s\" message \"%s\" for kernel \"%s\" because: %v",
+		//		jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), kernel.ID(), err)
+		//}
 
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = kernel.KernelStartedTraining(time.UnixMilli(leadMessage.UnixMilliseconds))

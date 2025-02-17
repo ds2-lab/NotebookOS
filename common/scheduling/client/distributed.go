@@ -10,6 +10,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"golang.org/x/sync/semaphore"
 	"slices"
 	"sync"
@@ -75,10 +76,9 @@ type DistributedKernelClient struct {
 
 	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
 
-	spec     *proto.KernelSpec
-	replicas map[int32]scheduling.KernelReplica
-
-	removingReplicas atomic.Int32
+	spec *proto.KernelSpec
+	// replicas map[int32]scheduling.KernelReplica
+	replicas hashmap.HashMap[int32, scheduling.KernelReplica]
 
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
@@ -92,15 +92,20 @@ type DistributedKernelClient struct {
 	mu sync.RWMutex
 
 	// replicasMutex provides atomicity for operations that add or remove kernel replicas from the replicas slice.
-	replicasMutex sync.RWMutex
+	//replicasMutex sync.RWMutex
 
 	status            jupyter.KernelStatus
 	targetNumReplicas int32
 
 	numActiveAddOperations atomic.Int32 // Number of active migrations of the associated kernel's replicas.
 
-	// replicaContainersStartedAt is the time at which the target Kernel's KernelContainer instances last started.
+	// replicaContainersStartedAt is the time at which the target DistributedKernelClient's scheduling.KernelContainer
+	// instances last started.
 	replicaContainersStartedAt time.Time
+
+	// replicaContainersStoppedAt is the time at which the DistributedKernelClient's scheduling.KernelContainer
+	// instances last stopped.
+	replicaContainersStoppedAt time.Time
 
 	// createReplicaContainersAttempt is non-nil when there's an active 'create containers' operation for this
 	// DistributedKernelClient. The createReplicaContainersAttempt encapsulates info about that operation.
@@ -118,6 +123,17 @@ type DistributedKernelClient struct {
 	//
 	// When there is an active operation, the value of createReplicaContainersAttempt will be strictly positive.
 	replicaContainersAreBeingScheduled atomic.Int32
+
+	// removeReplicaContainersAttempt is non-nil when there's an active 'remove containers/replicas' operation for
+	// this DistributedKernelClient. The removeReplicaContainersAttempt encapsulates info about that operation.
+	//
+	// In order to check if there's an active operation, one should inspect the value of the
+	// replicaContainersAreBeingRemoved variable. Checking if removeReplicaContainersAttempt is non-nil is not the
+	// correct or intended way to check whether there is an active 'remove containers/replicas' operation.
+	removeReplicaContainersAttempt *RemoveReplicaContainersAttempt
+
+	// replicaContainersAreBeingRemoved indicates whether a removal is occurring.
+	replicaContainersAreBeingRemoved atomic.Int32
 
 	// isIdleReclaimed indicates whether the DistributedKernelClient is in a state of being idle reclaimed.
 	isIdleReclaimed atomic.Bool
@@ -176,9 +192,10 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		status:               jupyter.KernelStatusInitializing,
 		notificationCallback: callbackProvider.NotificationCallback,
 		spec:                 spec,
-		replicas:             make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
 		targetNumReplicas:    int32(numReplicas),
 		cleaned:              make(chan struct{}),
+		replicas:             hashmap.NewCornelkMap[int32, scheduling.KernelReplica](16),
+		// replicas:             make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
 	}
 	kernelClient.nextNodeId.Store(int32(numReplicas + 1))
 	kernelClient.BaseServer = kernelClient.server.Server()
@@ -223,6 +240,25 @@ func (c *DistributedKernelClient) ReplicaContainersStartedAt() time.Time {
 	return c.replicaContainersStartedAt
 }
 
+// ReplicaContainersAreBeingRemoved returns true if there is an active 'remove container(s)/replica(s)' operation
+// for the target DistributedKernelClient.
+func (c *DistributedKernelClient) ReplicaContainersAreBeingRemoved() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.unsafeReplicaContainersAreBeingRemoved()
+}
+
+func (c *DistributedKernelClient) unsafeReplicaContainersAreBeingRemoved() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	areBeingRemoved := c.replicaContainersAreBeingRemoved.Load() > 0
+
+	if !areBeingRemoved {
+		return false, nil
+	}
+
+	return areBeingRemoved, c.removeReplicaContainersAttempt
+}
+
 // ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
 // for the target DistributedKernelClient.
 func (c *DistributedKernelClient) ReplicaContainersAreBeingScheduled() bool {
@@ -244,16 +280,70 @@ func (c *DistributedKernelClient) RecordContainerPlacementStarted() {
 	c.createReplicaContainersAttempt.ContainerPlacementStarted()
 }
 
-// BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
+// InitRemovingReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
+//
+// If there's another active operation, then this will return false along with the RemoveReplicaContainersAttempt
+// associated with the active/ongoing container removal operation.
+//
+// If the KernelContainer instances for the KernelReplica instances of this Kernel are already removed, then
+// RemoveReplicaContainersAttempt will return false and nil.
+func (c *DistributedKernelClient) InitRemovingReplicaContainersOperation() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	// TODO: What about concurrent scheduling/creation operation?
+
+	// Attempt to take ownership over the next/current scheduling attempt.
+	// If this CAS operation fails, then that means that there's another active container creation attempt.
+	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(0, 1) {
+		return false, c.removeReplicaContainersAttempt
+	}
+
+	// Sanity check. This field should be nil if there was not an active scheduling operation.
+	if c.removeReplicaContainersAttempt != nil {
+		c.log.Error("Began attempt to remove %d replica container(s), but 'removeReplicaContainersAttempt' field is non-nil...",
+			c.replicas.Len())
+
+		panic("Found existing 'removeReplicaContainersAttempt' value upon beginning new container removal operation.")
+	}
+
+	if c.replicas.Len() == 0 {
+		c.log.Debug("Began attempt to remove up to %d replica container(s), but replica(s) are already removed.",
+			c.targetNumReplicas)
+
+		concluded := c.concludeSchedulingReplicaContainers()
+		if !concluded {
+			panic("Failed to conclude container creation operation immediately after initiating it...")
+		}
+
+		return false, nil
+	}
+
+	// Check if our replicas are already scheduled. If they are, then we'll return false and nil,
+	// indicating that our replicas are scheduled, and that nobody needs to do anything as a result.
+	if c.replicas.Len() == 0 {
+		c.log.Debug("Began attempt to remove %d replica container(s), but replica(s) are already removed.",
+			c.targetNumReplicas)
+
+		concluded := c.concludeRemovingReplicaContainers()
+		if !concluded {
+			panic("Failed to conclude container removal operation immediately after initiating it...")
+		}
+
+		return false, nil
+	}
+
+	c.log.Debug("Beginning attempt to remove %d replica container(s).", c.replicas.Len())
+	c.removeReplicaContainersAttempt = newRemoveReplicaContainersAttempt(c)
+	return true, c.removeReplicaContainersAttempt
+}
+
+// InitSchedulingReplicaContainersOperation attempts to take ownership over the next/current scheduling attempt.
 //
 // If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
 // associated with the active/ongoing container creation operation.
 //
 // If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
 // BeginSchedulingReplicaContainers will return false and nil.
-func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, scheduling.CreateReplicaContainersAttempt) {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+func (c *DistributedKernelClient) InitSchedulingReplicaContainersOperation() (bool, scheduling.CreateReplicaContainersAttempt) {
+	// TODO: What about concurrent descheduling/removal operation?
 
 	// Attempt to take ownership over the next/current scheduling attempt.
 	// If this CAS operation fails, then that means that there's another active container creation attempt.
@@ -342,9 +432,6 @@ func (c *DistributedKernelClient) NumColdContainersUsed() int32 {
 // If concludeSchedulingReplicaContainers returns false, then the CreateReplicaContainersAttempt struct that is
 // invoking the concludeSchedulingReplicaContainers method will ultimately end up panicking.
 func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
-
 	if !c.replicaContainersAreBeingScheduled.CompareAndSwap(1, 0) {
 		c.log.Error("Failed to flip value of 'CreatingReplicaContainers' flag from 1 to 0.")
 		return false
@@ -365,15 +452,34 @@ func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
 		}
 	} else {
 		c.log.Warn("Attempt to schedule %d replica container(s) has failed.", c.targetNumReplicas)
-
-		statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusError)
-		if !statusChanged {
-			c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
-				jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusError.String(), c.status.String())
-		}
 	}
 
 	c.createReplicaContainersAttempt = nil
+	return true
+}
+
+// concludeRemovingReplicaContainers is called automatically by a RemoveReplicaContainersAttempt struct
+// when the container removal operation associated with the RemoveReplicaContainersAttempt concludes.
+//
+// concludeRemovingReplicaContainers should return true, meaning that the kernel's flag that indicates
+// whether an active container removal operation is occurring was successfully flipped from 1 --> 0.
+//
+// If concludeRemovingReplicaContainers returns false, then the RemoveReplicaContainersAttempt struct that is
+// invoking the concludeSchedulingReplicaContainers method will ultimately end up panicking.
+func (c *DistributedKernelClient) concludeRemovingReplicaContainers() bool {
+	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(1, 0) {
+		c.log.Error("Failed to flip value of 'RemovingReplicaContainers' flag from 1 to 0.")
+		return false
+	}
+
+	if c.replicas.Len() == 0 {
+		c.log.Debug("Successfully removed (up to) %d replica container(s).", c.targetNumReplicas)
+		c.replicaContainersStoppedAt = time.Now()
+	} else {
+		c.log.Warn("Attempt to remove (up to) %d replica container(s) has failed.", c.targetNumReplicas)
+	}
+
+	c.removeReplicaContainersAttempt = nil
 	return true
 }
 
@@ -425,13 +531,18 @@ func (c *DistributedKernelClient) GetSession() scheduling.UserSession {
 // GetContainers returns a slice containing all the scheduling.Container associated with the scheduling.Session
 // (i.e., the scheduling.Session that itself is associated with the DistributedKernelClient).
 func (c *DistributedKernelClient) GetContainers() []scheduling.KernelContainer {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// c.replicasMutex.RLock()
+	//defer c.replicasMutex.RUnlock()
 
-	containers := make([]scheduling.KernelContainer, len(c.replicas))
-	for _, replica := range c.replicas {
+	containers := make([]scheduling.KernelContainer, c.replicas.Len())
+	//for _, replica := range c.replicas {
+	//	containers = append(containers, replica.Container())
+	//}
+
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		containers = append(containers, replica.Container())
-	}
+		return true
+	})
 
 	return containers
 }
@@ -506,31 +617,68 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 // updateResourceSpecOfReplicas updates the resource specs of the replicas of the target DistributedKernelClient.
 func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spec) error {
 	var coordinatedTransaction *transaction.CoordinatedTransaction
-	if len(c.replicas) > 1 {
-		coordinatedTransaction = transaction.NewCoordinatedTransaction(len(c.replicas), c.id)
+	if c.replicas.Len() > 1 {
+		coordinatedTransaction = transaction.NewCoordinatedTransaction(c.replicas.Len(), c.id)
 	}
 
 	// Make sure that all the replicas -- however many there are -- have valid, non-nil containers.
-	for _, kernelReplica := range c.replicas {
+	//for _, kernelReplica := range c.replicas {
+	//	if kernelReplica.Container() == nil {
+	//		c.log.Error("Replica %d of kernel %s is non-nil but lacks a valid container...",
+	//			kernelReplica.ReplicaID(), c.id)
+	//		return fmt.Errorf("replica %d of kernel %s is non-nil but lacks a valid container",
+	//			kernelReplica.ReplicaID(), c.id)
+	//	}
+	//}
+
+	var err error
+	c.replicas.Range(func(i int32, kernelReplica scheduling.KernelReplica) bool {
 		if kernelReplica.Container() == nil {
 			c.log.Error("Replica %d of kernel %s is non-nil but lacks a valid container...",
 				kernelReplica.ReplicaID(), c.id)
-			return fmt.Errorf("replica %d of kernel %s is non-nil but lacks a valid container",
+			err = fmt.Errorf("replica %d of kernel %s is non-nil but lacks a valid container",
 				kernelReplica.ReplicaID(), c.id)
+			return false
 		}
+
+		return true
+	})
+
+	if err != nil {
+		return err
 	}
 
 	// If the coordinatedTransaction is non-nil, then there are multiple replicas.
 	// Update their specs using goroutines.
 	if coordinatedTransaction != nil {
-		for _, kernelReplica := range c.replicas {
+		//for _, kernelReplica := range c.replicas {
+		//	go func() {
+		//		_ = kernelReplica.UpdateResourceSpec(newSpec, coordinatedTransaction)
+		//	}()
+		//}
+		c.replicas.Range(func(_ int32, kernelReplica scheduling.KernelReplica) bool {
 			go func() {
 				_ = kernelReplica.UpdateResourceSpec(newSpec, coordinatedTransaction)
 			}()
-		}
-	} else if len(c.replicas) == 1 { // Is there at least one replica?
+
+			return true
+		})
+	} else if c.replicas.Len() == 1 { // Is there at least one replica?
 		// Just one replica. We'll update it ourselves.
-		return c.replicas[1].UpdateResourceSpec(newSpec, nil)
+		replica, _ := c.replicas.Load(int32(1))
+
+		if replica != nil {
+			return replica.UpdateResourceSpec(newSpec, nil)
+		}
+
+		c.log.Error("Expected single replica to have ID=1...")
+		c.replicas.Range(func(_ int32, kernelReplica scheduling.KernelReplica) bool {
+			c.log.Warn("Updating spec of replica %d...", kernelReplica.ReplicaID())
+			err = replica.UpdateResourceSpec(newSpec, nil)
+			return false
+		})
+
+		return err
 	}
 
 	// If the coordinatedTransaction is non-nil, we'll return our result based on the success or failure of the tx.
@@ -550,8 +698,8 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 //
 // It also ensures that the updated ResourceSpec is propagated to the host of each KernelContainer/Replica.
 func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec) error {
-	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
-		c.id, c.spec.ResourceSpec.String(), newSpec.String())
+	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v. Number of replicas: %d.",
+		c.id, c.spec.ResourceSpec.String(), newSpec.String(), c.replicas.Len())
 
 	oldSpec := c.spec.DecimalSpecFromKernelSpec()
 
@@ -563,7 +711,7 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if len(c.replicas) > 0 {
+	if c.replicas.Len() > 0 {
 		err := c.updateResourceSpecOfReplicas(newSpec)
 		if err != nil {
 			return err
@@ -627,7 +775,8 @@ func (c *DistributedKernelClient) setStatus(oldStatus jupyter.KernelStatus, newS
 	if swapped {
 		c.log.Debug("Swapped kernel status from %s to %s.", oldStatus.String(), newStatus.String())
 	} else {
-		c.log.Debug("Attempt to swap kernel status from %s to %s rejected.", oldStatus.String(), newStatus.String())
+		c.log.Debug("Attempt to swap kernel status from %s to %s rejected. (Current status: %s.)",
+			oldStatus.String(), newStatus.String(), c.status.String())
 	}
 
 	return
@@ -635,7 +784,7 @@ func (c *DistributedKernelClient) setStatus(oldStatus jupyter.KernelStatus, newS
 
 // Size returns the number of replicas in the kernel.
 func (c *DistributedKernelClient) Size() int {
-	return len(c.replicas) // c.size
+	return c.replicas.Len() // c.size
 }
 
 // NumActiveExecutionOperations returns the number of execution.Execution structs registered with
@@ -666,13 +815,17 @@ func (c *DistributedKernelClient) AddOperationCompleted() {
 
 // Replicas returns the replicas in the kernel.
 func (c *DistributedKernelClient) Replicas() []scheduling.KernelReplica {
-	c.replicasMutex.RLock()
+	// c.replicasMutex.RLock()
 	// Make a copy of references.
-	ret := make([]scheduling.KernelReplica, 0, len(c.replicas))
-	for _, replica := range c.replicas {
+	ret := make([]scheduling.KernelReplica, 0, c.replicas.Len())
+	//for _, replica := range c.replicas {
+	//	ret = append(ret, replica)
+	//}
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		ret = append(ret, replica)
-	}
-	c.replicasMutex.RUnlock()
+		return true
+	})
+	//c.replicasMutex.RUnlock()
 
 	// Ensure that the replicas are sorted from smallest to largest.
 	slices.SortFunc(ret, func(a, b scheduling.KernelReplica) int {
@@ -705,7 +858,7 @@ func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNode
 
 	spec := &proto.KernelReplicaSpec{
 		Kernel:       c.spec,
-		NumReplicas:  int32(len(c.replicas)) + 1,
+		NumReplicas:  int32(c.replicas.Len()) + 1,
 		Join:         true,
 		PersistentId: &persistentId,
 		ReplicaId:    smrNodeId,
@@ -726,9 +879,10 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 	// Safe to append the kernel now.
 	r.SetContext(context.WithValue(r.Context(), CtxKernelHost, host))
 
-	c.replicasMutex.Lock()
-	c.replicas[r.ReplicaID()] = r
-	c.replicasMutex.Unlock()
+	//c.replicasMutex.Lock()
+	c.replicas.Store(r.ReplicaID(), r)
+	// c.replicas[r.ReplicaID()] = r
+	//c.replicasMutex.Unlock()
 
 	if statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusRunning); statusChanged {
 		// Update signature scheme and key.
@@ -739,25 +893,42 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 			r.ReplicaID(), c.id, r.ConnectionInfo().SignatureScheme, r.ConnectionInfo().Key)
 
 		// Collect the status of the replica(s).
-		c.busyStatus.Collect(context.Background(), 1, len(c.replicas), messaging.MessageKernelStatusStarting, c.pubIOMessage)
+		c.busyStatus.Collect(context.Background(), 1, c.replicas.Len(), messaging.MessageKernelStatusStarting, c.pubIOMessage)
 	}
 
 	return nil
 }
 
-// unsafeRemoveReplica is like RemoveReplica but unsafeRemoveReplica does not acquire or release any locks.
+// removeReplica is like RemoveReplica but removeReplica does not acquire or release any locks.
 //
-// Important: unsafeRemoveReplica must be called with mu and replicasMutex already locked.
-func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+// Important: removeReplica must be called with mu and replicasMutex already locked.
+func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
 
-	if c.replicas[r.ReplicaID()] != r {
+	//c.replicasMutex.Lock()
+	existingReplica, ok := c.replicas.LoadAndDelete(r.ReplicaID())
+	if !ok || existingReplica != r {
 		// This is bad and should never happen.
-		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
+		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), existingReplica.ID())
 		return nil, scheduling.ErrReplicaNotFound
 	}
 
-	delete(c.replicas, r.ReplicaID())
+	//if c.replicas[r.ReplicaID()] != r {
+	//	c.replicasMutex.Unlock()
+	//	// This is bad and should never happen.
+	//	c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
+	//	return nil, scheduling.ErrReplicaNotFound
+	//}
+	//
+	//delete(c.replicas, r.ReplicaID())
+	//c.replicasMutex.Unlock()
+
+	// Stop the replica FIRST -- before we call any other methods -- as we don't want to release the resources
+	// until the replica has actually been stopped and the local daemon has released its resources.
+	host, stopReplicaError := c.stopReplicaLocked(r, remover, noop) // We'll handle the stopReplicaError later.
+	if stopReplicaError != nil {
+		c.log.Error("Failed to stop replica %d of kernel \"%s\": %v", r.ReplicaID(), c.id, stopReplicaError)
+	}
 
 	var err error
 	if r.IsTraining() {
@@ -801,20 +972,21 @@ func (c *DistributedKernelClient) unsafeRemoveReplica(r scheduling.KernelReplica
 		}
 	}
 
-	host, stopReplicaError := c.stopReplicaLocked(r, remover, noop)
-	if stopReplicaError != nil {
-		return host, stopReplicaError
-	}
-
 	r.Container().SetHost(nil) // Set the host to nil...
 
 	err = r.Close()
 	if err != nil {
 		c.log.Error("Failed to cleanly close replica %d of kernel \"%s\": %v",
 			r.ReplicaID(), c.id, err)
+
+		if stopReplicaError != nil {
+			err = errors.Join(stopReplicaError, err)
+		}
+
+		return host, err // Will include stopReplicaErr if stopReplicaErr is non-nil
 	}
 
-	return host, err
+	return host, stopReplicaError // Will be nil on success
 }
 
 // RemoveReplica removes a kernel peer from the kernel. Returns the host that the scheduling.KernelReplica was
@@ -825,16 +997,28 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 
 	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
 
-	c.replicasMutex.Lock()
-	if c.replicas[r.ReplicaID()] != r {
-		c.replicasMutex.Unlock()
-		// This is bad and should never happen.
-		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
+	//c.replicasMutex.Lock()
+	existingReplica, ok := c.replicas.LoadAndDelete(r.ReplicaID())
+
+	if !ok {
+		c.log.Error("Cannot remove replica %d; there is no existing replica with ID=%d.", r.ReplicaID())
 		return nil, scheduling.ErrReplicaNotFound
 	}
 
-	delete(c.replicas, r.ReplicaID())
-	c.replicasMutex.Unlock()
+	if existingReplica != r {
+		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), existingReplica.ID())
+		return nil, scheduling.ErrReplicaNotFound
+	}
+
+	//if c.replicas[r.ReplicaID()] != r {
+	//	//c.replicasMutex.Unlock()
+	//	// This is bad and should never happen.
+	//	c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
+	//	return nil, scheduling.ErrReplicaNotFound
+	//}
+	//
+	//delete(c.replicas, r.ReplicaID())
+	//c.replicasMutex.Unlock()
 
 	host, err := c.stopReplicaLocked(r, remover, noop)
 	if err != nil {
@@ -844,7 +1028,7 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	if r.IsTraining() {
 		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
 			r.ReplicaID(), r.ID())
-		err := r.KernelStoppedTraining(reason)
+		err = r.KernelStoppedTraining(reason)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)
@@ -892,15 +1076,20 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 }
 
 func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelReplica, error) {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
-	replica, ok := c.replicas[id]
+	// c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
+	//replica, ok := c.replicas[id]
+	replica, ok := c.replicas.Load(id)
 
 	if replica == nil || !ok {
-		validIds := make([]int32, 0, len(c.replicas))
-		for validId := range c.replicas {
-			validIds = append(validIds, validId)
-		}
+		validIds := make([]int32, 0, c.replicas.Len())
+		//for validId := range c.replicas {
+		//	validIds = append(validIds, validId)
+		//}
+		c.replicas.Range(func(_ int32, replica scheduling.KernelReplica) (contd bool) {
+			validIds = append(validIds, replica.ReplicaID())
+			return true
+		})
 		c.log.Warn("Could not retrieve kernel replica with id %d. Valid IDs are %v.", id, validIds)
 		return nil, scheduling.ErrReplicaNotFound
 	}
@@ -920,25 +1109,25 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.replicasMutex.Lock()
-	defer c.replicasMutex.Unlock()
-
-	c.removingReplicas.Store(1)
-	defer c.removingReplicas.Store(0)
+	if c.replicaContainersAreBeingRemoved.Load() != 1 {
+		c.log.Error("'Replicas Are Being Removed Flag' is not set to 1...")
+	}
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 
-	if int32(len(c.replicas)) < c.targetNumReplicas {
-		c.log.Error("Only have %d replica(s); however, supposed to have %d...", len(c.replicas), c.targetNumReplicas)
+	// c.replicasMutex.RLock()
+	if int32(c.replicas.Len()) < c.targetNumReplicas {
+		c.log.Error("Only have %d replica(s); however, supposed to have %d...", c.replicas.Len(), c.targetNumReplicas)
 	}
 
-	removalErrors := make([]error, 0, len(c.replicas))
+	removalErrors := make([]error, 0, c.replicas.Len())
 
 	// Create a copy as we're going to modify c.replicas while we iterate.
-	replicas := make(map[int32]scheduling.KernelReplica)
-	for idx, replica := range c.replicas {
-		replicas[idx] = replica
-	}
+	//replicas := make(map[int32]scheduling.KernelReplica)
+	//for idx, replica := range c.replicas {
+	//	replicas[idx] = replica
+	//}
+	// c.replicasMutex.RUnlock()
 
 	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
 	// requests to prompt the containers to persist any important state to remote remote_storage.
@@ -962,12 +1151,13 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 		}
 
 		// Send a PrepareToMigrate request to each replica in-parallel.
-		for _, replica := range replicas {
+		// for _, replica := range replicas {
+		c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 			host := replica.Host()
 
 			if host == nil {
 				c.log.Error("Replica %d has a nil host...", replica.ReplicaID())
-				continue
+				return true
 			}
 
 			info := &proto.ReplicaInfo{
@@ -992,11 +1182,13 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 					}
 				}
 			}(info)
-		}
+
+			return true
+		})
 
 		// Keep looping until we've received all responses.
 		// We'll break out of the loop manually/explicitly if the context times-out or an error response is received.
-		for responsesReceived.Load() < int32(len(replicas)) {
+		for responsesReceived.Load() < int32(c.replicas.Len()) {
 			select {
 			case <-ctx.Done():
 				{
@@ -1007,7 +1199,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 						finalNumResponsesReceived, timeElapsed)
 
 					return fmt.Errorf("%w: failed to receive response to PrepareToMigrate request after %v (received %d/%d responses)",
-						types.ErrRequestTimedOut, timeElapsed, finalNumResponsesReceived, len(replicas))
+						types.ErrRequestTimedOut, timeElapsed, finalNumResponsesReceived, c.replicas.Len())
 				}
 			case v := <-respChan:
 				{
@@ -1026,7 +1218,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 							// We'll just print a message indicating that we received the 'OK' response from this replica.
 							// The for-loop will return once we've received responses from all replicas.
 							c.log.Debug("Replica %d successfully prepared to migrate during idle reclamation. Received %d/%d responses so far. Time elapsed: %v.",
-								v.(*proto.PrepareToMigrateResponse).Id, responsesReceived.Load(), len(replicas), time.Since(startTime))
+								v.(*proto.PrepareToMigrateResponse).Id, responsesReceived.Load(), c.replicas.Len(), time.Since(startTime))
 						}
 					}
 				}
@@ -1035,11 +1227,12 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	}
 
 	c.log.Debug("Received all %d response(s) to 'Prepare to Migrate' requests. Removing %d replica(s) now for idle reclamation.",
-		len(replicas), len(replicas))
+		c.replicas.Len(), c.replicas.Len())
 
 	// Iterate over the copy, removing replicas one-by-one.
-	for _, replica := range replicas {
-		_, err := c.unsafeRemoveReplica(replica, remover, noop)
+	// for _, replica := range replicas {
+	c.replicas.Range(func(replicaId int32, replica scheduling.KernelReplica) (contd bool) {
+		_, err := c.removeReplica(replica, remover, noop)
 		if err != nil {
 			c.log.Error("Failed to remove replica %d of kernel \"%s\": %v", replica.ReplicaID(), c.id, err)
 
@@ -1047,7 +1240,9 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 		}
 
 		c.log.Debug("Successfully removed replica %d of kernel \"%s\".", replica.ReplicaID(), c.id)
-	}
+
+		return true
+	})
 
 	if len(removalErrors) > 0 {
 		return errors.Join(removalErrors...)
@@ -1073,13 +1268,19 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 // scheduling.KernelReplica was running on.
 func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.RLock()
-	replica, ok := c.replicas[id]
+	replica, ok := c.replicas.Load(id) // c.replicas[id]
 
 	if replica == nil || !ok {
-		validIds := make([]int32, 0, len(c.replicas))
-		for validId := range c.replicas {
-			validIds = append(validIds, validId)
-		}
+		validIds := make([]int32, 0, c.replicas.Len())
+		//for validId := range c.replicas {
+		//	validIds = append(validIds, validId)
+		//}
+
+		c.replicas.Range(func(_ int32, replica scheduling.KernelReplica) (contd bool) {
+			validIds = append(validIds, replica.ReplicaID())
+			return true
+		})
+
 		c.log.Warn("Could not retrieve kernel replica with id %d. Valid IDs are %v.", id, validIds)
 		c.mu.RUnlock()
 		return nil, scheduling.ErrReplicaNotFound
@@ -1128,38 +1329,58 @@ func (c *DistributedKernelClient) InitializeIOForwarder() (*messaging.Socket, er
 // GetReadyReplica returns a replica that has already joined its SMR cluster and everything.
 // GetReadyReplica returns nil if there are no ready replicas.
 func (c *DistributedKernelClient) GetReadyReplica() scheduling.KernelReplica {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
 
-	for _, replica := range c.replicas {
+	//for _, replica := range c.replicas {
+	//	if replica.IsReady() {
+	//		return replica
+	//	}
+	//}
+
+	var readyReplica scheduling.KernelReplica
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		if replica.IsReady() {
-			return replica
+			readyReplica = replica
+			return false
 		}
-	}
 
-	return nil
+		return true
+	})
+
+	return readyReplica
 }
 
 // IsReady returns true if ALL replicas associated with this distributed kernel client are ready.
 func (c *DistributedKernelClient) IsReady() bool {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// // c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
 
-	for _, replica := range c.replicas {
+	//for _, replica := range c.replicas {
+	//	if !replica.IsReady() {
+	//		return false
+	//	}
+	//}
+
+	allReplicasAreReady := true
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		if !replica.IsReady() {
-			return false
+			allReplicasAreReady = false
+			return false // stop iterating
 		}
-	}
 
-	return true
+		return true // continue iterating
+	})
+
+	return allReplicasAreReady
 }
 
 // IsReplicaReady returns true if the replica with the specified ID is ready.
 func (c *DistributedKernelClient) IsReplicaReady(replicaId int32) (bool, error) {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
 
-	replica, ok := c.replicas[replicaId]
+	replica, ok := c.replicas.Load(replicaId) // c.replicas[replicaId]
 	if !ok {
 		return false, scheduling.ErrReplicaNotFound
 	}
@@ -1186,9 +1407,13 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 
 	// Broadcast to all replicas if no replicas are specified.
 	replicas := make([]scheduling.KernelReplica, kernelSize)
-	for _, replica := range c.replicas {
+	//for _, replica := range c.replicas {
+	//	replicas = append(replicas, replica)
+	//}
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		replicas = append(replicas, replica)
-	}
+		return true
+	})
 
 	jMsg.AddDestFrameIfNecessary(c.id)
 
@@ -1228,16 +1453,26 @@ func (c *DistributedKernelClient) LastTrainingEndedAt() time.Time {
 // ActiveTrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
 // began actively training, if there is an actively-training replica.
 func (c *DistributedKernelClient) ActiveTrainingStartedAt() time.Time {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
 
-	for _, replica := range c.replicas {
+	//for _, replica := range c.replicas {
+	//	if replica.IsTraining() {
+	//		return replica.LastTrainingStartedAt()
+	//	}
+	//}
+
+	var lastTrainingStartedAt time.Time
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		if replica.IsTraining() {
-			return replica.LastTrainingStartedAt()
+			lastTrainingStartedAt = replica.LastTrainingStartedAt()
+			return false
 		}
-	}
 
-	return time.Time{}
+		return true
+	})
+
+	return lastTrainingStartedAt
 }
 
 // NumCompletedTrainings returns the number of training events that have been completed successfully.
@@ -1247,16 +1482,26 @@ func (c *DistributedKernelClient) NumCompletedTrainings() int {
 
 // IsTraining returns true if one of the target DistributedKernelClient's replicas is actively training.
 func (c *DistributedKernelClient) IsTraining() bool {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
 
-	for _, replica := range c.replicas {
+	//for _, replica := range c.replicas {
+	//	if replica.IsTraining() {
+	//		return true
+	//	}
+	//}
+
+	var isTraining bool
+	c.replicas.Range(func(_ int32, replica scheduling.KernelReplica) (contd bool) {
 		if replica.IsTraining() {
-			return true
+			isTraining = true
+			return false // stop iterating
 		}
-	}
 
-	return false
+		return true // keep iterating
+	})
+
+	return isTraining // false
 }
 
 // getRequestContext returns a context.Context struct and a context.CancelFunc to be used by RequestWithHandlerAndReplicas.
@@ -1470,7 +1715,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// Send the request to all replicas.
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), messaging.DefaultRequestTimeout)
 	defer statusCancel()
-	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), messaging.MessageKernelStatusBusy, c.pubIOMessage)
+	c.busyStatus.Collect(statusCtx, c.replicas.Len(), c.replicas.Len(), messaging.MessageKernelStatusBusy, c.pubIOMessage)
 
 	// Just pass the first message. Doesn't matter if it is "execute_request" or "yield_request".
 	if jupyterMessages[0].JupyterMessageType() == messaging.ShellExecuteRequest {
@@ -1649,16 +1894,16 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 // Shutdown releases all replicas and closes the session.
 func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, restart bool) error {
 	c.log.Debug("Shutting down kernel %s.", c.id)
-	c.replicasMutex.RLock()
+	// c.replicasMutex.RLock()
 
 	if c.status == jupyter.KernelStatusExited {
-		c.replicasMutex.RUnlock()
+		// c.replicasMutex.RUnlock()
 		c.log.Warn("kernel %s has already exited; there's no need to shutdown.", c.id)
 		return nil
 	}
 
 	// Stop the replicas first.
-	numReplicas := len(c.replicas)
+	numReplicas := c.replicas.Len()
 
 	// shutdownNotification is used to notify that a replica shutdown has either failed or succeeded.
 	type shutdownNotification struct {
@@ -1672,10 +1917,11 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 	startTime := time.Now()
 
 	// In RLock, don't change anything in c.replicas.
-	for id, replica := range c.replicas {
+	// for id, replica := range c.replicas {
+	c.replicas.Range(func(id int32, replica scheduling.KernelReplica) (contd bool) {
 		if replica == nil {
 			c.log.Warn("Replica %d is nil", id)
-			continue
+			return true
 		}
 
 		go func(replica scheduling.KernelReplica) {
@@ -1702,8 +1948,10 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 				ReplicaId:     replica.ReplicaID(),
 			}
 		}(replica)
-	}
-	c.replicasMutex.RUnlock()
+
+		return true
+	})
+	// c.replicasMutex.RUnlock()
 
 	numReplicasShutdown := 0
 
@@ -1823,24 +2071,27 @@ func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, 
 
 func (c *DistributedKernelClient) clearReplicasLocked() {
 	c.log.Debug("Clearing replicas now.")
-	toRemove := make([]int32, len(c.replicas))
-	for id, kernel := range c.replicas {
-		if kernel != nil {
-			c.log.Debug("Closing replica %d now.", kernel.ReplicaID())
-			err := kernel.Close()
+	toRemove := make([]int32, c.replicas.Len())
+	// for id, kernel := range c.replicas {
+	c.replicas.Range(func(_ int32, replica scheduling.KernelReplica) (contd bool) {
+		c.log.Debug("Closing replica %d now.", replica.ReplicaID())
 
-			if err != nil {
-				// TODO(Ben): Handle this more cleanly.
-				c.log.Error("Error while trying to close replica %d: %v", kernel.ReplicaID(), err)
-			} else {
-				c.log.Debug("Successfully closed replica %d.", kernel.ReplicaID())
-			}
-			toRemove = append(toRemove, id)
+		err := replica.Close()
+		if err != nil {
+			// TODO(Ben): Handle this more cleanly.
+			c.log.Error("Error while trying to close replica %d: %v", replica.ReplicaID(), err)
+		} else {
+			c.log.Debug("Successfully closed replica %d.", replica.ReplicaID())
 		}
-	}
+
+		toRemove = append(toRemove, replica.ReplicaID())
+
+		return true
+	})
 
 	for _, id := range toRemove {
-		delete(c.replicas, id)
+		// delete(c.replicas, id)
+		c.replicas.Delete(id)
 	}
 
 	c.status = jupyter.KernelStatusExited
@@ -1872,12 +2123,10 @@ func (c *DistributedKernelClient) closeLocked() error {
 func (c *DistributedKernelClient) queryCloseLocked() error {
 	// Stop the replicas first.
 	var stopped sync.WaitGroup
-	stopped.Add(len(c.replicas))
-	for _, replica := range c.replicas {
-		if replica == nil {
-			continue
-		}
+	stopped.Add(c.replicas.Len())
 
+	// for _, replica := range c.replicas {
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 		go func(kernelReplica scheduling.KernelReplica) {
 			defer stopped.Done()
 
@@ -1887,7 +2136,10 @@ func (c *DistributedKernelClient) queryCloseLocked() error {
 					kernelReplica.ReplicaID(), kernelReplica.ID(), err)
 			}
 		}(replica)
-	}
+
+		return true
+	})
+
 	stopped.Wait()
 
 	return nil
@@ -1905,8 +2157,13 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 // ReplicasAreScheduled returns a flag indicating whether the replicas of this kernel are scheduled.
 // Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
-	c.replicasMutex.RLock()
-	defer c.replicasMutex.RUnlock()
+	// If we're in the middle of a removal, then just return false.
+	if c.replicaContainersAreBeingRemoved.Load() == 1 || c.removeReplicaContainersAttempt != nil {
+		return false
+	}
+
+	// c.replicasMutex.RLock()
+	// defer c.replicasMutex.RUnlock()
 
 	return c.unsafeAreReplicasScheduled()
 }
@@ -1914,7 +2171,7 @@ func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
 // unsafeAreReplicasScheduled returns a flag indicating whether the replicas of this kernel are scheduled.
 // Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 func (c *DistributedKernelClient) unsafeAreReplicasScheduled() bool {
-	return int32(len(c.replicas)) == c.targetNumReplicas
+	return int32(c.replicas.Len()) == c.targetNumReplicas
 }
 
 func (c *DistributedKernelClient) handleMsg(replica messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
@@ -2031,18 +2288,17 @@ func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, st
 
 	// Initiate idle status collection.
 	if status == messaging.MessageKernelStatusBusy {
-		c.busyStatus.Collect(context.Background(), len(c.replicas), len(c.replicas), messaging.MessageKernelStatusIdle, c.pubIOMessage)
+		c.busyStatus.Collect(context.Background(), c.replicas.Len(), c.replicas.Len(), messaging.MessageKernelStatusIdle, c.pubIOMessage)
 		// Fill matched status that has been received before collecting.
-		for _, replica := range c.replicas {
-			if replica == nil {
-				continue
-			}
-
+		// for _, replica := range c.replicas {
+		c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
 			status, msg := replica.BusyStatus()
 			if status == messaging.MessageKernelStatusIdle {
 				c.busyStatus.Reduce(replica.ReplicaID(), messaging.MessageKernelStatusIdle, msg, c.pubIOMessage)
 			}
-		}
+
+			return true
+		})
 	}
 
 	return err
