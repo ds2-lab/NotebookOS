@@ -60,6 +60,15 @@ class ElectionState(IntEnum):
         else:
             raise ValueError(f"Unknown or unsupported Enum value for ElectionState: {self.value}")
 
+class ElectionNotStartedError(Exception):
+    def __init__(self, message):
+        # Call the base class constructor with the parameters it needs
+        super().__init__(message)
+
+class ElectionAlreadyDecidedError(Exception):
+    def __init__(self, message):
+        # Call the base class constructor with the parameters it needs
+        super().__init__(message)
 
 class Election(object):
     """
@@ -847,19 +856,19 @@ class Election(object):
         if self._election_state == ElectionState.INACTIVE:
             self.log.warning(f"election for term {self._term_number} "
                                 "has not yet been started; cannot identify winner to propose")
-            raise RuntimeError(f"election for term {self._term_number} "
+            raise ElectionNotStartedError(f"election for term {self._term_number} "
                                "has not yet been started; cannot identify winner to propose")
 
         if self._election_state == ElectionState.VOTE_COMPLETE:
             self.log.warning(f"election for term {self._term_number} "
                               "has already completed successfully; cannot identify winner to propose")
-            raise RuntimeError(f"election for term {self._term_number} "
+            raise ElectionAlreadyDecidedError(f"election for term {self._term_number} "
                                "has already completed successfully; cannot identify winner to propose")
 
         if self._winner_selected:
             self.log.warning(f"election for term {self._term_number} "
                                 f"already selected a node to propose as winner: node {self._proposed_winner}")
-            raise RuntimeError(f"election for term {self._term_number} "
+            raise ElectionAlreadyDecidedError(f"election for term {self._term_number} "
                                f"already selected a node to propose as winner: node {self._proposed_winner}")
 
         # If the election isn't active, then we shouldn't be proposing anybody.
