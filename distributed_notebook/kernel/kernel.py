@@ -431,6 +431,9 @@ class DistributedKernel(IPythonKernel):
             super().log.setLevel(logging.DEBUG)
         print(f" Kwargs: {kwargs}")
 
+        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
+        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
+
         self.control_msg_types = [
             *self.control_msg_types,
             "add_replica_request",
@@ -599,9 +602,6 @@ class DistributedKernel(IPythonKernel):
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate remote_storage.
         self.loaded_serialized_state: bool = False
-
-        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
-        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
 
         # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
         self._user_ns_lock: asyncio.Lock = asyncio.Lock()
