@@ -600,6 +600,9 @@ class DistributedKernel(IPythonKernel):
         # loads its serialized state from intermediate remote_storage.
         self.loaded_serialized_state: bool = False
 
+        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
+        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
+
         # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
         self._user_ns_lock: asyncio.Lock = asyncio.Lock()
 
@@ -617,6 +620,8 @@ class DistributedKernel(IPythonKernel):
 
         if "redis_password" in kwargs:
             self.redis_password = kwargs["redis_password"]
+
+        self.log.debug(f'S3 bucket: "{self.s3_bucket}"')
 
         # Arguments not relevant to the specified remote remote_storage will be ignored.
         self._remote_checkpointer: Checkpointer = get_checkpointer(
@@ -658,8 +663,6 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(
             f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec"
         )
-        
-        self.log.debug(f'S3 bucket: "{self.s3_bucket}"')
 
         if "local_tcp_server_port" in kwargs:
             self.log.warning(
@@ -885,9 +888,6 @@ class DistributedKernel(IPythonKernel):
             raise ValueError("Could not determine deployment mode.")
         else:
             self.log.debug(f"Deployment mode: {self.deployment_mode}")
-
-        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
-        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
 
         if self.deployment_mode == DeploymentMode_Kubernetes:
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
