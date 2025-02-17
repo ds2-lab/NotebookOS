@@ -215,6 +215,8 @@ services:
     volumes:
       - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
       - ./dashboard-backend/workload-presets-file.yaml:/etc/distributed-notebook-cluster/workload-presets-file.yaml
+      - ./dashboard_backend/workload-templates-file.yaml:/etc/distributed-notebook-cluster/workload-templates-file.yaml
+      - ./dashboard_backend/workload-job-config.yaml:/etc/distributed-notebook-cluster/workload-job-config.yaml
       - ./dashboard-backend/custom_event_sequences:/etc/distributed-notebook-cluster/custom_event_sequences
       - ./dashboard-backend/.env:/go/.env
 
