@@ -871,6 +871,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			PrewarmContainer:             spec.PrewarmContainer,
 			RetrieveDatasetsFromS3:       ivk.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:             ivk.DatasetsS3Bucket,
+			S3Bucket:                     ivk.S3Bucket,
 		},
 	}
 	if spec.PersistentId != nil {
