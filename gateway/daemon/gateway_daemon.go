@@ -1735,7 +1735,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	// Initialize kernel with new context.
 	//kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 	//	d.connectionOptions, uuid.NewString(), d.DebugMode, d.ExecutionFailedCallback, d.ExecutionLatencyCallback,
-	//	d.MetricsProvider, d.notifyDashboard)
+	//	d.MetricsProvider, d.NotifyDashboard)
 
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, uuid.NewString(), d.DebugMode, d.MetricsProvider, d)

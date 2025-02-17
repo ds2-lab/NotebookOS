@@ -2304,7 +2304,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			//kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
 			//	clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.ExecutionFailedCallback, clusterGateway.ExecutionLatencyCallback,
-			//	clusterGateway.MetricsProvider, clusterGateway.notifyDashboard)
+			//	clusterGateway.MetricsProvider, clusterGateway.NotifyDashboard)
 
 			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(),
 				mockedKernelSpec, 3, clusterGateway.id, clusterGateway.connectionOptions, uuid.NewString(),

@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"time"
 )
 
@@ -54,13 +55,20 @@ type Gateway struct {
 }
 
 // NewGateway creates a new Gateway struct and returns a pointer to it.
-func NewGateway(manager *KernelManager) *Gateway {
+func NewGateway(manager *KernelManager, opts *domain.ClusterGatewayOptions) *Gateway {
 	gateway := &Gateway{
 		GatewayId:     uuid.NewString(),
 		KernelManager: manager,
 	}
 
 	config.InitLogger(&gateway.log, gateway)
+
+	if opts.DebugMode {
+		gateway.log.Debug("Running in DebugMode.")
+		gateway.RequestLog = metrics.NewRequestLog()
+	} else {
+		gateway.log.Debug("Not running in DebugMode.")
+	}
 
 	return gateway
 }

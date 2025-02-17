@@ -84,7 +84,7 @@ func NewExecuteRequestForwarder[MessageType any](notifyCallback scheduling.Notif
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		notificationCallback:               notifyCallback,
 		processCallback:                    processCallback,
-		log:                                config.GetLogger("ExecuteRequestForwarder "),
+		log:                                config.GetLogger("executeRequestForwarder "),
 	}
 
 	return submitter
@@ -165,7 +165,7 @@ func (s *ExecuteRequestForwarder[MessageType]) RegisterKernel(kernel MessageReci
 	s.outgoingExecuteRequestQueueMutexes.Store(kernelId, &sync.Mutex{})
 	s.executeRequestQueueStopChannels.Store(kernelId, executeRequestStopChan)
 
-	s.log.Debug("Registered kernel \"%s\" with ExecuteRequestForwarder.", kernelId)
+	s.log.Debug("Registered kernel \"%s\" with executeRequestForwarder.", kernelId)
 
 	go s.forwardRequests(executeRequestQueue, executeRequestStopChan, kernel, requestHandler, responseHandler)
 }

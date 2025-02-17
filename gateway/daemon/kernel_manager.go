@@ -7,6 +7,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
@@ -47,11 +48,17 @@ type KernelManager struct {
 	// RequestTracingEnabled controls whether we embed proto.RequestTrace structs within Jupyter requests and replies.
 	RequestTracingEnabled bool
 
-	ResponseForwarder ResponseForwarder
+	responseForwarder ResponseForwarder
 
-	IdleSessionReclaimer *IdleSessionReclaimer
+	idleSessionReclaimer *IdleSessionReclaimer
+
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
 
 	Cluster scheduling.Cluster
+
+	// notifier is used to send notifications to the cluster dashboard.
+	notifier *Notifier
 }
 
 // NewKernelManager creates a new KernelManager struct and returns a pointer to it.
@@ -59,17 +66,20 @@ func NewKernelManager(responseForwarder ResponseForwarder, opts *domain.ClusterG
 	manager := &KernelManager{
 		Kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		Sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		ResponseForwarder: responseForwarder,
+		responseForwarder: responseForwarder,
 	}
 
 	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
 		interval := time.Duration(opts.IdleSessionReclamationIntervalSec) * time.Second
 		numReplicasPerKernel := manager.Cluster.Scheduler().Policy().NumReplicas()
 
-		manager.IdleSessionReclaimer = NewIdleSessionReclaimer(manager.Kernels, interval, numReplicasPerKernel, nil)
+		manager.idleSessionReclaimer = NewIdleSessionReclaimer(manager.Kernels, interval, numReplicasPerKernel, nil)
 
-		manager.IdleSessionReclaimer.Start()
+		manager.idleSessionReclaimer.Start()
 	}
+
+	manager.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](
+		manager.notifier.NotifyDashboard, nil)
 
 	config.InitLogger(&manager.log, manager)
 
@@ -124,7 +134,7 @@ func (km *KernelManager) forwardResponseFromKernel(from scheduling.KernelReplica
 		panic("Implement me!")
 	}
 
-	return km.ResponseForwarder.ForwardResponse(from, typ, msg)
+	return km.responseForwarder.ForwardResponse(from, typ, msg)
 }
 
 // updateRequestTraceReplicaId updates the ReplicaId field of the proto.RequestTrace embedded in the given *messaging.JupyterMessage.
