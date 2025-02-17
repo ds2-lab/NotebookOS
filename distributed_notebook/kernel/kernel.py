@@ -281,7 +281,7 @@ class DistributedKernel(IPythonKernel):
 
     s3_bucket: Union[str, Unicode] = Unicode(
         help="The AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.",
-        default_value="distributed-notebook-remote_storage",
+        default_value="distributed-notebook-storage",
     ).tag(config=True)
 
     aws_region: Union[str, Unicode] = Unicode(

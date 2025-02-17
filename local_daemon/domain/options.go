@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultS3Bucket      = "distributed-notebook-remote_storage"
+	DefaultS3Bucket      = "distributed-notebook-storage"
 	DefaultAwsRegion     = "us-east-1"
 	DefaultRedisPassword = ""
 	DefaultRedisPort     = 6379

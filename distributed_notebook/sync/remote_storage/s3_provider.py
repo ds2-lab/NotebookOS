@@ -12,7 +12,7 @@ import boto3
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
 
-DEFAULT_S3_BUCKET_NAME: str = "distributed-notebook-remote_storage"
+DEFAULT_S3_BUCKET_NAME: str = "distributed-notebook-storage"
 DEFAULT_AWS_S3_REGION: str = "us-east-1"
 
 class S3Provider(RemoteStorageProvider):

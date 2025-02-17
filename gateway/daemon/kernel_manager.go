@@ -7,6 +7,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -52,6 +53,9 @@ type KernelManager struct {
 
 	// RequestTracingEnabled controls whether we embed proto.RequestTrace structs within Jupyter requests and replies.
 	RequestTracingEnabled bool
+
+	// MetricsProvider provides all metrics to the members of the scheduling package.
+	MetricsProvider *metrics.ClusterMetricsProvider
 
 	responseForwarder ResponseForwarder
 
