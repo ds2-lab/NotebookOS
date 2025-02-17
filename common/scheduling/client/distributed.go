@@ -563,8 +563,20 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 		})
 	} else if c.replicas.Len() == 1 { // Is there at least one replica?
 		// Just one replica. We'll update it ourselves.
-		replica, _ := c.replicas.Load(1)
-		return replica.UpdateResourceSpec(newSpec, nil)
+		replica, _ := c.replicas.Load(int32(1))
+
+		if replica != nil {
+			return replica.UpdateResourceSpec(newSpec, nil)
+		}
+
+		c.log.Error("Expected single replica to have ID=1...")
+		c.replicas.Range(func(_ int32, kernelReplica scheduling.KernelReplica) bool {
+			c.log.Warn("Updating spec of replica %d...", kernelReplica.ReplicaID())
+			err = replica.UpdateResourceSpec(newSpec, nil)
+			return false
+		})
+
+		return err
 	}
 
 	// If the coordinatedTransaction is non-nil, we'll return our result based on the success or failure of the tx.
@@ -584,8 +596,8 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 //
 // It also ensures that the updated ResourceSpec is propagated to the host of each KernelContainer/Replica.
 func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec) error {
-	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
-		c.id, c.spec.ResourceSpec.String(), newSpec.String())
+	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v. Number of replicas: %d.",
+		c.id, c.spec.ResourceSpec.String(), newSpec.String(), c.replicas.Len())
 
 	oldSpec := c.spec.DecimalSpecFromKernelSpec()
 
