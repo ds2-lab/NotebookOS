@@ -5343,15 +5343,15 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	)
 
 	// We'll keep executing this loop as long as the replicas of the target kernel are not removed.
-	// We break from the loop internally if (a) we claim ownership over a container removal descheduleAttempt, in which case we
-	// break out so that we can orchestrate the container removal descheduleAttempt, or (b) if we find that the replicas are in
-	// fact removed. This may occur if, for example, a previous descheduleAttempt concludes.
+	// We break from the loop internally if (a) we claim ownership over a container removal descheduleAttempt, in which
+	// case we  break out so that we can orchestrate the container removal descheduleAttempt, or (b) if we find that the
+	// replicas are in fact removed. This may occur if, for example, a previous descheduleAttempt concludes.
 	for {
 		// Try to start a new descheduleAttempt at scheduling the replica container(s) of this kernel.
 		startedRemoving, descheduleAttempt = kernel.InitRemoveReplicaContainersOperation()
 
-		// If we started a new descheduleAttempt, then we'll break out of the loop and orchestrate the removal of the containers
-		// of the replicas of the target kernel.
+		// If we started a new descheduleAttempt, then we'll break out of the loop and orchestrate the removal of the
+		// containers of the replicas of the target kernel.
 		if startedRemoving {
 			d.log.Debug(
 				utils.LightBlueStyle.Render(
@@ -5360,11 +5360,11 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 		}
 
 		// We didn't start a new removal descheduleAttempt.
-		// If the returned descheduleAttempt is also nil, then that means that there was also not an active descheduleAttempt.
-		// So, the replicas are apparently already removed.
+		// If the returned descheduleAttempt is also nil, then that means that there was also not an active
+		// descheduleAttempt. So, the replicas are apparently already removed.
 		if descheduleAttempt == nil {
-			d.log.Debug("Tried to start descheduleAttempt to remove replica container(s) for kernel \"%s\", but apparently they're already removed.",
-				kernel.ID())
+			d.log.Debug("Tried to start descheduleAttempt to remove replica container(s) for kernel \"%s\", "+
+				"but apparently they're already removed.", kernel.ID())
 
 			// Double-check that the kernel's replicas are removed. If they are, then we'll just return entirely.
 			kernelSize := kernel.Size()
@@ -5384,8 +5384,8 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 		// We'll just wait for the descheduleAttempt to conclude.
 		// If the scheduling is successful, then this will eventually return nil.
 		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
-		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
-			kernel.ID(), descheduleAttempt.TimeElapsed())
+		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. "+
+			"Waiting for operation to complete.", kernel.ID(), descheduleAttempt.TimeElapsed())
 
 		return d.waitForDeschedulingToEnd(kernel, descheduleAttempt)
 	}
