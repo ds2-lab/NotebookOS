@@ -658,6 +658,8 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(
             f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec"
         )
+        
+        self.log.debug(f'S3 bucket: "{self.s3_bucket}"')
 
         if "local_tcp_server_port" in kwargs:
             self.log.warning(

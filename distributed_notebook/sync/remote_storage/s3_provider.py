@@ -53,7 +53,7 @@ class S3Provider(RemoteStorageProvider):
             if aws_region and aws_region != 'us-east-1':
                 create_bucket_params['CreateBucketConfiguration'] = {'LocationConstraint': aws_region}
 
-            self.log.debug(f'AWS S3 bucket "{bucket_name}" in AWS region "{aws_region}" does not yet exist.'
+            self.log.debug(f'AWS S3 bucket "{bucket_name}" in AWS region "{aws_region}" does not yet exist. '
                            f'Creating it now.')
 
             st: float = time.time()
