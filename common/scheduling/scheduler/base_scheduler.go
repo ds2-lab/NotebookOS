@@ -916,8 +916,13 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining)
 		p := s.cluster.RequestHosts(context.Background(), 1)
 		if err := p.Error(); err != nil {
-			s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
-				replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(err, scheduling.ErrUnsupportedOperation) {
+				s.log.Warn("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			} else {
+				s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			}
 
 			return nil, err
 		}
