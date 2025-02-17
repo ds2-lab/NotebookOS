@@ -9,7 +9,9 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"golang.org/x/net/context"
+	"time"
 )
 
 const (
@@ -46,14 +48,27 @@ type KernelManager struct {
 	RequestTracingEnabled bool
 
 	ResponseForwarder ResponseForwarder
+
+	IdleSessionReclaimer *IdleSessionReclaimer
+
+	Cluster scheduling.Cluster
 }
 
 // NewKernelManager creates a new KernelManager struct and returns a pointer to it.
-func NewKernelManager(responseForwarder ResponseForwarder) *KernelManager {
+func NewKernelManager(responseForwarder ResponseForwarder, opts *domain.ClusterGatewayOptions) *KernelManager {
 	manager := &KernelManager{
 		Kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		Sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		ResponseForwarder: responseForwarder,
+	}
+
+	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
+		interval := time.Duration(opts.IdleSessionReclamationIntervalSec) * time.Second
+		numReplicasPerKernel := manager.Cluster.Scheduler().Policy().NumReplicas()
+
+		manager.IdleSessionReclaimer = NewIdleSessionReclaimer(manager.Kernels, interval, numReplicasPerKernel, nil)
+
+		manager.IdleSessionReclaimer.Start()
 	}
 
 	config.InitLogger(&manager.log, manager)
