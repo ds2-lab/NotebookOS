@@ -4509,7 +4509,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					prepareMockedGatewayForStartKernel(localGatewayClient, i, resourceSpoofer, resourceSpec, startKernelReturnValChan, &startKernelReplicaCalled, numKernels)
 				}
 
-				By(fmt.Sprintf("Correctly initiating the creation of %d new kernels", numKernels))
+				By(fmt.Sprintf("Correctly initiating the creation of %d new Kernels", numKernels))
 
 				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo, numKernels)
 				for i := 0; i < numKernels; i++ {

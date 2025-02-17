@@ -247,7 +247,7 @@ type ClusterGatewayImpl struct {
 	kernelsStarting hashmap.HashMap[string, chan struct{}]
 
 	// kernelsWithReplicasBeingCreated is a map whose keys are kernel IDs.
-	// The entries in the kernelsWithReplicasBeingCreated map correspond to kernels whose replicas are in the process
+	// The entries in the kernelsWithReplicasBeingCreated map correspond to Kernels whose replicas are in the process
 	// of being created/scheduled. This is used to prevent multiple concurrent requests to schedule the kernel replicas
 	// and kernel replica containers of the same kernel.
 	// kernelsWithReplicasBeingCreated *hashmap.ThreadsafeCornelkMap[string, *kernelCreateContainers]
@@ -341,6 +341,8 @@ type ClusterGatewayImpl struct {
 	// If IdleSessionReclamationInterval is set to 0, then idle session reclamation is disabled, regardless of the
 	// value of the IdleSessionReclamationEnabled flag.
 	IdleSessionReclamationInterval time.Duration
+
+	idleSessionReclaimer *IdleSessionReclaimer
 
 	mu sync.RWMutex
 
@@ -704,7 +706,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	clusterGateway.gatherClusterStatistics()
 
 	if clusterGateway.IdleSessionReclamationEnabled {
-		go clusterGateway.idleSessionReclaimer()
+		idleReclaimFunc := func(kernel scheduling.Kernel, inSeparateGoroutine bool, noop bool) error {
+			return clusterGateway.removeAllReplicasOfKernel(kernel, inSeparateGoroutine, true, noop)
+		}
+
+		clusterGateway.idleSessionReclaimer = NewIdleSessionReclaimer(clusterGateway.kernels,
+			clusterGateway.IdleSessionReclamationInterval, clusterGateway.NumReplicas(), idleReclaimFunc)
+
+		clusterGateway.idleSessionReclaimer.Start()
 	}
 
 	return clusterGateway
@@ -719,178 +728,6 @@ func (d *ClusterGatewayImpl) containerPrewarmer() scheduling.ContainerPrewarmer 
 
 	return clusterScheduler.ContainerPrewarmer()
 }
-
-// idleSessionReclaimer runs a loop and searches for scheduling.Kernel instances that are idle.
-func (d *ClusterGatewayImpl) idleSessionReclaimer() {
-	// Let the Idle Session Reclaimer goroutine have its own logger.
-	reclaimerLog := config.GetLogger("IdleSessionReclaimer ")
-
-	// Validate that we're supposed to run in the first place.
-	if !d.IdleSessionReclamationEnabled || d.IdleSessionReclamationInterval <= 0 {
-		reclaimerLog.Warn("Idle session reclamation is NOT enabled. Exiting.")
-		return
-	}
-
-	// Run every 1/60th of the reclamation interval, with the limit being once a second.
-	// So, if sessions are reclaimed after 30 minutes of being idle, then this goroutine
-	// runs every 30 seconds (1,800 seconds / 60 = 30 seconds).
-	frequency := d.IdleSessionReclamationInterval / 60
-	if frequency < time.Second {
-		frequency = time.Second
-	}
-
-	reclaimerLog.Debug("Idle Session Reclaimer initialized with frequency=%v and reclamation_interval=%v",
-		frequency, d.IdleSessionReclamationInterval)
-
-	var iteration atomic.Int64
-	iteration.Store(1)
-
-	// Keep running until the Cluster Gateway is stopped.
-	for atomic.LoadInt32(&d.closed) == 0 {
-		startTime := time.Now()
-
-		var kernelsToReclaim []scheduling.Kernel
-
-		// Keep track of which kernels we've seen, as there may be duplicates in the kernels map.
-		kernelsSeen := make(map[string]scheduling.Kernel)
-
-		// This locks the kernels map, so we'll just copy all the kernels to this other map while
-		// also removing any duplicates.
-		d.kernels.Range(func(kernelId string, kernel scheduling.Kernel) (contd bool) {
-			// If we've already seen this kernel, then skip it.
-			// The kernels map may have duplicate values, such as when multiple sessions map to the same kernel.
-			if _, loaded := kernelsSeen[kernel.ID()]; loaded {
-				return true
-			}
-
-			// Record that we've now seen this kernel.
-			kernelsSeen[kernel.ID()] = kernel
-			return true
-		})
-
-		// Now we can iterate without locking the kernels map.
-		for kernelId, kernel := range kernelsSeen {
-			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
-			if kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() || !kernel.ReplicasAreScheduled() {
-				continue
-			}
-
-			// If the kernel's containers are actively being scheduled right now, then we shouldn't reclaim it.
-			if kernel.ReplicaContainersAreBeingScheduled() {
-				continue
-			}
-
-			// If the kernel is actively training (as in, it is literally executing code, or the client has submitted
-			// code to be executed but the kernel has not necessarily started executing code yet), then we should not
-			// reclaim this kernel.
-			if kernel.HasActiveTraining() {
-				continue
-			}
-
-			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
-			timeElapsedSinceLastTrainingSubmitted := time.Since(kernel.LastTrainingSubmittedAt())
-			timeElapsedSinceLastTrainingBegan := time.Since(kernel.LastTrainingStartedAt())
-			timeElapsedSinceLastTrainingEnded := time.Since(kernel.LastTrainingEndedAt())
-			timeElapsedSinceContainersCreated := time.Since(kernel.ReplicaContainersStartedAt())
-
-			// May want to use this to dynamically adjust the interval required for a kernel to be considered idle.
-			multiplier := 1.0
-
-			// If the kernel has never trained before, then we increase the interval by a factor of 1.5.
-			if kernel.NumCompletedTrainings() == 0 {
-				multiplier = 1.5
-			}
-
-			// Compute how long it has been since the kernel last submitted a training event, last began training,
-			// and last completed training. If the idle interval has elapsed for all of these times, then the
-			// session is eligible for idle reclamation.
-
-			if timeElapsedSinceLastTrainingSubmitted < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				continue
-			}
-
-			if timeElapsedSinceLastTrainingBegan < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				continue
-			}
-
-			if timeElapsedSinceLastTrainingEnded < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				continue
-			}
-
-			if timeElapsedSinceContainersCreated < time.Duration(float64(d.IdleSessionReclamationInterval)*multiplier) {
-				// Skip this container
-				continue
-			}
-
-			reclaimerLog.Debug(
-				utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
-					"and last finished training %v ago, and its replica container(s) were created %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
-				kernelId, timeElapsedSinceLastTrainingSubmitted, timeElapsedSinceLastTrainingBegan,
-				timeElapsedSinceLastTrainingEnded, timeElapsedSinceContainersCreated, kernel.ID())
-
-			if kernelsToReclaim == nil {
-				kernelsToReclaim = make([]scheduling.Kernel, 0, 1)
-			}
-
-			kernelsToReclaim = append(kernelsToReclaim, kernel)
-
-			continue
-		}
-
-		// If there is at least one idle kernel, then we'll start reclaiming.
-		if len(kernelsToReclaim) > 0 {
-			go func(kernelsToReclaim []scheduling.Kernel, iter int64) {
-				reclaimerLog.Debug("Identified %d idle kernel(s) to reclaim. [iter=%d]",
-					len(kernelsToReclaim), iter)
-
-				for _, kernel := range kernelsToReclaim {
-					reclamationStartTime := time.Now()
-					err := d.removeAllReplicasOfKernel(kernel, false, true, false)
-					if err != nil {
-						reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\" [iter=%d]: %v",
-							kernel.ID(), iter, err)
-					} else {
-						reclaimerLog.Debug(
-							utils.LightPurpleStyle.Render(
-								"Successfully removed all %d replica(s) of idle kernel \"%s\" in %v. [iter=%d]"),
-							d.NumReplicas(), kernel.ID(), time.Since(reclamationStartTime), iter)
-						reclaimerLog.Debug("Status of idle-reclaimed kernel \"%s\": %v [iter=%d]",
-							kernel.ID(), kernel.Status(), iter)
-						reclaimerLog.Debug("Aggregate busy status of idle-reclaimed kernel \"%s\": %v [iter=%d]",
-							kernel.ID(), kernel.AggregateBusyStatus(), iter)
-					}
-				}
-			}(kernelsToReclaim, iteration.Load())
-		}
-
-		// Sleep until we're supposed to run again.
-		//
-		// If the amount of time we spent checking if the kernels are idle and reclaiming the idle kernels
-		// is greater than our frequency interval, then we will skip sleeping.
-		//
-		// Otherwise, we'll sleep for our frequencyInterval - timeElapsed.
-		//
-		// For example, if we're supposed to run every 5,000ms, and we spent 125ms on checking + reclaiming, then
-		// we'll sleep for 5,000ms - 125ms = 4,875ms.
-		//
-		// If, as another example, we spent 6,500ms checking + reclaiming, then we'll just skip the sleep and
-		// immediately check again.
-		//
-		// If we just check and find no idle kernels, then the loop will be very quick. If we have to reclaim any
-		// idle kernels, though, then it could take a lot longer. That's why we have this check.
-		timeElapsed := time.Since(startTime)
-		timeRemaining := frequency - timeElapsed
-		if timeRemaining > 0 {
-			time.Sleep(timeRemaining)
-		}
-
-		iteration.Add(1)
-	}
-}
-
 func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider DistributedClientProvider) {
 	d.DistributedClientProvider = provider
 }
@@ -2066,7 +1903,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// Wait for all replicas to be created.
 	// Note that creation just means that the Container/Pod was created.
 	// It does not mean that the Container/Pod has entered the active/running state.
-	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %d.",
+	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of Kernels starting: %d.",
 		in.Id, d.kernelsStarting.Len())
 	created.Wait()
 	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
@@ -2079,7 +1916,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	// Clean up.
 	d.kernelsStarting.Delete(in.Id)
-	d.log.Debug("All %d replica(s) of new kernel %s have registered and joined their SMR cluster. Number of kernels starting: %d.",
+	d.log.Debug("All %d replica(s) of new kernel %s have registered and joined their SMR cluster. Number of Kernels starting: %d.",
 		d.NumReplicas(), in.Id, d.kernelsStarting.Len())
 
 	// Sanity check.
@@ -3699,6 +3536,10 @@ func (d *ClusterGatewayImpl) Close() error {
 		}
 	}
 
+	if d.idleSessionReclaimer != nil {
+		d.idleSessionReclaimer.Close()
+	}
+
 	if d.started.Load() {
 		// Wait for the newKernels to be cleaned up
 		<-d.cleaned
@@ -4125,7 +3966,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 			d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-			d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
+			d.log.Error("Valid Kernels/sessions are (%d):", d.kernels.Len())
 			d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 				d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
 				return true
@@ -4145,7 +3986,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 		d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-		d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
+		d.log.Error("Valid Kernels/sessions are (%d):", d.kernels.Len())
 		d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 			d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
 			return true
@@ -4722,7 +4563,7 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 		return nil
 	}
 
-	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
+	// Are we permitted to dynamically change the resource request(s) of Kernels? If not, then we'll just return.
 	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
 		return nil
 	}
