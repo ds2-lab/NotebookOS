@@ -742,6 +742,9 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 	reclaimerLog.Debug("Idle Session Reclaimer initialized with frequency=%v and reclamation_interval=%v",
 		frequency, d.IdleSessionReclamationInterval)
 
+	var iteration atomic.Int64
+	iteration.Store(1)
+
 	// Keep running until the Cluster Gateway is stopped.
 	for atomic.LoadInt32(&d.closed) == 0 {
 		startTime := time.Now()
@@ -822,8 +825,9 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 				continue
 			}
 
-			reclaimerLog.Debug(utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
-				"and last finished training %v ago, and its replica container(s) were created %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
+			reclaimerLog.Debug(
+				utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
+					"and last finished training %v ago, and its replica container(s) were created %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
 				kernelId, timeElapsedSinceLastTrainingSubmitted, timeElapsedSinceLastTrainingBegan,
 				timeElapsedSinceLastTrainingEnded, timeElapsedSinceContainersCreated, kernel.ID())
 
@@ -838,21 +842,28 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 
 		// If there is at least one idle kernel, then we'll start reclaiming.
 		if len(kernelsToReclaim) > 0 {
-			reclaimerLog.Debug("Identified %d idle kernel(s) to reclaim.", len(kernelsToReclaim))
+			go func(kernelsToReclaim []scheduling.Kernel, iter int64) {
+				reclaimerLog.Debug("Identified %d idle kernel(s) to reclaim. [iter=%d]",
+					len(kernelsToReclaim), iter)
 
-			// TODO: If this ends up being slow, then we can spawn helper goroutines to handle it.
-			for _, kernel := range kernelsToReclaim {
-				reclamationStartTime := time.Now()
-				err := d.removeAllReplicasOfKernel(kernel, false, true, false)
-				if err != nil {
-					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
-				} else {
-					reclaimerLog.Debug(utils.LightPurpleStyle.Render("Successfully removed all %d replica(s) of idle kernel \"%s\" in %v."),
-						d.NumReplicas(), kernel.ID(), time.Since(reclamationStartTime))
-					reclaimerLog.Debug("Status of idle-reclaimed kernel \"%s\": %v", kernel.ID(), kernel.Status())
-					reclaimerLog.Debug("Aggregate busy status of idle-reclaimed kernel \"%s\": %v", kernel.ID(), kernel.AggregateBusyStatus())
+				for _, kernel := range kernelsToReclaim {
+					reclamationStartTime := time.Now()
+					err := d.removeAllReplicasOfKernel(kernel, false, true, false)
+					if err != nil {
+						reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\" [iter=%d]: %v",
+							kernel.ID(), iter, err)
+					} else {
+						reclaimerLog.Debug(
+							utils.LightPurpleStyle.Render(
+								"Successfully removed all %d replica(s) of idle kernel \"%s\" in %v. [iter=%d]"),
+							d.NumReplicas(), kernel.ID(), time.Since(reclamationStartTime), iter)
+						reclaimerLog.Debug("Status of idle-reclaimed kernel \"%s\": %v [iter=%d]",
+							kernel.ID(), kernel.Status(), iter)
+						reclaimerLog.Debug("Aggregate busy status of idle-reclaimed kernel \"%s\": %v [iter=%d]",
+							kernel.ID(), kernel.AggregateBusyStatus(), iter)
+					}
 				}
-			}
+			}(kernelsToReclaim, iteration.Load())
 		}
 
 		// Sleep until we're supposed to run again.
@@ -875,6 +886,8 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 		if timeRemaining > 0 {
 			time.Sleep(timeRemaining)
 		}
+
+		iteration.Add(1)
 	}
 }
 

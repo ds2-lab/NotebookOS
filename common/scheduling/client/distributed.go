@@ -2158,7 +2158,7 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 // Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
 	// If we're in the middle of a removal, then just return false.
-	if c.replicaContainersAreBeingRemoved.Load() == 1 {
+	if c.replicaContainersAreBeingRemoved.Load() == 1 || c.removeReplicaContainersAttempt != nil {
 		return false
 	}
 
