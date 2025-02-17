@@ -1947,7 +1947,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// fact scheduled. This may occur if, for example, a previous attempt concludes.
 	for {
 		// Try to start a new attempt at scheduling the replica container(s) of this kernel.
-		startedScheduling, attempt = kernel.BeginSchedulingReplicaContainers()
+		startedScheduling, attempt = kernel.InitSchedulingReplicaContainersOperation()
 
 		// If we started a new attempt, then we'll break out of the loop and orchestrate the creation of
 		// the containers for the replicas of the target kernel.
@@ -5483,24 +5483,73 @@ func (d *ClusterGatewayImpl) kernelReplicaResponseForwarder(from scheduling.Kern
 func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool,
 	isIdleReclaim bool, noop bool) error {
 
-	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
-		d.log.Error("Instructed to remove all replicas of kernel \"%s\"; however, another attempt that began %v ago is still in progress...",
-			kernel.ID(), time.Since(descheduleAttempt.StartedAt))
+	var (
+		startedRemoving   bool
+		descheduleAttempt scheduling.RemoveReplicaContainersAttempt
+	)
 
-		return fmt.Errorf("%w: kernel \"%s\"", ErrConcurrentRemoval, kernel.ID())
+	// We'll keep executing this loop as long as the replicas of the target kernel are not removed.
+	// We break from the loop internally if (a) we claim ownership over a container removal descheduleAttempt, in which case we
+	// break out so that we can orchestrate the container removal descheduleAttempt, or (b) if we find that the replicas are in
+	// fact removed. This may occur if, for example, a previous descheduleAttempt concludes.
+	for {
+		// Try to start a new descheduleAttempt at scheduling the replica container(s) of this kernel.
+		startedRemoving, descheduleAttempt = kernel.InitRemovingReplicaContainersOperation()
+
+		// If we started a new descheduleAttempt, then we'll break out of the loop and orchestrate the removal of the containers
+		// of the replicas of the target kernel.
+		if startedRemoving {
+			d.log.Debug(
+				utils.LightBlueStyle.Render(
+					"Started descheduleAttempt to remove %d replica container(s) for kernel \"%s\"."), d.NumReplicas(), kernel.ID())
+			break
+		}
+
+		// We didn't start a new removal descheduleAttempt.
+		// If the returned descheduleAttempt is also nil, then that means that there was also not an active descheduleAttempt.
+		// So, the replicas are apparently already removed.
+		if descheduleAttempt == nil {
+			d.log.Debug("Tried to start descheduleAttempt to remove replica container(s) for kernel \"%s\", but apparently they're already removed.",
+				kernel.ID())
+
+			// Double-check that the kernel's replicas are removed. If they are, then we'll just return entirely.
+			kernelSize := kernel.Size()
+			if kernelSize == 0 {
+				return nil
+			}
+
+			// This would be truly bizarre, but if this occurs, then we'll just sleep briefly and then try again...
+			d.log.Error("Thought kernel \"%s\" was fully descheduled, but kernel has %d replica(s).",
+				kernel.ID(), kernelSize)
+
+			time.Sleep(time.Millisecond * (5 + time.Duration(rand.Intn(25))))
+			continue
+		}
+
+		// If we did not start a new descheduleAttempt, then a previous descheduleAttempt must still be active.
+		// We'll just wait for the descheduleAttempt to conclude.
+		// If the scheduling is successful, then this will eventually return nil.
+		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
+		d.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
+			kernel.ID(), descheduleAttempt.TimeElapsed())
+
+		return d.waitForDeschedulingToEnd(kernel, descheduleAttempt)
 	}
-
-	descheduleAttempt := newKernelDescheduleAttempt(kernel)
-
-	// We use a wait group to keep track of whether we're in the process of de-scheduling a kernel's replicas.
-	// It will be cleaned up the next time an "execute_request" arrives.
-	d.kernelsBeingDescheduled.Store(kernel.ID(), descheduleAttempt)
 
 	// doRemoveReplicas removes the kernel's replicas and returns an error if one occurs.
 	doRemoveReplicas := func() error {
-		defer descheduleAttempt.SetDone()
+		err := kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, noop, isIdleReclaim)
+		if err != nil {
+			d.log.Error("Failed to remove all replicas of kernel \"%s\" because: %v", kernel.ID(), err)
+		}
 
-		return kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, noop, isIdleReclaim)
+		setDoneErr := descheduleAttempt.SetDone(err /* will be nil on success */)
+		if setDoneErr != nil {
+			d.log.Error("Error while calling SetDone on deschedule attempt for kernel \"%s\": %v",
+				kernel.ID(), setDoneErr)
+		}
+
+		return err // Will be nil on success.
 	}
 
 	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.
@@ -5519,8 +5568,6 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	// This will be nil if de-schedule was successful,
 	// or if the caller specified that we should use a separate goroutine for the replica removal.
 	if err != nil {
-		d.log.Error("Failed to remove one or more replicas of kernel \"%s\": %v", kernel.ID(), err)
-
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Remove One or More Replicas of kernel \"%s\"",
 			kernel.ID()), err.Error())
 

@@ -6463,7 +6463,7 @@ func (mr *MockKernelMockRecorder) AssignMessagingMetricsProvider(messagingMetric
 // BeginSchedulingReplicaContainers mocks base method.
 func (m *MockKernel) BeginSchedulingReplicaContainers() (bool, scheduling.CreateReplicaContainersAttempt) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BeginSchedulingReplicaContainers")
+	ret := m.ctrl.Call(m, "InitSchedulingReplicaContainersOperation")
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(scheduling.CreateReplicaContainersAttempt)
 	return ret0, ret1
@@ -6472,7 +6472,7 @@ func (m *MockKernel) BeginSchedulingReplicaContainers() (bool, scheduling.Create
 // BeginSchedulingReplicaContainers indicates an expected call of BeginSchedulingReplicaContainers.
 func (mr *MockKernelMockRecorder) BeginSchedulingReplicaContainers() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeginSchedulingReplicaContainers", reflect.TypeOf((*MockKernel)(nil).BeginSchedulingReplicaContainers))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitSchedulingReplicaContainersOperation", reflect.TypeOf((*MockKernel)(nil).BeginSchedulingReplicaContainers))
 }
 
 // BindSession mocks base method.

@@ -343,14 +343,23 @@ type Kernel interface {
 	// IsTraining returns true if one of the target Kernel's KernelReplica instances is actively training.
 	IsTraining() bool
 
-	// BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
+	// InitSchedulingReplicaContainersOperation attempts to take ownership over the next/current scheduling attempt.
 	//
 	// If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
 	// associated with the active/ongoing container creation operation.
 	//
 	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
 	// BeginSchedulingReplicaContainers will return false and nil.
-	BeginSchedulingReplicaContainers() (bool, CreateReplicaContainersAttempt)
+	InitSchedulingReplicaContainersOperation() (bool, CreateReplicaContainersAttempt)
+
+	// InitRemovingReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
+	//
+	// If there's another active operation, then this will return false along with the RemoveReplicaContainersAttempt
+	// associated with the active/ongoing container removal operation.
+	//
+	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already removed, then
+	// RemoveReplicaContainersAttempt will return false and nil.
+	InitRemovingReplicaContainersOperation() (bool, RemoveReplicaContainersAttempt)
 
 	// RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 	// KernelReplica instances of the target Kernel.

@@ -280,16 +280,70 @@ func (c *DistributedKernelClient) RecordContainerPlacementStarted() {
 	c.createReplicaContainersAttempt.ContainerPlacementStarted()
 }
 
-// BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
+// InitRemovingReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
+//
+// If there's another active operation, then this will return false along with the RemoveReplicaContainersAttempt
+// associated with the active/ongoing container removal operation.
+//
+// If the KernelContainer instances for the KernelReplica instances of this Kernel are already removed, then
+// RemoveReplicaContainersAttempt will return false and nil.
+func (c *DistributedKernelClient) InitRemovingReplicaContainersOperation() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	// TODO: What about concurrent scheduling/creation operation?
+
+	// Attempt to take ownership over the next/current scheduling attempt.
+	// If this CAS operation fails, then that means that there's another active container creation attempt.
+	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(0, 1) {
+		return false, c.removeReplicaContainersAttempt
+	}
+
+	// Sanity check. This field should be nil if there was not an active scheduling operation.
+	if c.removeReplicaContainersAttempt != nil {
+		c.log.Error("Began attempt to remove %d replica container(s), but 'removeReplicaContainersAttempt' field is non-nil...",
+			c.replicas.Len())
+
+		panic("Found existing 'removeReplicaContainersAttempt' value upon beginning new container removal operation.")
+	}
+
+	if c.replicas.Len() == 0 {
+		c.log.Debug("Began attempt to remove up to %d replica container(s), but replica(s) are already removed.",
+			c.targetNumReplicas)
+
+		concluded := c.concludeSchedulingReplicaContainers()
+		if !concluded {
+			panic("Failed to conclude container creation operation immediately after initiating it...")
+		}
+
+		return false, nil
+	}
+
+	// Check if our replicas are already scheduled. If they are, then we'll return false and nil,
+	// indicating that our replicas are scheduled, and that nobody needs to do anything as a result.
+	if c.unsafeAreReplicasScheduled() {
+		c.log.Debug("Began attempt to remove %d replica container(s), but replica(s) are already removed.",
+			c.targetNumReplicas)
+
+		concluded := c.concludeRemovingReplicaContainers()
+		if !concluded {
+			panic("Failed to conclude container removal operation immediately after initiating it...")
+		}
+
+		return false, nil
+	}
+
+	c.log.Debug("Beginning attempt to remove %d replica container(s).", c.replicas.Len())
+	c.removeReplicaContainersAttempt = newRemoveReplicaContainersAttempt(c)
+	return true, c.removeReplicaContainersAttempt
+}
+
+// InitSchedulingReplicaContainersOperation attempts to take ownership over the next/current scheduling attempt.
 //
 // If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
 // associated with the active/ongoing container creation operation.
 //
 // If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
 // BeginSchedulingReplicaContainers will return false and nil.
-func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, scheduling.CreateReplicaContainersAttempt) {
-	// c.replicasMutex.RLock()
-	//defer c.replicasMutex.RUnlock()
+func (c *DistributedKernelClient) InitSchedulingReplicaContainersOperation() (bool, scheduling.CreateReplicaContainersAttempt) {
+	// TODO: What about concurrent descheduling/removal operation?
 
 	// Attempt to take ownership over the next/current scheduling attempt.
 	// If this CAS operation fails, then that means that there's another active container creation attempt.
@@ -1055,17 +1109,9 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.replicaContainersAreBeingRemoved.CompareAndSwap(0, 1) {
-		c.removeReplicaContainersAttempt = newRemoveReplicaContainersAttempt(c)
-	} else {
-		c.log.Error("'Removing All Replicas' flag is already set to 1...")
+	if c.replicaContainersAreBeingRemoved.Load() != 1 {
+		c.log.Error("'Replicas Are Being Removed Flag' is not set to 1...")
 	}
-
-	//defer func() {
-	//	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(1, 0) {
-	//		c.log.Error("'Removing All Replicas' flag is already set to 0...")
-	//	}
-	//}()
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 

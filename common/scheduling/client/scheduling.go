@@ -18,8 +18,9 @@ const (
 )
 
 var (
-	ErrFailureUnspecified         = errors.New("the kernel replica container creation or removal operation failed for an unspecified reason")
-	ErrSchedulingAlreadyCompleted = errors.New("the kernel replica container creation operation is already marked as having completed")
+	ErrFailureUnspecified           = errors.New("the kernel replica container creation or removal operation failed for an unspecified reason")
+	ErrSchedulingAlreadyCompleted   = errors.New("the kernel replica container creation operation is already marked as having completed")
+	ErrDeschedulingAlreadyCompleted = errors.New("the kernel replica container removal operation is already marked as having completed")
 )
 
 // kernel is a wrapper around the scheduling.Kernel interface with an extra method concludeSchedulingReplicaContainers.
@@ -376,7 +377,7 @@ func (a *RemoveReplicaContainersAttempt) IsComplete() bool {
 // an error.
 func (a *RemoveReplicaContainersAttempt) SetDone(failureReason error) error {
 	if a.complete.Load() {
-		panic(ErrSchedulingAlreadyCompleted)
+		return ErrDeschedulingAlreadyCompleted
 	}
 
 	// We only want to call this big release once.
