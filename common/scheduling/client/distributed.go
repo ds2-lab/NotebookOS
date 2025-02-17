@@ -318,7 +318,7 @@ func (c *DistributedKernelClient) InitRemovingReplicaContainersOperation() (bool
 
 	// Check if our replicas are already scheduled. If they are, then we'll return false and nil,
 	// indicating that our replicas are scheduled, and that nobody needs to do anything as a result.
-	if c.unsafeAreReplicasScheduled() {
+	if c.replicas.Len() == 0 {
 		c.log.Debug("Began attempt to remove %d replica container(s), but replica(s) are already removed.",
 			c.targetNumReplicas)
 

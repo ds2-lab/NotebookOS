@@ -1332,8 +1332,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error(traceback.format_exc())
 
             return False
-        finally:
-            faulthandler.dump_traceback(file=sys.stderr)
+        #finally:
+        #    faulthandler.dump_traceback(file=sys.stderr)
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""

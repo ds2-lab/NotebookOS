@@ -32,7 +32,7 @@ notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 scheduler-http-port: 8078
 idle-session-reclamation-policy: none
-scheduling-policy: middle-ground
+scheduling-policy: static
 # scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
@@ -71,7 +71,7 @@ aws_region: "us-east-1"
 redis_password: ""
 redis_port: 6379
 redis_database: 0
-prewarming_enabled: true
-min_prewarm_containers_per_host: 1
-max_prewarm_containers_per_host: 3
-prewarming_policy: maintain_minimum_capacity
+#prewarming_enabled: true
+#min_prewarm_containers_per_host: 1
+#max_prewarm_containers_per_host: 3
+#prewarming_policy: maintain_minimum_capacity
