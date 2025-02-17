@@ -122,7 +122,7 @@ redis_appendonly: "no"
 ##################################################################
 
 jupyter_server_docker_username: scusemua
-jupyter_server_docker_image_name: jupyter-debug
+jupyter_server_docker_image_name: jupyter-cpu
 jupyter_server_docker_image_tag: latest
 
 ##################################################################
