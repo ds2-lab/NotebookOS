@@ -2219,6 +2219,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		kernel, err = d.initNewKernel(in)
 		if err != nil {
 			d.log.Error("Failed to create new kernel %s because: %v", in.Id, err)
+			d.log.Error(
+				utils.RedStyle.Render(
+					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
+				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	} else {
@@ -2251,6 +2255,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		err = d.sendIoPubStatusesOnStart(kernel)
 		if err != nil {
 			d.log.Error("Failed to send IOPub status messages during start-up of kernel %s: %v", in.Id, err)
+			d.log.Error(
+				utils.RedStyle.Render(
+					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
+				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	} else {
@@ -2258,6 +2266,10 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 		if err != nil {
 			d.log.Error("Error while starting long-running kernel \"%s\": %v", in.Id, err)
+			d.log.Error(
+				utils.RedStyle.Render(
+					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
+				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
 		}
 	}
@@ -2307,7 +2319,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Info(
 		utils.DarkGreenStyle.Render(
-			"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v]"),
+			"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Success ✓"),
 		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 
 	return info, nil
