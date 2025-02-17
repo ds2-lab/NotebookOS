@@ -279,6 +279,46 @@ services:
       - ./dashboard_backend/workload_templates:{{ dashboard_backend_config_directory }}/workload_templates
       - ./dashboard_backend/.env:/go/.env
 
+  node-exporter:
+    image: prom/node-exporter
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=node-exporter"
+    deploy:
+      mode: global
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=node-exporter"
+    command:
+      - "--web.listen-address=0.0.0.0:{{ node_exporter_port }}"
+    networks:
+      - traefik-public
+
+  cadvisor:
+    container_name: cadvisor
+    image: gcr.io/cadvisor/cadvisor:latest
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=cadvisor"
+    deploy:
+      mode: global
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=cadvisor"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker/:/var/lib/docker:ro"
+    command:
+      - "-port={{ cadvisor_port }}"
+    networks:
+      - traefik-public
+
 {% if distributed_notebook_remote_storage_type == 'redis' %}
   redis:
     image: scusemua/redis:latest
