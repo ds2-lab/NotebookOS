@@ -248,7 +248,7 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 
 	// If we were supposed to create some number of containers, and we created none, then that's problematic.
 	if created == 0 && target > 0 {
-		c.log.Error("Created 0/%d pre-warm containers...", created, target)
+		c.log.Error("Created %d/%d pre-warm containers...", created, target)
 		panic(fmt.Sprintf("Something is wrong. Failed to create any pre-warmed containers (target=%d).", target))
 	}
 
