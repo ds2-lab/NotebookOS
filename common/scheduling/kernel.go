@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
+	context2 "golang.org/x/net/context"
 	"time"
 )
 
@@ -143,6 +144,49 @@ type CreateReplicaContainersAttempt interface {
 	TimeElapsed() time.Duration
 }
 
+type RemoveReplicaContainersAttempt interface {
+	// KernelId returns the kernel ID of the scheduling.Kernel associated with the target RemoveReplicaContainersAttempt.
+	KernelId() string
+
+	// StartedAt returns the time at which the target RemoveReplicaContainersAttempt began.
+	StartedAt() time.Time
+
+	// TimeElapsed returns the amount of time that has elapsed since the target RemoveReplicaContainersAttempt began.
+	TimeElapsed() time.Duration
+
+	// Succeeded returns true if the container creation operation(s) succeeded.
+	Succeeded() bool
+
+	// FailureReason returns a non-nil value if there is an error associated with the failure of the
+	// container creation operation(s) succeeded.
+	FailureReason() error
+
+	// Kernel returns the scheduling.Kernel associated with the target RemoveReplicaContainersAttempt (i.e., the
+	// Kernel whose KernelContainer instances are being removed).
+	Kernel() Kernel
+
+	// Wait blocks until the target RemoveReplicaContainersAttempt is finished, or until the given
+	// context.Context is cancelled.
+	//
+	// If the operation completes in a failed state and there's a failure reason,
+	// then the failure reason will be returned.
+	Wait(ctx context2.Context) error
+
+	// IsComplete returns true if the target RemoveReplicaContainersAttempt has finished.
+	//
+	// Note that if IsComplete is true, that doesn't necessarily mean that the associated container removal operation
+	// finished successfully. It may have encountered errors or timed-out on its own.
+	IsComplete() bool
+
+	// SetDone records that the target RemoveReplicaContainersAttempt has finished.
+	//
+	// If the operation failed, then the reason, in the form of an error, should be passed to SetDone.
+	//
+	// If the target RemoveReplicaContainersAttempt has already been marked as having completed, then SetDone will
+	// return an error.
+	SetDone(failureReason error) error
+}
+
 type Kernel interface {
 	types.Contextable
 	SessionManager
@@ -209,6 +253,9 @@ type Kernel interface {
 	// ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
 	// for the target Kernel.
 	ReplicaContainersAreBeingScheduled() bool
+	// ReplicaContainersAreBeingRemoved returns true if there is an active 'remove container(s)' operation
+	// for the target Kernel.
+	ReplicaContainersAreBeingRemoved() (bool, RemoveReplicaContainersAttempt)
 	// ReplicaContainersStartedAt returns the time at which the target Kernel's KernelContainer instances last started.
 	ReplicaContainersStartedAt() time.Time
 	AggregateBusyStatus() string

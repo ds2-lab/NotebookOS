@@ -94,16 +94,18 @@ type DistributedKernelClient struct {
 	// replicasMutex provides atomicity for operations that add or remove kernel replicas from the replicas slice.
 	//replicasMutex sync.RWMutex
 
-	// removingAllReplicas indicates whether a removal is occurring.
-	removingAllReplicas atomic.Int32
-
 	status            jupyter.KernelStatus
 	targetNumReplicas int32
 
 	numActiveAddOperations atomic.Int32 // Number of active migrations of the associated kernel's replicas.
 
-	// replicaContainersStartedAt is the time at which the target Kernel's KernelContainer instances last started.
+	// replicaContainersStartedAt is the time at which the target DistributedKernelClient's scheduling.KernelContainer
+	// instances last started.
 	replicaContainersStartedAt time.Time
+
+	// replicaContainersStoppedAt is the time at which the DistributedKernelClient's scheduling.KernelContainer
+	// instances last stopped.
+	replicaContainersStoppedAt time.Time
 
 	// createReplicaContainersAttempt is non-nil when there's an active 'create containers' operation for this
 	// DistributedKernelClient. The createReplicaContainersAttempt encapsulates info about that operation.
@@ -121,6 +123,17 @@ type DistributedKernelClient struct {
 	//
 	// When there is an active operation, the value of createReplicaContainersAttempt will be strictly positive.
 	replicaContainersAreBeingScheduled atomic.Int32
+
+	// removeReplicaContainersAttempt is non-nil when there's an active 'remove containers/replicas' operation for
+	// this DistributedKernelClient. The removeReplicaContainersAttempt encapsulates info about that operation.
+	//
+	// In order to check if there's an active operation, one should inspect the value of the
+	// replicaContainersAreBeingRemoved variable. Checking if removeReplicaContainersAttempt is non-nil is not the
+	// correct or intended way to check whether there is an active 'remove containers/replicas' operation.
+	removeReplicaContainersAttempt *RemoveReplicaContainersAttempt
+
+	// replicaContainersAreBeingRemoved indicates whether a removal is occurring.
+	replicaContainersAreBeingRemoved atomic.Int32
 
 	// isIdleReclaimed indicates whether the DistributedKernelClient is in a state of being idle reclaimed.
 	isIdleReclaimed atomic.Bool
@@ -225,6 +238,25 @@ func (c *DistributedKernelClient) LastTrainingStartedAt() time.Time {
 // ReplicaContainersStartedAt returns the time at which the target Kernel's KernelContainer instances last started.
 func (c *DistributedKernelClient) ReplicaContainersStartedAt() time.Time {
 	return c.replicaContainersStartedAt
+}
+
+// ReplicaContainersAreBeingRemoved returns true if there is an active 'remove container(s)/replica(s)' operation
+// for the target DistributedKernelClient.
+func (c *DistributedKernelClient) ReplicaContainersAreBeingRemoved() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.unsafeReplicaContainersAreBeingRemoved()
+}
+
+func (c *DistributedKernelClient) unsafeReplicaContainersAreBeingRemoved() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	areBeingRemoved := c.replicaContainersAreBeingRemoved.Load() > 0
+
+	if !areBeingRemoved {
+		return false, nil
+	}
+
+	return areBeingRemoved, c.removeReplicaContainersAttempt
 }
 
 // ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
@@ -346,9 +378,6 @@ func (c *DistributedKernelClient) NumColdContainersUsed() int32 {
 // If concludeSchedulingReplicaContainers returns false, then the CreateReplicaContainersAttempt struct that is
 // invoking the concludeSchedulingReplicaContainers method will ultimately end up panicking.
 func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
-	// c.replicasMutex.RLock()
-	//defer c.replicasMutex.RUnlock()
-
 	if !c.replicaContainersAreBeingScheduled.CompareAndSwap(1, 0) {
 		c.log.Error("Failed to flip value of 'CreatingReplicaContainers' flag from 1 to 0.")
 		return false
@@ -369,15 +398,34 @@ func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
 		}
 	} else {
 		c.log.Warn("Attempt to schedule %d replica container(s) has failed.", c.targetNumReplicas)
-
-		//statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusError)
-		//if !statusChanged {
-		//	c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
-		//		jupyter.KernelStatusInitializing.String(), jupyter.KernelStatusError.String(), c.status.String())
-		//}
 	}
 
 	c.createReplicaContainersAttempt = nil
+	return true
+}
+
+// concludeRemovingReplicaContainers is called automatically by a RemoveReplicaContainersAttempt struct
+// when the container removal operation associated with the RemoveReplicaContainersAttempt concludes.
+//
+// concludeRemovingReplicaContainers should return true, meaning that the kernel's flag that indicates
+// whether an active container removal operation is occurring was successfully flipped from 1 --> 0.
+//
+// If concludeRemovingReplicaContainers returns false, then the RemoveReplicaContainersAttempt struct that is
+// invoking the concludeSchedulingReplicaContainers method will ultimately end up panicking.
+func (c *DistributedKernelClient) concludeRemovingReplicaContainers() bool {
+	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(1, 0) {
+		c.log.Error("Failed to flip value of 'RemovingReplicaContainers' flag from 1 to 0.")
+		return false
+	}
+
+	if c.replicas.Len() == 0 {
+		c.log.Debug("Successfully removed (up to) %d replica container(s).", c.targetNumReplicas)
+		c.replicaContainersStoppedAt = time.Now()
+	} else {
+		c.log.Warn("Attempt to remove (up to) %d replica container(s) has failed.", c.targetNumReplicas)
+	}
+
+	c.removeReplicaContainersAttempt = nil
 	return true
 }
 
@@ -1007,15 +1055,17 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.removingAllReplicas.CompareAndSwap(0, 1) {
+	if c.replicaContainersAreBeingRemoved.CompareAndSwap(0, 1) {
+		c.removeReplicaContainersAttempt = newRemoveReplicaContainersAttempt(c)
+	} else {
 		c.log.Error("'Removing All Replicas' flag is already set to 1...")
 	}
 
-	defer func() {
-		if !c.removingAllReplicas.CompareAndSwap(1, 0) {
-			c.log.Error("'Removing All Replicas' flag is already set to 0...")
-		}
-	}()
+	//defer func() {
+	//	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(1, 0) {
+	//		c.log.Error("'Removing All Replicas' flag is already set to 0...")
+	//	}
+	//}()
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
 
@@ -2062,7 +2112,7 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 // Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
 func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
 	// If we're in the middle of a removal, then just return false.
-	if c.removingAllReplicas.Load() == 1 {
+	if c.replicaContainersAreBeingRemoved.Load() == 1 {
 		return false
 	}
 

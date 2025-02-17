@@ -16,7 +16,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
-	"golang.org/x/sync/semaphore"
 	"log"
 	"math"
 	"math/rand"
@@ -133,68 +132,6 @@ type DistributedClientProvider interface {
 	// GetBuilder() DistributedClientBuilder
 }
 
-// kernelDescheduleAttempt encapsulates an attempt to deschedule (i.e., remove all replicas/containers of)
-// a particular scheduling.Kernel.
-type kernelDescheduleAttempt struct {
-	// Semaphore is used to enable waiting with a timeout for the de-scheduling operation to complete.
-	Semaphore *semaphore.Weighted
-
-	// StartedAt is the time at which the de-scheduling operation began.
-	StartedAt time.Time
-
-	// Complete indicates whether the de-scheduling operation has completed.
-	Complete atomic.Bool
-
-	// KernelId is the ID of the associated scheduling.Kernel.
-	KernelId string
-
-	// Kernel is the target of the associated de-scheduling operation.
-	Kernel scheduling.Kernel
-}
-
-// newKernelDescheduleAttempt creates a new kernelDescheduleAttempt struct and returns a pointer to it.
-func newKernelDescheduleAttempt(kernel scheduling.Kernel) *kernelDescheduleAttempt {
-	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
-
-	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
-	err := weightedSemaphore.Acquire(context.Background(), maxSemaphoreWeight)
-	if err != nil {
-		panic(err)
-	}
-
-	return &kernelDescheduleAttempt{
-		Semaphore: weightedSemaphore,
-		StartedAt: time.Now(),
-		KernelId:  kernel.ID(),
-		Kernel:    kernel,
-	}
-}
-
-// Wait blocks until the target kernelDescheduleAttempt is finished, or until the given context.Context is cancelled.
-func (a *kernelDescheduleAttempt) Wait(ctx context.Context) error {
-	return a.Semaphore.Acquire(ctx, 1)
-}
-
-// IsComplete returns true if the target kernelDescheduleAttempt has finished.
-//
-// Note that if IsComplete is true, that doesn't necessarily mean that the target kernelDescheduleAttempt finished
-// successfully. It may have encountered errors or timed-out on its own.
-func (a *kernelDescheduleAttempt) IsComplete() bool {
-	return a.Complete.Load()
-}
-
-// SetDone records that the target kernelDescheduleAttempt has finished.
-//
-// SetDone used to be called Done so that it would match the sync.WaitGroup API, but then I switched
-// to using semaphore.Weighted to support timing-out, and I kept calling Done() as if it were returning
-// a bool indicating whether the target kernelDescheduleAttempt was finished or not (which is what
-// IsComplete is used for). So, I changed the name from Done to SetDone.
-func (a *kernelDescheduleAttempt) SetDone() {
-	// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
-	a.Semaphore.Release(maxSemaphoreWeight)
-	a.Complete.Store(true)
-}
-
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
 // This interface exists so that we can spoof it during unit tests.
 type ClusterGateway interface {
@@ -294,10 +231,6 @@ type ClusterGatewayImpl struct {
 	// kernels is a map from kernel and session IDs to kernels.
 	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
 	kernels hashmap.HashMap[string, scheduling.Kernel]
-
-	// kernelsBeingDescheduled is a map from kernel ID to kernels who are being de-scheduled.
-	// This map is used to prevent handling execute requests targeting kernels that are being de-scheduled.
-	kernelsBeingDescheduled hashmap.HashMap[string, *kernelDescheduleAttempt]
 
 	// kernelIdToKernel is a map from kernel ID to client.DistributedKernelClient.
 	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
@@ -469,7 +402,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		ip:                              opts.IP,
 		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
 		kernels:                         hashmap.NewConcurrentMap[scheduling.Kernel](32),
-		kernelsBeingDescheduled:         hashmap.NewConcurrentMap[*kernelDescheduleAttempt](32),
 		kernelIdToKernel:                hashmap.NewConcurrentMap[scheduling.Kernel](32),
 		kernelSpecs:                     hashmap.NewConcurrentMap[*proto.KernelSpec](32),
 		waitGroups:                      hashmap.NewConcurrentMap[*registrationWaitGroups](32),
@@ -4002,22 +3934,62 @@ func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel
 // delete the record of it and return.
 //
 // If the attempt is not finished, then waitForDeschedulingToEnd will wait for (as of the time of writing this
-// comment) 3 minutes. If after 3 minutes, the attempt has not completed, then waitForDeschedulingToEnd will return
+// comment) 7.5 minutes. If after 6 minutes, the attempt has not completed, then waitForDeschedulingToEnd will return
 // an error.
 //
 // It's possible that there is simply a large network I/O occurring or something like that, so the fact that the attempt
 // has not resolved is not necessarily indicative that something is wrong.
-func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, descheduleAttempt *kernelDescheduleAttempt) error {
-	timeoutInterval := time.Second * 180
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
-	defer cancel()
+func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, removalAttempt scheduling.RemoveReplicaContainersAttempt) error {
+	// If the removal attempt is nil, then there is nothing to wait for.
+	if removalAttempt == nil {
+		d.log.Debug("Nil removal attempt passed for kernel \"%s\". Nothing to wait for.", kernel.ID())
+		return nil
+	}
 
-	err := descheduleAttempt.Wait(ctx)
-	if err != nil {
-		d.log.Warn("Timed-out waiting for descheduling of kernel \"%s\" to complete after %v. Deschedule attempt has been in-progress for %v.",
-			kernel.ID(), timeoutInterval, time.Since(descheduleAttempt.StartedAt))
+	// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
+	if !removalAttempt.IsComplete() {
+		d.log.Debug("Target kernel \"%s\" is being descheduled as of %v ago.",
+			kernel.ID(), removalAttempt.TimeElapsed())
 
-		return err
+		startTime := time.Now()
+
+		// We do this in a loop so we can incrementally print warning messages after we've been waiting for a while,
+		// in the event that the descheduling operation does not resolve quickly.
+		for i := 0; i < 3; i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*150 /* 2.5 minutes */)
+
+			// Wait for the replicas to finish being descheduled.
+			err := removalAttempt.Wait(ctx)
+			cancel()
+
+			// No error means that the descheduling attempt concluded successfully.
+			if err == nil {
+				d.log.Debug("Descheduling complete for kernel \"%s\". Waited: %v. Time to reschedule.",
+					kernel.ID(), time.Since(startTime))
+				return nil
+			}
+
+			// Not necessarily an error. Context timeout is set to a low value so that we can incrementally print
+			// warning messages after we've been waiting for a while, in the event that the descheduling operation
+			// does not resolve quickly.
+			d.log.Warn("Awaiting the completion of replica descheduling for kernel \"%s\". Time elapsed: %v.",
+				kernel.ID(), time.Since(startTime))
+
+			// But if the error is NOT a context.DeadlineExceeded error, then something went wrong.
+			if !errors.Is(err, context.DeadlineExceeded) {
+				// TODO: How to handle?
+				d.log.Error("Attempt to remove replicas of kernel %s resulted in an error: %v",
+					kernel.ID(), err)
+
+				errorTitle := fmt.Sprintf("Failed to Remove Replicas of Kernel \"%s\"", kernel.ID())
+				go d.notifyDashboardOfError(errorTitle, err.Error())
+
+				return err
+			}
+		}
+
+		return fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
+			ErrKernelNotReady, kernel.ID(), time.Since(removalAttempt.StartedAt()))
 	}
 
 	return nil
@@ -4038,21 +4010,9 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 		kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
 
 	// Check if the kernel is being descheduled. If so, then we'll wait for a bit for it to finish being descheduled.
-	if descheduleAttempt, loaded := d.kernelsBeingDescheduled.Load(kernel.ID()); loaded {
-		// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
-		if !descheduleAttempt.IsComplete() {
-			d.log.Debug("Target kernel \"%s\" of \"execute_request\" \"%s\" is being descheduled as of %v ago.",
-				kernel.ID(), msg.JupyterMessageId(), time.Since(descheduleAttempt.StartedAt))
-
-			// Wait for the replicas to be descheduled (or until we time out, in which case we return an error).
-			if err := d.waitForDeschedulingToEnd(kernel, descheduleAttempt); err != nil {
-				return nil, false, fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
-					ErrKernelNotReady, kernel.ID(), time.Since(descheduleAttempt.StartedAt))
-			}
-		}
-
-		// Delete the record of the descheduling attempt. It either already was complete, or we waited and it finished.
-		d.kernelsBeingDescheduled.Delete(kernel.ID())
+	_, removalAttempt := kernel.ReplicaContainersAreBeingRemoved()
+	if err := d.waitForDeschedulingToEnd(kernel, removalAttempt); err != nil {
+		return nil, false, err
 	}
 
 	// If the replica(s) are scheduled, then we have nothing to do.
