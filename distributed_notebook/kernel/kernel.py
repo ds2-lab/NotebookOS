@@ -402,7 +402,7 @@ class DistributedKernel(IPythonKernel):
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
-    simulate_training_using_sleep: Bool = Bool(default_value=False).tag(config=False)
+    simulate_training_using_sleep: Bool = Bool(default_value=False).tag(config=True)
 
     implementation = "Distributed Python 3"
     implementation_version = "0.2"
@@ -627,7 +627,7 @@ class DistributedKernel(IPythonKernel):
         self._remote_checkpointer: Checkpointer = get_checkpointer(
             remote_storage_name=self.remote_storage,
             host=self.remote_storage_hostname,
-            s3_bucket=self.s3_bucket,
+            s3_bucket_name=self.s3_bucket,
             aws_region=self.aws_region,
             redis_port=self.redis_port,
             redis_database=self.redis_database,
