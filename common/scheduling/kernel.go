@@ -352,14 +352,14 @@ type Kernel interface {
 	// BeginSchedulingReplicaContainers will return false and nil.
 	InitSchedulingReplicaContainersOperation() (bool, CreateReplicaContainersAttempt)
 
-	// InitRemovingReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
+	// InitRemoveReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
 	//
 	// If there's another active operation, then this will return false along with the RemoveReplicaContainersAttempt
 	// associated with the active/ongoing container removal operation.
 	//
 	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already removed, then
 	// RemoveReplicaContainersAttempt will return false and nil.
-	InitRemovingReplicaContainersOperation() (bool, RemoveReplicaContainersAttempt)
+	InitRemoveReplicaContainersOperation() (bool, RemoveReplicaContainersAttempt)
 
 	// RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 	// KernelReplica instances of the target Kernel.

@@ -5348,7 +5348,7 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	// fact removed. This may occur if, for example, a previous descheduleAttempt concludes.
 	for {
 		// Try to start a new descheduleAttempt at scheduling the replica container(s) of this kernel.
-		startedRemoving, descheduleAttempt = kernel.InitRemovingReplicaContainersOperation()
+		startedRemoving, descheduleAttempt = kernel.InitRemoveReplicaContainersOperation()
 
 		// If we started a new descheduleAttempt, then we'll break out of the loop and orchestrate the removal of the containers
 		// of the replicas of the target kernel.

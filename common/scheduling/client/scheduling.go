@@ -292,6 +292,12 @@ type RemoveReplicaContainersAttempt struct {
 func newRemoveReplicaContainersAttempt(kernel kernel) *RemoveReplicaContainersAttempt {
 	primarySemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
 
+	// Acquire the primarySemaphore so anybody who calls Wait will have to wait.
+	err := primarySemaphore.Acquire(context.Background(), maxSemaphoreWeight)
+	if err != nil {
+		panic(err)
+	}
+
 	attempt := &RemoveReplicaContainersAttempt{
 		semaphore: primarySemaphore,
 		startedAt: time.Now(),
