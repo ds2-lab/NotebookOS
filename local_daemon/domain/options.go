@@ -39,6 +39,7 @@ type LocalDaemonOptions struct {
 
 func (o *LocalDaemonOptions) Validate() error {
 	if o.S3Bucket == "" {
+		fmt.Printf("[WARNING] S3Bucket configuration is not set. Using default value: \"%s\".\n", DefaultS3Bucket)
 		o.S3Bucket = DefaultS3Bucket
 	}
 

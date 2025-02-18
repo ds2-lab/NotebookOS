@@ -24,3 +24,9 @@ scrape_configs:
         target_label: 'logstream'
       - source_labels: [ '__meta_docker_container_label_logging_jobname' ]
         target_label: 'job'
+      - source_labels: ['__meta_docker_container_label_component']
+        target_label: 'component'
+      - source_labels: ['__meta_docker_container_app']
+        target_label: 'app'
+      - source_labels: ['__meta_docker_container_kernel_id']
+        target_label: 'kernel_id'
