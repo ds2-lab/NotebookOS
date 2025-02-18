@@ -45,6 +45,40 @@ Ensure you have the following installed:
 For instructions concerning the setup and installation of `distributed-notebook` on either a single machine or on a 
 cluster, please refer to the `setup` directory.
 
+## Remote Storage
+
+Jupyter kernel state can be persisted to one of several remote storage options, including AWS S3, HDFS, and Redis.
+
+### AWS S3
+
+The system was developed, tested, and evaluated on AWS EC2. In order to grant the kernels access to AWS S3 buckets, we
+created an IAM role with access to the necessary AWS S3 buckets. All the EC2 instances we used were assigned this 
+IAM role, thereby providing access to the AWS S3 bucket to all kernels running on/within the EC2 virtual machines.
+
+If you wish to use AWS S3 for intermediate storage but are not running on AWS S3, then you must find another means to
+configure the various AWS clients. 
+
+#### Environment Variables
+One option is to modify the `DockerInvoker` struct to set the following environment
+variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and `AWS_WEB_IDENTITY_TOKEN_FILE`. The 
+last one (`AWS_WEB_IDENTITY_TOKEN_FILE`) is probably not required.
+
+The `DockerInvoker` struct is implemented in `local_daemon/invoker/invoker.go`. The `DockerInvoker` struct is created
+by the `LocalScheduler`, which is defined in `local_daemon/daemon/local_daemon.go`. 
+
+This option should work, but there are security risks associated with passing in these values as environment variables.
+
+#### `credentials` and `config` Files
+Another option is to somehow modify the Docker image you are using for the Jupyter kernels to have a `credentials` file
+and a `config` file available under the `~/.aws/` directory within the image. (This directory would probably need to
+be created at `/home/jovyan/.aws`.) There are, of course, security concerns with this approach as well.
+
+#### Other Options
+
+For a more in-depth discussion of the various options, consider reading the official AWS SDK documentation, such as the
+[AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html) documentation, or
+the [AWS SDK for Python (Boto3)](https://aws.amazon.com/sdk-for-python/) documentation.
+
 ## Demo
 
     python3 -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py
