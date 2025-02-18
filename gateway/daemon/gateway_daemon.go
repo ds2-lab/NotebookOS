@@ -2149,12 +2149,14 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 		{
 			// If we received an error, then we already know that the operation failed (and we know why -- it is
 			// whatever the error is/says), so we can just return the error. Otherwise, we just return optimistically.
-			if err, ok := v.(error); ok {
+			var ok bool
+			if err, ok = v.(error); ok {
 				return handleSchedulingError(err)
 			}
 		}
 	default:
 		{
+			// No-op.
 		}
 	}
 
