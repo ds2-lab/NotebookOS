@@ -39,6 +39,36 @@
   vars:
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
+- name: Pull the kernel CPU Docker image
+  community.docker.docker_image_pull:
+    name: "{{ jupyter_server_docker_username }}/jupyter-cpu"
+    pull: always
+    tag: "{{ jupyter_server_docker_image_tag }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Pull the kernel GPU Docker image
+  community.docker.docker_image_pull:
+    name: "{{ jupyter_server_docker_username }}/jupyter-gpu"
+    pull: always
+    tag: "{{ jupyter_server_docker_image_tag }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Pull the Dashboard Backend
+  community.docker.docker_image_pull:
+    name: "{{ jupyter_server_docker_username }}/distributed-notebook-dashboard-backend"
+    pull: always
+    tag: "latest"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
 - name: Pull the kernel Docker image
   community.docker.docker_image_pull:
     name: "{{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}"

@@ -195,7 +195,6 @@ type DockerInvokerOptions struct {
 
 	WorkloadId string
 
-	S3Bucket      string
 	AwsRegion     string
 	RedisPassword string
 
@@ -285,7 +284,6 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			id:                                   uuid.NewString(),
 			SMRPort:                              smrPort,
 			connInfo:                             connInfo,
-			S3Bucket:                             opts.S3Bucket,
 			AwsRegion:                            opts.AwsRegion,
 			RedisPassword:                        opts.RedisPassword,
 			prometheusMetricsPort:                opts.PrometheusMetricsPort,

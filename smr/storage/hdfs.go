@@ -361,7 +361,7 @@ func (p *HdfsProvider) writeLocalDirectoryToHdfs(dir string) error {
 	return walkdirErr
 }
 
-func (p *HdfsProvider) ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
+func (p *HdfsProvider) ReadDataDirectory(_ context.Context, progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
 	serializedStateBytes, err := p.readRaftLogSerializedStateFromHdfs(datadir)
 	if err != nil {
 		return nil, err

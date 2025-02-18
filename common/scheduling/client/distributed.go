@@ -280,14 +280,14 @@ func (c *DistributedKernelClient) RecordContainerPlacementStarted() {
 	c.createReplicaContainersAttempt.ContainerPlacementStarted()
 }
 
-// InitRemovingReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
+// InitRemoveReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
 //
 // If there's another active operation, then this will return false along with the RemoveReplicaContainersAttempt
 // associated with the active/ongoing container removal operation.
 //
 // If the KernelContainer instances for the KernelReplica instances of this Kernel are already removed, then
 // RemoveReplicaContainersAttempt will return false and nil.
-func (c *DistributedKernelClient) InitRemovingReplicaContainersOperation() (bool, scheduling.RemoveReplicaContainersAttempt) {
+func (c *DistributedKernelClient) InitRemoveReplicaContainersOperation() (bool, scheduling.RemoveReplicaContainersAttempt) {
 	// TODO: What about concurrent scheduling/creation operation?
 
 	// Attempt to take ownership over the next/current scheduling attempt.

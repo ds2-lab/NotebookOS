@@ -229,6 +229,21 @@
   shell: chmod -R 777 /var/run/docker.sock
   become: true
 
+- name: Create the distributed_cluster_default network
+  docker_network:
+    name: distributed_cluster_default
+    driver: overlay
+    attachable: true
+    scope: swarm
+    state: present
+  become: true
+  become_user: "{{ remote_username }}"
+  when: "deploy_distributed_jupyter_notebook_app == true and inventory_hostname in 'swarm-leader'"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
 - name: "Deploy the {{ distributed_notebook_docker_stack_name }} Docker Swarm stack"
   community.docker.docker_stack:
     name: "{{ distributed_notebook_docker_stack_name }}"

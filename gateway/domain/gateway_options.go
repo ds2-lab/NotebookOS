@@ -96,7 +96,7 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 	//	o.PrometheusPort = DefaultPrometheusPort
 	//}
 
-	if len(o.RemoteStorageEndpoint) == 0 {
+	if o.RemoteStorage == "redis" && len(o.RemoteStorageEndpoint) == 0 {
 		panic("remote remote_storage endpoint is empty.")
 	}
 }

@@ -13,6 +13,8 @@ ack-port: 9006
 remote-storage-endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address | default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}
 {% elif distributed_notebook_remote_storage_type == 'redis' %}
 remote-storage-endpoint: redis:{{ redis_port }}
+{% elif distributed_notebook_remote_storage_type == 's3' %}
+remote-storage-endpoint: s3
 {% endif %}
 remote-storage: {{ distributed_notebook_remote_storage_type }}
 debug: {{ gateway_debug_logging_enabled }}
@@ -73,6 +75,7 @@ use_real_gpus: {{ distributed_notebook_use_real_gpus }}
 assign_kernel_debug_ports: {{ distributed_notebook_assign_kernel_debug_ports }}
 submit_execute_requests_one_at_a_time: {{ distributed_notebook_submit_execute_requests_one_at_a_time }}
 prewarming_enabled: {{ distributed_notebook_prewarming_enabled }}
-min_prewarm_containers_per_host: {{ distributed_notebook_prewarming_enabled }}
-max_prewarm_containers_per_host: {{ distributed_notebook_prewarming_enabled }}
-prewarming_policy: {{ distributed_notebook_prewarming_enabled }}
+initial_num_containers_per_host: {{ distributed_notebook_initial_prewarm_containers_per_host }}
+min_prewarm_containers_per_host: {{ distributed_notebook_min_prewarm_containers_per_host }}
+max_prewarm_containers_per_host: {{ distributed_notebook_max_prewarm_containers_per_host }}
+prewarming_policy: {{ distributed_notebook_prewarming_policy }}

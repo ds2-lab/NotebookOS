@@ -64,6 +64,7 @@ const (
 
 	hdfsRemoteStorage  string = "hdfs"
 	redisRemoteStorage string = "redis"
+	s3RemoteStorage    string = "s3"
 	localStorage       string = "local"
 )
 
@@ -342,18 +343,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		zap.String("deployment_mode", deploymentMode),
 		zap.String("remote_storage", remoteStorage))
 
-	if remoteStorage == hdfsRemoteStorage {
-		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode, node.id, &node.atom)
-	} else if remoteStorage == redisRemoteStorage {
-		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode, node.id, &node.atom)
-	} else if remoteStorage == localStorage {
-		node.storageProvider = storage.NewLocalProvider(deploymentMode, node.id, &node.atom)
-	} else {
-		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote remote_storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
-			remoteStorage)
-		return nil
-	}
-
+	node.storageProvider = storage.GetStorageProvider(remoteStorage, remoteStorageHostname, deploymentMode, node.id, &node.atom)
 	if node.storageProvider == nil {
 		node.logger.Error("Failed to create remote remote_storage provider.",
 			zap.String("remote_storage", remoteStorage),
@@ -368,9 +358,9 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 			zap.String("deployment_mode", deploymentMode),
 			zap.String("remote_storage", remoteStorage),
 			zap.Error(err))
+		return nil
 	}
 
-	// TODO(Ben): Read the data directory from remote remote_storage.
 	if shouldLoadDataFromRemoteStorage {
 		node.logger.Info(fmt.Sprintf("Reading data directory from remote remote_storage now: %s.", node.dataDir))
 
@@ -861,7 +851,8 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 }
 
 func (node *LogNode) readDataDirectoryFromRemoteStorage(progressChan chan<- string) ([]byte, error) {
-	return node.storageProvider.ReadDataDirectory(progressChan, node.dataDir, node.waldir, node.snapdir)
+	ctx := context.Background()
+	return node.storageProvider.ReadDataDirectory(ctx, progressChan, node.dataDir, node.waldir, node.snapdir)
 }
 
 // WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local remote_storage to remote remote_storage.

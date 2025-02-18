@@ -4,6 +4,7 @@ spoof-kernels: false
 spoof-specs: false
 workload-presets-file: "{{ dashboard_backend_config_directory }}/workload-presets-file.yaml"
 workload-templates-file: "{{ dashboard_backend_config_directory }}/workload-templates-file.yaml"
+workload-job-config-file: "{{ dashboard_backend_config_directory }}/workload-job-config.yaml"
 gateway-address: "gateway:{{ gateway_dashboard_grpc_port }}"
 server-port: {{ dashboard_backend_server_port }}
 cluster-dashboard-handler-port: {{ dashboard_backend_grpc_port }}

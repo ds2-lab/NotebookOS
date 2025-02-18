@@ -4,6 +4,8 @@ spoof-kernels: false
 spoof-specs: false
 server-port: 8000
 workload-presets-file: "/etc/distributed-notebook-cluster/workload-presets-file.yaml"
+workload-templates-file: "/etc/distributed-notebook-cluster/workload-templates-file.yaml"
+workload-job-config-file: "/etc/distributed-notebook-cluster/workload-job-config.yaml"
 gateway-address: gateway:8079
 cluster-dashboard-handler-port: 8078
 websocket-proxy-port: 8077

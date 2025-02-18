@@ -2,14 +2,19 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"golang.org/x/net/context"
+	"time"
 )
 
 const (
@@ -22,6 +27,8 @@ const (
 var (
 	ErrEmptyKernelId = errors.New("kernel ID is empty")
 )
+
+type KernelMessageHandler func(kernel scheduling.Kernel, socketType messaging.MessageType, msg *messaging.JupyterMessage) error
 
 // ResponseForwarder is an interface that provides the means to forward responses from scheduling.Kernel and
 // scheduling.KernelReplica instances back to the associated Jupyter client.
@@ -42,19 +49,52 @@ type KernelManager struct {
 	// Sessions is a mapping from Jupyter session ID to scheduling.Kernel.
 	Sessions hashmap.HashMap[string, scheduling.Kernel]
 
+	handlers map[messaging.MessageType]KernelMessageHandler
+
 	// RequestTracingEnabled controls whether we embed proto.RequestTrace structs within Jupyter requests and replies.
 	RequestTracingEnabled bool
 
-	ResponseForwarder ResponseForwarder
+	// MetricsProvider provides all metrics to the members of the scheduling package.
+	MetricsProvider *metrics.ClusterMetricsProvider
+
+	responseForwarder ResponseForwarder
+
+	idleSessionReclaimer *IdleSessionReclaimer
+
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
+
+	Cluster scheduling.Cluster
+
+	// notifier is used to send notifications to the cluster dashboard.
+	notifier *Notifier
 }
 
 // NewKernelManager creates a new KernelManager struct and returns a pointer to it.
-func NewKernelManager(responseForwarder ResponseForwarder) *KernelManager {
+func NewKernelManager(responseForwarder ResponseForwarder, opts *domain.ClusterGatewayOptions) *KernelManager {
 	manager := &KernelManager{
 		Kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		Sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		ResponseForwarder: responseForwarder,
+		responseForwarder: responseForwarder,
+		handlers:          make(map[messaging.MessageType]KernelMessageHandler),
 	}
+
+	manager.handlers[messaging.ControlMessage] = manager.controlHandler
+	manager.handlers[messaging.ShellMessage] = manager.shellHandler
+	manager.handlers[messaging.StdinMessage] = manager.stdinHandler
+	manager.handlers[messaging.HBMessage] = manager.heartbeatHandler
+
+	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
+		interval := time.Duration(opts.IdleSessionReclamationIntervalSec) * time.Second
+		numReplicasPerKernel := manager.Cluster.Scheduler().Policy().NumReplicas()
+
+		manager.idleSessionReclaimer = NewIdleSessionReclaimer(manager.Kernels, interval, numReplicasPerKernel, nil)
+
+		manager.idleSessionReclaimer.Start()
+	}
+
+	manager.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](
+		manager.notifier.NotifyDashboard, nil)
 
 	config.InitLogger(&manager.log, manager)
 
@@ -85,7 +125,12 @@ func (km *KernelManager) ForwardRequestToKernel(kernelOrSessionId string, msg *m
 		return types.ErrKernelNotFound
 	}
 
-	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, km.forwardResponseFromKernel, nil)
+	handler, ok := km.handlers[socketTyp]
+	if !ok {
+		panic(fmt.Sprintf("KernelManager::ForwardRequestToKernel: unknown socket type '%d'", socketTyp))
+	}
+
+	return handler(kernel, socketTyp, msg)
 }
 
 // ensureReplicasScheduled ensures that the scheduling.KernelReplica instances of the specified scheduling.Kernel are
@@ -109,7 +154,7 @@ func (km *KernelManager) forwardResponseFromKernel(from scheduling.KernelReplica
 		panic("Implement me!")
 	}
 
-	return km.ResponseForwarder.ForwardResponse(from, typ, msg)
+	return km.responseForwarder.ForwardResponse(from, typ, msg)
 }
 
 // updateRequestTraceReplicaId updates the ReplicaId field of the proto.RequestTrace embedded in the given *messaging.JupyterMessage.
@@ -145,7 +190,11 @@ func (km *KernelManager) tryGetKernel(kernelOrSessionId string) (scheduling.Kern
 
 // ControlHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (km *KernelManager) controlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (km *KernelManager) controlHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
+	if socketTyp != messaging.ControlMessage {
+		panic(fmt.Sprintf("KernelManager::heartbeatHandler: invalid socket type '%d'", socketTyp))
+	}
+
 	km.log.Debug("Forwarding CONTROL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
@@ -154,7 +203,11 @@ func (km *KernelManager) controlHandler(_ router.Info, msg *messaging.JupyterMes
 
 // ShellHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (km *KernelManager) shellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (km *KernelManager) shellHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
+	if socketTyp != messaging.ShellMessage {
+		panic(fmt.Sprintf("KernelManager::heartbeatHandler: invalid socket type '%d'", socketTyp))
+	}
+
 	km.log.Debug("Forwarding SHELL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
@@ -163,14 +216,20 @@ func (km *KernelManager) shellHandler(_ router.Info, msg *messaging.JupyterMessa
 
 // StdinHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (km *KernelManager) stdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (km *KernelManager) stdinHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
+	if socketTyp != messaging.StdinMessage {
+		panic(fmt.Sprintf("KernelManager::heartbeatHandler: invalid socket type '%d'", socketTyp))
+	}
 
-	return nil
+	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, km.forwardResponseFromKernel, nil)
 }
 
 // HBHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (km *KernelManager) heartbeatHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (km *KernelManager) heartbeatHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
+	if socketTyp != messaging.HBMessage {
+		panic(fmt.Sprintf("KernelManager::heartbeatHandler: invalid socket type '%d'", socketTyp))
+	}
 
-	return nil
+	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, km.forwardResponseFromKernel, nil)
 }

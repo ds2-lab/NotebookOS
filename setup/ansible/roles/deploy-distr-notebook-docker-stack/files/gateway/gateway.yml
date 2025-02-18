@@ -9,7 +9,8 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-remote-storage-endpoint: host.docker.internal:10000
+remote-storage: s3
+remote-storage-endpoint: bcarver-distributed-notebook-storage
 debug: true
 direct: false
 num-replicas: 3
@@ -42,6 +43,7 @@ max_cluster_nodes: 32
 gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-swarm"
+s3_bucket: "bcarver-distributed-notebook-storage"
 debug_mode: true
 debug_port: 9996
 using-wsl: true 
@@ -63,8 +65,9 @@ num_resource_ports: 4096
 assign_kernel_debug_ports: false
 submit_execute_requests_one_at_a_time: true
 idle_session_reclamation_enabled: true
-idle_session_reclamation_interval_sec: 1800
+idle_session_reclamation_interval_sec: 90
 prewarming_enabled: true
-min_prewarm_containers_per_host: 1
-max_prewarm_containers_per_host: 3
+initial_num_containers_per_host: 2
+min_prewarm_containers_per_host: 2
+max_prewarm_containers_per_host: 4
 prewarming_policy: maintain_minimum_capacity

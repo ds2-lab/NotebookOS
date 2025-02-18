@@ -3,7 +3,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/jupyter-gpu:latest
+    image: scusemua/jupyter-cpu:latest
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
@@ -23,6 +23,9 @@ services:
         condition: any
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   gateway:
     environment:
@@ -52,11 +55,14 @@ services:
       - "8081:8081"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   daemon:
     environment:
       - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
-      - KERNEL_IMAGE=scusemua/jupyter-gpu:latest
+      - KERNEL_IMAGE=scusemua/jupyter-cpu:latest
       - HOST_MOUNT_DIR=/home/ubuntu/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/ubuntu/kernel_storage
@@ -82,6 +88,9 @@ services:
       mode: global
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
   
   prometheus:
     ports:
@@ -100,6 +109,9 @@ services:
     user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   loki:
     image: grafana/loki:3.2.0
@@ -120,6 +132,9 @@ services:
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   grafana:
     image: grafana/grafana-enterprise:latest
@@ -138,6 +153,9 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   node-exporter:
     image: prom/node-exporter
@@ -155,6 +173,7 @@ services:
       - "--web.listen-address=0.0.0.0:{{ node_exporter_port }}"
     networks:
       - traefik-public
+      - distributed_cluster_default
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
@@ -174,15 +193,17 @@ services:
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
     command:
-      - '-port={{ cadvisor_port }}'
+      - '-port=7126'
       - '-url_base_prefix=/cadvisor'
     networks:
       - traefik-public
+      - distributed_cluster_default
 
   notebook-dashboard:
     image: "scusemua/distributed-notebook-dashboard-backend:latest"
     networks:
       - traefik-public
+      - distributed_cluster_default
     environment:
       - "DASHBOARD_CONFIG_DIR=/etc/distributed-notebook-cluster"
     labels: # Container labels
@@ -215,8 +236,20 @@ services:
     volumes:
       - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
       - ./dashboard-backend/workload-presets-file.yaml:/etc/distributed-notebook-cluster/workload-presets-file.yaml
+      - ./dashboard_backend/workload-templates-file.yaml:/etc/distributed-notebook-cluster/workload-templates-file.yaml
+      - ./dashboard_backend/workload-job-config.yaml:/etc/distributed-notebook-cluster/workload-job-config.yaml
       - ./dashboard-backend/custom_event_sequences:/etc/distributed-notebook-cluster/custom_event_sequences
       - ./dashboard-backend/.env:/go/.env
+
+networks:
+  # Use the previously created public network "traefik-public", shared with other
+  # services that need to be publicly available via this Traefik
+  traefik-public:
+    external: true
+    attachable: true
+  distributed_cluster_default:
+    external: true
+    attachable: true
 
 volumes:
   coredumps_volume:

@@ -9,7 +9,8 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-remote-storage-endpoint: host.docker.internal:10000
+remote-storage: s3
+remote-storage-endpoint: bcarver-distributed-notebook-storage
 debug: true
 direct: false
 node_name: 0
@@ -46,6 +47,7 @@ deployment_mode: "docker-swarm"
 debug_mode: true
 debug_port: 9996
 docker-storage-base: "/remote_storage"
+s3_bucket: "bcarver-distributed-notebook-storage"
 using-wsl: true 
 prometheus_interval: 15
 prometheus_port: 8089
@@ -62,6 +64,7 @@ std_dev_scale_in_per_host_sec: 1
 starting_resource_port: 16007
 num_resource_ports: 4096
 prewarming_enabled: true
-min_prewarm_containers_per_host: 1
-max_prewarm_containers_per_host: 3
+initial_num_containers_per_host: 2
+min_prewarm_containers_per_host: 2
+max_prewarm_containers_per_host: 4
 prewarming_policy: maintain_minimum_capacity

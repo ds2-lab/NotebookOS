@@ -279,11 +279,6 @@ class DistributedKernel(IPythonKernel):
         default_value="redis",
     ).tag(config=True)
 
-    s3_bucket: Union[str, Unicode] = Unicode(
-        help="The AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.",
-        default_value="distributed-notebook-remote_storage",
-    ).tag(config=True)
-
     aws_region: Union[str, Unicode] = Unicode(
         help="The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).",
         default_value="us-east-1",
@@ -402,7 +397,7 @@ class DistributedKernel(IPythonKernel):
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
-    simulate_training_using_sleep: Bool = Bool(default_value=False).tag(config=False)
+    simulate_training_using_sleep: Bool = Bool(default_value=False).tag(config=True)
 
     implementation = "Distributed Python 3"
     implementation_version = "0.2"
@@ -430,6 +425,9 @@ class DistributedKernel(IPythonKernel):
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
         print(f" Kwargs: {kwargs}")
+
+        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
+        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
 
         self.control_msg_types = [
             *self.control_msg_types,
@@ -606,9 +604,6 @@ class DistributedKernel(IPythonKernel):
         if "aws_region" in kwargs:
             self.aws_region = kwargs["aws_region"]
 
-        if "s3_bucket" in kwargs:
-            self.s3_bucket = kwargs["s3_bucket"]
-
         if "redis_port" in kwargs:
             self.redis_port = kwargs["redis_port"]
 
@@ -618,11 +613,12 @@ class DistributedKernel(IPythonKernel):
         if "redis_password" in kwargs:
             self.redis_password = kwargs["redis_password"]
 
+        self.log.debug(f'Remote storage hostname: "{self.remote_storage_hostname}"')
+
         # Arguments not relevant to the specified remote remote_storage will be ignored.
         self._remote_checkpointer: Checkpointer = get_checkpointer(
             remote_storage_name=self.remote_storage,
             host=self.remote_storage_hostname,
-            s3_bucket=self.s3_bucket,
             aws_region=self.aws_region,
             redis_port=self.redis_port,
             redis_database=self.redis_database,
@@ -883,9 +879,6 @@ class DistributedKernel(IPythonKernel):
             raise ValueError("Could not determine deployment mode.")
         else:
             self.log.debug(f"Deployment mode: {self.deployment_mode}")
-
-        session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
-        self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
 
         if self.deployment_mode == DeploymentMode_Kubernetes:
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
@@ -5311,7 +5304,7 @@ class DistributedKernel(IPythonKernel):
                 )
             elif self.remote_storage.lower() == "s3" or self.remote_storage.lower() == "aws s3":
                 remote_storage_provider: S3Provider = S3Provider(
-                    bucket_name=self.s3_bucket,
+                    bucket_name=self.remote_storage_hostname,
                     aws_region=self.aws_region,
                 )
             else:

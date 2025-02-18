@@ -5,10 +5,13 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
+	"golang.org/x/net/context"
 	"time"
 )
 
@@ -50,17 +53,31 @@ type Gateway struct {
 	// ClusterStatistics encapsulates a number of statistics/metrics.
 	ClusterStatistics *metrics.ClusterStatistics
 
+	connectionOptions *jupyter.ConnectionInfo
+
 	log logger.Logger
 }
 
 // NewGateway creates a new Gateway struct and returns a pointer to it.
-func NewGateway(manager *KernelManager) *Gateway {
+func NewGateway(connectionOptions *jupyter.ConnectionInfo, manager *KernelManager, opts *domain.ClusterGatewayOptions) *Gateway {
 	gateway := &Gateway{
-		GatewayId:     uuid.NewString(),
-		KernelManager: manager,
+		GatewayId:         uuid.NewString(),
+		connectionOptions: connectionOptions,
+		KernelManager:     manager,
 	}
 
 	config.InitLogger(&gateway.log, gateway)
+
+	if opts.DebugMode {
+		gateway.log.Debug("Running in DebugMode.")
+		gateway.RequestLog = metrics.NewRequestLog()
+	} else {
+		gateway.log.Debug("Not running in DebugMode.")
+	}
+
+	gateway.Router = router.New(context.Background(), "ClusterGateway", connectionOptions, gateway,
+		opts.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
+		metrics.ClusterGateway, gateway.DebugMode, gateway.MetricsProvider.GetGatewayPrometheusManager())
 
 	return gateway
 }
