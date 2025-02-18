@@ -1279,7 +1279,7 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 	var dockerContainerId string
 	if d.DockerMode() {
 		// If we've not yet assigned the pod/container name to this kernel, then we should do so.
-		if kernel.GetPodOrContainerName() == "" {
+		if kernel.GetPodOrContainerName() == "" || kernel.GetPodOrContainerName() == types.DockerContainerIdTBD {
 			containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
 			dockerContainerId = containerStartedNotification.FullContainerId
 			kernel.SetPodOrContainerName(dockerContainerId)
