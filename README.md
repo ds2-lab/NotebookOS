@@ -47,6 +47,7 @@ cluster, please refer to the `setup` directory.
 
 This system was largely developed, tested, and evaluated on WSL2 and Ubuntu (on AWS EC2). 
 
+#### WSL2 
 The WSL2 development environment was as follows:
 - Docker: Docker version 27.2.0, build 3ab4256
 - Go: `go version go1.22.9 linux/amd64`
@@ -63,6 +64,15 @@ The WSL2 development environment was as follows:
   - Release:        22.04
   - Codename:       jammy
 
+```sh
+$ nvidia-smi --version
+NVIDIA-SMI version  : 565.77.01
+NVML version        : 565.77
+DRIVER version      : 566.36
+CUDA Version        : 12.7
+```
+
+#### AWS EC2
 The AWS EC2 development and evaluation environment was as follows:
 - Docker: `Docker version 27.3.1, build ce12230`
 - Go: `go version go1.22.9 linux/amd64`
