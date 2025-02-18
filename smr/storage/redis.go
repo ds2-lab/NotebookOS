@@ -240,10 +240,10 @@ func (p *RedisProvider) writePathsToRedis(key string, paths []interface{}) error
 	return nil
 }
 
-func (p *RedisProvider) ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
+func (p *RedisProvider) ReadDataDirectory(ctx context.Context, progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
 	st := time.Now()
 
-	serializedStateBytes, err := p.readSerializedStateFromRedis(datadir)
+	serializedStateBytes, err := p.readSerializedStateFromRedis(ctx, datadir)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func (p *RedisProvider) ReadDataDirectory(progressChannel chan<- string, datadir
 }
 
 // readSerializedStateFromRedis reads the serialized state of the RaftLog from Redis and returns it.
-func (p *RedisProvider) readSerializedStateFromRedis(dataDirectory string) ([]byte, error) {
+func (p *RedisProvider) readSerializedStateFromRedis(ctx context.Context, dataDirectory string) ([]byte, error) {
 	redisKey := fmt.Sprintf("%s-%d", dataDirectory, p.nodeId)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*300)

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"golang.org/x/net/context"
 	"os"
 
 	"go.uber.org/zap"
@@ -16,6 +17,11 @@ const (
 	SerializedStateBaseFileName    string = "serialized_state.json"
 	SerializedStateFileExtension   string = ".json"
 	NewSerializedStateBaseFileName string = "serialized_state_new"
+
+	hdfsRemoteStorage  string = "hdfs"
+	redisRemoteStorage string = "redis"
+	s3RemoteStorage    string = "s3"
+	localStorage       string = "local"
 )
 
 // ConnectionStatus indicates the status of the connection with the remote remote_storage.
@@ -34,7 +40,24 @@ type Provider interface {
 	// WriteDataDirectory writes the data directory for this Raft node from local remote_storage to remote remote_storage.
 	WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error
 
-	ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error)
+	ReadDataDirectory(ctx context.Context, progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error)
+}
+
+// GetStorageProvider injects the appropriate remote storage dependency/implementation based on the provided configuration.
+func GetStorageProvider(remoteStorageType string, hostname string, deploymentMode string, nodeId int, atom *zap.AtomicLevel) Provider {
+	if remoteStorageType == hdfsRemoteStorage {
+		return NewHdfsProvider(hostname, deploymentMode, nodeId, atom)
+	} else if remoteStorageType == redisRemoteStorage {
+		return NewRedisProvider(hostname, deploymentMode, nodeId, atom)
+	} else if remoteStorageType == s3RemoteStorage {
+		return NewS3Provider(hostname, deploymentMode, nodeId, atom)
+	} else if remoteStorageType == localStorage {
+		return NewLocalProvider(deploymentMode, nodeId, atom)
+	} else {
+		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote storage specified: \"%s\". Must be \"%s\", \"%s\", \"%s\", or \"%s\".",
+			remoteStorageType, localStorage, hdfsRemoteStorage, redisRemoteStorage, s3RemoteStorage)
+		return nil
+	}
 }
 
 type baseProvider struct {
