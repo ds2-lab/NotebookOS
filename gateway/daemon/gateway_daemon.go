@@ -2155,10 +2155,11 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 		}
 	default:
 		{
-			d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
-			return nil
 		}
 	}
+
+	d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
+	return nil
 }
 
 // StartKernel launches a new kernel.
