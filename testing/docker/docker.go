@@ -33,7 +33,7 @@ func main() {
 		filters := make(map[string]string)
 		filters["type"] = "container"
 
-		// url := fmt.Sprintf(url, "distributed_cluster_default")
+		// url := fmt.Sprintf(url, "distributed_notebook_default")
 		fmt.Printf("URL: %s\n", url)
 		resp, err := client.Get(url)
 		if err != nil {

@@ -63,7 +63,7 @@ var (
 				"gpus-per-host": 8,
 				"deployment_mode": "docker-swarm",
 				"using-wsl": true,
-				"docker_network_name": "distributed_cluster_default",
+				"docker_network_name": "distributed_notebook_default",
 				"prometheus_interval": 15,
 				"prometheus_port": -1,
 				"num_resend_attempts": 1,
