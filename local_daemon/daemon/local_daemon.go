@@ -2614,7 +2614,10 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	d.registerKernelWithExecReqForwarder(kernel)
+	// Only bother registering with the "execute_request" forwarder if the container is not a pre-warm container.
+	if !in.PrewarmContainer {
+		d.registerKernelWithExecReqForwarder(kernel)
+	}
 
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
