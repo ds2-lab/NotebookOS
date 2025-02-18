@@ -23,6 +23,9 @@ services:
         condition: any
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   gateway:
     environment:
@@ -52,6 +55,9 @@ services:
       - "8081:8081"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   daemon:
     environment:
@@ -82,6 +88,9 @@ services:
       mode: global
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
   
   prometheus:
     ports:
@@ -100,6 +109,9 @@ services:
     user: 0:0
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   loki:
     image: grafana/loki:3.2.0
@@ -120,6 +132,9 @@ services:
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   grafana:
     image: grafana/grafana-enterprise:latest
@@ -138,6 +153,9 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    networks:
+      - traefik-public
+      - distributed_cluster_default
 
   node-exporter:
     image: prom/node-exporter
@@ -155,6 +173,7 @@ services:
       - "--web.listen-address=0.0.0.0:{{ node_exporter_port }}"
     networks:
       - traefik-public
+      - distributed_cluster_default
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
@@ -178,11 +197,13 @@ services:
       - '-url_base_prefix=/cadvisor'
     networks:
       - traefik-public
+      - distributed_cluster_default
 
   notebook-dashboard:
     image: "scusemua/distributed-notebook-dashboard-backend:latest"
     networks:
       - traefik-public
+      - distributed_cluster_default
     environment:
       - "DASHBOARD_CONFIG_DIR=/etc/distributed-notebook-cluster"
     labels: # Container labels
@@ -225,6 +246,10 @@ networks:
   # services that need to be publicly available via this Traefik
   traefik-public:
     external: true
+    attachable: true
+  distributed_cluster_default:
+    external: true
+    attachable: true
 
 volumes:
   coredumps_volume:
