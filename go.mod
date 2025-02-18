@@ -10,6 +10,9 @@ replace github.com/mitchellh/mapstructure => github.com/go-viper/mapstructure v1
 
 require (
 	github.com/Scusemua/go-utils v0.1.1
+	github.com/aws/aws-sdk-go-v2 v1.36.1
+	github.com/aws/aws-sdk-go-v2/config v1.29.6
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.77.0
 	github.com/charmbracelet/lipgloss v0.11.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/elliotchance/orderedmap/v2 v2.2.0
@@ -53,9 +56,7 @@ require (
 require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/NVIDIA/go-nvml v0.12.4-0 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.36.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.9 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.29.6 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.59 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.28 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.32 // indirect
@@ -66,7 +67,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.6.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.13 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.18.13 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.77.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.14 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.14 // indirect

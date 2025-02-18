@@ -195,7 +195,6 @@ type DockerInvokerOptions struct {
 
 	WorkloadId string
 
-	S3Bucket      string
 	AwsRegion     string
 	RedisPassword string
 
@@ -285,7 +284,6 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			id:                                   uuid.NewString(),
 			SMRPort:                              smrPort,
 			connInfo:                             connInfo,
-			S3Bucket:                             opts.S3Bucket,
 			AwsRegion:                            opts.AwsRegion,
 			RedisPassword:                        opts.RedisPassword,
 			prometheusMetricsPort:                opts.PrometheusMetricsPort,
@@ -871,7 +869,6 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			PrewarmContainer:             spec.PrewarmContainer,
 			RetrieveDatasetsFromS3:       ivk.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:             ivk.DatasetsS3Bucket,
-			S3Bucket:                     ivk.S3Bucket,
 		},
 	}
 	if spec.PersistentId != nil {

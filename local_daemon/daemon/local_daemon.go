@@ -221,7 +221,6 @@ type LocalScheduler struct {
 	id       string
 	nodeName string
 
-	S3Bucket      string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.
 	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
 	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
 
@@ -416,7 +415,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		simulateTrainingUsingSleep:     localDaemonOptions.SimulateTrainingUsingSleep,
 		bindDebugpyPort:                localDaemonOptions.BindDebugPyPort,
 		saveStoppedKernelContainers:    localDaemonOptions.SaveStoppedKernelContainers,
-		S3Bucket:                       localDaemonOptions.S3Bucket,
 		AwsRegion:                      localDaemonOptions.AwsRegion,
 		RedisPassword:                  localDaemonOptions.RedisPassword,
 		RedisPort:                      localDaemonOptions.RedisPort,

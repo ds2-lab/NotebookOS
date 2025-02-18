@@ -166,7 +166,6 @@ type DistributedKernelConfig struct {
 	SimulateWriteAfterExecOnCriticalPath bool                 `json:"simulate_write_after_execute_on_critical_path"` // Should the simulated network write after executing code be on the critical path?
 	SmrEnabled                           bool                 `json:"smr_enabled"`
 	SimulateTrainingUsingSleep           bool                 `json:"simulate_training_using_sleep"`
-	S3Bucket                             string               `json:"s3_bucket"`
 	RetrieveDatasetsFromS3               bool                 `name:"retrieve_datasets_from_s3" json:"retrieve_datasets_from_s3" json:"retrieve_datasets_from_s3"`
 	DatasetsS3Bucket                     string               `name:"datasets_s3_bucket" json:"datasets_s3_bucket" yaml:"datasets_s3_bucket"`
 

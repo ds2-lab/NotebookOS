@@ -279,11 +279,6 @@ class DistributedKernel(IPythonKernel):
         default_value="redis",
     ).tag(config=True)
 
-    s3_bucket: Union[str, Unicode] = Unicode(
-        help="The AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.",
-        default_value="distributed-notebook-storage",
-    ).tag(config=True)
-
     aws_region: Union[str, Unicode] = Unicode(
         help="The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).",
         default_value="us-east-1",
@@ -609,9 +604,6 @@ class DistributedKernel(IPythonKernel):
         if "aws_region" in kwargs:
             self.aws_region = kwargs["aws_region"]
 
-        if "s3_bucket" in kwargs:
-            self.s3_bucket = kwargs["s3_bucket"]
-
         if "redis_port" in kwargs:
             self.redis_port = kwargs["redis_port"]
 
@@ -621,13 +613,12 @@ class DistributedKernel(IPythonKernel):
         if "redis_password" in kwargs:
             self.redis_password = kwargs["redis_password"]
 
-        self.log.debug(f'S3 bucket: "{self.s3_bucket}"')
+        self.log.debug(f'Remote storage hostname: "{self.remote_storage_hostname}"')
 
         # Arguments not relevant to the specified remote remote_storage will be ignored.
         self._remote_checkpointer: Checkpointer = get_checkpointer(
             remote_storage_name=self.remote_storage,
             host=self.remote_storage_hostname,
-            s3_bucket_name=self.s3_bucket,
             aws_region=self.aws_region,
             redis_port=self.redis_port,
             redis_database=self.redis_database,
@@ -5313,7 +5304,7 @@ class DistributedKernel(IPythonKernel):
                 )
             elif self.remote_storage.lower() == "s3" or self.remote_storage.lower() == "aws s3":
                 remote_storage_provider: S3Provider = S3Provider(
-                    bucket_name=self.s3_bucket,
+                    bucket_name=self.remote_storage_hostname,
                     aws_region=self.aws_region,
                 )
             else:

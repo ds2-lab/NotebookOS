@@ -28,7 +28,6 @@ type LocalDaemonOptions struct {
 	JaegerAddr                    string `name:"jaeger" description:"Jaeger agent address." yaml:"jaeger" json:"jaeger"`
 	ConsulAddr                    string `name:"consul" description:"Consul agent address." yaml:"consul" json:"consul"`
 	NodeName                      string `name:"node_name" description:"Node name used only for debugging in local mode." yaml:"node_name" json:"node_name"`
-	S3Bucket                      string `name:"s3_bucket" json:"s3_bucket" yaml:"s3_bucket"`                // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.
 	AwsRegion                     string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
 	RedisPassword                 string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
 	Port                          int    `name:"port" usage:"Port that the gRPC service listens on."`
