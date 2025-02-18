@@ -246,7 +246,7 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
-    async def write_value_async(self, key: str, value: Any, size_bytes: int = -1):
+    async def write_value_async(self, key: str, value: Any, size_bytes: int = -1)->bool:
         """
         Asynchronously write a value to remote remote_storage.
 
@@ -268,7 +268,7 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
-    def write_value(self, key: str, value: Any, size_bytes: int = -1):
+    def write_value(self, key: str, value: Any, size_bytes: int = -1)->bool:
         """
         Write a value to remote remote_storage.
 

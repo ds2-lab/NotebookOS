@@ -1,4 +1,6 @@
 import io
+import traceback
+
 import sys
 import time
 
@@ -117,7 +119,8 @@ class S3Provider(RemoteStorageProvider):
             except Exception as e:
                 self.log.error(f'Error uploading data of size {size_bytes} bytes '
                                f'to AWS S3 bucket/key "{self._bucket_name}/{key}": {e}')
-                return False
+                self.log.error(traceback.format_exc())
+                raise e # re-raise
 
         self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
                        f'in {round(time_elapsed, 3):,}ms.')
@@ -161,7 +164,8 @@ class S3Provider(RemoteStorageProvider):
         except Exception as e:
             self.log.error(f'Error uploading data of size {size_bytes} bytes '
                            f'to AWS S3 bucket/key "{self._bucket_name}/{key}": {e}')
-            return False
+            self.log.error(traceback.format_exc())
+            raise e # re-raise
 
         self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
                        f'in {round(time_elapsed, 3):,}ms.')
@@ -267,6 +271,7 @@ class S3Provider(RemoteStorageProvider):
                 await s3.delete_object(Bucket=self._bucket_name, Key=key)
             except Exception as e:
                 self.log.error(f"Error deleting object \"{key}\": {e}")
+                self.log.error(traceback.format_exc())
                 return False
 
         end_time: float = time.time()
@@ -276,6 +281,7 @@ class S3Provider(RemoteStorageProvider):
         self.update_delete_stats(time_elapsed, 1)
 
         self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
+        return True
 
     def delete_value(self, key: str)->bool:
         """
@@ -289,6 +295,7 @@ class S3Provider(RemoteStorageProvider):
             self._s3_client.delete_object(Bucket=self._bucket_name, Key=key)
         except Exception as e:
             self.log.error(f'Error deleting object "{self._bucket_name}/{key}": {e}')
+            self.log.error(traceback.format_exc())
             return False
 
         end_time: float = time.time()
