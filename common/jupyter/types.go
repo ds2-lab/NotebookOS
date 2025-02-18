@@ -169,7 +169,6 @@ type DistributedKernelConfig struct {
 	S3Bucket                             string               `json:"s3_bucket"`
 	RetrieveDatasetsFromS3               bool                 `name:"retrieve_datasets_from_s3" json:"retrieve_datasets_from_s3" json:"retrieve_datasets_from_s3"`
 	DatasetsS3Bucket                     string               `name:"datasets_s3_bucket" json:"datasets_s3_bucket" yaml:"datasets_s3_bucket"`
-	KernelId                             string
 
 	// PrewarmContainer indicates that the registering Kernel was created to be a pre-warmed container,
 	// and not directly for use when a specific Kernel that has already been created by a user.
