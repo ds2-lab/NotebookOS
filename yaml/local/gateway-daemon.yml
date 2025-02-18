@@ -43,4 +43,4 @@ gpus-per-host: 8
 deployment_mode: local
 debug_mode: true
 debug_port: 9995
-docker_network_name: distributed_notebook_default
+docker_network_name: distributed_cluster_default

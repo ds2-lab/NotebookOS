@@ -56,7 +56,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
       "common_options": {
         "deployment_mode": "docker-compose",
         "docker_app_name": "",
-        "docker_network_name": "distributed_notebook_default",
+        "docker_network_name": "distributed_cluster_default",
         "scheduling-policy": "static",
         "idle-session-reclamation-policy": "none",
         "remote-storage-endpoint": "redis:6379",

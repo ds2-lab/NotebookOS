@@ -48,7 +48,7 @@ local_mode: false
 deployment_mode: "docker-compose"
 debug_mode: true
 using-wsl: true
-docker_network_name: distributed_notebook_default
+docker_network_name: distributed_cluster_default
 execution-time-sampling-window: 10
 migration-time-sampling-window: 10
 prometheus_interval: 15

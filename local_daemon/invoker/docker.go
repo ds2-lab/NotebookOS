@@ -26,7 +26,7 @@ import (
 
 const (
 	DockerNetworkNameEnv     = "DOCKER_NETWORK_NAME"
-	DockerNetworkNameDefault = "distributed_notebook_default"
+	DockerNetworkNameDefault = "distributed_cluster_default"
 
 	HostMountDirectory        = "HOST_MOUNT_DIR"
 	HostMountDirectoryDefault = "/home/ubuntu/kernel_base"

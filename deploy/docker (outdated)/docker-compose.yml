@@ -20,7 +20,7 @@ services:
 
   jupyter:
     environment:
-      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../..
       dockerfile: ../../dockfiles/gpu-python3-amd64-debug/Dockerfile
@@ -45,7 +45,7 @@ services:
     #  context: ./gateway
     #  dockerfile: Dockerfile
     environment:
-      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     image: scusemua/gateway:latest
     labels:
       app: "distributed_cluster"
@@ -74,7 +74,7 @@ services:
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/$USER/kernel_storage
-      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     # build:
     #   context: ./local_daemon
     #   dockerfile: Dockerfile
