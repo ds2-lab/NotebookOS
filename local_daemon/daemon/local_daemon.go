@@ -1274,6 +1274,20 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 		}
 	}
 
+	// If the kernel client was originally a prewarm container, then there won't be a notification because the
+	// container will have been created a while ago.
+	var dockerContainerId string
+	if d.DockerMode() {
+		if kernel.GetPodOrContainerName() == "" {
+			containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
+			dockerContainerId = containerStartedNotification.FullContainerId
+			kernel.SetPodOrContainerName(dockerContainerId)
+			kernel.SetNodeName(d.nodeName)
+		} else {
+			dockerContainerId = kernel.GetPodOrContainerName()
+		}
+	}
+
 	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
 	if registrationPayload.PrewarmContainer {
 		payload := map[string]interface{}{
@@ -1299,14 +1313,7 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 
 	// If the kernel client was originally a prewarm container, then there won't be a notification because the
 	// container will have been created a while ago.
-	var dockerContainerId string
-	if d.DockerMode() && !kernel.WasPrewarmContainer() {
-		containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
-		dockerContainerId = containerStartedNotification.FullContainerId
-
-		kernel.SetPodOrContainerName(dockerContainerId)
-		kernel.SetNodeName(d.nodeName)
-
+	if d.DockerMode() {
 		kernelRegistrationNotification.DockerContainerId = dockerContainerId
 		kernelRegistrationNotification.NodeName = d.nodeName
 		kernelRegistrationNotification.PodOrContainerName = dockerContainerId

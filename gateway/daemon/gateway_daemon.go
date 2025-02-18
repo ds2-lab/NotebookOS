@@ -2574,33 +2574,6 @@ func (d *ClusterGatewayImpl) AddReplicaDynamic(_ context.Context, in *proto.Kern
 	return nil
 }
 
-func (d *ClusterGatewayImpl) printKernelRegistrationNotification(in *proto.KernelRegistrationNotification) {
-	connectionInfo := in.ConnectionInfo
-	sessionId := in.SessionId
-	kernelId := in.KernelId
-	hostId := in.HostId
-	kernelIp := in.KernelIp
-	kernelPodOrContainerName := in.PodOrContainerName
-	nodeName := in.NodeName
-	replicaId := in.ReplicaId
-
-	d.log.Info("Connection info: %v", connectionInfo)
-	d.log.Info("Session ID: %v", sessionId)
-	d.log.Info("kernel ID: %v", kernelId)
-	d.log.Info("Replica ID: %v", replicaId)
-	d.log.Info("kernel IP: %v", kernelIp)
-
-	if d.KubernetesMode() {
-		d.log.Info("Pod name: %v", kernelPodOrContainerName)
-	} else {
-		d.log.Info("Container name: %v", kernelPodOrContainerName)
-	}
-
-	d.log.Info("Node ID: %v", hostId)
-	d.log.Info("Node Name: %v", nodeName)
-	d.log.Info("Notification ID: %v", in.NotificationId)
-}
-
 func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
 	d.log.Info("Received kernel registration notification for replica %d of kernel %s from host %s (ID=%s).",
 		in.ReplicaId, in.KernelId, in.NodeName, in.HostId)
