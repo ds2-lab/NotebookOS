@@ -747,6 +747,8 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
 
+		// We'll keep looping until the call to ScheduleKernelReplica either succeeds, explicitly fails, or times out.
+		// We'll also keep looping until the replica has registered.
 		var sentBeforeClosed, replicaScheduled, replicaRegistered bool
 		for !replicaScheduled || !replicaRegistered {
 			select {
@@ -778,6 +780,8 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 	}
 
+	// If we waited for the replica to register, then this will return immediately.
+	// Otherwise, we'll be blocked until the call to ScheduleKernelReplica returns (or fails/times out).
 	err := sem.Acquire(ctx, int64(1))
 	if err != nil {
 		return addReplicaOp, err
@@ -785,17 +789,23 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 
 	var smrWg sync.WaitGroup
 	smrWg.Add(1)
-	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
+	
+	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted
+	// when the new replica joins its SMR cluster.
 	go func() {
 		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster during AddReplicaOperation \"%s\" now...",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+
 		replicaJoinedSmrChannel := addReplicaOp.ReplicaJoinedSmrChannel()
 		_, sentBeforeClosed := <-replicaJoinedSmrChannel
+
 		if !sentBeforeClosed {
 			errorMessage := fmt.Sprintf("Received default value from \"Replica Joined SMR\" channel for AddReplicaOperation \"%s\": %v",
 				addReplicaOp.OperationID(), addReplicaOp.String())
 			s.log.Error(errorMessage)
-			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel", errorMessage)
+
+			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel",
+				errorMessage)
 		}
 
 		close(replicaJoinedSmrChannel)
@@ -804,15 +814,19 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 		smrWg.Done()
 
 		if !addReplicaOp.Completed() {
-			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.OperationID())
-			go s.sendErrorNotification(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
+			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...",
+				addReplicaOp.OperationID())
+
+			go s.sendErrorNotification(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused",
+				addReplicaOp.OperationID()),
 				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
 					addReplicaOp.OperationID(), addReplicaOp.String()))
 		}
 	}()
 
 	if opts.WaitSmrJoined() {
-		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster...", addReplicaOp.ReplicaId(), kernelId)
+		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster...",
+			addReplicaOp.ReplicaId(), kernelId)
 		smrWg.Wait()
 	}
 
