@@ -2050,13 +2050,43 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 			return
 		}
 
-		d.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v", in.Id, err)
+		if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+			d.log.Warn("Insufficient hosts available to schedule replica container(s) of new kernel %s",
+				in.Id, err)
+		} else {
+			d.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v",
+				in.Id, err)
+		}
 
 		// Set the kernel's status to KernelStatusError.
 		kernel.InitialContainerCreationFailed()
 
 		notifyChan <- err
 	}()
+
+	handleSchedulingError := func(err error) error {
+		d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+
+		// Clean up everything since we failed to create the long-running kernel.
+		d.kernelIdToKernel.Delete(in.Id)
+		d.kernelsStarting.Delete(in.Id)
+		d.kernels.Delete(in.Id)
+		d.kernelSpecs.Delete(in.Id)
+		d.waitGroups.Delete(in.Id)
+
+		closeKernelError := kernel.Close()
+		if closeKernelError != nil {
+			d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
+		}
+
+		// The error should already be compatible with gRPC. But just in case it isn't...
+		_, ok := status.FromError(err)
+		if !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
+
+		return err
+	}
 
 	var attempt scheduling.CreateReplicaContainersAttempt
 	select {
@@ -2079,27 +2109,7 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 			// If we received an error, then we already know that the operation failed (and we know why -- it is
 			// whatever the error is/says), so we can just return the error.
 			if err, ok := v.(error); ok {
-				d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
-
-				// Clean up everything since we failed to create the long-running kernel.
-				d.kernelIdToKernel.Delete(in.Id)
-				d.kernelsStarting.Delete(in.Id)
-				d.kernels.Delete(in.Id)
-				d.kernelSpecs.Delete(in.Id)
-				d.waitGroups.Delete(in.Id)
-
-				closeKernelError := kernel.Close()
-				if closeKernelError != nil {
-					d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
-				}
-
-				// The error should already be compatible with gRPC. But just in case it isn't...
-				_, ok = status.FromError(err)
-				if !ok {
-					err = status.Error(codes.Internal, err.Error())
-				}
-
-				return err
+				return handleSchedulingError(err)
 			}
 
 			// Print a warning message because this is suspicious, but not necessarily indicative
@@ -2133,8 +2143,22 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 		return err
 	}
 
-	d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
-	return nil
+	select {
+	// Check if there's already an error available, in which case we'll return it.
+	case v := <-notifyChan:
+		{
+			// If we received an error, then we already know that the operation failed (and we know why -- it is
+			// whatever the error is/says), so we can just return the error. Otherwise, we just return optimistically.
+			if err, ok := v.(error); ok {
+				return handleSchedulingError(err)
+			}
+		}
+	default:
+		{
+			d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
+			return nil
+		}
+	}
 }
 
 // StartKernel launches a new kernel.
