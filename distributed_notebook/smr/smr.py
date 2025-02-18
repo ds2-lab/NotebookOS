@@ -301,10 +301,6 @@ class Slice_walpb_Snapshot(go.GoClass):
 
 #---- Constants from Go: Python can only ask that you please don't change these! ---
 DoneString = "DONE"
-NewSerializedStateBaseFileName = "serialized_state_new"
-SerializedStateBaseFileName = "serialized_state.json"
-SerializedStateDirectory = "serialized_raft_log_states"
-SerializedStateFileExtension = ".json"
 VersionText = "1.0.1"
 
 
@@ -446,129 +442,6 @@ class ReadCloser(go.GoClass):
 
 
 # ---- Structs ---
-
-# Python type for struct smr.LogNode
-class LogNode(go.GoClass):
-	"""LogNode is a SyncLog backed by raft\n"""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_LogNode_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNode{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.LogNode ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def ServeHttpDebug(self, goRun=False):
-		"""ServeHttpDebug() """
-		_smr.smr_LogNode_ServeHttpDebug(self.handle, goRun)
-	def RemoteStorageReadLatencyMilliseconds(self):
-		"""RemoteStorageReadLatencyMilliseconds() int
-		
-		RemoteStorageReadLatencyMilliseconds returns the latency of the remote remote_storage read operation(s) performed by the LogNode.
-		If the LogNode did not read data from remote remote_storage, then -1 is returned.
-		"""
-		return _smr.smr_LogNode_RemoteStorageReadLatencyMilliseconds(self.handle)
-	def ConnectedToRemoteStorage(self):
-		"""ConnectedToRemoteStorage() bool
-		
-		ConnectedToRemoteStorage returns true if we successfully connected to remote remote_storage.
-		"""
-		return _smr.smr_LogNode_ConnectedToRemoteStorage(self.handle)
-	def NumChanges(self):
-		"""NumChanges() int"""
-		return _smr.smr_LogNode_NumChanges(self.handle)
-	def Start(self, config):
-		"""Start(object config) bool"""
-		return _smr.smr_LogNode_Start(self.handle, config.handle)
-	def StartAndWait(self, config, goRun=False):
-		"""StartAndWait(object config) """
-		_smr.smr_LogNode_StartAndWait(self.handle, config.handle, goRun)
-	def GetSerializedState(self):
-		"""GetSerializedState() []int
-		
-		GetSerializedState returns the serialized_state_json field.
-		This field is populated by ReadDataDirectoryFromRemoteStorage if there is a serialized state file to be read.
-		It is only required during migration/error recovery.
-		"""
-		return go.Slice_byte(handle=_smr.smr_LogNode_GetSerializedState(self.handle))
-	def Propose(self, val, resolve, msg, goRun=False):
-		"""Propose(object val, callable resolve, str msg) 
-		
-		Propose appends the difference of the value of specified key to the synchronization queue.
-		"""
-		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
-	def AddNode(self, id, addr, resolve, goRun=False):
-		"""AddNode(int id, str addr, callable resolve) """
-		_smr.smr_LogNode_AddNode(self.handle, id, addr, resolve, goRun)
-	def RemoveNode(self, id, resolve, goRun=False):
-		"""RemoveNode(int id, callable resolve) """
-		_smr.smr_LogNode_RemoveNode(self.handle, id, resolve, goRun)
-	def UpdateNode(self, id, addr, resolve, goRun=False):
-		"""UpdateNode(int id, str addr, callable resolve) """
-		_smr.smr_LogNode_UpdateNode(self.handle, id, addr, resolve, goRun)
-	def WaitToClose(self):
-		"""WaitToClose() str lastErr"""
-		return _smr.smr_LogNode_WaitToClose(self.handle)
-	def Close(self):
-		"""Close() str
-		
-		Close closes the LogNode.
-		
-		NOTE: Close does NOT close the remote remote_storage client.
-		This is because, when migrating a raft cluster member, we must first stop the raft
-		node before copying the contents of its data directory.
-		"""
-		return _smr.smr_LogNode_Close(self.handle)
-	def CloseRemoteStorageClient(self):
-		"""CloseRemoteStorageClient() str"""
-		return _smr.smr_LogNode_CloseRemoteStorageClient(self.handle)
-	def WriteDataDirectoryToRemoteStorage(self, serializedState, resolve, goRun=False):
-		"""WriteDataDirectoryToRemoteStorage([]int serializedState, callable resolve) 
-		
-		WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local remote_storage to remote remote_storage.
-		"""
-		_smr.smr_LogNode_WriteDataDirectoryToRemoteStorage(self.handle, serializedState.handle, resolve, goRun)
-	def Process(self, ctx, m):
-		"""Process(object ctx, object m) str"""
-		return _smr.smr_LogNode_Process(self.handle, ctx.handle, m.handle)
-	def IsIDRemoved(self, id):
-		"""IsIDRemoved(long id) bool"""
-		return _smr.smr_LogNode_IsIDRemoved(self.handle, id)
-	def ReportUnreachable(self, id, goRun=False):
-		"""ReportUnreachable(long id) """
-		_smr.smr_LogNode_ReportUnreachable(self.handle, id, goRun)
-	def ReportSnapshot(self, id, status, goRun=False):
-		"""ReportSnapshot(long id, int status) """
-		_smr.smr_LogNode_ReportSnapshot(self.handle, id, status, goRun)
 
 # Python type for struct smr.LogNodeConfig
 class LogNodeConfig(go.GoClass):
@@ -832,6 +705,129 @@ class IntRet(go.GoClass):
 		else:
 			_smr.smr_IntRet_Err_Set(self.handle, value)
 
+# Python type for struct smr.LogNode
+class LogNode(go.GoClass):
+	"""LogNode is a SyncLog backed by raft\n"""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = _smr.smr_LogNode_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNode{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.LogNode ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ServeHttpDebug(self, goRun=False):
+		"""ServeHttpDebug() """
+		_smr.smr_LogNode_ServeHttpDebug(self.handle, goRun)
+	def RemoteStorageReadLatencyMilliseconds(self):
+		"""RemoteStorageReadLatencyMilliseconds() int
+		
+		RemoteStorageReadLatencyMilliseconds returns the latency of the remote remote_storage read operation(s) performed by the LogNode.
+		If the LogNode did not read data from remote remote_storage, then -1 is returned.
+		"""
+		return _smr.smr_LogNode_RemoteStorageReadLatencyMilliseconds(self.handle)
+	def ConnectedToRemoteStorage(self):
+		"""ConnectedToRemoteStorage() bool
+		
+		ConnectedToRemoteStorage returns true if we successfully connected to remote remote_storage.
+		"""
+		return _smr.smr_LogNode_ConnectedToRemoteStorage(self.handle)
+	def NumChanges(self):
+		"""NumChanges() int"""
+		return _smr.smr_LogNode_NumChanges(self.handle)
+	def Start(self, config):
+		"""Start(object config) bool"""
+		return _smr.smr_LogNode_Start(self.handle, config.handle)
+	def StartAndWait(self, config, goRun=False):
+		"""StartAndWait(object config) """
+		_smr.smr_LogNode_StartAndWait(self.handle, config.handle, goRun)
+	def GetSerializedState(self):
+		"""GetSerializedState() []int
+		
+		GetSerializedState returns the serialized_state_json field.
+		This field is populated by ReadDataDirectoryFromRemoteStorage if there is a serialized state file to be read.
+		It is only required during migration/error recovery.
+		"""
+		return go.Slice_byte(handle=_smr.smr_LogNode_GetSerializedState(self.handle))
+	def Propose(self, val, resolve, msg, goRun=False):
+		"""Propose(object val, callable resolve, str msg) 
+		
+		Propose appends the difference of the value of specified key to the synchronization queue.
+		"""
+		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
+	def AddNode(self, id, addr, resolve, goRun=False):
+		"""AddNode(int id, str addr, callable resolve) """
+		_smr.smr_LogNode_AddNode(self.handle, id, addr, resolve, goRun)
+	def RemoveNode(self, id, resolve, goRun=False):
+		"""RemoveNode(int id, callable resolve) """
+		_smr.smr_LogNode_RemoveNode(self.handle, id, resolve, goRun)
+	def UpdateNode(self, id, addr, resolve, goRun=False):
+		"""UpdateNode(int id, str addr, callable resolve) """
+		_smr.smr_LogNode_UpdateNode(self.handle, id, addr, resolve, goRun)
+	def WaitToClose(self):
+		"""WaitToClose() str lastErr"""
+		return _smr.smr_LogNode_WaitToClose(self.handle)
+	def Close(self):
+		"""Close() str
+		
+		Close closes the LogNode.
+		
+		NOTE: Close does NOT close the remote remote_storage client.
+		This is because, when migrating a raft cluster member, we must first stop the raft
+		node before copying the contents of its data directory.
+		"""
+		return _smr.smr_LogNode_Close(self.handle)
+	def CloseRemoteStorageClient(self):
+		"""CloseRemoteStorageClient() str"""
+		return _smr.smr_LogNode_CloseRemoteStorageClient(self.handle)
+	def WriteDataDirectoryToRemoteStorage(self, serializedState, resolve, goRun=False):
+		"""WriteDataDirectoryToRemoteStorage([]int serializedState, callable resolve) 
+		
+		WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local remote_storage to remote remote_storage.
+		"""
+		_smr.smr_LogNode_WriteDataDirectoryToRemoteStorage(self.handle, serializedState.handle, resolve, goRun)
+	def Process(self, ctx, m):
+		"""Process(object ctx, object m) str"""
+		return _smr.smr_LogNode_Process(self.handle, ctx.handle, m.handle)
+	def IsIDRemoved(self, id):
+		"""IsIDRemoved(long id) bool"""
+		return _smr.smr_LogNode_IsIDRemoved(self.handle, id)
+	def ReportUnreachable(self, id, goRun=False):
+		"""ReportUnreachable(long id) """
+		_smr.smr_LogNode_ReportUnreachable(self.handle, id, goRun)
+	def ReportSnapshot(self, id, status, goRun=False):
+		"""ReportSnapshot(long id, int status) """
+		_smr.smr_LogNode_ReportSnapshot(self.handle, id, status, goRun)
+
 
 # ---- Slices ---
 
@@ -840,6 +836,9 @@ class IntRet(go.GoClass):
 
 
 # ---- Constructors ---
+def NewConfig():
+	"""NewConfig() object"""
+	return LogNodeConfig(handle=_smr.smr_NewConfig())
 def NewLogNode(storePath, id, remoteStorageHostname, remoteStorage, shouldLoadDataFromRemoteStorage, peerAddresses, peerIDs, join, httpDebugPort, deploymentMode):
 	"""NewLogNode(str storePath, int id, str remoteStorageHostname, str remoteStorage, bool shouldLoadDataFromRemoteStorage, []str peerAddresses, []int peerIDs, bool join, int httpDebugPort, str deploymentMode) object
 	
@@ -854,9 +853,6 @@ def NewLogNode(storePath, id, remoteStorageHostname, remoteStorage, shouldLoadDa
 	The store_path is used as the actual data directory.
 	"""
 	return LogNode(handle=_smr.smr_NewLogNode(storePath, id, remoteStorageHostname, remoteStorage, shouldLoadDataFromRemoteStorage, peerAddresses.handle, peerIDs.handle, join, httpDebugPort, deploymentMode))
-def NewConfig():
-	"""NewConfig() object"""
-	return LogNodeConfig(handle=_smr.smr_NewConfig())
 
 
 # ---- Functions ---

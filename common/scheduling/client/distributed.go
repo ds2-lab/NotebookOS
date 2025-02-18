@@ -674,7 +674,7 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 		c.log.Error("Expected single replica to have ID=1...")
 		c.replicas.Range(func(_ int32, kernelReplica scheduling.KernelReplica) bool {
 			c.log.Warn("Updating spec of replica %d...", kernelReplica.ReplicaID())
-			err = replica.UpdateResourceSpec(newSpec, nil)
+			err = kernelReplica.UpdateResourceSpec(newSpec, nil)
 			return false
 		})
 

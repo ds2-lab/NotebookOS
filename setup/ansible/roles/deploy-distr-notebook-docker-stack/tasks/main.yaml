@@ -204,6 +204,7 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  become: true
   tags:
     - cluster_gateway
 
@@ -218,6 +219,7 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  become: true
   tags:
     - local_daemon
 

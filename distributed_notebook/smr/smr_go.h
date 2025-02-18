@@ -340,29 +340,6 @@ extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg
 extern char* smr_ReadCloser_Close(long long int _handle);
 extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
 
-// --- wrapping struct: smr.LogNode ---
-//
-extern long long int smr_LogNode_CTor();
-extern void smr_LogNode_ServeHttpDebug(long long int _handle, char goRun);
-extern long long int smr_LogNode_RemoteStorageReadLatencyMilliseconds(long long int _handle);
-extern char smr_LogNode_ConnectedToRemoteStorage(long long int _handle);
-extern long long int smr_LogNode_NumChanges(long long int _handle);
-extern char smr_LogNode_Start(long long int _handle, long long int config);
-extern void smr_LogNode_StartAndWait(long long int _handle, long long int config, char goRun);
-extern long long int smr_LogNode_GetSerializedState(long long int _handle);
-extern void smr_LogNode_Propose(long long int _handle, long long int val, PyObject* resolve, char* msg, char goRun);
-extern void smr_LogNode_AddNode(long long int _handle, long long int id, char* addr, PyObject* resolve, char goRun);
-extern void smr_LogNode_RemoveNode(long long int _handle, long long int id, PyObject* resolve, char goRun);
-extern void smr_LogNode_UpdateNode(long long int _handle, long long int id, char* addr, PyObject* resolve, char goRun);
-extern char* smr_LogNode_WaitToClose(long long int _handle);
-extern char* smr_LogNode_Close(long long int _handle);
-extern char* smr_LogNode_CloseRemoteStorageClient(long long int _handle);
-extern void smr_LogNode_WriteDataDirectoryToRemoteStorage(long long int _handle, long long int serializedState, PyObject* resolve, char goRun);
-extern char* smr_LogNode_Process(long long int _handle, long long int ctx, long long int m);
-extern char smr_LogNode_IsIDRemoved(long long int _handle, long long unsigned int id);
-extern void smr_LogNode_ReportUnreachable(long long int _handle, long long unsigned int id, char goRun);
-extern void smr_LogNode_ReportSnapshot(long long int _handle, long long unsigned int id, long long int status, char goRun);
-
 // --- wrapping struct: smr.LogNodeConfig ---
 //
 extern long long int smr_LogNodeConfig_CTor();
@@ -397,8 +374,31 @@ extern long long int smr_IntRet_N_Get(long long int handle);
 extern void smr_IntRet_N_Set(long long int handle, long long int val);
 extern char* smr_IntRet_Err_Get(long long int handle);
 extern void smr_IntRet_Err_Set(long long int handle, char* val);
-extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
+
+// --- wrapping struct: smr.LogNode ---
+//
+extern long long int smr_LogNode_CTor();
+extern void smr_LogNode_ServeHttpDebug(long long int _handle, char goRun);
+extern long long int smr_LogNode_RemoteStorageReadLatencyMilliseconds(long long int _handle);
+extern char smr_LogNode_ConnectedToRemoteStorage(long long int _handle);
+extern long long int smr_LogNode_NumChanges(long long int _handle);
+extern char smr_LogNode_Start(long long int _handle, long long int config);
+extern void smr_LogNode_StartAndWait(long long int _handle, long long int config, char goRun);
+extern long long int smr_LogNode_GetSerializedState(long long int _handle);
+extern void smr_LogNode_Propose(long long int _handle, long long int val, PyObject* resolve, char* msg, char goRun);
+extern void smr_LogNode_AddNode(long long int _handle, long long int id, char* addr, PyObject* resolve, char goRun);
+extern void smr_LogNode_RemoveNode(long long int _handle, long long int id, PyObject* resolve, char goRun);
+extern void smr_LogNode_UpdateNode(long long int _handle, long long int id, char* addr, PyObject* resolve, char goRun);
+extern char* smr_LogNode_WaitToClose(long long int _handle);
+extern char* smr_LogNode_Close(long long int _handle);
+extern char* smr_LogNode_CloseRemoteStorageClient(long long int _handle);
+extern void smr_LogNode_WriteDataDirectoryToRemoteStorage(long long int _handle, long long int serializedState, PyObject* resolve, char goRun);
+extern char* smr_LogNode_Process(long long int _handle, long long int ctx, long long int m);
+extern char smr_LogNode_IsIDRemoved(long long int _handle, long long unsigned int id);
+extern void smr_LogNode_ReportUnreachable(long long int _handle, long long unsigned int id, char goRun);
+extern void smr_LogNode_ReportSnapshot(long long int _handle, long long unsigned int id, long long int status, char goRun);
 extern long long int smr_NewConfig();
+extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
 extern long long int smr_CreateBytes(char len);
 extern void smr_PrintTestMessage(char goRun);
 extern long long int smr_NewBytes(char* bytes, GoInt len);
