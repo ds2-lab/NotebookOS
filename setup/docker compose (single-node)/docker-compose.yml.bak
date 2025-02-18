@@ -23,7 +23,7 @@ services:
   jupyter:
     platform: linux/amd64
     environment:
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
     image: scusemua/jupyter-gpu:latest
     labels:
@@ -44,7 +44,7 @@ services:
   gateway:
     platform: linux/amd64
     environment:
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
     image: scusemua/gateway:latest
     labels:
@@ -80,7 +80,7 @@ services:
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/$USER/kernel_storage
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
     image: scusemua/daemon:latest
     labels:

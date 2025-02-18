@@ -11,7 +11,7 @@ services:
   jupyter:
     environment:
       - NOTEBOOK_ARGS="--log-level=DEBUG"
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
@@ -29,7 +29,7 @@ services:
 
   gateway:
     environment:
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../gateway
       dockerfile: Dockerfile
@@ -48,7 +48,7 @@ services:
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=local_daemon_storage
-      - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
+      - DOCKER_NETWORK_NAME=distributed_notebook_default # If you change the name of the docker compose app, then you must change this as well.
     build:
       context: ../..
       dockerfile: dockfiles/local-daemon/Dockerfile
