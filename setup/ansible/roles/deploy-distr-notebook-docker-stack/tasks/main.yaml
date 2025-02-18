@@ -237,6 +237,8 @@
     scope: swarm
     state: present
   become: true
+  become_user: "{{ remote_username }}"
+  when: "deploy_distributed_jupyter_notebook_app == true and inventory_hostname in 'swarm-leader'"
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
   vars:
