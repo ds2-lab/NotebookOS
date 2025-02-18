@@ -26,9 +26,15 @@ type S3Provider struct {
 }
 
 func NewS3Provider(hostname string, deploymentMode string, nodeId int, atom *zap.AtomicLevel) *S3Provider {
-	return &S3Provider{
+	provider := &S3Provider{
 		baseProvider: newBaseProvider(hostname, deploymentMode, nodeId, atom),
+		s3Bucket:     hostname,
 	}
+
+	provider.logger.Debug("Initialized AWS S3 storage provider.",
+		zap.String("bucket", "hostname"))
+
+	return provider
 }
 
 func (p *S3Provider) Close() error {
