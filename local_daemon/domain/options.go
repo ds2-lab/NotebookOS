@@ -19,6 +19,20 @@ const (
 	DefaultRedisDatabase = 0
 )
 
+func getDefaultRemoteStorageEndpoint(remoteStorage string) string {
+	switch remoteStorage {
+	case "s3":
+		return DefaultS3Bucket
+	case "redis":
+		return "redis"
+	case "local":
+		return ""
+	default:
+		panic(fmt.Sprintf("Cannot determine likely default remote storage endpoint for remote storage \"%s\"",
+			remoteStorage))
+	}
+}
+
 type LocalDaemonOptions struct {
 	config.LoggerOptions          `yaml:",inline" json:"logger_options"`
 	VirtualGpuPluginServerOptions `yaml:",inline" json:"virtual_gpu_plugin_server_options"`
@@ -37,10 +51,11 @@ type LocalDaemonOptions struct {
 }
 
 func (o *LocalDaemonOptions) Validate() error {
-	if o.S3Bucket == "" {
-		fmt.Printf("[WARNING] S3Bucket configuration is not set. Using default value: \"%s\".\n",
-			DefaultS3Bucket)
-		o.S3Bucket = DefaultS3Bucket
+	if o.RemoteStorage != "" && o.RemoteStorageEndpoint == "" {
+		defaultValue := getDefaultRemoteStorageEndpoint(o.RemoteStorage)
+		fmt.Printf("[WARNING] \"remote-storage-endpoint\" configuration is not set while using remote_storage=\"%s\". Using default value: \"%s\".\n",
+			o.RemoteStorage, defaultValue)
+		o.RemoteStorageEndpoint = defaultValue
 	}
 
 	if o.AwsRegion == "" {
