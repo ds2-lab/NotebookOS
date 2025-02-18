@@ -414,7 +414,10 @@ class RemoteCheckpointer(Checkpointer):
             constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
             await self.__async_write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
-            pointer.wrote_model_state()
+            try:
+                pointer.wrote_model_state()
+            except ValueError as ex:
+                self.log.error(ex) # Just log the error. What's done is done.
 
             return [model_key, optimizer_key, criterion_key, constructor_state_key]
 
@@ -441,6 +444,9 @@ class RemoteCheckpointer(Checkpointer):
         constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
         self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
-        pointer.wrote_model_state()
+        try:
+            pointer.wrote_model_state()
+        except ValueError as ex:
+            self.log.error(ex) # Just log the error. What's done is done.
 
         return [model_key, optimizer_key, criterion_key, constructor_state_key]
