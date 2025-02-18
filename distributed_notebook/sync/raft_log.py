@@ -1509,10 +1509,10 @@ class RaftLog(object):
                 return GoError(ex)
 
             if loaded_value.id in restored_sync_values:
-                self.log.error(
+                self.log.warning(
                     f"Found duplicate SynchronizedValue during restoration process: {loaded_value}"
                 )
-                self.log.error("Previously restored SynchronizedValues:")
+                self.log.warning("Previously restored SynchronizedValues:")
                 for val in list(restored_sync_values):
                     self.log.error(val)
 

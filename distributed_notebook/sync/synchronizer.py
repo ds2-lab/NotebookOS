@@ -231,20 +231,18 @@ class Synchronizer:
                 if isinstance(val.data, SyncObject):
                     existed = val.data
                 else:
-                    existed = SyncObjectWrapper(
-                        self._referer
-                    )  # Initialize an empty object wrapper.
+                    # Initialize an empty object wrapper.
+                    existed = SyncObjectWrapper(self._referer)
 
             # Switch context
             old_main_modules = sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
-            self.log.debug(
-                f'Handling updated/changed SynchronizedValue with key="{val.key}" of type {type(val).__name__}: {val}'
-            )
-
+            self.log.debug(f'Handling updated value of type '
+                           f'{type(val).__name__} with key="{val.key}": {val}')
             diff = existed.update(val)
-            self.log.debug(f"{val.key} of type {type(diff).__name__}: {diff}")
+            self.log.debug(f"Variable \"{val.key}\" of type "
+                           f"{type(diff).__name__} has changed: {diff}")
 
             sys.modules["__main__"] = old_main_modules
             # End of switch context
