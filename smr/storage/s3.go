@@ -351,16 +351,15 @@ func (p *S3Provider) readDirectoryFromS3(ctx context.Context, dir string, progre
 			return err
 		}
 
-		p.logger.Debug("Successfully read object from AWS S3.",
+		p.logger.Debug("Successfully read object from AWS S3 to local file.",
 			zap.String("directory", dir),
 			zap.String("key", key),
+			zap.String("path", key), /* we use the S3 key as the local path */
 			zap.String("bucket", p.s3Bucket),
 			zap.Int("num_bytes", len(data)),
 			zap.Duration("read_duration", readDuration),
 			zap.Duration("write_duration", time.Since(writeStart)),
 			zap.Duration("total_time_elapsed", time.Since(startTime)))
-
-		return nil
 	}
 
 	p.logger.Debug("Successfully read all data from AWS S3 directory.",
