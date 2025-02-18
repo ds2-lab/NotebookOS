@@ -761,6 +761,7 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 						go s.sendErrorNotification("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
 					} else {
 						addReplicaOp.CloseReplicaRegisteredChannel()
+						replicaRegisteredChannel = nil // Prevent infinite loop
 					}
 
 					replicaRegistered = true
@@ -789,7 +790,7 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 
 	var smrWg sync.WaitGroup
 	smrWg.Add(1)
-	
+
 	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted
 	// when the new replica joins its SMR cluster.
 	go func() {
