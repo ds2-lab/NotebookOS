@@ -14,7 +14,7 @@ const (
 	Disconnected ConnectionStatus = "DISCONNECTED"
 
 	SerializedStateDirectory       string = "serialized_raft_log_states"
-	SerializedStateBaseFileName    string = "serialized_state.json"
+	SerializedStateBaseFileName    string = "serialized_state"
 	SerializedStateFileExtension   string = ".json"
 	NewSerializedStateBaseFileName string = "serialized_state_new"
 

@@ -55,17 +55,8 @@ import (
 )
 
 const (
-	SerializedStateDirectory       string = "serialized_raft_log_states"
-	SerializedStateBaseFileName    string = "serialized_state.json"
-	SerializedStateFileExtension   string = ".json"
-	NewSerializedStateBaseFileName string = "serialized_state_new"
-	DoneString                     string = "DONE"
-	VersionText                    string = "1.0.1"
-
-	hdfsRemoteStorage  string = "hdfs"
-	redisRemoteStorage string = "redis"
-	s3RemoteStorage    string = "s3"
-	localStorage       string = "local"
+	DoneString  string = "DONE"
+	VersionText string = "1.0.1"
 )
 
 var (

@@ -150,6 +150,11 @@ func (p *S3Provider) writeLocalDirectoryToS3(ctx context.Context, dir string) er
 			return err
 		}
 
+		stat, err := local.Stat()
+		if err != nil {
+			return err
+		}
+
 		_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(p.s3Bucket),
 			Key:    aws.String(path),
@@ -162,7 +167,10 @@ func (p *S3Provider) writeLocalDirectoryToS3(ctx context.Context, dir string) er
 		}
 
 		p.logger.Info(fmt.Sprintf("Successfully copied local file to AWS S3: '%s'", path),
-			zap.String("file", path), zap.String("bucket", p.s3Bucket))
+			zap.Int64("num_bytes", stat.Size()),
+			zap.String("duration", dir),
+			zap.String("file", path),
+			zap.String("bucket", p.s3Bucket))
 
 		return nil
 	})
@@ -347,6 +355,7 @@ func (p *S3Provider) readDirectoryFromS3(ctx context.Context, dir string, progre
 			zap.String("directory", dir),
 			zap.String("key", key),
 			zap.String("bucket", p.s3Bucket),
+			zap.Int("num_bytes", len(data)),
 			zap.Duration("read_duration", readDuration),
 			zap.Duration("write_duration", time.Since(writeStart)),
 			zap.Duration("total_time_elapsed", time.Since(startTime)))
