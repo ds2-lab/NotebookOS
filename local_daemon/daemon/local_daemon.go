@@ -1278,12 +1278,14 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 	// container will have been created a while ago.
 	var dockerContainerId string
 	if d.DockerMode() {
+		// If we've not yet assigned the pod/container name to this kernel, then we should do so.
 		if kernel.GetPodOrContainerName() == "" {
 			containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
 			dockerContainerId = containerStartedNotification.FullContainerId
 			kernel.SetPodOrContainerName(dockerContainerId)
 			kernel.SetNodeName(d.nodeName)
 		} else {
+			// Just use the existing pod/container name.
 			dockerContainerId = kernel.GetPodOrContainerName()
 		}
 	}
@@ -1319,8 +1321,8 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 		kernelRegistrationNotification.PodOrContainerName = dockerContainerId
 	}
 
-	d.log.Info("%s kernel %s registered: %v. Notifying Gateway now.",
-		containerType.String(), kernelReplicaSpec.ID(), kernelConnectionInfo)
+	d.log.Info("%s kernel %s registered:\n%s\nNotifying Gateway that kernel \"%s\" has registered.",
+		containerType.String(), kernelReplicaSpec.ID(), kernelConnectionInfo.PrettyString(), kernelReplicaSpec.ID())
 
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancelPing()

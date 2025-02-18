@@ -718,12 +718,24 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
 	// our state needs to be set up BEFORE that call occurs.
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	err := s.cluster.Scheduler().ScheduleKernelReplica(ctx, newReplicaSpec, targetHost,
-		blacklistedHosts, forTraining)
-
-	if err != nil {
-		return addReplicaOp, err
+	sem := semaphore.NewWeighted(1)
+	if !sem.TryAcquire(1) {
+		panic("Failed to acquire on Semaphore")
 	}
+
+	notifyChan := make(chan interface{}, 1)
+	go func() {
+		defer sem.Release(1)
+
+		err := s.cluster.Scheduler().ScheduleKernelReplica(ctx, newReplicaSpec, targetHost,
+			blacklistedHosts, forTraining)
+
+		if err != nil {
+			notifyChan <- err
+		} else {
+			notifyChan <- struct{}{}
+		}
+	}()
 
 	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
 	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
@@ -734,18 +746,41 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 		s.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
 		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
-		_, sentBeforeClosed := <-replicaRegisteredChannel
-		if !sentBeforeClosed {
-			errorMessage := fmt.Sprintf("Received default value from \"Replica Registered\" channel for AddReplicaOperation \"%s\": %v",
-				addReplicaOp.OperationID(), addReplicaOp.String())
-			s.log.Error(errorMessage)
-			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
-		} else {
-			addReplicaOp.CloseReplicaRegisteredChannel()
+
+		var sentBeforeClosed, replicaScheduled, replicaRegistered bool
+		for !replicaScheduled || !replicaRegistered {
+			select {
+			case _, sentBeforeClosed = <-replicaRegisteredChannel:
+				{
+					if !sentBeforeClosed {
+						errorMessage := fmt.Sprintf("Received default value from \"Replica Registered\" channel for AddReplicaOperation \"%s\": %v",
+							addReplicaOp.OperationID(), addReplicaOp.String())
+						s.log.Error(errorMessage)
+						go s.sendErrorNotification("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
+					} else {
+						addReplicaOp.CloseReplicaRegisteredChannel()
+					}
+
+					replicaRegistered = true
+				}
+			case v := <-notifyChan:
+				{
+					if err, ok := v.(error); ok {
+						return addReplicaOp, err
+					}
+
+					replicaScheduled = true
+				}
+			}
 		}
 
 		s.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddReplicaOperation \"%s\".",
 			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+	}
+
+	err := sem.Acquire(ctx, int64(1))
+	if err != nil {
+		return addReplicaOp, err
 	}
 
 	var smrWg sync.WaitGroup
