@@ -45,6 +45,37 @@ Ensure you have the following installed:
 For instructions concerning the setup and installation of `distributed-notebook` on either a single machine or on a 
 cluster, please refer to the `setup` directory.
 
+This system was largely developed, tested, and evaluated on WSL2 and Ubuntu (on AWS EC2). 
+
+The WSL2 development environment was as follows:
+- Docker: Docker version 27.2.0, build 3ab4256
+- Go: `go version go1.22.9 linux/amd64`
+- Python: `Python 3.12.6`
+- Protoc: `libprotoc 27.2`
+- Microsoft Windows Version 22H2 (OS Build 19045.5487)
+  - 10.0.19045.5487
+- WSL version: 2.4.11.0
+- Kernel version: 5.15.167.4-1
+- WSLg version: 1.0.65
+- WSL Distro: `Ubuntu 22.04.5 LTS`
+  - Distributor ID: Ubuntu
+  - Description:    Ubuntu 22.04.5 LTS
+  - Release:        22.04
+  - Codename:       jammy
+
+The AWS EC2 development and evaluation environment was as follows:
+- Docker: `Docker version 27.3.1, build ce12230`
+- Go: `go version go1.22.9 linux/amd64`
+- Python: `Python 3.12.6`
+- Protoc: `libprotoc 27.2`
+``` sh
+$ lsb_release -agit 
+Distributor ID: Ubuntu
+Description:    Ubuntu 24.04.1 LTS
+Release:        24.04
+Codename:       noble
+```
+
 ## Remote Storage
 
 Jupyter kernel state can be persisted to one of several remote storage options, including AWS S3, HDFS, and Redis.
