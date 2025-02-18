@@ -10,7 +10,7 @@
 - name: "Delete contents of the kernel remote_storage directory {{ kernel_storage_directory }}"
   hosts: docker_swarm
   roles:
-    - remove-kernel-remote_storage
+    - remove-kernel-storage
 
 - name: Prune any stopped Docker containers within the Docker Swarm cluster
   hosts: docker_swarm
