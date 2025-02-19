@@ -3769,3 +3769,7 @@ func (d *LocalScheduler) GetInvoker(kernelId string) (invoker.KernelInvoker, boo
 func (d *LocalScheduler) NodeName() string {
 	return d.nodeName
 }
+
+func (d *LocalScheduler) KernelRegistryPort() int {
+	return d.kernelRegistryPort
+}

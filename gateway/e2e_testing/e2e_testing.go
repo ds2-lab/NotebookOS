@@ -1,8 +1,10 @@
 package e2e_testing
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -158,7 +160,7 @@ var _ = Describe("End-to-End Tests", func() {
 				Expect(resp).NotTo(BeNil())
 
 				sem.Release(1)
-			}
+			}()
 
 			kernelInvokers := make([]invoker.KernelInvoker, len(components.LocalDaemons))
 			kernelInvokersMutex := sync.Mutex{}
@@ -205,8 +207,12 @@ var _ = Describe("End-to-End Tests", func() {
 					MessageQueues:    messageQueues,
 					CloseFunc:        closeFunc,
 					PrewarmContainer: false,
+					NumReplicas:      3,
 					NodeName:         components.LocalDaemons[idx].NodeName(),
+					LocalScheduler:   components.LocalDaemons[idx],
 				}
+
+				config.InitLogger(&replica.log, replica)
 
 				kernel.Replicas = append(kernel.Replicas, replica)
 			}
@@ -216,7 +222,8 @@ var _ = Describe("End-to-End Tests", func() {
 			Eventually(sem.Acquire(context.Background(), 1), time.Second*5, time.Millisecond*250).Should(Succeed())
 
 			for _, replica := range kernel.Replicas {
-				replica.RegisterWithLocalDaemon("127.0.0.1")
+				err := replica.RegisterWithLocalDaemon("127.0.0.1", replica.LocalScheduler.KernelRegistryPort())
+				Expect(err).To(BeNil())
 			}
 
 			time.Sleep(3 * time.Second)
@@ -238,6 +245,10 @@ type KernelReplica struct {
 	MessageQueues    map[messaging.MessageType]*queue.ThreadsafeFifo[*messaging.JupyterMessage]
 	CloseFunc        func()
 	NodeName         string
+	LocalScheduler   *daemon.LocalScheduler
+	NumReplicas      int32
+
+	log logger.Logger
 }
 
 func (k *KernelReplica) RegisterWithLocalDaemon(ip string, port int) error {
@@ -257,18 +268,44 @@ func (k *KernelReplica) RegisterWithLocalDaemon(ip string, port int) error {
 		},
 		ConnectionInfo:     connInfo,
 		PersistentId:       nil,
-		NodeName:           localScheduler.nodeName,
+		NodeName:           k.NodeName,
 		Key:                k.KernelId,
 		PodOrContainerName: k.KernelId,
 		Op:                 "register",
 		SignatureScheme:    messaging.JupyterSignatureScheme,
 		WorkloadId:         "",
 		ReplicaId:          -1,
-		NumReplicas:        int32(len(k.Replicas)),
+		NumReplicas:        k.NumReplicas,
 		Cpu:                resourceSpec.Cpu,
 		Memory:             int32(resourceSpec.Memory),
 		Gpu:                resourceSpec.Gpu,
 		Join:               true,
 		PrewarmContainer:   k.PrewarmContainer,
 	}
+
+	data, err := json.Marshal(&registrationNotification)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return err
+	}
+
+	var resp map[string]interface{}
+	buffer := make([]byte, 4096)
+
+	_, err = conn.Read(buffer)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(buffer, &resp)
+	if err != nil {
+		return err
+	}
+
+	k.log.Info("Received registration response: %v", resp)
+	return nil
 }

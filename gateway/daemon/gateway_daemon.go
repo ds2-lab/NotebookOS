@@ -5440,7 +5440,8 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 		if startedRemoving {
 			d.log.Debug(
 				utils.LightBlueStyle.Render(
-					"Started descheduleAttempt to remove %d replica container(s) for kernel \"%s\"."), d.NumReplicas(), kernel.ID())
+					"Started 'descheduling' attempt to remove %d replica container(s) for kernel \"%s\"."),
+				d.NumReplicas(), kernel.ID())
 			break
 		}
 
