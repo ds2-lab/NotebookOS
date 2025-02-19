@@ -1148,12 +1148,14 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	// c.replicasMutex.RLock()
 	if int32(c.replicas.Len()) < c.targetNumReplicas {
-		c.log.Warn("Only have %d replica(s); however, supposed to have %d...",
-			c.replicas.Len(), c.targetNumReplicas)
-
 		if c.replicas.Len() == 0 {
+			c.log.Warn("DistributedKernelClient::RemoveAllReplicas: already have 0/%d replica(s)...",
+				c.replicas.Len(), c.targetNumReplicas)
 			return nil
 		}
+
+		c.log.Warn("DistributedKernelClient::RemoveAllReplicas: only have %d/%d replica(s)",
+			c.replicas.Len(), c.targetNumReplicas)
 	}
 
 	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
