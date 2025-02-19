@@ -1138,7 +1138,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	if int32(c.replicas.Len()) < c.targetNumReplicas {
 		if c.replicas.Len() == 0 {
 			c.log.Warn("DistributedKernelClient::RemoveAllReplicas: already have 0/%d replica(s)...",
-				c.replicas.Len(), c.targetNumReplicas)
+				c.targetNumReplicas)
 			return nil
 		}
 
