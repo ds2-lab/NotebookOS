@@ -998,84 +998,7 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
-
-	//c.replicasMutex.Lock()
-	existingReplica, ok := c.replicas.LoadAndDelete(r.ReplicaID())
-
-	if !ok {
-		c.log.Error("Cannot remove replica %d; there is no existing replica with ID=%d.", r.ReplicaID())
-		return nil, scheduling.ErrReplicaNotFound
-	}
-
-	if existingReplica != r {
-		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), existingReplica.ID())
-		return nil, scheduling.ErrReplicaNotFound
-	}
-
-	//if c.replicas[r.ReplicaID()] != r {
-	//	//c.replicasMutex.Unlock()
-	//	// This is bad and should never happen.
-	//	c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
-	//	return nil, scheduling.ErrReplicaNotFound
-	//}
-	//
-	//delete(c.replicas, r.ReplicaID())
-	//c.replicasMutex.Unlock()
-
-	host, err := c.stopReplicaLocked(r, remover, noop)
-	if err != nil {
-		return host, err
-	}
-
-	if r.IsTraining() {
-		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
-			r.ReplicaID(), r.ID())
-		err = r.KernelStoppedTraining(reason)
-		if err != nil {
-			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
-				r.ReplicaID(), err)
-		}
-	}
-
-	container := r.Container()
-	err = container.ContainerStopped()
-	if err != nil {
-		c.log.Error("Failed to cleanly stop scheduling.Container %s-%d because: %v", r.ID(), r.ReplicaID(), err)
-	}
-
-	if err = c.session.RemoveReplica(container); err != nil {
-		c.log.Warn("Failed to remove replica %d of kernel \"%s\" from associated UserSession: %v",
-			container.ReplicaId(), c.id, err)
-	}
-
-	r.Container().SetHost(nil) // Set the host to nil...
-
-	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try
-	// to call host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
-	//
-	// So, we'll explicitly try calling host::ContainerRemoved now, but there's a good chance it'll fail (since there
-	// was already some sort of issue when we tried to call ContainerStopped).
-	if errors.As(err, &scheduling.ErrInvalidStateTransition) || errors.As(err, &scheduling.ErrNilHost) {
-		c.log.Debug("Removing container for replica %d of kernel %s from host %s (ID=%s). Container spec: %v.",
-			r.ReplicaID(), c.ID(), host.GetNodeName(), host.GetID(), r.Container().ResourceSpec())
-		hostContainerRemovalError := host.ContainerRemoved(r.Container())
-		if hostContainerRemovalError != nil {
-			c.log.Error("Failed to remove scheduling.Container %s-%d from host %s because: %v",
-				r.ID(), r.ReplicaID(), host.GetID(), hostContainerRemovalError)
-
-			// If another error occurred, then we'll join the two together so that they get returned together.
-			err = errors.Join(err, hostContainerRemovalError)
-		}
-	}
-
-	err = r.Close()
-	if err != nil {
-		c.log.Error("Failed to cleanly close replica %d of kernel \"%s\": %v",
-			r.ReplicaID(), c.id, err)
-	}
-
-	return host, err
+	return c.removeReplica(r, remover, noop)
 }
 
 func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelReplica, error) {
@@ -1098,6 +1021,103 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 	}
 
 	return replica, nil
+}
+
+func (c *DistributedKernelClient) tellAllReplicasToPrepareToMigrate() error {
+	c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote storage.")
+
+	// We'll give the replicas up to 5 minutes to write their state to remote storage.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	// *PrepareToMigrateResponse
+	respChan := make(chan interface{}, c.targetNumReplicas)
+	startTime := time.Now()
+
+	responsesReceived := atomic.Int32{}
+
+	// wrappedError wraps an error and a replica ID so that the error can be associated with a particular replica.
+	type wrappedError struct {
+		Error     error
+		ReplicaId int32
+	}
+
+	// Send a PrepareToMigrate request to each replica in-parallel.
+	// for _, replica := range replicas {
+	c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
+		host := replica.Host()
+
+		if host == nil {
+			c.log.Error("Replica %d has a nil host...", replica.ReplicaID())
+			return true
+		}
+
+		info := &proto.ReplicaInfo{
+			ReplicaId: replica.ReplicaID(),
+			KernelId:  replica.ID(),
+		}
+
+		// Send request.
+		go func(replicaInfo *proto.ReplicaInfo) {
+			// Send request.
+			resp, err := host.PrepareToMigrate(ctx, replicaInfo)
+
+			// Deliver response back to main goroutine.
+			if err == nil {
+				responsesReceived.Add(1)
+				respChan <- resp
+			} else {
+				responsesReceived.Add(1)
+				respChan <- &wrappedError{
+					Error:     err,
+					ReplicaId: replicaInfo.ReplicaId,
+				}
+			}
+		}(info)
+
+		return true
+	})
+
+	// Keep looping until we've received all responses.
+	// We'll break out of the loop manually/explicitly if the context times-out or an error response is received.
+	for responsesReceived.Load() < int32(c.replicas.Len()) {
+		select {
+		case <-ctx.Done():
+			{
+				timeElapsed := time.Since(startTime)
+				finalNumResponsesReceived := responsesReceived.Load()
+
+				c.log.Error("Timed out waiting for %d remaining response(s) to PrepareToMigrate request after %v.",
+					finalNumResponsesReceived, timeElapsed)
+
+				return fmt.Errorf("%w: failed to receive response to PrepareToMigrate request after %v (received %d/%d responses)",
+					types.ErrRequestTimedOut, timeElapsed, finalNumResponsesReceived, c.replicas.Len())
+			}
+		case v := <-respChan:
+			{
+				switch v.(type) {
+				case *wrappedError:
+					{
+						// Log an error message and return the error.
+						err := v.(*wrappedError)
+						c.log.Error("Replica %d failed to handle 'prepare to migrate' request during idle reclamation: %v",
+							err.ReplicaId, err.Error)
+
+						return err.Error
+					}
+				case *proto.PrepareToMigrateResponse:
+					{
+						// We'll just print a message indicating that we received the 'OK' response from this replica.
+						// The for-loop will return once we've received responses from all replicas.
+						c.log.Debug("Replica %d successfully prepared to migrate during idle reclamation. Received %d/%d responses so far. Time elapsed: %v.",
+							v.(*proto.PrepareToMigrateResponse).Id, responsesReceived.Load(), c.replicas.Len(), time.Since(startTime))
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
@@ -1125,112 +1145,18 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 
 	removalErrors := make([]error, 0, c.replicas.Len())
 
-	// Create a copy as we're going to modify c.replicas while we iterate.
-	//replicas := make(map[int32]scheduling.KernelReplica)
-	//for idx, replica := range c.replicas {
-	//	replicas[idx] = replica
-	//}
-	// c.replicasMutex.RUnlock()
-
 	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
 	// requests to prompt the containers to persist any important state to remote storage.
 	if forIdleReclamation {
-		c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote storage.")
-
-		// We'll give the replicas up to 5 minutes to write their state to remote storage.
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
-		defer cancel()
-
-		// *PrepareToMigrateResponse
-		respChan := make(chan interface{}, c.targetNumReplicas)
-		startTime := time.Now()
-
-		responsesReceived := atomic.Int32{}
-
-		// wrappedError wraps an error and a replica ID so that the error can be associated with a particular replica.
-		type wrappedError struct {
-			Error     error
-			ReplicaId int32
+		err := c.tellAllReplicasToPrepareToMigrate()
+		if err != nil {
+			c.log.Error("Error while telling all replicas to prepare to migrate: %v", err)
+			return err
 		}
 
-		// Send a PrepareToMigrate request to each replica in-parallel.
-		// for _, replica := range replicas {
-		c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
-			host := replica.Host()
-
-			if host == nil {
-				c.log.Error("Replica %d has a nil host...", replica.ReplicaID())
-				return true
-			}
-
-			info := &proto.ReplicaInfo{
-				ReplicaId: replica.ReplicaID(),
-				KernelId:  replica.ID(),
-			}
-
-			// Send request.
-			go func(replicaInfo *proto.ReplicaInfo) {
-				// Send request.
-				resp, err := host.PrepareToMigrate(ctx, replicaInfo)
-
-				// Deliver response back to main goroutine.
-				if err == nil {
-					responsesReceived.Add(1)
-					respChan <- resp
-				} else {
-					responsesReceived.Add(1)
-					respChan <- &wrappedError{
-						Error:     err,
-						ReplicaId: replicaInfo.ReplicaId,
-					}
-				}
-			}(info)
-
-			return true
-		})
-
-		// Keep looping until we've received all responses.
-		// We'll break out of the loop manually/explicitly if the context times-out or an error response is received.
-		for responsesReceived.Load() < int32(c.replicas.Len()) {
-			select {
-			case <-ctx.Done():
-				{
-					timeElapsed := time.Since(startTime)
-					finalNumResponsesReceived := responsesReceived.Load()
-
-					c.log.Error("Timed out waiting for %d remaining response(s) to PrepareToMigrate request after %v.",
-						finalNumResponsesReceived, timeElapsed)
-
-					return fmt.Errorf("%w: failed to receive response to PrepareToMigrate request after %v (received %d/%d responses)",
-						types.ErrRequestTimedOut, timeElapsed, finalNumResponsesReceived, c.replicas.Len())
-				}
-			case v := <-respChan:
-				{
-					switch v.(type) {
-					case *wrappedError:
-						{
-							// Log an error message and return the error.
-							err := v.(*wrappedError)
-							c.log.Error("Replica %d failed to handle 'prepare to migrate' request during idle reclamation: %v",
-								err.ReplicaId, err.Error)
-
-							return err.Error
-						}
-					case *proto.PrepareToMigrateResponse:
-						{
-							// We'll just print a message indicating that we received the 'OK' response from this replica.
-							// The for-loop will return once we've received responses from all replicas.
-							c.log.Debug("Replica %d successfully prepared to migrate during idle reclamation. Received %d/%d responses so far. Time elapsed: %v.",
-								v.(*proto.PrepareToMigrateResponse).Id, responsesReceived.Load(), c.replicas.Len(), time.Since(startTime))
-						}
-					}
-				}
-			}
-		}
+		c.log.Debug("Received all %d response(s) to 'Prepare to Migrate' requests. "+
+			"Removing %d replica(s) now during idle reclamation.", c.replicas.Len(), c.replicas.Len())
 	}
-
-	c.log.Debug("Received all %d response(s) to 'Prepare to Migrate' requests. Removing %d replica(s) now for idle reclamation.",
-		c.replicas.Len(), c.replicas.Len())
 
 	// Iterate over the copy, removing replicas one-by-one.
 	// for _, replica := range replicas {
@@ -1921,8 +1847,11 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 		}
 	}()
 
-	// Stop the replicas first.
-	numReplicas := c.replicas.Len()
+	err := c.RemoveAllReplicas(remover, false, false)
+	if err != nil {
+		c.log.Error("Failed to remove all replicas: %v", err)
+		return err
+	}
 
 	// shutdownNotification is used to notify that a replica shutdown has either failed or succeeded.
 	type shutdownNotification struct {
