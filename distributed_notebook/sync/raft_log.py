@@ -1816,7 +1816,7 @@ class RaftLog(object):
         """
         return list(self._elections.keys())
 
-    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None) -> Any:
         """
         Returns the election with the specified term number, if one exists.
 
@@ -2187,8 +2187,8 @@ class RaftLog(object):
 
             if target_election is not None:
                 if target_election.was_skipped:
-                    self.log.warning( f"Requested preparation of election {target_term_number}; "
-                                      f"however, that election was skipped.")
+                    self.log.warning(f"Requested preparation of election {target_term_number}; "
+                                     f"however, that election was skipped.")
                     return False
                 else:
                     raise ValueError(f"Attempting to prepare election {target_term_number}, "
@@ -2208,6 +2208,165 @@ class RaftLog(object):
                 term_number=target_term_number, jupyter_message_id=jupyter_message_id
             )
             return True
+
+    async def _process_buffered_proposals(
+            self,
+            buffered_proposals: list[BufferedLeaderElectionProposal],
+            election_term: int,
+            target_term_number: int,
+            num_buffered_votes_processed: int,
+            proposal: LeaderElectionProposal,
+            _election_decision_future: asyncio.Future[Any],
+            _leading_future: asyncio.Future[int],
+            _received_vote_future: asyncio.Future[Any],
+    )->tuple[bool,bool]:
+        """
+        :param buffered_proposals:
+        :param election_term:
+        :param target_term_number:
+        :param num_buffered_votes_processed:
+        :param proposal:
+        :param _election_decision_future:
+        :param _leading_future:
+        :param _received_vote_future:
+        :return: a tuple where first element indicates if we're done processing the election,
+        and second is result if so.
+        """
+        num_buffered_proposals_processed: int = 0
+
+        if len(buffered_proposals) > 0:
+            self.log.debug(f"Processing the {len(buffered_proposals)} "
+                           f"buffered proposal(s) for election {election_term} now.")
+
+            for i, buffered_proposal in enumerate(buffered_proposals):
+                self.log.debug(f"Handling buffered proposal {i + 1}/{len(buffered_proposals)} "
+                               f"during election term {election_term}: {buffered_proposal}")
+
+                # TODO: Is it OK to just pass the current time for `received_at`?
+                #       Or should I save the time at which it was received and buffered, and pass that instead?
+                self.__handle_proposal(
+                    buffered_proposal.proposal,
+                    received_at=buffered_proposal.received_at,
+                )
+                self.log.debug(f"Handled buffered proposal {i + 1}/{len(buffered_proposals)} "
+                               f"during election term {election_term}.")
+                num_buffered_proposals_processed += 1
+
+        self.log.debug(f"Preparing to propose our own value for election {election_term} "
+                       f"after processing {num_buffered_proposals_processed} buffered proposal(s) "
+                       f"and {num_buffered_votes_processed} buffered votes.")
+
+        await self._append_election_proposal(proposal)
+
+        self.log.debug(f"Waiting on 'election decision' and 'received vote' futures for term {election_term}.")
+
+        futures: List[asyncio.Future] = []
+
+        if _election_decision_future is not None:
+            futures.append(_election_decision_future)
+
+        if _received_vote_future is not None:
+            futures.append(_received_vote_future)
+
+        if len(futures) == 0:
+            self.log.warning(f"Both 'election decision' future and 'received vote' futures are None "
+                             f"while processing buffered votes for election {election_term}...")
+            return True, False
+
+        done, pending = await asyncio.wait(
+            [_election_decision_future, _received_vote_future],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        if _received_vote_future in done or _received_vote_future.done():
+            self.log.debug(f"The voting phase for election {election_term} has already completed, "
+                           f"before we had a chance to propose our own vote. "
+                           f"Received vote: {_received_vote_future.result()}")
+
+            if self._current_election.term_number != election_term:
+                self.log.error(f"Current election has term {self._current_election.term_number} "
+                               f"while handling election {election_term}...")
+                self._send_notification_func(
+                    f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
+                    f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
+                    1,
+                )
+                wait, is_leading = self._is_leading(target_term_number)
+                assert wait == False
+                return True, is_leading
+
+            assert self._current_election.voting_phase_completed_successfully
+            self._received_vote_future = None
+            self._election_decision_future = None
+            return True, False
+
+        assert _election_decision_future.done()
+        voteProposal: LeaderElectionVote = _election_decision_future.result()
+
+        self.log.debug(f"Finished waiting on 'election decision' future for term {election_term}: {voteProposal}")
+        self._received_vote_future = None
+        self._election_decision_future = None
+
+        # Validate that the term number matches the current election.
+        if voteProposal.election_term != election_term:
+            raise ValueError(f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) "
+                             f"compared to current election term number ({election_term})")
+
+        # Are we proposing that the election failed?
+        if voteProposal.election_failed:
+            self.log.debug(f"RaftLog {self._node_id}: Got decision to propose: election failed. "
+                           f"No replicas proposed 'LEAD'.")
+
+            with self._election_lock:
+                self._current_election.set_election_failed()
+
+            # None of the replicas proposed 'LEAD'
+            # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
+            return True, False
+
+        self.log.debug(f"RaftLog {self._node_id}: Appending decision proposal "
+                       f"for term {voteProposal.election_term} now.")
+
+        await self._append_election_vote(voteProposal)
+
+        self.log.debug(f"RaftLog {self._node_id}: Successfully appended decision "
+                       f"proposal for term {voteProposal.election_term} now.")
+
+        return False, False
+
+    async def _process_buffered_votes(self, votes: list[BufferedLeaderElectionVote], term: int) -> tuple[bool, int]:
+        self.log.debug(f"Processing the {len(votes)} buffered vote(s) for election {term} now.")
+
+        if len(votes) == 0:
+            return False, 0
+
+        skip_proposals: bool = False
+        num_buffered_votes_processed: int = 0
+
+        for i, buffered_vote in enumerate(votes):
+            self.log.debug(f"Handling buffered vote {i + 1}/{len(votes)} "
+                           f"during election term {term}: {buffered_vote}")
+
+            # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
+            self.__handle_vote(buffered_vote.vote, received_at=buffered_vote.received_at)
+            self.log.debug(f"Handled buffered vote {i + 1}/{len(votes)} "
+                           f"during election term {term}.")
+
+            num_buffered_votes_processed += 1
+
+            if self._current_election.voting_phase_completed_successfully:
+                self.log.debug(f"Voting phase for current election ({term}) voting phase has ended after "
+                               f"processing buffered vote #{i}.")
+                skip_proposals = True
+                break
+            else:
+                self.log.debug(f"Voting phase for current election {term} has not ended after processing "
+                               f"buffered vote #{i}.")
+
+        self.log.debug(f"Finished processing buffered votes for election {term}. "
+                       f"Processed {num_buffered_votes_processed}/{len(votes)} buffered vote(s).")
+
+        return skip_proposals, num_buffered_votes_processed
 
     async def _handle_election(
             self,
@@ -2284,7 +2443,7 @@ class RaftLog(object):
         # This is the future we'll use to submit a formal vote for who should lead,
         # based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future = self._future_io_loop.create_future()
-        self._received_vote_future: asyncio.Future = (
+        self._received_vote_future: Optional[asyncio.Future] = (
             self._future_io_loop.create_future()
         )
         self._received_vote_future_term: int = target_term_number
@@ -2301,167 +2460,46 @@ class RaftLog(object):
 
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
-        buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(
-            proposal.election_term, []
-        )
-        buffered_proposals: List[BufferedLeaderElectionProposal] = (
-            self._buffered_proposals.get(proposal.election_term, [])
-        )
+        buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(proposal.election_term, [])
+        buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
 
-        # If skip_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
-        # propose something ourselves. skip_proposals is set to True if we have a buffered vote that decides
+        # If skip_buffered_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
+        # propose something ourselves. skip_buffered_proposals is set to True if we have a buffered vote that decides
         # the election for us.
-        skip_proposals: bool = False
+        skip_buffered_proposals: bool = False
 
-        num_buffered_proposals_processed: int = 0
         num_buffered_votes_processed: int = 0
 
         election_term: int = self._current_election.term_number
 
-        self.log.debug(
-            f"There are {len(buffered_proposals)} buffered proposal(s) and {len(buffered_votes)} "
-            f"buffered vote(s) for election {election_term}."
-        )
+        self.log.debug(f"There are {len(buffered_proposals)} buffered proposal(s) and {len(buffered_votes)} "
+                       f"buffered vote(s) for election {election_term}.")
 
         if len(buffered_votes) > 0:
-            self.log.debug(
-                f"Processing the {len(buffered_votes)} buffered vote(s) for election {election_term} now."
-            )
-            for i, buffered_vote in enumerate(buffered_votes):
-                self.log.debug(
-                    f"Handling buffered vote {i + 1}/{len(buffered_votes)} during election term {election_term}: {buffered_vote}"
-                )
-                # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
-                self.__handle_vote(
-                    buffered_vote.vote, received_at=buffered_vote.received_at
-                )
-                self.log.debug(
-                    f"Handled buffered vote {i + 1}/{len(buffered_votes)} during election term {election_term}."
-                )
-                num_buffered_votes_processed += 1
+            skip_buffered_proposals, num_buffered_votes_processed = await self._process_buffered_votes(buffered_votes, election_term)
 
-                if self._current_election.voting_phase_completed_successfully:
-                    self.log.debug(
-                        f"Voting phase for current election ({election_term}) voting phase has ended after "
-                        f"processing buffered vote #{i}."
-                    )
-                    skip_proposals = True
-                    break
-                else:
-                    self.log.debug(
-                        f"Voting phase for current election {election_term} has not ended after processing "
-                        f"buffered vote #{i}."
-                    )
-
-        if num_buffered_votes_processed > 0:
-            self.log.debug(
-                f"Finished processing buffered votes for election {election_term}. "
-                f"Processed {num_buffered_votes_processed}/{len(buffered_votes)} buffered vote(s)."
+        if not skip_buffered_proposals:
+            done, is_leading = await self._process_buffered_proposals(
+                buffered_proposals,
+                election_term,
+                target_term_number,
+                num_buffered_votes_processed,
+                proposal,
+                _election_decision_future,
+                _leading_future,
+                _received_vote_future,
             )
 
-        if not skip_proposals:
-            if len(buffered_proposals) > 0:
-                self.log.debug(
-                    f"Processing the {len(buffered_proposals)} buffered proposal(s) for election {election_term} now."
-                )
-                for i, buffered_proposal in enumerate(buffered_proposals):
-                    self.log.debug(
-                        f"Handling buffered proposal {i + 1}/{len(buffered_proposals)} during election term {election_term}: {buffered_proposal}"
-                    )
-                    # TODO: Is it OK to just pass the current time for `received_at`? Or should I save the time at which it was received and buffered, and pass that instead?
-                    self.__handle_proposal(
-                        buffered_proposal.proposal,
-                        received_at=buffered_proposal.received_at,
-                    )
-                    self.log.debug(
-                        f"Handled buffered proposal {i + 1}/{len(buffered_proposals)} during election term {election_term}."
-                    )
-                    num_buffered_proposals_processed += 1
+            if done:
+                self.log.debug(f"Finished handling election {election_term} while processing "
+                               f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
+                return is_leading
 
-            if num_buffered_proposals_processed > 0 or num_buffered_votes_processed > 0:
-                self.log.debug(
-                    f"Preparing to propose our own value for election {election_term} "
-                    f"after processing {num_buffered_proposals_processed} buffered proposal(s) "
-                    f"and {num_buffered_votes_processed} buffered votes."
-                )
-
-            await self._append_election_proposal(proposal)
-
-            self.log.debug(
-                f"Waiting on 'election decision' and 'received vote' futures for term {election_term}."
-            )
-
-            done, pending = await asyncio.wait(
-                [_election_decision_future, _received_vote_future],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            if _received_vote_future in done or _received_vote_future.done():
-                self.log.debug(
-                    f"The voting phase for election {election_term} has already completed, "
-                    f"before we had a chance to propose our own vote. Received vote: {_received_vote_future.result()}"
-                )
-
-                if self._current_election.term_number != election_term:
-                    self.log.error(
-                        f"Current election has term {self._current_election.term_number} while handling election {election_term}..."
-                    )
-                    self._send_notification_func(
-                        f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
-                        f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
-                        1,
-                    )
-                    wait, is_leading = self._is_leading(target_term_number)
-                    assert wait == False
-                    return is_leading
-
-                assert self._current_election.voting_phase_completed_successfully
-                self._received_vote_future = None
-                self._election_decision_future = None
-            else:
-                assert _election_decision_future.done()
-                voteProposal: LeaderElectionVote = _election_decision_future.result()
-
-                self.log.debug(
-                    f"Finished waiting on 'election decision' future for term {election_term}: {voteProposal}"
-                )
-                self._received_vote_future = None
-                self._election_decision_future = None
-
-                # Validate that the term number matches the current election.
-                if voteProposal.election_term != election_term:
-                    raise ValueError(
-                        f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) compared to current election term number ({election_term})"
-                    )
-
-                # Are we proposing that the election failed?
-                if voteProposal.election_failed:
-                    self.log.debug(
-                        "RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'."
-                        % self._node_id
-                    )
-
-                    with self._election_lock:
-                        self._current_election.set_election_failed()
-
-                    # None of the replicas proposed 'LEAD'
-                    # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
-                    return False
-
-                self.log.debug(
-                    "RaftLog %d: Appending decision proposal for term %s now."
-                    % (self._node_id, voteProposal.election_term)
-                )
-                await self._append_election_vote(voteProposal)
-                self.log.debug(
-                    "RaftLog %d: Successfully appended decision proposal for term %s now."
-                    % (self._node_id, voteProposal.election_term)
-                )
+            self.log.debug(f"Not yet finished handling election {election_term} after processing "
+                           f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
         else:
-            self.log.debug(
-                f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
-                f"for election {election_term}."
-            )
+            self.log.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
+                           f"for election {election_term}.")
 
         # Validate the term
         wait, is_leading = self._is_leading(target_term_number)
@@ -2598,7 +2636,7 @@ class RaftLog(object):
                     f'Offloading value with key "{value.key}" before proposing/appending it.'
                 )
                 value = await self._offload_value(value)
-                self.log.debug( f'Successfully offloaded value with key "{value.key}" before proposing/appending it.')
+                self.log.debug(f'Successfully offloaded value with key "{value.key}" before proposing/appending it.')
 
         await self._serialize_and_append_value(value)
 
@@ -3083,7 +3121,7 @@ class RaftLog(object):
         # Return hard-coded False, as is_leading must be False.
         return False
 
-    async def does_election_already_exist(self, jupyter_msg_id:str)->bool:
+    async def does_election_already_exist(self, jupyter_msg_id: str) -> bool:
         """
         Check if an election for the given Jupyter msg ID already exists.
 
@@ -3092,7 +3130,7 @@ class RaftLog(object):
         """
         return jupyter_msg_id in self._elections_by_jupyter_message_id
 
-    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+    async def is_election_voting_complete(self, jupyter_msg_id: str) -> bool:
         """
         Check if an election for the given Jupyter msg ID already exists.
 
@@ -3113,7 +3151,7 @@ class RaftLog(object):
 
         return election.voting_phase_completed_successfully
 
-    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+    async def is_election_execution_complete(self, jupyter_msg_id: str) -> bool:
         """
         Check if an election for the given Jupyter msg ID already exists.
 
