@@ -1236,7 +1236,7 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 	}
 
 	d.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.", nodeId, kernelId, newAddress)
-	time.Sleep(time.Second * 5)
+	// time.Sleep(time.Second * 5)
 }
 
 // SmrReady is an RPC handler called by the Local Daemon to the Cluster Gateway to notify the Gateway that a
