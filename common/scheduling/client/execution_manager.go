@@ -18,8 +18,9 @@ import (
 // validateRequest ensures that the given *messaging.JupyterMessage is either an "execute_request" message
 // or a "yield_request" message.
 func validateRequest(msg *messaging.JupyterMessage) error {
-	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
-		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidExecuteRegistrationMessage, msg.JupyterMessageType())
+	if !messaging.IsExecuteOrYieldRequest(msg) {
+		return fmt.Errorf("%w: message provided is of type \"%s\"",
+			ErrInvalidExecuteRegistrationMessage, msg.JupyterMessageType())
 	}
 
 	return nil

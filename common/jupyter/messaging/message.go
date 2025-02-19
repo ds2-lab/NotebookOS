@@ -53,6 +53,15 @@ var (
 
 type JupyterMessageType string
 
+// IsExecuteOrYieldRequest returns true if the given JupyterMessage is of type ShellExecuteRequest or ShellYieldRequest.
+func IsExecuteOrYieldRequest(msg *JupyterMessage) bool {
+	if msg == nil {
+		panic("msg is nil")
+	}
+
+	return msg.JupyterMessageType() == ShellExecuteRequest || msg.JupyterMessageType() == ShellYieldRequest
+}
+
 func (t JupyterMessageType) String() string {
 	return string(t)
 }
