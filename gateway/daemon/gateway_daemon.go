@@ -4122,6 +4122,15 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 		if replica.ReplicaID() == targetReplica.ReplicaID() {
 			jupyterMessage = originalJupyterMessage.Clone()
+
+			err := d.embedGpuDeviceIdsInExecuteRequestMetadata(jupyterMessage)
+			if err != nil {
+				d.log.Error("Failed to embed GPU device IDs in \"%s\" message \"%s\" targeting replica %d of kernel \"%s\": %v",
+					jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), replica.ReplicaID(), kernel.ID(), err)
+
+				return err
+			}
+
 			jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
 			continue
 		}
