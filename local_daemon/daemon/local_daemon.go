@@ -3133,22 +3133,21 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// Create a snapshot of the available idle resources on this node prior to our (potential) attempt
 	// to reserve resources for this kernel replica in anticipation of its leader election.
 	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() || msg.JupyterMessageType() == messaging.ShellYieldRequest
-	if !shouldYield {
-		var gpuDeviceIds []int
 
-		val, loaded := metadataDict["gpu_device_ids"]
-		if !loaded {
-			d.log.Warn("No GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\"",
-				msg.JupyterMessageId(), kernel.ID())
-			gpuDeviceIds = make([]int, 0)
-		} else {
-			gpuDeviceIds = val.([]int)
-			d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
-				msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
-		}
+	var gpuDeviceIds []int
 
-		metadataDict["gpu_device_ids"] = gpuDeviceIds
+	val, loaded := metadataDict["gpu_device_ids"]
+	if !loaded {
+		d.log.Warn("No GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\"",
+			msg.JupyterMessageId(), kernel.ID())
+		gpuDeviceIds = make([]int, 0)
+	} else {
+		gpuDeviceIds = val.([]int)
+		d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
 	}
+
+	metadataDict["gpu_device_ids"] = gpuDeviceIds
 
 	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
 	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()

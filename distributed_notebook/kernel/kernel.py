@@ -2868,8 +2868,11 @@ class DistributedKernel(IPythonKernel):
                     ident=self._topic(SMR_LEAD_TASK),
                 )
         except ElectionAbortedException as e:
+            self.log.warning(e)
             # We intentionally raise ElectionAbortedException to abort early if we determine we can/should.
-            pass
+            reply_content: dict[str, Any] = gen_error_response(
+                err_failed_to_lead_execution
+            )
         except Exception as e:
             self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
             reply_content = gen_error_response(e)
