@@ -106,16 +106,15 @@ const (
 `
 	localSchedulerStaticOptsJson = `
 {
-  "ProvisionerAddr": "127.0.0.1:18081",
-  "node_name": "LocalDaemon1",
-  "JaegerAddr": "",
-  "ConsulAddr": "",
-  "NodeName": "0",
+  "provisioner": "127.0.0.1:18081",
+  "node_name": "0",
+  "jaeger": "",
+  "consul": "",
   "s3_bucket": "distributed-notebook-storage",
   "aws_region": "us-east-1",
   "redis_password": "",
-  "DevicePluginPath": "/var/lib/kubelet/device-plugins/",
-  "NumVirtualGPUs": 72,
+  "device-plugin-path": "/var/lib/kubelet/device-plugins/",
+  "num-virtual-gpus-per-node": 72,
   "ip": "",
   "transport": "tcp",
   "signature_scheme": "",
@@ -129,7 +128,7 @@ const (
   "ack_port": 19006,
   "starting_resource_port": 29007,
   "num_resource_ports": 4096,
-  "DockerStorageBase": "/remote_storage",
+  "docker-storage-base": "/remote_storage",
   "cluster_scheduler_options": {
     "common_options": {
       "deployment_mode": "docker-compose",
@@ -184,10 +183,10 @@ const (
     "predictive_autoscaling": true,
     "assign_kernel_debug_ports": false
   },
-  "DirectServer": false,
-  "RunKernelsInGdb": false,
-  "Port": 18082,
-  "KernelRegistryPort": 18075,
+  "direct": false,
+  "run_kernels_in_gdb": false,
+  "port": 18082,
+  "kernel-registry-port": 18075,
   "redis_port": 6379,
   "redis_database": 0
 }

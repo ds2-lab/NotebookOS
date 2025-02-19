@@ -133,7 +133,7 @@ func NewLocalSchedulerBuilder(schedulingPolicy scheduling.PolicyKey) *LocalSched
 		panic(fmt.Sprintf("Unsupported scheduling policy: \"%s\"", schedulingPolicy.String()))
 	}
 
-	log.Printf("builder.LocalDaemonOptions:\n%v\n", builder.LocalDaemonOptions)
+	log.Printf("builder.LocalDaemonOptions:\n%v\n", builder.LocalDaemonOptions.PrettyString(2))
 
 	return builder
 }

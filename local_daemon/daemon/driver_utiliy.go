@@ -233,7 +233,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName,
 		disableDevicePluginServer)
 
-	globalLogger.Debug("Local Daemon SchedulerOptions:\n%s", options.PrettyString(2))
+	globalLogger.Info("Initializing Local Scheduler with options: %s", options.PrettyString(2))
 
 	// Initialize grpc server
 	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName, dockerContainerId)
