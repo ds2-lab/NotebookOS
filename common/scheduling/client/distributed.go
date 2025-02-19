@@ -900,7 +900,11 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 
 // removeReplica is like RemoveReplica but removeReplica does not acquire or release any locks.
 //
-// Important: removeReplica must be called with mu and replicasMutex already locked.
+// removeReplica stops the specified replica and removes it from the target DistributedKernelClient's replicas map.
+//
+// RemoveReplica returns the host that the scheduling.KernelReplica was running on.
+//
+// Important: removeReplica must be called with mu already locked.
 func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
 
@@ -973,6 +977,8 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 
 	r.Container().SetHost(nil) // Set the host to nil...
 
+	c.replicas.Delete(r.ReplicaID())
+
 	err = r.Close()
 	if err != nil {
 		c.log.Error("Failed to cleanly close replica %d of kernel \"%s\": %v",
@@ -988,8 +994,9 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 	return host, stopReplicaError // Will be nil on success
 }
 
-// RemoveReplica removes a kernel peer from the kernel. Returns the host that the scheduling.KernelReplica was
-// running on.
+// RemoveReplica stops the specified replica and removes it from the target DistributedKernelClient's replicas map.
+//
+// RemoveReplica returns the host that the scheduling.KernelReplica was running on.
 func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1129,10 +1136,10 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	defer c.mu.Unlock()
 
 	if c.replicaContainersAreBeingRemoved.Load() != 1 {
-		c.log.Warn("'Replicas Are Being Removed Flag' is not set to 1...")
+		c.log.Warn("'DistributedKernelClient::RemoveAllReplicas: Replicas Are Being Removed Flag' is not set to 1...")
 	}
 
-	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
+	c.log.Debug("DistributedKernelClient::RemoveAllReplicas: Removing %d replica(s)", c.Size())
 
 	// c.replicasMutex.RLock()
 	if int32(c.replicas.Len()) < c.targetNumReplicas {
@@ -1151,11 +1158,12 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	if forIdleReclamation {
 		err := c.tellAllReplicasToPrepareToMigrate()
 		if err != nil {
-			c.log.Error("Error while telling all replicas to prepare to migrate: %v", err)
+			c.log.Error("DistributedKernelClient::RemoveAllReplicas: Error while telling all replicas to prepare to migrate: %v",
+				err)
 			return err
 		}
 
-		c.log.Debug("Received all %d response(s) to 'Prepare to Migrate' requests. "+
+		c.log.Debug("DistributedKernelClient::RemoveAllReplicas: Received all %d response(s) to 'Prepare to Migrate' requests. "+
 			"Removing %d replica(s) now during idle reclamation.", c.replicas.Len(), c.replicas.Len())
 	}
 
@@ -1167,7 +1175,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	// for id, replica := range c.replicas {
 	c.replicas.Range(func(id int32, replica scheduling.KernelReplica) (contd bool) {
 		if replica == nil {
-			c.log.Warn("Replica %d is nil", id)
+			c.log.Warn("DistributedKernelClient::RemoveAllReplicas: Replica %d is nil", id)
 			return true
 		}
 
@@ -1176,11 +1184,13 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 			// if the stopReplicaLocked call returns nil for the replica's host
 			currHost := replica.Host()
 
-			host, err := c.stopReplicaLocked(replica, remover, noop)
+			host, err := c.removeReplica(replica, remover, noop)
 			if err != nil {
-				c.log.Warn("Failed to stop %v on host %v: %v", replica, host, err)
+				c.log.Warn("DistributedKernelClient::RemoveAllReplicas: Failed to stop %v on host %v: %v",
+					replica, host, err)
 			} else {
-				c.log.Debug("Successfully stopped replica %v on host %s.", replica, host)
+				c.log.Debug("DistributedKernelClient::RemoveAllReplicas: Successfully stopped replica %v on host %s.",
+					replica, host)
 			}
 
 			// Assign host to currHost so that we can assign a non-nil host in the shutdownNotification
@@ -1213,7 +1223,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 		currentStatus := c.status
 		statusChanged := c.setStatus(currentStatus, jupyter.KernelStatusIdleReclaimed)
 		if !statusChanged {
-			c.log.Warn("Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
+			c.log.Warn("DistributedKernelClient::RemoveAllReplicas: Attempted to change status from '%s' to '%s'; however, status change was rejected. Current status: '%s'.",
 				currentStatus.String(), jupyter.KernelStatusError.String(), c.status.String())
 		}
 	}

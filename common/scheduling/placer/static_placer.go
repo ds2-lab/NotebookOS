@@ -16,7 +16,7 @@ type StaticPlacer struct {
 
 // NewStaticPlacer creates and returns a StaticPlacer struct.
 func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) *StaticPlacer {
-	basePlacer := NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, numReplicas, policy, index.NewStaticIndex)
+	basePlacer := NewBasicPlacerWithSpecificIndex[*index.StaticMultiIndex](metricsProvider, numReplicas, policy, index.NewStaticMultiIndex)
 
 	staticPlacer := &StaticPlacer{
 		BasicPlacer: basePlacer,
@@ -86,8 +86,8 @@ func (placer *StaticPlacer) findHost(blacklist []interface{}, replicaSpec *proto
 
 // getIndex returns the target MultiPlacer's index field with a type assertion
 // so that it is returned as a *index.MultiIndex[T].
-func (placer *StaticPlacer) getIndex() *index.StaticIndex {
-	return placer.index.(*index.StaticIndex)
+func (placer *StaticPlacer) getIndex() *index.StaticMultiIndex {
+	return placer.index.(*index.StaticMultiIndex)
 }
 
 // NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiPlacer's index.

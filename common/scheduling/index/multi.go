@@ -89,7 +89,7 @@ func initializeHostPoolsDefault[T scheduling.ClusterIndex](numPools int32, index
 // MultiIndex manages a collection of sub-indices organized by some numerical quantity, such as the number of GPUs.
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
-// For example, LeastLoadedIndex, StaticIndex, RandomClusterIndex, etc.
+// For example, LeastLoadedIndex, StaticMultiIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
 	log logger.Logger
 	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.

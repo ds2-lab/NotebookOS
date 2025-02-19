@@ -198,7 +198,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.BasicPlacer)
 			Expect(ok).To(BeTrue())
 
-			_, ok = clusterPlacer.GetIndex().(*index.StaticIndex)
+			_, ok = clusterPlacer.GetIndex().(*index.StaticMultiIndex)
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
