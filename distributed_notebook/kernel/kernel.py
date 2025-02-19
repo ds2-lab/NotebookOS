@@ -4042,11 +4042,7 @@ class DistributedKernel(IPythonKernel):
         task.add_done_callback(self.background_tasks.discard)
 
     async def do_shutdown(self, restart):
-        self.log.info(
-            "Replica %d of kernel %s is shutting down.",
-            self.smr_node_id,
-            self.kernel_id,
-        )
+        self.log.info("Replica %d of kernel %s is shutting down.", self.smr_node_id, self.kernel_id)
 
         # Make sure we're not (still) preparing to migrate.
         # If we are, then we need to wait to ensure that all important state is checkpointed to remote storage.
@@ -4065,50 +4061,36 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Successfully closed the Synchronizer.")
 
         # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
-        if self.synclog and self.remove_on_shutdown:
-            self.log.info(
-                "Removing node %d (that's me) from the SMR cluster.", self.smr_node_id
-            )
-            try:
-                await self.synclog.remove_node(self.smr_node_id)
+        if self.synclog:
+            if self.remove_on_shutdown:
                 self.log.info(
-                    "Successfully removed node %d (that's me) from the SMR cluster.",
-                    self.smr_node_id,
-                )
-            except TimeoutError:
-                self.log.error(
-                    "Removing self (node %d) from the SMR cluster timed-out. Continuing onwards.",
-                    self.smr_node_id,
-                )
-            except Exception as ex:
-                self.log.error(
-                    "Failed to remove replica %d of kernel %s.",
-                    self.smr_node_id,
-                    self.kernel_id,
-                )
-                return gen_error_response(ex), False
-
-            if not self.synclog_stopped:
-                self.log.info(
-                    "Closing the SyncLog (and therefore the etcd-Raft process) now."
+                    "Removing node %d (that's me) from the SMR cluster.", self.smr_node_id
                 )
                 try:
-                    self.synclog.close()
-                    self.log.info(
-                        "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now."
-                    )
-                except Exception:
-                    self.log.error(
-                        "Failed to close the SyncLog for replica %d of kernel %s.",
-                        self.smr_node_id,
-                        self.kernel_id,
-                    )
+                    await self.synclog.remove_node(self.smr_node_id)
+                    self.log.info(f"Successfully removed node {self.smr_node_id} "
+                                  f"(that's me) from the SMR cluster.")
+                except TimeoutError:
+                    self.log.error(f"Removing self (node {self.smr_node_id}) from "
+                                   f"the SMR cluster timed-out. Continuing onwards.")
+                except Exception as ex:
+                    self.log.error(f"Failed to remove replica {self.smr_node_id} "
+                                   f"of kernel {self.kernel_id} (self).")
+                    return gen_error_response(ex), False
             else:
-                self.log.info(
-                    "I've already removed myself from the SMR cluster and closed my sync-log."
-                )
-        else:
-            self.log.info("Not stopping/removing node from etcd/raft cluster.")
+                self.log.info("Not stopping/removing node from etcd/raft cluster.")
+
+            if not self.synclog_stopped:
+                self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
+                try:
+                    self.synclog.close()
+                    self.log.info("SyncLog closed successfully. "
+                                  "Writing etcd-Raft data directory to RemoteStorage now.")
+                except Exception:
+                    self.log.error(f"SyncLog::Close failed for replica {self.smr_node_id} "
+                                   f"of kernel {self.kernel_id}.")
+            else:
+                self.log.info("SyncLog has already been stopped.")
 
         # Disabling debug mode here, as there is apparently a bug/issue when we're shutting down where we
         # call self.kernel.loop.call_later, but we're presumably running in the control thread's IO loop,
