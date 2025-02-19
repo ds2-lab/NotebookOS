@@ -3765,3 +3765,7 @@ func (d *LocalScheduler) NumPrewarmContainers() int {
 func (d *LocalScheduler) GetInvoker(kernelId string) (invoker.KernelInvoker, bool) {
 	return d.kernelInvokers.Load(kernelId)
 }
+
+func (d *LocalScheduler) NodeName() string {
+	return d.nodeName
+}

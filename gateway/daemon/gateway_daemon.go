@@ -3636,7 +3636,7 @@ func (d *ClusterGatewayImpl) Close() error {
 
 func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage) error {
 	sessionId := msg.JupyterSession()
-	d.log.Debug("Intercepting \"%v\" message targeting session \"%s\" and using RPC pathway instead...",
+	d.log.Debug(utils.LightPurpleStyle.Render("Intercepting \"%v\" message targeting session \"%s\" and using RPC pathway instead..."),
 		messaging.MessageTypeShutdownRequest, sessionId)
 
 	kernel, ok := d.kernels.Load(sessionId)
@@ -4939,8 +4939,8 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 
 		err = d.kernelReplicaResponseForwarder(kernel.TemporaryKernelReplicaClient(), typ, resp)
 		if err != nil {
-			d.log.Error(utils.DarkGreenStyle.Render("Failed to forward %v \"%s\" response \"%s\" (JupyterID=\"%s\") to client of kernel %s: %v"),
-				goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID(), resp)
+			d.log.Error(utils.RedStyle.Render("Failed to forward %v \"%s\" response \"%s\" (JupyterID=\"%s\") to client of kernel %s: %v"),
+				typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID(), resp)
 			return err
 		}
 

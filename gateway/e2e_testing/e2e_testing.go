@@ -15,7 +15,9 @@ import (
 	"github.com/scusemua/distributed-notebook/local_daemon/invoker"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
+	"net"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -156,9 +158,11 @@ var _ = Describe("End-to-End Tests", func() {
 				Expect(resp).NotTo(BeNil())
 
 				sem.Release(1)
-			}()
+			}
 
-			invokersChan := make(chan invoker.KernelInvoker, len(components.LocalDaemons))
+			kernelInvokers := make([]invoker.KernelInvoker, len(components.LocalDaemons))
+			kernelInvokersMutex := sync.Mutex{}
+
 			for i := 0; i < len(components.LocalDaemons); i++ {
 				index := i
 				go func(idx int) {
@@ -166,7 +170,11 @@ var _ = Describe("End-to-End Tests", func() {
 						kernelInvoker, ok := components.LocalDaemons[idx].GetInvoker(kernelId)
 						if ok {
 							globalLogger.Info("Got kernel invoker from Local Daemon #%d", idx)
-							invokersChan <- kernelInvoker
+
+							kernelInvokersMutex.Lock()
+							kernelInvokers[idx] = kernelInvoker
+							kernelInvokersMutex.Unlock()
+
 							return
 						}
 
@@ -175,14 +183,12 @@ var _ = Describe("End-to-End Tests", func() {
 				}(index)
 			}
 
-			kernelInvokers := make([]invoker.KernelInvoker, 0, len(components.LocalDaemons))
-			for len(kernelInvokers) < len(components.LocalDaemons) {
-				var kernelInvoker invoker.KernelInvoker
-				Eventually(invokersChan, time.Second*2, time.Millisecond*250).Should(Receive(&kernelInvoker))
-				kernelInvokers = append(kernelInvokers, kernelInvoker)
+			kernel := &Kernel{
+				KernelId: kernelId,
+				Replicas: make([]*KernelReplica, 0, len(components.LocalDaemons)),
 			}
 
-			for _, kernelInvoker := range kernelInvokers {
+			for idx, kernelInvoker := range kernelInvokers {
 				connInfo := kernelInvoker.ConnectionInfo()
 				globalLogger.Info("Received connection info:\n%v", connInfo.PrettyString(2))
 
@@ -191,24 +197,78 @@ var _ = Describe("End-to-End Tests", func() {
 				Expect(sockets).NotTo(BeNil())
 				Expect(messageQueues).NotTo(BeNil())
 				Expect(closeFunc).NotTo(BeNil())
+
+				replica := &KernelReplica{
+					KernelId:         kernelId,
+					ReplicaId:        -1,
+					Sockets:          sockets,
+					MessageQueues:    messageQueues,
+					CloseFunc:        closeFunc,
+					PrewarmContainer: false,
+					NodeName:         components.LocalDaemons[idx].NodeName(),
+				}
+
+				kernel.Replicas = append(kernel.Replicas, replica)
 			}
+
+			Expect(len(kernel.Replicas)).To(Equal(3))
 
 			Eventually(sem.Acquire(context.Background(), 1), time.Second*5, time.Millisecond*250).Should(Succeed())
 
-			time.Sleep(10 * time.Second)
+			for _, replica := range kernel.Replicas {
+				replica.RegisterWithLocalDaemon("127.0.0.1")
+			}
+
+			time.Sleep(3 * time.Second)
 		})
 	})
 })
 
 type Kernel struct {
-	KernelId string
-	Replicas []*KernelReplica
+	KernelId  string
+	KernelKey string
+	Replicas  []*KernelReplica
 }
 
 type KernelReplica struct {
-	KernelId      string
-	ReplicaId     int32
-	Sockets       map[messaging.MessageType]*messaging.Socket
-	MessageQueues map[messaging.MessageType]*queue.ThreadsafeFifo[*messaging.JupyterMessage]
-	CloseFunc     func()
+	KernelId         string
+	ReplicaId        int32
+	PrewarmContainer bool
+	Sockets          map[messaging.MessageType]*messaging.Socket
+	MessageQueues    map[messaging.MessageType]*queue.ThreadsafeFifo[*messaging.JupyterMessage]
+	CloseFunc        func()
+	NodeName         string
+}
+
+func (k *KernelReplica) RegisterWithLocalDaemon(ip string, port int) error {
+	addr := fmt.Sprintf("%s:%d", ip, port)
+	conn, err := net.Dial("tcp", addr)
+
+	if err != nil {
+		return err
+	}
+
+	registrationNotification := daemon.KernelRegistrationPayload{
+		Kernel: &proto.KernelSpec{
+			Id:              k.KernelId,
+			Session:         k.KernelId,
+			SignatureScheme: connInfo.SignatureScheme,
+			Key:             connInfo.Key,
+		},
+		ConnectionInfo:     connInfo,
+		PersistentId:       nil,
+		NodeName:           localScheduler.nodeName,
+		Key:                k.KernelId,
+		PodOrContainerName: k.KernelId,
+		Op:                 "register",
+		SignatureScheme:    messaging.JupyterSignatureScheme,
+		WorkloadId:         "",
+		ReplicaId:          -1,
+		NumReplicas:        int32(len(k.Replicas)),
+		Cpu:                resourceSpec.Cpu,
+		Memory:             int32(resourceSpec.Memory),
+		Gpu:                resourceSpec.Gpu,
+		Join:               true,
+		PrewarmContainer:   k.PrewarmContainer,
+	}
 }

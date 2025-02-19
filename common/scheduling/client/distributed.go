@@ -476,7 +476,7 @@ func (c *DistributedKernelClient) concludeRemovingReplicaContainers() bool {
 	}
 
 	if c.replicas.Len() == 0 {
-		c.log.Debug("Successfully removed (up to) %d replica container(s).", c.targetNumReplicas)
+		c.log.Debug("Removed (up to) %d replica container(s).", c.targetNumReplicas)
 		c.replicaContainersStoppedAt = time.Now()
 	} else {
 		c.log.Warn("Attempt to remove (up to) %d replica container(s) has failed.", c.targetNumReplicas)
@@ -916,21 +916,20 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 		return nil, scheduling.ErrReplicaNotFound
 	}
 
-	//if c.replicas[r.ReplicaID()] != r {
-	//	c.replicasMutex.Unlock()
-	//	// This is bad and should never happen.
-	//	c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
-	//	return nil, scheduling.ErrReplicaNotFound
-	//}
-	//
-	//delete(c.replicas, r.ReplicaID())
-	//c.replicasMutex.Unlock()
-
 	// Stop the replica FIRST -- before we call any other methods -- as we don't want to release the resources
 	// until the replica has actually been stopped and the local daemon has released its resources.
 	host, stopReplicaError := c.stopReplicaLocked(r, remover, noop) // We'll handle the stopReplicaError later.
+
+	hostName := "N/A"
+	hostId := "N/A"
+	if host != nil {
+		hostName = host.GetNodeName()
+		hostId = host.GetID()
+	}
+
 	if stopReplicaError != nil {
-		c.log.Error("Failed to stop replica %d of kernel \"%s\": %v", r.ReplicaID(), c.id, stopReplicaError)
+		c.log.Error("Failed to stop replica %d on host %s (ID=%s) in container %s: %v",
+			r.ReplicaID(), hostName, hostId, r.GetPodOrContainerName(), stopReplicaError)
 	}
 
 	var err error
@@ -939,15 +938,16 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 			r.ReplicaID(), r.ID())
 		err = r.KernelStoppedTraining(reason)
 		if err != nil {
-			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
-				r.ReplicaID(), err)
+			c.log.Error("Error whilst stopping training on replica %d (during removal process) on host %s (ID=%s) in container %s: %v",
+				r.ReplicaID(), hostName, hostId, r.GetPodOrContainerName(), err)
 		}
 	}
 
 	container := r.Container()
 	err = container.ContainerStopped()
 	if err != nil {
-		c.log.Error("Failed to cleanly stop scheduling.Container %s-%d because: %v", r.ID(), r.ReplicaID(), err)
+		c.log.Error("Failed to cleanly stop container (ID=%s) for replica %d on host %s (ID=%s) because: %v",
+			r.GetPodOrContainerName(), r.ReplicaID(), hostName, hostId, err)
 	}
 
 	if err = c.session.RemoveReplica(container); err != nil {
