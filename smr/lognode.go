@@ -590,26 +590,31 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	// node.sugaredLogger.Infof("Provided Python resolve callback. Message: %s", msg)
 	// }
 
-	// node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
+	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
-		node.logger.Error("Exception while proposing value.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
+		node.logger.Error("Exception while proposing value.",
+			zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
 		resolve(msg, toCError(err))
 		return
 	}
-	// node.logger.Info("Proposed value. Waiting for committed or retry.", zap.String("key", msg), zap.String("id", ctx.ID()))
+	node.logger.Info("Proposed value. Waiting for committed or retry.",
+		zap.String("key", msg), zap.String("id", ctx.ID()))
 	// Wait for committed or retry
 	for !node.waitProposal(ctx) {
-		// node.logger.Info("Retry proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
+		node.logger.Info("Retry proposing to append value",
+			zap.String("key", msg), zap.String("id", ctx.ID()))
 		ctx.Reset(ProposalDeadline)
 		if err := proposer(ctx); err != nil {
-			node.logger.Error("Exception while retrying value proposal.", zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
+			node.logger.Error("Exception while retrying value proposal.",
+				zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
 			resolve(msg, toCError(err))
 			return
 		}
 	}
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
-		node.logger.Info("Calling `resolve` callback.", zap.Any("resolve-callback", resolve), zap.String("msg", msg))
+		node.logger.Info("Calling `resolve` callback.", zap.Any("resolve-callback", resolve),
+			zap.String("msg", msg))
 		resolve(msg, toCError(nil))
 	} else {
 		node.logger.Info("There is no `resolve` callback to invoke.", zap.String("msg", msg))
@@ -1234,12 +1239,15 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 					proposeC = nil // Clear local channel.
 				} else {
 					// blocks until accepted by raft state machine
-					node.logger.Info(fmt.Sprintf("LogNode %d: proposing something.", node.id))
+					node.logger.Info(fmt.Sprintf("LogNode %d: proposing something.", node.id),
+						zap.Int("num_bytes", len(ctx.Proposal)))
 					err := node.node.Propose(ctx, ctx.Proposal)
 					if err != nil {
-						node.logger.Error("Failed to propose value.", zap.Error(err))
+						node.logger.Error("Failed to propose value.", zap.Error(err),
+							zap.Int("num_bytes", len(ctx.Proposal)))
 					}
-					node.logger.Info(fmt.Sprintf("LogNode %d: finished proposing something.", node.id))
+					node.logger.Info(fmt.Sprintf("LogNode %d: finished proposing something.", node.id),
+						zap.Int("num_bytes", len(ctx.Proposal)))
 				}
 
 			case cc, ok := <-confChangeC:
@@ -1249,7 +1257,8 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 				} else {
 					confChangeCount++
 					cc.ConfChange.ID = confChangeCount
-					node.logger.Info(fmt.Sprintf("LogNode %d: proposing configuration change: %s", node.id, cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
+					node.logger.Info(fmt.Sprintf("LogNode %d: proposing configuration change: %s",
+						node.id, cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
 					err := node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 					if err != nil {
 						node.logger.Error("Failed to propose configuration change.", zap.Error(err))

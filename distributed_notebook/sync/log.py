@@ -84,7 +84,11 @@ class SynchronizedValue(object):
         return metadata
 
     def __str__(self):
-        string: str = f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},ID={self._id}"
+        string: str = (f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},"
+                       f"Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},"
+                       f"AttemptNumber={self._attempt_number},"
+                       f"Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},"
+                       f"ID={self._id}")
 
         if hasattr(self, "_jupyter_message_id"):
             jupyter_message_id: Optional[str] = getattr(self, "_jupyter_message_id")

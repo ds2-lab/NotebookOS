@@ -1181,7 +1181,9 @@ class RaftLog(object):
             )
 
         self.log.debug(
-            f"Received {self._current_election.num_proposals_received} proposal(s) and discarded {self._current_election.num_discarded_proposals} proposal(s) so far during term {self._current_election.term_number}."
+            f"Received {self._current_election.num_proposals_received} proposal(s) "
+            f"and discarded {self._current_election.num_discarded_proposals} proposal(s) "
+            f"so far during term {self._current_election.term_number}."
         )
 
         self.__try_pick_winner_to_propose(proposal.election_term)
@@ -2626,9 +2628,8 @@ class RaftLog(object):
         if value.key != str(ElectionProposalKey.LEAD) and value.key != str(
                 ElectionProposalKey.YIELD
         ):
-            self.log.debug(
-                f'Updating self._leader_term from {self._leader_term} to {value.election_term}, the election term of the SynchronizedValue (with key="{value.key}") that we\'re appending.'
-            )
+            self.log.debug(f'Updating self._leader_term from {self._leader_term} to {value.election_term}, the '
+                           f'election term of the SynchronizedValue (with key="{value.key}") that we\'re appending.')
             self._leader_term = value.election_term
 
         if not value.has_operation:
@@ -2646,9 +2647,7 @@ class RaftLog(object):
                     f'Offloading value with key "{value.key}" before proposing/appending it.'
                 )
                 value = await self._offload_value(value)
-                self.log.debug(
-                    f'Successfully offloaded value with key "{value.key}" before proposing/appending it.'
-                )
+                self.log.debug( f'Successfully offloaded value with key "{value.key}" before proposing/appending it.')
 
         await self._serialize_and_append_value(value)
 
