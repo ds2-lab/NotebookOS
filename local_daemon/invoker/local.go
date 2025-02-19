@@ -427,3 +427,7 @@ func (ivk *LocalInvoker) TimeSinceKernelCreated() (time.Duration, bool) {
 
 	return time.Since(ivk.createdAt), true
 }
+
+func (ivk *LocalInvoker) ConnectionInfo() *jupyter.ConnectionInfo {
+	return ivk.connInfo
+}

@@ -1689,7 +1689,7 @@ func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaI
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
-		return nil, domain.ErrInvalidParameter
+		return nil, types.ErrKernelNotFound
 	}
 
 	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
@@ -1780,7 +1780,7 @@ func (d *LocalScheduler) YieldNextExecution(_ context.Context, in *proto.KernelI
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s specified in 'YieldNextExecution' request.", kernelId)
-		return proto.VOID, domain.ErrInvalidParameter
+		return proto.VOID, types.ErrKernelNotFound
 	}
 
 	d.log.Debug("kernel %s will YIELD its next execution request.", in.Id)
@@ -1797,7 +1797,7 @@ func (d *LocalScheduler) UpdateReplicaAddr(_ context.Context, req *proto.Replica
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
-		return proto.VOID, domain.ErrInvalidParameter
+		return proto.VOID, types.ErrKernelNotFound
 	}
 
 	d.log.Debug("Informing replicas of kernel %s to update address of replica %d to %s.", kernelId, replicaId, hostname)
@@ -1875,7 +1875,7 @@ func (d *LocalScheduler) AddReplica(_ context.Context, req *proto.ReplicaInfoWit
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
-		return proto.VOID, domain.ErrInvalidParameter
+		return proto.VOID, types.ErrKernelNotFound
 	}
 
 	d.log.Debug("Now that replica %d of kernel %s (host=%s) has been added, notify the existing members.", replicaId, kernelId, hostname)
@@ -1987,7 +1987,7 @@ func (d *LocalScheduler) initializeKernelClient(in *proto.KernelReplicaSpec, con
 		shell, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
 		if err != nil {
 			d.log.Error("Failed to initialize shell forwarder (ZMQ shell socket) for kernel %s because: %v", kernelId, err)
-			d.closeKernel(kernel, "failed initializing shell forwarder")
+			_ = d.closeKernel(kernel, "failed initializing shell forwarder")
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 
@@ -1997,20 +1997,20 @@ func (d *LocalScheduler) initializeKernelClient(in *proto.KernelReplicaSpec, con
 	iopub, err := kernel.InitializeIOForwarder()
 	if err != nil {
 		d.log.Error("Failed to initialize IO forwarder (ZMQ IO Pub socket) for kernel %s because: %v", kernelId, err)
-		d.closeKernel(kernel, "failed initializing io forwarder")
+		_ = d.closeKernel(kernel, "failed initializing io forwarder")
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
 	iosub, err := kernel.InitializeIOSub(nil, "")
 	if err != nil {
 		d.log.Error("Failed to initialize IO SUB socket. Error: %v", err)
-		d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
+		_ = d.closeKernel(kernel, fmt.Sprintf("Failed to initialize IO SUB socket. Error: %v", err))
 		return nil, err
 	}
 
 	if err := kernel.Validate(); err != nil {
 		d.log.Error("Failed to validate connection with new kernel %s because: %v", kernelId, err)
-		d.closeKernel(kernel, "validation error")
+		_ = d.closeKernel(kernel, "validation error")
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 
@@ -2655,8 +2655,9 @@ func (d *LocalScheduler) stopKernel(ctx context.Context, kernel scheduling.Kerne
 
 	if d.DockerMode() {
 		d.log.Debug("Stopping container for kernel %s-%d via its invoker now.", kernel.ID(), kernel.ReplicaID())
-		if err := d.getInvoker(kernel).Close(); err != nil {
+		if err = d.getInvoker(kernel).Close(); err != nil {
 			d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
+			return err
 		}
 	} else {
 		d.log.Debug("Skipping invoker::Close step for kernel %s-%d; we're running in \"%v\" mode.", kernel.ID(), kernel.ReplicaID(), d.deploymentMode)
@@ -3036,22 +3037,22 @@ func (d *LocalScheduler) resourceRequestAdjustmentEnabled() bool {
 // Returns the target replica ID, if there is one, or -1 if there is not, along with the decoded metadata dictionary
 // if the dictionary was decoded successfully. If the dictionary was not decoded successfully, then an empty map
 // will be returned.
-func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (int32, map[string]interface{}, error) {
+func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (int32, *messaging.ExecuteRequestMetadata, map[string]interface{}, error) {
 	// If there is nothing in the message's metadata frame, then we just return immediately.
 	if len(*msg.JupyterFrames.MetadataFrame()) == 0 {
-		return -1, make(map[string]interface{}), nil
+		return -1, nil, make(map[string]interface{}), nil
 	}
 
 	var metadataDict map[string]interface{}
 	if err := msg.JupyterFrames.DecodeMetadata(&metadataDict); err != nil {
 		d.log.Error("Failed to decode metadata frame of \"execute_request\" message \"%s\" with JSON: %v", msg.JupyterMessageId(), err)
-		return -1, make(map[string]interface{}), err
+		return -1, nil, make(map[string]interface{}), err
 	}
 
 	var requestMetadata *messaging.ExecuteRequestMetadata
 	if err := mapstructure.Decode(metadataDict, &requestMetadata); err != nil {
 		d.log.Error("Failed to parse decoded metadata frame of \"execute_request\" message \"%s\" with mapstructure: %v", msg.JupyterMessageId(), err)
-		return -1, metadataDict, err
+		return -1, requestMetadata, metadataDict, err
 	}
 
 	d.log.Debug("Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
@@ -3064,7 +3065,7 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 	// If dynamic resource adjustments are disabled, or if there is no resource request included in the metadata,
 	// then we can just return.
 	if !d.resourceRequestAdjustmentEnabled() || requestMetadata.ResourceRequest == nil {
-		return targetReplicaId, metadataDict, nil
+		return targetReplicaId, requestMetadata, metadataDict, nil
 	}
 
 	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
@@ -3073,7 +3074,7 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 	if specsAreEqual {
 		d.log.Debug("Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
 			requestMetadata.ResourceRequest.String(), kernel.ResourceSpec().String(), kernel.ID())
-		return targetReplicaId, metadataDict, nil
+		return targetReplicaId, requestMetadata, metadataDict, nil
 	}
 
 	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\". "+
@@ -3084,10 +3085,10 @@ func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMes
 
 	// Attempt to update the kernel's resource request.
 	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
-		return targetReplicaId, metadataDict, err
+		return targetReplicaId, requestMetadata, metadataDict, err
 	}
 
-	return targetReplicaId, metadataDict, nil
+	return targetReplicaId, requestMetadata, metadataDict, nil
 }
 
 // processExecOrYieldRequest performs some scheduling logic, such as verifying that there are sufficient resources available
@@ -3116,7 +3117,12 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
-	targetReplicaId, metadataDict, err := d.processExecuteRequestMetadata(msg, kernel)
+	targetReplicaId, requestMetadata, metadataDict, err := d.processExecuteRequestMetadata(msg, kernel)
+	if err != nil {
+		d.log.Error("Failed to process metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), err)
+		return nil
+	}
 
 	// Extract the workload ID (which may or may not be included in the metadata of the request),
 	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
@@ -3134,15 +3140,12 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// to reserve resources for this kernel replica in anticipation of its leader election.
 	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() || msg.JupyterMessageType() == messaging.ShellYieldRequest
 
-	var gpuDeviceIds []int
-
-	val, loaded := metadataDict["gpu_device_ids"]
-	if !loaded {
+	gpuDeviceIds := requestMetadata.GpuDeviceIds
+	if gpuDeviceIds == nil {
 		d.log.Warn("No GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\"",
 			msg.JupyterMessageId(), kernel.ID())
 		gpuDeviceIds = make([]int, 0)
 	} else {
-		gpuDeviceIds = val.([]int)
 		d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
 			msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
 	}
@@ -3297,7 +3300,8 @@ func (d *LocalScheduler) setTotalVirtualGPUsKubernetes(ctx context.Context, in *
 			FreeVirtualGPUs:      int32(d.virtualGpuPluginServer.NumFreeVirtualGPUs()),
 		}
 
-		return response, fmt.Errorf("%w : cannot decrease the total number of vGPUs below the number of allocated vGPUs", domain.ErrInvalidParameter)
+		return response, fmt.Errorf("%w : cannot decrease the total number of vGPUs below the number of allocated vGPUs",
+			domain.ErrInvalidParameter)
 	}
 
 	err := d.virtualGpuPluginServer.SetTotalVirtualGPUs(newNumVirtualGPUs)
@@ -3666,9 +3670,10 @@ func (d *LocalScheduler) statusErrorf(kernel scheduling.KernelReplica, status ju
 			d.kernels.Delete(session)
 		}
 		d.log.Debug("Cleaned kernel %s and associated sessions %v after kernel stopped.", kernel.ID(), kernel.Sessions())
-		err := kernel.Close()
+		err = kernel.Close()
 		if err != nil {
 			d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
+			return nil, d.errorf(err)
 		}
 	}
 	return &proto.KernelStatus{Status: int32(status)}, nil
@@ -3682,14 +3687,18 @@ func (d *LocalScheduler) getInvokerByKernelId(kernelId string) (invoker.KernelIn
 	return d.kernelInvokers.Load(kernelId)
 }
 
-func (d *LocalScheduler) closeKernel(kernel scheduling.KernelReplica, reason string) {
+func (d *LocalScheduler) closeKernel(kernel scheduling.KernelReplica, reason string) error {
 	if err := d.getInvoker(kernel).Close(); err != nil {
 		d.log.Warn("Failed to close %v after %s, failure: %v", kernel, reason, err)
 	}
+
 	err := kernel.Close()
 	if err != nil {
 		d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
+		return err
 	}
+
+	return nil
 }
 
 func (d *LocalScheduler) cleanUp() {
@@ -3744,4 +3753,8 @@ func (d *LocalScheduler) NumKernels() int {
 // NumPrewarmContainers returns the number of scheduling.PrewarmContainer instances currently running on the LocalScheduler.
 func (d *LocalScheduler) NumPrewarmContainers() int {
 	return d.prewarmKernels.Len()
+}
+
+func (d *LocalScheduler) GetInvoker(kernelId string) (invoker.KernelInvoker, bool) {
+	return d.kernelInvokers.Load(kernelId)
 }

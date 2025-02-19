@@ -29,7 +29,8 @@ import (
 var (
 	CtxKernelHost = utils.ContextKey("host")
 
-	ErrNoReplicas = errors.New("kernel has no replicas")
+	ErrNoReplicas          = errors.New("kernel has no replicas")
+	ErrAlreadyShuttingDown = errors.New("kernel is already in the process of shutting down")
 )
 
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
@@ -73,6 +74,8 @@ type DistributedKernelClient struct {
 
 	busyStatus     *AggregateKernelStatus
 	lastBStatusMsg *messaging.JupyterMessage
+
+	shuttingDown atomic.Int32
 
 	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
 
@@ -1902,6 +1905,17 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 		return nil
 	}
 
+	if !c.shuttingDown.CompareAndSwap(0, 1) {
+		c.log.Warn("Already shutting down.")
+		return ErrAlreadyShuttingDown
+	}
+
+	defer func() {
+		if !c.shuttingDown.CompareAndSwap(1, 0) {
+			c.log.Warn("Failed to swap 'shutting down' flag back to 0...")
+		}
+	}()
+
 	// Stop the replicas first.
 	numReplicas := c.replicas.Len()
 
@@ -2053,8 +2067,10 @@ func (c *DistributedKernelClient) WaitClosed() jupyter.KernelStatus {
 }
 
 func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
-	c.log.Debug("Stopping replica %d of kernel %s now.", r.ReplicaID(), r.ID())
-	host := r.Context().Value(CtxKernelHost).(scheduling.Host)
+	c.log.Debug("Stopping replica %d of kernel %s in container %s.",
+		r.ReplicaID(), r.ID(), r.GetPodOrContainerName())
+
+	host := r.Host() // r.Context().Value(CtxKernelHost).(scheduling.Host)
 	if err := remover(host, c.session, noop); err != nil {
 		return host, err
 	}
@@ -2079,7 +2095,8 @@ func (c *DistributedKernelClient) clearReplicasLocked() {
 		err := replica.Close()
 		if err != nil {
 			// TODO(Ben): Handle this more cleanly.
-			c.log.Error("Error while trying to close replica %d: %v", replica.ReplicaID(), err)
+			c.log.Error("Error while trying to close replica %d in container %s: %v",
+				replica.ReplicaID(), replica.GetPodOrContainerName(), err)
 		} else {
 			c.log.Debug("Successfully closed replica %d.", replica.ReplicaID())
 		}
@@ -2130,7 +2147,7 @@ func (c *DistributedKernelClient) queryCloseLocked() error {
 		go func(kernelReplica scheduling.KernelReplica) {
 			defer stopped.Done()
 
-			host := kernelReplica.Context().Value(CtxKernelHost).(scheduling.Host)
+			host := kernelReplica.Host() // kernelReplica.Context().Value(CtxKernelHost).(scheduling.Host)
 			if _, err := host.WaitKernel(context.Background(), &proto.KernelId{Id: kernelReplica.ID()}); err != nil {
 				c.log.Error("Error while waiting on replica %d of kernel %s to stop: %v",
 					kernelReplica.ReplicaID(), kernelReplica.ID(), err)

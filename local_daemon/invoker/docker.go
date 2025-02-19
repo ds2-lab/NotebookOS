@@ -498,9 +498,6 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		return nil, ivk.reportLaunchError(err)
 	}
 
-	//hostMountDir := os.Getenv("HOST_MOUNT_DIR")
-	//targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
-
 	ivk.log.Debug("hostMountDir = \"%v\"\n", ivk.hostMountDir)
 	ivk.log.Debug("targetMountDir = \"%v\"\n", ivk.hostMountDir)
 	ivk.log.Debug("kernel debug port = %d", ivk.KernelDebugPort)
@@ -527,15 +524,6 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	}
 
 	ivk.log.Debug("Wrote config file: %v\n", configFile)
-
-	//ivk.log.Debug("filepath.Base(connectionFile)=\"%v\"\n", filepath.Base(connectionFile))
-	//ivk.log.Debug("filepath.Base(configFile)=\"%v\"\n", filepath.Base(configFile))
-	//
-	//ivk.log.Debug("{hostMountDir}/{connectionFile}\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(connectionFile))
-	//ivk.log.Debug("{hostMountDir}/{configFile}=\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(configFile))
-	//
-	//ivk.log.Debug("{targetMountDir}/{connectionFile}\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(connectionFile))
-	//ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(configFile))
 
 	ivk.containerName = kernelName
 

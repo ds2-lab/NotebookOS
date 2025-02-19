@@ -3084,11 +3084,11 @@ func (d *ClusterGatewayImpl) GetKernelStatus(_ context.Context, in *proto.Kernel
 }
 
 // KillKernel kills a kernel.
-func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
+func (d *ClusterGatewayImpl) KillKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	// Call the impl rather than the RPC stub.
-	ret, err = d.stopKernelImpl(in)
+	ret, err = d.stopKernelImpl(ctx, in)
 
 	if _, ok := status.FromError(err); !ok {
 		err = status.Error(codes.Internal, err.Error())
@@ -3135,7 +3135,7 @@ func (d *ClusterGatewayImpl) GetId() string {
 	return d.id
 }
 
-func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void, err error) {
+func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel %s; cannot stop kernel.", in.GetId())
@@ -3149,13 +3149,19 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 	d.log.Info("Stopping %v, restart=%v", kernel, restart)
 	ret = proto.VOID
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	notifyChan := make(chan interface{}, 1)
 
 	go func() {
-		err = d.errorf(kernel.Shutdown(d.cluster.Placer().Reclaim, restart))
+		err = kernel.Shutdown(d.cluster.Placer().Reclaim, restart)
+		if err != nil && errors.Is(err, client.ErrAlreadyShuttingDown) {
+			notifyChan <- err
+			return
+		}
+
+		err = d.errorf(err)
 		if err != nil {
 			d.log.Warn("Failed to close kernel: %s", err.Error())
+			notifyChan <- err
 			return
 		}
 
@@ -3175,17 +3181,38 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 			d.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
 		}
 
-		wg.Done()
+		notifyChan <- struct{}{}
 	}()
 
-	wg.Wait()
+	select {
+	case <-ctx.Done():
+		{
+			d.log.Error("Context cancelled while deleting kernel \"%s\": %v", in.Id, ctx.Err())
+			return proto.VOID, ctx.Err()
+		}
+	case v := <-notifyChan:
+		{
+			if err, ok := v.(error); !ok {
+				break
+			}
+
+			if errors.Is(err, client.ErrAlreadyShuttingDown) {
+				d.log.Warn("Kernel \"%s\" is already in the process of shutting down...", kernel.ID())
+				return proto.VOID, err
+			}
+
+			d.log.Error("Failed to stop kernel \"%s\": %v", in.Id, err)
+			return proto.VOID, err
+		}
+	}
+
 	d.log.Debug("Finished deleting kernel %s.", kernel.ID())
 
 	if !restart && d.KubernetesMode() /* Only delete CloneSet if we're in Kubernetes mode */ {
 		d.log.Debug("Deleting CloneSet of deleted kernel %s now.", kernel.ID())
 
 		// Delete the CloneSet.
-		err := d.kubeClient.DeleteCloneset(kernel.ID())
+		err = d.kubeClient.DeleteCloneset(kernel.ID())
 
 		if err != nil {
 			d.log.Error("Error encountered while deleting k8s CloneSet for kernel %s: %v", kernel.ID(), err)
@@ -3218,10 +3245,10 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 }
 
 // StopKernel stops a kernel.
-func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
+func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
 	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
 
-	ret, err := d.stopKernelImpl(in)
+	ret, err := d.stopKernelImpl(ctx, in)
 	if err != nil {
 		if _, ok := status.FromError(err); !ok {
 			err = status.Error(codes.Internal, err.Error())
@@ -3626,9 +3653,14 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 		return types.ErrKernelNotFound
 	}
 
+	err := d.removeAllReplicasOfKernel(kernel, true, false, false)
+	if err != nil {
+		d.log.Error("Failed to remove all replicas of kernel \"%s\" because: %v", kernel.ID(), err)
+		return err
+	}
+
 	// Stop the kernel. If we get an error, print it here, and then we'll return it.
-	var err error
-	if _, err = d.stopKernelImpl(&proto.KernelId{Id: kernel.ID()}); err != nil {
+	if _, err = d.stopKernelImpl(context.Background(), &proto.KernelId{Id: kernel.ID()}); err != nil {
 		d.log.Error("Failed to (cleanly) terminate session \"%s\", kernel \"%s\" because: %v", sessionId, kernel.ID(), err)
 
 		// Spawn a separate goroutine to send an error notification to the dashboard.

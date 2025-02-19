@@ -2,11 +2,13 @@ package e2e_testing
 
 import (
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	gatewayDaemon "github.com/scusemua/distributed-notebook/gateway/daemon"
 	"github.com/scusemua/distributed-notebook/local_daemon/daemon"
@@ -24,6 +26,8 @@ const (
 var (
 	kernelArgv = []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f",
 		"{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"}
+
+	globalLogger = config.GetLogger("")
 )
 
 type components struct {
@@ -143,7 +147,7 @@ var _ = Describe("End-to-End Tests", func() {
 					Id:              kernelId,
 					Session:         kernelId,
 					Argv:            kernelArgv,
-					SignatureScheme: jupyter.JupyterSignatureScheme,
+					SignatureScheme: messaging.JupyterSignatureScheme,
 					Key:             kernelKey,
 					ResourceSpec:    resourceSpec,
 				})
@@ -154,7 +158,57 @@ var _ = Describe("End-to-End Tests", func() {
 				sem.Release(1)
 			}()
 
+			invokersChan := make(chan invoker.KernelInvoker, len(components.LocalDaemons))
+			for i := 0; i < len(components.LocalDaemons); i++ {
+				index := i
+				go func(idx int) {
+					for {
+						kernelInvoker, ok := components.LocalDaemons[idx].GetInvoker(kernelId)
+						if ok {
+							globalLogger.Info("Got kernel invoker from Local Daemon #%d", idx)
+							invokersChan <- kernelInvoker
+							return
+						}
+
+						time.Sleep(time.Millisecond * 250)
+					}
+				}(index)
+			}
+
+			kernelInvokers := make([]invoker.KernelInvoker, 0, len(components.LocalDaemons))
+			for len(kernelInvokers) < len(components.LocalDaemons) {
+				var kernelInvoker invoker.KernelInvoker
+				Eventually(invokersChan, time.Second*2, time.Millisecond*250).Should(Receive(&kernelInvoker))
+				kernelInvokers = append(kernelInvokers, kernelInvoker)
+			}
+
+			for _, kernelInvoker := range kernelInvokers {
+				connInfo := kernelInvoker.ConnectionInfo()
+				globalLogger.Info("Received connection info:\n%v", connInfo.PrettyString(2))
+
+				sockets, messageQueues, closeFunc, err := createKernelSockets(connInfo, kernelId)
+				Expect(err).To(BeNil())
+				Expect(sockets).NotTo(BeNil())
+				Expect(messageQueues).NotTo(BeNil())
+				Expect(closeFunc).NotTo(BeNil())
+			}
+
 			Eventually(sem.Acquire(context.Background(), 1), time.Second*5, time.Millisecond*250).Should(Succeed())
+
+			time.Sleep(10 * time.Second)
 		})
 	})
 })
+
+type Kernel struct {
+	KernelId string
+	Replicas []*KernelReplica
+}
+
+type KernelReplica struct {
+	KernelId      string
+	ReplicaId     int32
+	Sockets       map[messaging.MessageType]*messaging.Socket
+	MessageQueues map[messaging.MessageType]*queue.ThreadsafeFifo[*messaging.JupyterMessage]
+	CloseFunc     func()
+}

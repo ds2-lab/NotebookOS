@@ -54,6 +54,8 @@ type KernelInvoker interface {
 
 	GetAssignedGpuDeviceIds() []int32
 
+	ConnectionInfo() *jupyter.ConnectionInfo
+
 	// SetAssignedGpuDeviceIds will panic if the CurrentContainerType of the target KernelInvoker is
 	// scheduling.StandardContainer.
 	//

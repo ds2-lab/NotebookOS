@@ -17,6 +17,7 @@ func TestInvoker(t *testing.T) {
 
 var (
 	debugLoggingEnabled = false
+	globalLogger        = config.GetLogger("")
 )
 
 func init() {
