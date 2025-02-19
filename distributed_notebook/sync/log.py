@@ -495,7 +495,7 @@ class SyncLog(Protocol):
     @property
     def restoration_time_seconds(self)->float:
         """
-        Return the time spent on restoring previous state from remote remote_storage.
+        Return the time spent on restoring previous state from remote storage.
         """
 
     def clear_restoration_time(self):

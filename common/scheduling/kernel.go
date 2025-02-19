@@ -349,7 +349,7 @@ type Kernel interface {
 	// associated with the active/ongoing container creation operation.
 	//
 	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
-	// BeginSchedulingReplicaContainers will return false and nil.
+	// InitSchedulingReplicaContainersOperation will return false and nil.
 	InitSchedulingReplicaContainersOperation() (bool, CreateReplicaContainersAttempt)
 
 	// InitRemoveReplicaContainersOperation attempts to take ownership over the next/current removal attempt.

@@ -341,7 +341,7 @@ func (c *DistributedKernelClient) InitRemoveReplicaContainersOperation() (bool, 
 // associated with the active/ongoing container creation operation.
 //
 // If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
-// BeginSchedulingReplicaContainers will return false and nil.
+// InitSchedulingReplicaContainersOperation will return false and nil.
 func (c *DistributedKernelClient) InitSchedulingReplicaContainersOperation() (bool, scheduling.CreateReplicaContainersAttempt) {
 	// TODO: What about concurrent descheduling/removal operation?
 
@@ -1130,11 +1130,11 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	// c.replicasMutex.RUnlock()
 
 	// If we're idle-reclaiming the containers of the kernel, then we need to issue 'Prepare to Migrate'
-	// requests to prompt the containers to persist any important state to remote remote_storage.
+	// requests to prompt the containers to persist any important state to remote storage.
 	if forIdleReclamation {
-		c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote remote_storage.")
+		c.log.Debug("Issuing 'Prepare to Migrate' requests to ensure replicas persist state to remote storage.")
 
-		// We'll give the replicas up to 5 minutes to write their state to remote remote_storage.
+		// We'll give the replicas up to 5 minutes to write their state to remote storage.
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 		defer cancel()
 

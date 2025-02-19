@@ -42,12 +42,12 @@ type LocalDaemonOptions struct {
 	JaegerAddr                    string `name:"jaeger" description:"Jaeger agent address." yaml:"jaeger" json:"jaeger"`
 	ConsulAddr                    string `name:"consul" description:"Consul agent address." yaml:"consul" json:"consul"`
 	NodeName                      string `name:"node_name" description:"Node name used only for debugging in local mode." yaml:"node_name" json:"node_name"`
-	AwsRegion                     string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
-	RedisPassword                 string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
-	Port                          int    `name:"port" usage:"Port that the gRPC service listens on."`
+	AwsRegion                     string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	RedisPassword                 string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+	Port                          int    `name:"port" json:"port" yaml:"port" usage:"Port that the gRPC service listens on."`
 	KernelRegistryPort            int    `name:"kernel-registry-port" usage:"Port on which the kernel Registry Server listens."`
-	RedisPort                     int    `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote remote_storage).
-	RedisDatabase                 int    `name:"redis_database" json:"redis_database" yaml:"redis_database"` // RedisDatabase is the database number to use (only relevant if using Redis for remote remote_storage).
+	RedisPort                     int    `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisDatabase                 int    `name:"redis_database" json:"redis_database" yaml:"redis_database"` // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 }
 
 func (o *LocalDaemonOptions) Validate() error {
@@ -106,12 +106,12 @@ func (o *LocalDaemonOptions) String() string {
 type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
-	DockerStorageBase           string `name:"docker-remote_storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
+	DockerStorageBase           string `name:"docker-storage-base" json:"docker-storage-base" yaml:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
 	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
 	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer    bool `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+	DirectServer    bool `name:"direct" yaml:"direct" json:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	RunKernelsInGdb bool `name:"run_kernels_in_gdb" yaml:"run_kernels_in_gdb" json:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".

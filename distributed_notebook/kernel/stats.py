@@ -39,7 +39,7 @@ class ExecutionStats(object):
         - code execution
         - copy data from gpu to cpu
         - synchronization
-            - remote remote_storage writes
+            - remote storage writes
         """
         self.cuda_init_microseconds: float = cuda_init_microseconds
         self.download_runtime_dependencies_microseconds: float = download_runtime_dependencies_microseconds

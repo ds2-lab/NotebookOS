@@ -514,9 +514,9 @@ type ExecuteRequestMetadata struct {
 	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
 
-	// RemoteStorageDefinition defines the remote remote_storage that should be used by the kernel when simulating
+	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
 	// checkpointing its state.
-	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
+	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"storage_definition" mapstructure:"remote_storage_definition"`
 
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.

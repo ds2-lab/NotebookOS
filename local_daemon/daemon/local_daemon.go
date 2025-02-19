@@ -221,17 +221,17 @@ type LocalScheduler struct {
 	id       string
 	nodeName string
 
-	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
-	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
+	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
 
 	// members
 	transport string
 	ip        string
 
-	// Hostname of the remote remote_storage. The SyncLog's remote remote_storage client will connect to this.
+	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
 	remoteStorageEndpoint string
 
-	// Type of remote remote_storage, 'hdfs' or 'redis'
+	// Type of remote storage, 'hdfs' or 'redis'
 	remoteStorage string
 
 	// Base directory in which the persistent store data is stored when running in docker mode.
@@ -245,8 +245,8 @@ type LocalScheduler struct {
 	// prometheusStarted is a sync.primarSemaphore used to signal to the metric-publishing goroutine
 	// that it should start publishing metrics now.
 	prometheusStarted sync.WaitGroup
-	RedisPort         int // RedisPort is the port of the Redis server (only relevant if using Redis for remote remote_storage).
-	RedisDatabase     int // RedisDatabase is the database number to use (only relevant if using Redis for remote remote_storage).
+	RedisPort         int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisDatabase     int // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
@@ -507,7 +507,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	}
 
 	if len(localDaemonOptions.RemoteStorageEndpoint) == 0 {
-		panic("remote remote_storage endpoint is empty.")
+		panic("remote storage endpoint is empty.")
 	}
 
 	switch localDaemonOptions.DeploymentMode {

@@ -98,7 +98,7 @@ func main() {
 	logger.Info("Starting Cluster Gateway with the following options:\n%s\n", options.String())
 
 	if options.PrettyPrintOptions {
-		logger.Info("Cluster Gateway Options pretty-printed:\n%s\n", options.PrettyString(2))
+		logger.Info("Cluster Gateway ClusterGatewayOptions pretty-printed:\n%s\n", options.PrettyString(2))
 	}
 
 	if options.ClusterDaemonOptions.CommonOptions.DebugMode {

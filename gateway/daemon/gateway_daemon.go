@@ -2847,7 +2847,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 }
 
 // shouldKernelReplicaReadStateFromRemoteStorage is called by NotifyKernelRegistered and is used to determine whether
-// the scheduling.KernelReplica that is registering should read/restore state from remote remote_storage or not.
+// the scheduling.KernelReplica that is registering should read/restore state from remote storage or not.
 //
 // The basis for this decision depends on several factors.
 //
@@ -2858,7 +2858,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 // state if the kernel replicas are being recreated following an idle kernel/session reclamation.
 //
 // Finally, when using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from
-// remote remote_storage if this is not the very first time that they're being created.
+// remote storage if this is not the very first time that they're being created.
 func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel, forMigration bool) bool {
 	policy := d.Scheduler().Policy()
 
@@ -2887,9 +2887,9 @@ func (d *ClusterGatewayImpl) shouldKernelReplicaReadStateFromRemoteStorage(kerne
 	// We also need to check if the number of containers created for this kernel is greater than or equal to the number
 	// of replicas mandated by the scheduling policy. Although this isn't supported at the time of writing this, if we
 	// enable warm container reuse by (e.g.,) the Static policy, then we'll be creating 3 containers when the kernel is
-	// first created. We don't want the second or third replica to attempt to read state from remote remote_storage when they
+	// first created. We don't want the second or third replica to attempt to read state from remote storage when they
 	// are being created for the first time. So, it's only once we've created at least as many containers as there are
-	// replicas of an individual kernel that a new kernel replica should attempt to read state from remote remote_storage.
+	// replicas of an individual kernel that a new kernel replica should attempt to read state from remote storage.
 	//
 	// For single-replica policies, like the WarmContainerPoolPolicy, this logic will still work appropriately.
 	if policy.ReuseWarmContainers() && kernel.NumContainersCreated() > 0 && kernel.NumContainersCreated() >= int32(d.NumReplicas()) {

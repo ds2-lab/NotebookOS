@@ -55,7 +55,7 @@ const (
 )
 
 var (
-	kubeStorageBase = "/remote_storage"                                                                                // TODO(Ben): Don't hard-code this. What should this be?
+	kubeStorageBase = "/storage"                                                                                       // TODO(Ben): Don't hard-code this. What should this be?
 	clonesetRes     = schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "clonesets"} // Identifier for Kubernetes CloneSet resources.
 
 	ErrNodeNotFound = errors.New("could not find kubernetes node with the specified name")
@@ -74,8 +74,8 @@ type BasicKubeClient struct {
 	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
 	localDaemonServiceName string                                     // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
 	kubeNamespace          string                                     // Kubernetes namespace that all of these components reside in.
-	remoteStorageEndpoint  string                                     // Hostname of the remote remote_storage. The SyncLog's remote remote_storage client will connect to this.
-	remoteStorage          string                                     // The type of remote remote_storage we're using (hdfs or redis).
+	remoteStorageEndpoint  string                                     // Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
+	remoteStorage          string                                     // The type of remote storage we're using (hdfs or redis).
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
@@ -111,7 +111,7 @@ func NewKubeClient(gatewayDaemon ClusterGateway, clusterDaemonOptions *domain.Cl
 	}
 
 	if client.remoteStorageEndpoint == "" {
-		panic("The remote remote_storage endpoint cannot be \"\"")
+		panic("The remote storage endpoint cannot be \"\"")
 	}
 
 	config.InitLogger(&client.log, client)

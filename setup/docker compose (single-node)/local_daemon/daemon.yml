@@ -44,7 +44,7 @@ local_mode: false
 deployment_mode: "docker-compose"
 debug_port: 9996
 debug_mode: true
-docker-storage-base: "/remote_storage"
+docker-storage-base: "/storage"
 using-wsl: true 
 prometheus_interval: 15
 prometheus_port: 8089

@@ -16,9 +16,9 @@ from distributed_notebook.sync.util import get_size
 class RemoteStorageLog(object):
     """
     RemoteStorageLog is an implementation of SyncLog -- just like RaftLog -- but RemoteStorageLog uses
-    an arbitrary remote remote_storage service to persist checkpointed state.
+    an arbitrary remote storage service to persist checkpointed state.
 
-    Access to the remote remote_storage service is provided by an implementation of RemoteStorageProvider.
+    Access to the remote storage service is provided by an implementation of RemoteStorageProvider.
 
     RemoteStorageLog only supports single-replica scheduling policies. Scheduling policies with > 1 replica, such as
     static or dynamic, should use the RaftLog class.
@@ -68,7 +68,7 @@ class RemoteStorageLog(object):
 
         self._base_path: str = base_path
 
-        # Basically just the number of times we've written something to remote remote_storage.
+        # Basically just the number of times we've written something to remote storage.
         self._num_changes: int = 0
         self._term: int = 0
         self._restore_namespace_time_seconds: float = 0.0
@@ -125,7 +125,7 @@ class RemoteStorageLog(object):
 
     async def catchup_with_peers(self)->None:
         """
-        RemoteStorageLog uses the catchup_with_peers to restore the namespace from remote remote_storage.
+        RemoteStorageLog uses the catchup_with_peers to restore the namespace from remote storage.
         """
         await self.restore_namespace()
 
@@ -182,7 +182,7 @@ class RemoteStorageLog(object):
 
     @property
     def num_reads(self) -> int:  # type: ignore
-        """The number of individual remote remote_storage reads."""
+        """The number of individual remote storage reads."""
         return self.storage_provider.num_objects_read
 
     @property
@@ -326,7 +326,7 @@ class RemoteStorageLog(object):
 
     async def restore_namespace(self) -> Dict[str, SynchronizedValue]:
         """
-        Retrieve metadata from remote remote_storage and use the metadata to read all the keys from the namespace.
+        Retrieve metadata from remote storage and use the metadata to read all the keys from the namespace.
 
         This does NOT restore models/datasets from their pointers.
 

@@ -6460,21 +6460,6 @@ func (mr *MockKernelMockRecorder) AssignMessagingMetricsProvider(messagingMetric
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignMessagingMetricsProvider", reflect.TypeOf((*MockKernel)(nil).AssignMessagingMetricsProvider), messagingMetricsProvider)
 }
 
-// BeginSchedulingReplicaContainers mocks base method.
-func (m *MockKernel) BeginSchedulingReplicaContainers() (bool, scheduling.CreateReplicaContainersAttempt) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InitSchedulingReplicaContainersOperation")
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(scheduling.CreateReplicaContainersAttempt)
-	return ret0, ret1
-}
-
-// BeginSchedulingReplicaContainers indicates an expected call of BeginSchedulingReplicaContainers.
-func (mr *MockKernelMockRecorder) BeginSchedulingReplicaContainers() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitSchedulingReplicaContainersOperation", reflect.TypeOf((*MockKernel)(nil).BeginSchedulingReplicaContainers))
-}
-
 // BindSession mocks base method.
 func (m *MockKernel) BindSession(sess string) {
 	m.ctrl.T.Helper()
@@ -6694,6 +6679,36 @@ func (m *MockKernel) IOPubListenPort() int {
 func (mr *MockKernelMockRecorder) IOPubListenPort() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IOPubListenPort", reflect.TypeOf((*MockKernel)(nil).IOPubListenPort))
+}
+
+// InitRemoveReplicaContainersOperation mocks base method.
+func (m *MockKernel) InitRemoveReplicaContainersOperation() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InitRemoveReplicaContainersOperation")
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(scheduling.RemoveReplicaContainersAttempt)
+	return ret0, ret1
+}
+
+// InitRemoveReplicaContainersOperation indicates an expected call of InitRemoveReplicaContainersOperation.
+func (mr *MockKernelMockRecorder) InitRemoveReplicaContainersOperation() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitRemoveReplicaContainersOperation", reflect.TypeOf((*MockKernel)(nil).InitRemoveReplicaContainersOperation))
+}
+
+// InitSchedulingReplicaContainersOperation mocks base method.
+func (m *MockKernel) InitSchedulingReplicaContainersOperation() (bool, scheduling.CreateReplicaContainersAttempt) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InitSchedulingReplicaContainersOperation")
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(scheduling.CreateReplicaContainersAttempt)
+	return ret0, ret1
+}
+
+// InitSchedulingReplicaContainersOperation indicates an expected call of InitSchedulingReplicaContainersOperation.
+func (mr *MockKernelMockRecorder) InitSchedulingReplicaContainersOperation() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitSchedulingReplicaContainersOperation", reflect.TypeOf((*MockKernel)(nil).InitSchedulingReplicaContainersOperation))
 }
 
 // InitialContainerCreationFailed mocks base method.
@@ -7130,6 +7145,21 @@ func (m *MockKernel) RemoveReplicaByID(id int32, remover scheduling.ReplicaRemov
 func (mr *MockKernelMockRecorder) RemoveReplicaByID(id, remover, noop any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveReplicaByID", reflect.TypeOf((*MockKernel)(nil).RemoveReplicaByID), id, remover, noop)
+}
+
+// ReplicaContainersAreBeingRemoved mocks base method.
+func (m *MockKernel) ReplicaContainersAreBeingRemoved() (bool, scheduling.RemoveReplicaContainersAttempt) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplicaContainersAreBeingRemoved")
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(scheduling.RemoveReplicaContainersAttempt)
+	return ret0, ret1
+}
+
+// ReplicaContainersAreBeingRemoved indicates an expected call of ReplicaContainersAreBeingRemoved.
+func (mr *MockKernelMockRecorder) ReplicaContainersAreBeingRemoved() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplicaContainersAreBeingRemoved", reflect.TypeOf((*MockKernel)(nil).ReplicaContainersAreBeingRemoved))
 }
 
 // ReplicaContainersAreBeingScheduled mocks base method.

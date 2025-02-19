@@ -173,10 +173,10 @@ def gen_error_response(err):
 
 
 def get_download_code(existing_model_code: str, model_name: str) -> str:
-    return f"""# Explicitly download the latest model parameters from remote remote_storage.
-print("Explicitly downloading the latest model parameters from remote remote_storage for model of type '{model_name}'.", flush = True)
+    return f"""# Explicitly download the latest model parameters from remote storage.
+print("Explicitly downloading the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
 model = __download_func__(__model_pointer__, existing_model = {existing_model_code})
-print("Downloaded the latest model parameters from remote remote_storage for model of type '{model_name}'.", flush = True)
+print("Downloaded the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
 """
 
 
@@ -275,29 +275,29 @@ class DistributedKernel(IPythonKernel):
     ).tag(config=True)
 
     remote_storage: Union[str, Unicode] = Unicode(
-        help="The type of remote remote_storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
+        help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
         default_value="redis",
     ).tag(config=True)
 
     aws_region: Union[str, Unicode] = Unicode(
-        help="The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).",
+        help="The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).",
         default_value="us-east-1",
     ).tag(config=True)
 
     redis_password: Optional[Union[str, Unicode]] = Unicode(
-        help="The password to access Redis (only relevant if using Redis for remote remote_storage).",
+        help="The password to access Redis (only relevant if using Redis for remote storage).",
         default_value=None,
         allow_none=True
     ).tag(config=True)
 
     redis_port: Integer = Integer(
         default_value=6379,
-        help="Port of the Redis server (only relevant if using Redis for remote remote_storage)."
+        help="Port of the Redis server (only relevant if using Redis for remote storage)."
     ).tag(config=True)
 
     redis_database: Integer = Integer(
         default_value=0,
-        help="Redis database number to use (only relevant if using Redis for remote remote_storage)."
+        help="Redis database number to use (only relevant if using Redis for remote storage)."
     ).tag(config=True)
 
     prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(
@@ -507,7 +507,7 @@ class DistributedKernel(IPythonKernel):
                              f'with keyword argument "{kwarg_remote_storage}"')
             self.remote_storage = kwarg_remote_storage
         else:
-            self.log.debug(f"Using remote remote_storage '{self.remote_storage}', hostname='{self.remote_storage_hostname}'")
+            self.log.debug(f"Using remote storage '{self.remote_storage}', hostname='{self.remote_storage_hostname}'")
 
         if "smr_enabled" in kwargs:
             kwargs_smr_enabled: Bool = kwargs["smr_enabled"]
@@ -615,7 +615,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(f'Remote storage hostname: "{self.remote_storage_hostname}"')
 
-        # Arguments not relevant to the specified remote remote_storage will be ignored.
+        # Arguments not relevant to the specified remote storage will be ignored.
         self._remote_checkpointer: Checkpointer = get_checkpointer(
             remote_storage_name=self.remote_storage,
             host=self.remote_storage_hostname,
@@ -923,7 +923,7 @@ class DistributedKernel(IPythonKernel):
         # preparing_to_migrate_cv is used when handling shutdown requests.
         #
         # Specifically, the control thread needs to wait to shut the kernel down until the important state
-        # is safely persisted to remote remote_storage.
+        # is safely persisted to remote storage.
         #
         # This condition variable is used to wait until that completes, and to signal that it has completed.
         self.preparing_to_migrate_cv: asyncio.Condition = asyncio.Condition()
@@ -1936,7 +1936,7 @@ class DistributedKernel(IPythonKernel):
 
         if remote_storage_name == "":
             self.log.warning(
-                f"Received non-empty remote remote_storage definition with no name: {remote_storage_definition}"
+                f"Received non-empty remote storage definition with no name: {remote_storage_definition}"
             )
             return None
 
@@ -1952,7 +1952,7 @@ class DistributedKernel(IPythonKernel):
         self.remote_storages[remote_storage.name] = remote_storage
 
         self.log.debug(
-            f'Successfully registered new remote remote_storage from dictionary definition: "{remote_storage_name}".'
+            f'Successfully registered new remote storage from dictionary definition: "{remote_storage_name}".'
         )
 
         return remote_storage_name
@@ -1961,13 +1961,13 @@ class DistributedKernel(IPythonKernel):
             self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer
     ) -> Optional[str]:
         """
-        Convert the remote remote_storage definition that was extracted from the metadata of an "execute_request" or
+        Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
         "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
         in our remote_storages mapping.
 
         Returns:
-            the name of the included remote remote_storage, or None if no remote remote_storage was included.
-            the name is returned regardless of whether the remote remote_storage had already been registered or not.
+            the name of the included remote storage, or None if no remote storage was included.
+            the name is returned regardless of whether the remote storage had already been registered or not.
         """
         if isinstance(remote_storage_definition, dict):
             return self.register_remote_storage_definition_from_dict(
@@ -1984,7 +1984,7 @@ class DistributedKernel(IPythonKernel):
         self.remote_storages[remote_storage_name] = remote_storage_definition
 
         self.log.debug(
-            f'Successfully registered new remote remote_storage: "{remote_storage_name}".'
+            f'Successfully registered new remote storage: "{remote_storage_name}".'
         )
 
         return remote_storage_name
@@ -2027,7 +2027,7 @@ class DistributedKernel(IPythonKernel):
         """
         Process the metadata included in a shell "execute_request" or "yield_request" message.
 
-        :return: a tuple where the first element is the remote remote_storage name and the second is a list of GPU device IDs.
+        :return: a tuple where the first element is the remote storage name and the second is a list of GPU device IDs.
         """
         self.log.debug(f'Processing metadata of "{msg_type}" request "{msg_id}": {metadata}')
 
@@ -2115,7 +2115,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f'"{k}" (valtype={type(v).__name__}): {v}')
 
         # Process the metadata included in the request.
-        # If we get back a remote remote_storage name, then we'll use it to simulate I/O after we finish the execution.
+        # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
         remote_storage_name, gpu_device_ids, = await self.process_execute_request_metadata(
             parent_header["msg_id"], parent_header["msg_type"], metadata)
 
@@ -2222,7 +2222,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
 
         # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
-        # For single-replica policies, this will persist the AST and any variables to remote remote_storage, namely AWS S3
+        # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
         # or Redis, depending on the system's configuration.
         await self.synchronize_updated_state(term_number)
 
@@ -2231,7 +2231,7 @@ class DistributedKernel(IPythonKernel):
         # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
         # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
         #
-        # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote remote_storage
+        # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
         # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
         # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
         # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
@@ -2250,12 +2250,12 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats.upload_model_and_training_data_microseconds += \
             (self._remote_checkpointer.storage_provider.write_time * 1.0e6)
 
-        # Add the time to load and apply serialized state from remote remote_storage.
+        # Add the time to load and apply serialized state from remote storage.
         self.current_execution_stats.download_model_microseconds += \
             (self.synclog.restoration_time_seconds * 1.0e6)
 
         # For SMR-based policies, the "restore namespace" time is how long it takes to "catch up".
-        # For other policies, the "restore namespace" time is the time taken to read the data from remote remote_storage.
+        # For other policies, the "restore namespace" time is the time taken to read the data from remote storage.
         if self.smr_enabled and self.num_replicas > 1:
             self.current_execution_stats.download_model_microseconds += \
                 (self.synclog.restore_namespace_time_seconds * 1.0e6)
@@ -2462,7 +2462,7 @@ class DistributedKernel(IPythonKernel):
             await self.__close_synclog_remote_storage_client()
             return intermediate_resp, False
 
-        # Step 3: close the SyncLog's remote remote_storage client if we haven't done so already.
+        # Step 3: close the SyncLog's remote storage client if we haven't done so already.
         if isinstance(self.synclog, RaftLog):
             # We'll ignore any errors at this stage.
             await self.__close_synclog_remote_storage_client()
@@ -3263,11 +3263,11 @@ class DistributedKernel(IPythonKernel):
                     creation_code = get_skipped_creation_code(deep_learning_model, dataset_name)
 
             # Case 3 continued: if SMR is enabled and there are multiple replicas, then we'll
-            # download the latest model state from remote remote_storage to ensure it is up to date.
+            # download the latest model state from remote storage to ensure it is up to date.
             #
             # TODO: Will this result in the previous leader unnecessarily downloading the latest state?
             if self.smr_enabled and self.num_replicas > 1 and existing_model is not None:
-                self.log.debug(f'Will retrieve latest state for "{deep_learning_model}" model from remote remote_storage.')
+                self.log.debug(f'Will retrieve latest state for "{deep_learning_model}" model from remote storage.')
 
                 # Inject the __download_func__ and __model_pointer__ variables into the user namespace.
                 self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
@@ -3351,7 +3351,7 @@ class DistributedKernel(IPythonKernel):
             :param deep_learning_model_name: the model to be used for deep learning training
             :param batch_size: batch size to pass to dataset constructor
             :param gpu_device_ids: the gpu device IDs that we've been assigned/allocated
-            :param remote_storage_name: the name of the remote remote_storage that we should use for (simulated) checkpointing
+            :param remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
             :param cell_meta:
             :param cell_id:
             :param code: (str): The code to be executed.
@@ -3871,9 +3871,9 @@ class DistributedKernel(IPythonKernel):
             vram_bytes: float = -1,
     ) -> float:
         """
-        Simulate checkpointing using the current resource request and the specified remote remote_storage name.
+        Simulate checkpointing using the current resource request and the specified remote storage name.
 
-        If the specified remote remote_storage name is None or the empty string, then the most-recently-used remote remote_storage
+        If the specified remote storage name is None or the empty string, then the most-recently-used remote storage
         will be used again.
 
         io_type must be "read", "write", "upload", or "download" (case-insensitive).
@@ -3881,7 +3881,7 @@ class DistributedKernel(IPythonKernel):
         if not self.simulate_checkpointing_latency:
             self.log.debug(
                 f"Checkpointing is disabled. Skipping simulation of network {io_type} "
-                f"targeting remote remote_storage {remote_storage_name}."
+                f"targeting remote storage {remote_storage_name}."
             )
             return 0
 
@@ -3904,7 +3904,7 @@ class DistributedKernel(IPythonKernel):
             self.report_error(
                 "No Current Resource Request",
                 f"Kernel {self.kernel_id} does not have a resource request, so it cannot "
-                f'simulate checkpointing with specified remote remote_storage "{remote_storage_name}"...',
+                f'simulate checkpointing with specified remote storage "{remote_storage_name}"...',
             )
             return 0
 
@@ -3920,16 +3920,16 @@ class DistributedKernel(IPythonKernel):
             )
             self.report_error(
                 f'Unknown Remote Storage "{remote_storage_name}"',
-                f'Could not find requested remote remote_storage "{remote_storage_name}" to simulate '
+                f'Could not find requested remote storage "{remote_storage_name}" to simulate '
                 f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"',
             )
             return 0
 
         if remote_storage_name is None or remote_storage_name == "":
             self.log.info(
-                "No remote remote_storage specified. Will select most-recently-used remote remote_storage."
+                "No remote storage specified. Will select most-recently-used remote storage."
             )
-            # If we have more than one remote remote_storage registered, then we'll just use whatever remote remote_storage was
+            # If we have more than one remote storage registered, then we'll just use whatever remote storage was
             # used most recently.
             simulated_checkpointer: Optional[SimulatedCheckpointer] = (
                 self.get_most_recently_used_remote_storage()
@@ -3940,7 +3940,7 @@ class DistributedKernel(IPythonKernel):
 
             remote_storage_name = simulated_checkpointer.name
             self.log.debug(
-                f'Identified remote remote_storage "{simulated_checkpointer.name}" as most-recently-used checkpointer.'
+                f'Identified remote storage "{simulated_checkpointer.name}" as most-recently-used checkpointer.'
             )
         else:
             simulated_checkpointer: Optional[SimulatedCheckpointer] = (
@@ -3952,7 +3952,7 @@ class DistributedKernel(IPythonKernel):
         if simulated_checkpointer is None:
             self.report_error(
                 f'Unknown Remote Storage "{remote_storage_name}"',
-                f'Could not find requested remote remote_storage "{remote_storage_name}" to simulate '
+                f'Could not find requested remote storage "{remote_storage_name}" to simulate '
                 f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"',
             )
             return 0
@@ -3964,7 +3964,7 @@ class DistributedKernel(IPythonKernel):
                 self.report_error(
                     "Current Resource Request Does Not Specify VRAM",
                     f"The current resource request for {self.kernel_id} does not have a VRAM entry, "
-                    f'so the kernel cannot simulate checkpointing with specified remote remote_storage "{remote_storage_name}"...',
+                    f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...',
                 )
                 return 0
 
@@ -3983,27 +3983,27 @@ class DistributedKernel(IPythonKernel):
         try:
             self.log.debug(
                 f"Simulating remote {io_type} of size {format_size(vram_bytes)} "
-                f"bytes targeting remote remote_storage {simulated_checkpointer.name}. "
+                f"bytes targeting remote storage {simulated_checkpointer.name}. "
                 f"I/O rate: {rate_formatted}. "
                 f"Expected time to complete I/O operation: {get_estimated_io_time_seconds(size_bytes=vram_bytes, rate=rate)} seconds."
             )
             await simulation_func(size_bytes=int(vram_bytes))
         except Exception as exc:
             self.log.error(
-                f"{type(exc).__name__} while simulating checkpointing with remote remote_storage "
+                f"{type(exc).__name__} while simulating checkpointing with remote storage "
                 f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}"
             )
             self.log.error(traceback.format_exc())
             self.report_error(
                 f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
-                f"{type(exc).__name__} while simulating checkpointing with remote remote_storage "
+                f"{type(exc).__name__} while simulating checkpointing with remote storage "
                 f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}",
             )
             raise exc  # re-raise
 
         duration: float = time.time() - start_time
         self.log.debug(
-            f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote remote_storage "
+            f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "
             f"{remote_storage_name} in {duration} seconds."
         )
 
@@ -4049,7 +4049,7 @@ class DistributedKernel(IPythonKernel):
         )
 
         # Make sure we're not (still) preparing to migrate.
-        # If we are, then we need to wait to ensure that all important state is checkpointed to remote remote_storage.
+        # If we are, then we need to wait to ensure that all important state is checkpointed to remote storage.
         async with self.preparing_to_migrate_cv:
             while self.preparing_to_migrate:
                 self.log.warning("We are currently preparing to migrate. "
@@ -4125,7 +4125,7 @@ class DistributedKernel(IPythonKernel):
 
     async def __close_synclog_remote_storage_client(self) -> Tuple[dict, bool]:
         """
-        Close the remote remote_storage client of the SyncLog.
+        Close the remote storage client of the SyncLog.
         """
         try:
             self.synclog.close_remote_storage_client()
@@ -4147,8 +4147,8 @@ class DistributedKernel(IPythonKernel):
 
     async def __close_synclog(self) -> Tuple[dict, bool]:
         """
-        Close our SyncLog. This will not close the SyncLog's remote remote_storage client if the SyncLog is of
-        type RaftLog. In that case, the remote remote_storage client must be closed explicitly via the
+        Close our SyncLog. This will not close the SyncLog's remote storage client if the SyncLog is of
+        type RaftLog. In that case, the remote storage client must be closed explicitly via the
         DistributedKernel's __close_synclog_remote_storage_client method.
         """
         if not self.synclog:
@@ -4189,10 +4189,10 @@ class DistributedKernel(IPythonKernel):
             return gen_error_response(e), False
 
         # If the SyncLog is not an instance of RaftLog, then we don't have to worry about writing and copying
-        # the SyncLog's data directory to remote remote_storage. We can just return now.
+        # the SyncLog's data directory to remote storage. We can just return now.
         if not isinstance(self.synclog, RaftLog):
             self.log.debug(f"SyncLog is of type {type(self.synclog).__name__}. "
-                           f"Closing remote remote_storage client now.")
+                           f"Closing remote storage client now.")
 
             await self.__close_synclog_remote_storage_client()
 
@@ -4204,7 +4204,7 @@ class DistributedKernel(IPythonKernel):
 
     async def __write_synclog_data_dir_to_remote_storage(self) -> Tuple[dict, bool]:
         """
-        Write the data directory of the SyncLog to remote remote_storage.
+        Write the data directory of the SyncLog to remote storage.
         """
 
         # Verify that the SyncLog is not None before we continue.
@@ -4216,7 +4216,7 @@ class DistributedKernel(IPythonKernel):
             write_start: float = time.time()
 
             self.log.debug(
-                "Preparing to write state to remote remote_storage. "
+                "Preparing to write state to remote storage. "
                 f"Current resource request: {self.current_resource_request}. "
                 f"Remote storages ({len(self.remote_storages)}): {self.remote_storages}."
             )
@@ -4296,7 +4296,7 @@ class DistributedKernel(IPythonKernel):
             await self.__close_synclog_remote_storage_client()
             return intermediate_resp, False
 
-        # Step 3: close the SyncLog's remote remote_storage client if we haven't done so already.
+        # Step 3: close the SyncLog's remote storage client if we haven't done so already.
         if isinstance(self.synclog, RaftLog):
             # We'll ignore any errors at this stage.
             await self.__close_synclog_remote_storage_client()
@@ -4918,7 +4918,7 @@ class DistributedKernel(IPythonKernel):
             et: float = time.time()
             self.log.debug(
                 f"Successfully retrieved DeepLearningModel '{model_pointer.model_name}' for variable "
-                f"'{var_name}' from remote remote_storage '{self.remote_storage}' in {et - st} seconds."
+                f"'{var_name}' from remote storage '{self.remote_storage}' in {et - st} seconds."
             )
 
             async with self._user_ns_lock:
@@ -4968,7 +4968,7 @@ class DistributedKernel(IPythonKernel):
             et: float = time.time()
             self.log.debug(
                 f"Successfully retrieved Dataset '{dataset_pointer.dataset_name}' for variable "
-                f"'{var_name}' from remote remote_storage in {et - st} seconds."
+                f"'{var_name}' from remote storage in {et - st} seconds."
             )
 
             async with self._user_ns_lock:
@@ -5015,7 +5015,7 @@ class DistributedKernel(IPythonKernel):
             read_et: float = time.time()
 
             self.log.debug(
-                f"Read updated model state from remote remote_storage '{self._remote_checkpointer.storage_name}' "
+                f"Read updated model state from remote storage '{self._remote_checkpointer.storage_name}' "
                 f"in {read_et - read_st} seconds."
             )
 
@@ -5036,7 +5036,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as exc:
             self.log.error(
                 f'Failed to read state dictionaries for model "{pointer.large_object_name}" '
-                f'from remote remote_storage "{self._remote_checkpointer.storage_name}" because: {exc}'
+                f'from remote storage "{self._remote_checkpointer.storage_name}" because: {exc}'
             )
             self.log.error(traceback.format_exc())
             raise exc  # re-raise
@@ -5101,7 +5101,7 @@ class DistributedKernel(IPythonKernel):
             ).observe(dataset.download_duration_sec * 1.0e3)
 
         self.log.debug(f"Successfully loaded committed dataset \"{pointer.large_object_name}\" (varname='{var_name}') "
-                       f"from remote remote_storage in {et - st} seconds.")
+                       f"from remote storage in {et - st} seconds.")
         return dataset
 
     def __dataset_committed(self, pointer: DatasetPointer) -> Optional[CustomDataset]:
@@ -5336,8 +5336,8 @@ class DistributedKernel(IPythonKernel):
                     aws_region=self.aws_region,
                 )
             else:
-                self.log.error(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
-                raise ValueError(f'Unknown or unsupported remote remote_storage specified: {self.remote_storage.lower()}')
+                self.log.error(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
+                raise ValueError(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
 
             if remote_storage_provider is None:
                 self.log.error("Remote storage provider should not be None at this point.")
@@ -5394,7 +5394,7 @@ class DistributedKernel(IPythonKernel):
         )
         if remote_storage_definitions is not None:
             self.log.debug(
-                f"Recovered remote remote_storage definitions from serialized state: {remote_storage_definitions}"
+                f"Recovered remote storage definitions from serialized state: {remote_storage_definitions}"
             )
 
             for (
@@ -5402,7 +5402,7 @@ class DistributedKernel(IPythonKernel):
                     remote_storage_definition,
             ) in remote_storage_definitions.items():
                 self.log.debug(
-                    f'Registering remote remote_storage loaded from serialized state: "{remote_storage_name}"'
+                    f'Registering remote storage loaded from serialized state: "{remote_storage_name}"'
                 )
                 self.register_remote_storage_definition(remote_storage_definition)
 

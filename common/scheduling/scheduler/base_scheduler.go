@@ -75,7 +75,7 @@ type baseSchedulerBuilder struct {
 	notificationBroker          NotificationBroker
 	metricsProvider             scheduling.MetricsProvider
 	activeExecutionProvider     scheduling.ActiveExecutionProvider
-	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from Options if not specified.
+	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from ClusterGatewayOptions if not specified.
 	initialNumContainersPerHost int
 	options                     *scheduling.SchedulerOptions
 }
@@ -1244,9 +1244,9 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, ker
 
 // issuePrepareMigrateRequest issues a 'prepare-to-migrate' request to a specific replica of a specific kernel.
 // This will prompt the kernel to shut down its etcd process (but not remove itself from the cluster)
-// before writing the contents of its data directory to intermediate remote_storage.
+// before writing the contents of its data directory to intermediate storage.
 //
-// Returns the path to the data directory in intermediate remote_storage.
+// Returns the path to the data directory in intermediate storage.
 func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.KernelReplica, originalHost scheduling.Host) (string, error) {
 	// If the host is nil, then we'll attempt to retrieve it from the kernel itself.
 	if originalHost == nil {

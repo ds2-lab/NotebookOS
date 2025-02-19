@@ -42,7 +42,7 @@ func (p *S3Provider) Close() error {
 }
 
 func (p *S3Provider) Connect() error {
-	p.logger.Debug("Connecting to remote remote_storage",
+	p.logger.Debug("Connecting to remote storage",
 		zap.String("remote_storage", "AWS S3"),
 		zap.String("hostname", p.hostname))
 
@@ -59,14 +59,14 @@ func (p *S3Provider) Connect() error {
 
 	p.status = Connected
 
-	p.logger.Debug("Successfully connected to remote remote_storage",
+	p.logger.Debug("Successfully connected to remote storage",
 		zap.String("remote_storage", "AWS S3"),
 		zap.String("hostname", p.hostname))
 
 	return nil
 }
 
-// WriteDataDirectory writes the data directory for this Raft node from local remote_storage to AWS S3.
+// WriteDataDirectory writes the data directory for this Raft node from local storage to AWS S3.
 func (p *S3Provider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
 	p.logger.Debug("Writing data directory to AWS S3.",
 		zap.String("WAL directory", waldir),

@@ -97,7 +97,7 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 	//}
 
 	if o.RemoteStorage == "redis" && len(o.RemoteStorageEndpoint) == 0 {
-		panic("remote remote_storage endpoint is empty.")
+		panic("remote storage endpoint is empty.")
 	}
 }
 
