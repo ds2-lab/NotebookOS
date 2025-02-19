@@ -779,14 +779,10 @@ class RaftLog(object):
             Create an election for the specified term, optionally skipping it immediately.
             """
             if election_term < 0:
-                raise ValueError(
-                    f"Invalid term number while creating and skipping election: {election_term}"
-                )
+                raise ValueError(f"Invalid term number while creating and skipping election: {election_term}")
 
-            self.log.debug(
-                f"Creating election {election_term} during fast-forward. "
-                f"set_election_complete={set_election_complete}, jupyter_message_id={jupyter_message_id}"
-            )
+            self.log.debug(f"Creating election {election_term} during fast-forward. "
+                           f"set_election_complete={set_election_complete}, jupyter_message_id={jupyter_message_id}")
 
             # Create a new election.
             election: Election = Election(
@@ -800,10 +796,9 @@ class RaftLog(object):
             if jupyter_message_id != "":
                 if jupyter_message_id in self._elections_by_jupyter_message_id:
                     # TODO: What should we do here?
-                    self.log.error(
-                        f"We already have an election associated with Jupyter msg '{jupyter_message_id}': "
-                        f"{self._elections_by_jupyter_message_id[jupyter_message_id]}"
-                    )
+                    self.log.error(f"We already have an election associated with Jupyter msg '{jupyter_message_id}': "
+                                   f"{self._elections_by_jupyter_message_id[jupyter_message_id]}")
+
                 self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
             # Elections contain a sort of (singly-)linked list between themselves.
@@ -1831,11 +1826,17 @@ class RaftLog(object):
         """
         return list(self._elections.keys())
 
-    def get_election(self, term_number: int):
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists. Otherwise, returns None.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
-        return self._elections[term_number]
+        if term_number >= 0:
+            return self._elections.get(term_number, None)
+
+        assert jupyter_msg_id is not None
+        return self._elections_by_jupyter_message_id.get(jupyter_msg_id, None)
 
     async def _create_election_proposal(
             self, key: ElectionProposalKey, term_number: int, jupyter_message_id: str
@@ -1966,9 +1967,7 @@ class RaftLog(object):
         # await future.result()
         self.log.debug(f"Called 'propose' for SynchronizedValue: {value}")
         await future.result()
-        self.log.debug(
-            f"Successfully proposed and appended SynchronizedValue: {value}"
-        )
+        self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
     def propose(self, value: bytes, resolve: Callable[[str, Exception], Any], key: str):
         sys.stderr.flush()
@@ -2002,24 +2001,16 @@ class RaftLog(object):
         self._elections[term_number] = election
 
         if jupyter_message_id in self._elections_by_jupyter_message_id:
-            self.log.warning(
-                f"We already have an election associated with Jupyter msg '{jupyter_message_id}': "
-                f"{self._elections_by_jupyter_message_id[jupyter_message_id]}"
-            )
+            self.log.warning(f"We already have an election associated with Jupyter msg '{jupyter_message_id}': "
+                             f"{self._elections_by_jupyter_message_id[jupyter_message_id]}")
 
-            existing_election: Election = self._elections_by_jupyter_message_id[
-                jupyter_message_id
-            ]
+            existing_election: Election = self._elections_by_jupyter_message_id[jupyter_message_id]
 
             if existing_election.code_execution_completed_successfully:
-                self.log.warning(
-                    f"Existing election associated with Jupyter msg '{jupyter_message_id}' already "
-                    f"completed. We must have received the Jupyter msg after a long delay. Discarding."
-                )
-                raise ValueError(
-                    "Election associated with Jupyter execute_request "
-                    f"{jupyter_message_id} has already completed"
-                )
+                self.log.warning(f"Existing election associated with Jupyter msg '{jupyter_message_id}' already "
+                                 f"completed. We must have received the Jupyter msg after a long delay. Discarding.")
+                raise ValueError("Election associated with Jupyter execute_request "
+                                 f"{jupyter_message_id} has already completed")
 
         self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
@@ -2170,10 +2161,8 @@ class RaftLog(object):
             # If the current election field is None, then we've never had an election before, and
             # so we create the election and return.
             if self._current_election is None:
-                self.log.debug(
-                    f"Current election is None. Creating new election for term {target_term_number} "
-                    f"with Jupyter message ID = {jupyter_message_id}."
-                )
+                self.log.debug(f"Current election is None. Creating new election for term {target_term_number} "
+                               f"with Jupyter message ID = {jupyter_message_id}.")
                 self._create_new_election(
                     term_number=target_term_number,
                     jupyter_message_id=jupyter_message_id,
@@ -2184,9 +2173,7 @@ class RaftLog(object):
                     self._current_election.is_active
                     or self._current_election.is_in_failed_state
             ):
-                self.log.debug(
-                    f"Validating or restarting existing/current election for term {target_term_number}."
-                )
+                self.log.debug(f"Validating or restarting existing/current election for term {target_term_number}.")
                 self._validate_or_restart_current_election(
                     term_number=target_term_number,
                     jupyter_message_id=jupyter_message_id,
@@ -2194,43 +2181,30 @@ class RaftLog(object):
                 )
                 return True
 
-            target_election: Optional[Election] = self._elections.get(
-                target_term_number
-            )
+            target_election: Optional[Election] = self._elections.get(target_term_number)
             if target_election is None:
-                self.log.debug(
-                    f"Could not find existing election with term number {target_term_number}. "
-                    f"Trying to look up by jupyter message ID of {jupyter_message_id}."
-                )
-                target_election = self._elections_by_jupyter_message_id.get(
-                    jupyter_message_id
-                )
+                self.log.debug(f"Could not find existing election with term number {target_term_number}. "
+                               f"Trying to look up by jupyter message ID of {jupyter_message_id}.")
+                target_election = self._elections_by_jupyter_message_id.get(jupyter_message_id)
 
                 if target_election is None:
-                    self.log.debug(
-                        f"Failed to find existing election associated with Jupyter message ID {jupyter_message_id}."
-                    )
+                    self.log.debug(f"Failed to find existing election associated "
+                                   f"with Jupyter message ID {jupyter_message_id}.")
                 else:
-                    self.log.debug(
-                        f"Found existing election associated with Jupyter message ID {jupyter_message_id}. "
-                        f"Election has term {target_election.term_number} and is in state "
-                        f"{target_election.election_state.get_name()}."
-                    )
+                    self.log.debug(f"Found existing election associated with Jupyter message ID {jupyter_message_id}. "
+                                   f"Election has term {target_election.term_number} and is in state "
+                                   f"{target_election.election_state.get_name()}.")
 
             if target_election is not None:
                 if target_election.was_skipped:
-                    self.log.warning(
-                        f"Requested preparation of election {target_term_number}; "
-                        f"however, that election was skipped."
-                    )
+                    self.log.warning( f"Requested preparation of election {target_term_number}; "
+                                      f"however, that election was skipped.")
                     return False
                 else:
-                    raise ValueError(
-                        f"Attempting to prepare election {target_term_number}, "
-                        f"which is in state {target_election.election_state.get_name()}. "
-                        f"Current local election {self.current_election_term} "
-                        f"is in state {self._current_election.election_state.get_name()}."
-                    )
+                    raise ValueError(f"Attempting to prepare election {target_term_number}, "
+                                     f"which is in state {target_election.election_state.get_name()}. "
+                                     f"Current local election {self.current_election_term} "
+                                     f"is in state {self._current_election.election_state.get_name()}.")
 
             if (
                     target_term_number == self.current_election_term
@@ -2259,62 +2233,49 @@ class RaftLog(object):
         The `target_term_number` argument is just a safety mechanism to ensure that the current election
         matches the intended/target term number.
         """
-        self.log.debug(
-            f"RaftLog {self._node_id} handling election in term {target_term_number}, attempt #{proposal.attempt_number}. Will be proposing {proposal.key}."
-        )
+        self.log.debug(f"RaftLog {self._node_id} handling election in term {target_term_number}, "
+                       f"attempt #{proposal.attempt_number}. Will be proposing {proposal.key}.")
 
         should_handle_election: bool = await self._prepare_election(
             target_term_number=target_term_number,
             jupyter_message_id=jupyter_message_id,
             expected_attempt_number=proposal.attempt_number,
         )
-        assert (
-                self._current_election is not None
-        )  # The current election field must be non-null.
+        assert (self._current_election is not None)  # The current election field must be non-null.
 
         if not should_handle_election:
             # Erase the proposed value we created for this term.
             self._proposed_values.pop(target_term_number)
-            raise DiscardMessageError(
-                f"Message received by replica {self._node_id} of kernel {self._kernel_id}"
-                f"for election {target_term_number} should be discarded, "
-                f"as that election was skipped."
-            )
+            raise DiscardMessageError(f"Message received by replica {self._node_id} of kernel {self._kernel_id}"
+                                      f"for election {target_term_number} should be discarded, "
+                                      f"as that election was skipped.")
 
         if self._current_election.election_finished_condition_waiter_loop is None:
-            self._current_election.election_finished_condition_waiter_loop = (
-                asyncio.get_running_loop()
-            )
+            self._current_election.election_finished_condition_waiter_loop = asyncio.get_running_loop()
 
         try:
             if self._current_election.is_inactive:
                 # Start the election.
                 self._current_election.start()
         except Exception as ex:
-            self.log.error(
-                f"Exception while starting or restarting election {target_term_number}: {ex}"
-            )
+            self.log.error(f"Exception while starting or restarting election {target_term_number}: {ex}")
             raise ex  # Just re-raise the exception.
 
-        if (
-                self._last_completed_election is not None
-                and self._leader_term >= target_term_number
-        ):
-            self.log.error(
-                f"Current leader term {self._leader_term} >= specified target term {target_term_number}..."
-            )
+        if self._last_completed_election is not None and self._leader_term >= target_term_number:
+            self.log.warning(f"Current leader term {self._leader_term} >= "
+                             f"specified target term {target_term_number}...")
             return False
 
-            # The proposal's term number must match the specified target term number.
+        # The proposal's term number must match the specified target term number.
         if proposal.election_term != target_term_number:
-            raise ValueError(
-                f"Proposal is targeting election term {proposal.election_term}, "
-                f"whereas caller specified election term {target_term_number}"
-            )
+            raise ValueError(f"Proposal is targeting election term {proposal.election_term}, "
+                             f"whereas caller specified election term {target_term_number}")
 
         # Do some additional sanity checks:
         # The proposal must already be registered.
-        # This means that there will be at least one proposal for the specified target term number (which matches the proposal's term number; we already checked verified that above).
+        # This means that there will be at least one proposal for the specified
+        # target term number (which matches the proposal's term number; we
+        # already checked verified that above).
 
         # At least one proposal for the specified term?
         assert target_term_number in self._proposed_values
@@ -2323,22 +2284,22 @@ class RaftLog(object):
         assert proposal.attempt_number in self._proposed_values[target_term_number]
 
         # Equality check for ultimate sanity check.
-        assert (
-                self._proposed_values[target_term_number][proposal.attempt_number]
-                == proposal
-        )
+        assert self._proposed_values[target_term_number][proposal.attempt_number] == proposal
 
         # Define the `_leading` feature.
-        # Save a reference to the currently-running IO loop so that we can resolve the `_leading` future on this same IO loop later.
+        # Save a reference to the currently-running IO loop so that we can resolve
+        # the `_leading` future on this same IO loop later.
         self._future_io_loop = asyncio.get_running_loop()
         self._future_io_loop.set_debug(True)
-        # This is the future we'll use to submit a formal vote for who should lead, based on the proposals that are committed to the etcd-raft log.
+        # This is the future we'll use to submit a formal vote for who should lead,
+        # based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future = self._future_io_loop.create_future()
         self._received_vote_future: asyncio.Future = (
             self._future_io_loop.create_future()
         )
         self._received_vote_future_term: int = target_term_number
-        # This is the future that we'll use to inform the local kernel replica if it has been selected to "lead" the election (and therefore execute the user-submitted code).
+        # This is the future that we'll use to inform the local kernel replica if
+        # it has been selected to "lead" the election (and therefore execute the user-submitted code).
         self._leading_future: Optional[asyncio.Future[int]] = (
             self._future_io_loop.create_future()
         )
@@ -3131,3 +3092,54 @@ class RaftLog(object):
 
         # Return hard-coded False, as is_leading must be False.
         return False
+
+    async def does_election_already_exist(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        return jupyter_msg_id in self._elections_by_jupyter_message_id
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        if jupyter_msg_id not in self._elections_by_jupyter_message_id:
+            return False
+
+        election: Election = self._elections_by_jupyter_message_id[jupyter_msg_id]
+
+        if election is None:
+            self.log.error(f'Expected to find non-null election '
+                           f'associated with Jupyter message "{jupyter_msg_id}"...')
+            return False
+
+        return election.voting_phase_completed_successfully
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        if jupyter_msg_id not in self._elections_by_jupyter_message_id:
+            return False
+
+        election: Election = self._elections_by_jupyter_message_id[jupyter_msg_id]
+
+        if election is None:
+            self.log.error(f'Expected to find non-null election '
+                           f'associated with Jupyter message "{jupyter_msg_id}"...')
+            return False
+
+        return election.code_execution_completed_successfully

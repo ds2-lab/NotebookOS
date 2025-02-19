@@ -468,9 +468,11 @@ class SyncLog(Protocol):
         :return: return a boolean indicating whether we've created the first election yet.
         """
 
-    def get_election(self, term_number: int)->Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
 
     def get_known_election_terms(self)->Optional[list[int]]:
@@ -537,6 +539,34 @@ class SyncLog(Protocol):
         or until we know that all replicas yielded.
 
         :param term_number: the term number of the election
+        """
+
+    async def does_election_already_exist(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
         """
 
     async def notify_execution_complete(self, term_number: int):

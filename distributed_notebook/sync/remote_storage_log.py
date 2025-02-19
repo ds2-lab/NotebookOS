@@ -209,9 +209,11 @@ class RemoteStorageLog(object):
         """
         return False
 
-    def get_election(self, term_number: int) -> Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
         return None
 
@@ -456,3 +458,25 @@ class RemoteStorageLog(object):
         This is not relevant for RemoteStorageLog.
         """
         pass
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        pass # not supported when SMR is disabled
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        pass # not supported when SMR is disabled

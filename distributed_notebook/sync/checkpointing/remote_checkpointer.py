@@ -417,7 +417,7 @@ class RemoteCheckpointer(Checkpointer):
             try:
                 pointer.wrote_model_state()
             except ValueError as ex:
-                self.log.error(ex) # Just log the error. What's done is done.
+                self.log.warning(ex) # Just log the error. What's done is done.
 
             return [model_key, optimizer_key, criterion_key, constructor_state_key]
 
@@ -447,6 +447,6 @@ class RemoteCheckpointer(Checkpointer):
         try:
             pointer.wrote_model_state()
         except ValueError as ex:
-            self.log.error(ex) # Just log the error. What's done is done.
+            self.log.warning(ex) # Just log the error. What's done is done.
 
         return [model_key, optimizer_key, criterion_key, constructor_state_key]

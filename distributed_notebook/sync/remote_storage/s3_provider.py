@@ -214,7 +214,7 @@ class S3Provider(RemoteStorageProvider):
             num_values=1
         )
 
-        self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
+        self.log.debug(f'Read {buffer.getbuffer().nbytes:,} bytes from AWS S3 bucket/key '
                        f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
 
         return buffer
@@ -253,7 +253,7 @@ class S3Provider(RemoteStorageProvider):
             num_values=1
         )
 
-        self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
+        self.log.debug(f'Read {buffer.getbuffer().nbytes:,} bytes from AWS S3 bucket/key '
                        f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
 
         return buffer

@@ -259,22 +259,15 @@ class Synchronizer:
                 self.log.debug("<< exit execution syncing [2]")
         except Exception as e:
             # print_trace(limit = 10)
-            self.log.error(
-                "Exception encountered in change handler for synchronizer: %s" % str(e)
-            )
+            self.log.error("Exception encountered in change handler for synchronizer: %s" % str(e))
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
         local_election: Election = self.current_election
-        if (
-            local_election is not None
-            and local_election.term_number < self.execution_count
-        ):
-            self.log.warning(
-                f"Current local election has term number {local_election.term_number}, "
-                f"but we (now) have execution count of {self.execution_count}. We're out-of-sync..."
-            )
+        if local_election is not None and local_election.term_number < self.execution_count:
+            self.log.warning(f"Current local election has term number {local_election.term_number}, "
+                             f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
@@ -446,12 +439,8 @@ class Synchronizer:
         self.log.debug("Synchronizer is proposing to yield term %d" % term_number)
         try:
             if await self._synclog.try_yield_execution(jupyter_message_id, term_number):
-                self.log.error(
-                    "synclog.yield_exection returned true despite the fact that we're yielding..."
-                )
-                raise ValueError(
-                    "synclog.yield_exection returned true despite the fact that we're yielding"
-                )
+                self.log.error("synclog.yield_execution returned true despite the fact that we're yielding...")
+                raise ValueError("synclog.yield_execution returned true despite the fact that we're yielding")
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -466,10 +455,7 @@ class Synchronizer:
                 self.log.error(frame)
             raise e
 
-        self.log.debug(
-            "Successfully yielded the execution to another replica for term %d"
-            % term_number
-        )
+        self.log.debug(f"Successfully yielded the execution to another replica for term {term_number}")
         # Failed to lead the term, which is what we want to happen since we're YIELDING.
         return 0
 
@@ -477,7 +463,6 @@ class Synchronizer:
         """
         Wait until the leader of the specified election finishes executing the code,
         or until we know that all replicas yielded.
-
         :param term_number: the term number of the election
         """
         self.log.debug(

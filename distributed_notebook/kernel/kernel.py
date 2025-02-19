@@ -54,7 +54,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 )
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
-from .util import extract_header
+from .util import extract_header, ElectionAbortedException
 from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
 from ..sync.log import SyncLog
 from ..sync.remote_storage_log import RemoteStorageLog
@@ -2152,6 +2152,7 @@ class DistributedKernel(IPythonKernel):
             execute_request_metadata=metadata,
             dataset=target_dataset,
             batch_size=batch_size,
+            parent_header=parent_header,
         )
 
         if inspect.isawaitable(reply_content):
@@ -2731,6 +2732,34 @@ class DistributedKernel(IPythonKernel):
                 error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}",
             )
 
+    def __check_for_existing_election(self, msg_id: str)->int:
+        """
+        Check if there already exists an election associated with the Jupyter message ID from the parent header.
+
+        If so, then return its term number if it is still in progress.
+
+        If it is voting-complete (or further along then that), then raise an ElectionAbortedException.
+
+        If no associated election exists, then return -1.
+        """
+        if not self.smr_enabled:
+            return -1
+
+        existing_election: Optional[Election] = self.synclog.get_election(-1, msg_id)
+        if existing_election is None:
+            return -1
+
+        if self.synclog.is_election_voting_complete(msg_id):
+            self.log.warning(f'At a minimum, the voting phase for the election associated with Jupyter '
+                             f'message "{msg_id}" has already completed. No need to participate.')
+            raise ElectionAbortedException(f'election associated with Jupyter message "{msg_id}" '
+                                           f'is already voting-complete')
+
+        self.log.debug(f'Found existing election with term number {existing_election.term_number} '
+                       f'associated with Jupyter message "{msg_id}"')
+
+        return existing_election.term_number
+
     async def yield_request(self, stream, ident, parent):
         """
         Similar to the do_execute method, but this method ALWAYS proposes "YIELD" instead of "LEAD".
@@ -2781,9 +2810,7 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
-        await self.process_execute_request_metadata(
-            parent_header["msg_id"], parent_header["msg_type"], metadata
-        )
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -2800,10 +2827,12 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            current_term_number = self.synchronizer.execution_count + 1
-            self.log.info(
-                f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal."
-            )
+            current_term_number = self.__check_for_existing_election(parent_header["msg_id"])
+
+            if current_term_number < 0:
+                current_term_number = self.synchronizer.execution_count + 1
+
+            self.log.info(f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal.")
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.
             # Pass 'False' for the 'lead' parameter to propose YIELD.
@@ -2813,13 +2842,10 @@ class DistributedKernel(IPythonKernel):
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
             self.shell.execution_count = await self.synchronizer.ready(
-                parent_header["msg_id"], current_term_number, False
-            )
+                parent_header["msg_id"], current_term_number, False)
 
-            self.log.info(
-                f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
-                f"shell.execution_count: {self.shell.execution_count}"
-            )
+            self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
+                          f"shell.execution_count: {self.shell.execution_count}")
 
             if self.prometheus_enabled:
                 self.num_yield_proposals.inc()
@@ -2831,9 +2857,8 @@ class DistributedKernel(IPythonKernel):
                 )
                 # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
             else:
-                self.log.error(
-                    f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!"
-                )
+                self.log.error(f"I've been selected to lead this execution ({self.shell.execution_count}), "
+                               f"but I'm supposed to yield!")
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
                 self.session.send(
@@ -2842,10 +2867,11 @@ class DistributedKernel(IPythonKernel):
                     {"term": self.synchronizer.execution_count + 1},
                     ident=self._topic(SMR_LEAD_TASK),
                 )
+        except ElectionAbortedException as e:
+            # We intentionally raise ElectionAbortedException to abort early if we determine we can/should.
+            pass
         except Exception as e:
-            self.log.error(
-                f"Error while yielding execution for term {current_term_number}: {e}"
-            )
+            self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
             reply_content = gen_error_response(e)
             error_occurred = True
 
@@ -3307,6 +3333,7 @@ class DistributedKernel(IPythonKernel):
             dataset: Optional[str] = None,
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
+            parent_header: Dict[str, Any] = None,
             *,
             cell_meta=None,
             cell_id=None,
@@ -3340,13 +3367,9 @@ class DistributedKernel(IPythonKernel):
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
         if len(code) > 0:
-            self.log.info(
-                "DistributedKernel is preparing to execute some code: %s\n\n", code
-            )
+            self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
         else:
-            self.log.warning(
-                "DistributedKernel is preparing to execute empty codeblock...\n\n"
-            )
+            self.log.warning("DistributedKernel is preparing to execute empty codeblock...\n\n")
 
         # Make sure we have some GPU device IDs if we're using real GPUs and our current resource
         # request indicates that we have 1 or more GPUs assigned to us.
@@ -3362,9 +3385,7 @@ class DistributedKernel(IPythonKernel):
 
         # Special code to initialize persistent store
         if code[: len(key_persistent_id)] == key_persistent_id:
-            self.log.debug(
-                'Using special code to initialize persistent store: "%s"' % code
-            )
+            self.log.debug('Using special code to initialize persistent store: "%s"' % code)
             return await asyncio.ensure_future(self.init_persistent_store(code))
 
         # Ensure persistent store is ready
@@ -3380,7 +3401,7 @@ class DistributedKernel(IPythonKernel):
         # Check the status of the last election before proceeding.
         await self.check_previous_election()
 
-        term_number: int = -1
+        current_term_number: int = -1
         try:
             self.toggle_outstream(override=True, enable=False)
 
@@ -3388,14 +3409,15 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            term_number = self.synchronizer.execution_count + 1
-            self.log.info(
-                f"Calling synchronizer.ready({term_number}) now with LEAD proposal."
-            )
+            current_term_number = self.__check_for_existing_election(parent_header["msg_id"])
+            if current_term_number < 0:
+                current_term_number = self.synchronizer.execution_count + 1
+
+            self.log.info(f"Calling synchronizer.ready({current_term_number}) now with LEAD proposal.")
 
             election_start: float = time.time()
             is_primary_replica: bool = await self.primary_replica_protocol(
-                term_number=term_number,
+                term_number=current_term_number,
                 election_start=election_start,
                 jupyter_message_id=self.next_execute_request_msg_id,
             )
@@ -3403,9 +3425,7 @@ class DistributedKernel(IPythonKernel):
             if not is_primary_replica:
                 raise err_failed_to_lead_execution
 
-            self.log.debug(
-                f"I WILL lead this execution ({self.shell.execution_count})."
-            )
+            self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
             self.current_execution_stats.won_election = True
 
             if self.simulate_training_using_sleep:
@@ -3442,9 +3462,14 @@ class DistributedKernel(IPythonKernel):
             self.toggle_outstream(override=True, enable=True)
 
             reply_content[LEADER_KEY] = True
-            reply_content["term_number"] = term_number
+            reply_content["term_number"] = current_term_number
             reply_content["performed_dl_training"] = performed_dl_training
             reply_content["code"] = code
+        except ElectionAbortedException as ex:
+            self.log.warning("ElectionAbortedException: {ex}")
+
+            # Return generic yield reply content.
+            reply_content = gen_error_response(err_failed_to_lead_execution)
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
@@ -3452,13 +3477,13 @@ class DistributedKernel(IPythonKernel):
         except DiscardMessageError as dme:
             self.log.warning(
                 f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
-                f"as election for term {term_number} was skipped: {dme}"
+                f"as election for term {current_term_number} was skipped: {dme}"
             )
 
             self.send_notification(
-                notification_title=f"Election {term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
+                notification_title=f"Election {current_term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
                 notification_body=f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
-                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
+                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={current_term_number}) was skipped.",
                 notification_type=WarningNotification,
             )
 

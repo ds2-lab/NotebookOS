@@ -32,8 +32,8 @@ class ElectionTimestamps(object):
     def __init__(self, proposal_phase_start_time: float = 0):
         self.creation_time: float = time.time() * 1.0e3
         self.proposal_phase_start_time: float = proposal_phase_start_time  # includes the "voting" phase
-        self.execution_phase_start_time: int = 0
-        self.end_time: int = 0
+        self.execution_phase_start_time: float = 0
+        self.end_time: float = 0
 
 
 class ElectionState(IntEnum):
@@ -740,8 +740,9 @@ class Election(object):
         VOTE_COMPLETE --> EXECUTION_COMPLETE
         """
         if self._election_state != ElectionState.VOTE_COMPLETE:
-            raise ValueError(f"election for term {self.term_number} is not in voting-complete state "
-                             f"(current state: {self._election_state}); cannot transition to execution-complete state")
+            self.log.warning(f"Election for term {self.term_number} is not in voting-complete state "
+                             f"(current state: {self._election_state}), and yet we're transitioning "
+                             f"to execution-complete state")
 
         if fast_forwarding:
             self.log.warning(f"Skipping election {self.term_number}.")
