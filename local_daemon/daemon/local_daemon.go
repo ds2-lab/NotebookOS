@@ -2957,7 +2957,6 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	)
 	if msgErr.Status == messaging.MessageStatusOK {
 		d.log.Debug("ResourceStatus of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
-		releaseResourcesMustSucceed = true // Replica was leader and is done executing.
 		shouldCallTrainingStopped = true
 	} else if msgErr.Status == messaging.MessageStatusError {
 		d.log.Warn("ResourceStatus of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
