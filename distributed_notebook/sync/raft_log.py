@@ -448,29 +448,19 @@ class RaftLog(object):
         if path != "" and not os.path.exists(path):
             self.log.debug(f'Creating persistent store directory: "{path}"')
             os.makedirs(path, 0o750, exist_ok=True)  # It's OK if it already exists.
-            self.log.debug(
-                f'Created persistent store directory "{path}" (or it already exists).'
-            )
+            self.log.debug(f'Created persistent store directory "{path}" (or it already exists).')
         elif path == "":
-            self.log.warning(
-                "Persistent store specified as empty string. Skipping directory creation."
-            )
+            self.log.warning("Persistent store specified as empty string. Skipping directory creation.")
         elif os.path.exists(path):
-            self.log.warning(
-                f'Persistent store path "{path}" already exists. Skipping directory creation.'
-            )
+            self.log.debug(f'Persistent store path "{path}" already exists. Skipping directory creation.')
 
     def __buffer_vote(
             self, vote: LeaderElectionVote, received_at: float = time.time()
     ) -> bytes:
         # Save the vote in the "buffered votes" dictionary.
         with self._buffered_votes_lock:
-            buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(
-                vote.election_term, []
-            )
-            buffered_votes.append(
-                BufferedLeaderElectionVote(vote=vote, received_at=received_at)
-            )
+            buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(vote.election_term, [])
+            buffered_votes.append(BufferedLeaderElectionVote(vote=vote, received_at=received_at))
             self._buffered_votes[vote.election_term] = buffered_votes
             sys.stderr.flush()
             sys.stdout.flush()
