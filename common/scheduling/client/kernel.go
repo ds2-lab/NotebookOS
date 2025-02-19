@@ -210,7 +210,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 
 			/* kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
-			// s.Sockets.Ack = messaging.NewSocket(Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
+			// s.Sockets.Ack = messaging.NewSocket(Socket: zmq4.NewReq(s.Ctx), JupyterGrpcPort: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
 			if spec.ReplicaId == 0 {
 				config.InitLogger(&s.Log, fmt.Sprintf("kernel %s ", spec.Kernel.Id))
@@ -1134,7 +1134,7 @@ func (c *KernelReplicaClient) InitializeIOSub(handler messaging.MessageHandler, 
 	return c.client.Sockets.IO, nil
 }
 
-// IOSubSocketPort return the Port of the IO Socket of the target KernelReplicaClient's client.
+// IOSubSocketPort return the JupyterGrpcPort of the IO Socket of the target KernelReplicaClient's client.
 func (c *KernelReplicaClient) IOSubSocketPort() int {
 	if c.client == nil || c.client.Sockets == nil || c.client.Sockets.IO == nil {
 		return -1

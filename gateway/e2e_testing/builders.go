@@ -3,7 +3,9 @@ package e2e_testing
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	gatewayDaemon "github.com/scusemua/distributed-notebook/gateway/daemon"
 	gatewayDomain "github.com/scusemua/distributed-notebook/gateway/domain"
@@ -61,12 +63,17 @@ func (b *GatewayBuilder) WithoutDebugLogging() *GatewayBuilder {
 }
 
 func (b *GatewayBuilder) WithPort(port int) *GatewayBuilder {
-	b.ClusterGatewayOptions.Port = port
+	b.ClusterGatewayOptions.JupyterGrpcPort = port
 	return b
 }
 
 func (b *GatewayBuilder) WithProvisionerPort(provisionerPort int) *GatewayBuilder {
 	b.ClusterGatewayOptions.ProvisionerPort = provisionerPort
+	return b
+}
+
+func (b *GatewayBuilder) WithJupyterPort(jupyterPort int) *GatewayBuilder {
+	b.ClusterGatewayOptions.JupyterGrpcPort = jupyterPort
 	return b
 }
 
@@ -133,9 +140,12 @@ func NewLocalSchedulerBuilder(schedulingPolicy scheduling.PolicyKey) *LocalSched
 		panic(fmt.Sprintf("Unsupported scheduling policy: \"%s\"", schedulingPolicy.String()))
 	}
 
-	log.Printf("builder.LocalDaemonOptions:\n%v\n", builder.LocalDaemonOptions.PrettyString(2))
-
 	return builder
+}
+
+func (b *LocalSchedulerBuilder) WithGrpcPort(port int) *LocalSchedulerBuilder {
+	b.LocalDaemonOptions.Port = port
+	return b
 }
 
 func (b *LocalSchedulerBuilder) WithProvisionerAddress(provisionerAddress string) *LocalSchedulerBuilder {
@@ -179,4 +189,21 @@ func (b *LocalSchedulerBuilder) Build() (localScheduler *schedulerDaemon.LocalSc
 
 	return schedulerDaemon.CreateAndStartLocalDaemonComponents(b.LocalDaemonOptions,
 		&localDaemonDone, localDaemonFinalize, localDaemonSig)
+}
+
+func GetConnectionInfo(basePort int) *jupyter.ConnectionInfo {
+	return &jupyter.ConnectionInfo{
+		Transport:        "tcp",
+		Key:              uuid.NewString(),
+		SignatureScheme:  messaging.JupyterSignatureScheme,
+		IP:               "127.0.0.1",
+		ControlPort:      basePort,
+		ShellPort:        basePort + 1,
+		StdinPort:        basePort + 2,
+		HBPort:           basePort + 3,
+		IOPubPort:        basePort + 4,
+		IOSubPort:        basePort + 5,
+		AckPort:          basePort + 6,
+		NumResourcePorts: 128,
+	}
 }

@@ -36,9 +36,9 @@ type ClusterDaemonOptions struct {
 	NotebookImageTag            string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image"` // Tag to use for the jupyter notebook/kernel image
 	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
-	LocalDaemonServicePort          int `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
-	GlobalDaemonServicePort         int `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
-	DistributedClusterServicePort   int `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+	LocalDaemonServicePort          int `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"JupyterGrpcPort exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	GlobalDaemonServicePort         int `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"JupyterGrpcPort exposed by the Kubernetes service that manages the global networking of local daemons."`
+	DistributedClusterServicePort   int `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"JupyterGrpcPort to use for the 'distributed cluster' service, which is used by the Dashboard."`
 	RemoteDockerEventAggregatorPort int `name:"remote-docker-event-aggregator-port" json:"remote-docker-event-aggregator-port" yaml:"remote-docker-event-aggregator-port" description:"The port to be used by the Docker Remote Event Aggregator when running in Docker Swarm mode."`
 
 	// IdleSessionReclamationIntervalSec is the interval of real-life clock time, in seconds, that must elapse before a
@@ -144,8 +144,8 @@ type ClusterGatewayOptions struct {
 
 	ClusterDaemonOptions `yaml:",inline" json:"cluster_daemon_options"`
 
-	Port            int `name:"port" usage:"Port the gRPC service listen on." json:"port"`
-	ProvisionerPort int `name:"provisioner-port" usage:"Port for provisioning host schedulers." json:"provisioner_port"`
+	JupyterGrpcPort int `name:"port" usage:"Port the gRPC service listen on." json:"port" yaml:"port"`
+	ProvisionerPort int `name:"provisioner-port" usage:"JupyterGrpcPort for provisioning host schedulers." json:"provisioner_port"`
 }
 
 func (opts *ClusterGatewayOptions) String() string {

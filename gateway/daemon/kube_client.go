@@ -79,8 +79,8 @@ type BasicKubeClient struct {
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
-	localDaemonServicePort int                                        // Port that local daemon service will be routing traffic to.
-	smrPort                int                                        // Port used for the SMR protocol.
+	localDaemonServicePort int                                        // JupyterGrpcPort that local daemon service will be routing traffic to.
+	smrPort                int                                        // JupyterGrpcPort used for the SMR protocol.
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
 	useStatefulSet         bool                                       // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
 	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the newKernels should perform checkpointing after a migration and after executing code.

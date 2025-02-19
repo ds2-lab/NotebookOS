@@ -6150,3 +6150,7 @@ func (d *ClusterGatewayImpl) DecrementNumActiveExecutions() {
 func (d *ClusterGatewayImpl) NumActiveExecutions() int32 {
 	return d.numActiveTrainings.Load()
 }
+
+func (d *ClusterGatewayImpl) Cluster() scheduling.Cluster {
+	return d.cluster
+}

@@ -35,7 +35,7 @@ func init() {
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	// Set default options.
-	options.Port = 8080
+	options.JupyterGrpcPort = 8080
 	options.ProvisionerPort = 8081
 	options.ConnectionInfo.Transport = "tcp"
 

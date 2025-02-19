@@ -460,7 +460,7 @@ type KernelReplica interface {
 	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
-	// IOSubSocketPort return the Port of the IO Socket of the target KernelReplica's client.
+	// IOSubSocketPort return the JupyterGrpcPort of the IO Socket of the target KernelReplica's client.
 	IOSubSocketPort() int
 
 	// WasPrewarmContainer returns true if the target KernelReplicaClient was originally a pre-warmed container.

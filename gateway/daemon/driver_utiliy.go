@@ -111,7 +111,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	tracer, consulClient := CreateConsulAndTracer(options)
 
 	// Initialize listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.JupyterGrpcPort))
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
@@ -158,7 +158,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Register services in consul
 	if consulClient != nil {
-		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.Port)
+		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.JupyterGrpcPort)
 		if err != nil {
 			log.Fatalf("Failed to register in consul: %v", err)
 		}

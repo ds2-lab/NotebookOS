@@ -44,8 +44,8 @@ type LocalDaemonOptions struct {
 	NodeName                      string `name:"node_name" description:"Node name used only for debugging in local mode." yaml:"node_name" json:"node_name"`
 	AwsRegion                     string `name:"aws_region" json:"aws_region" yaml:"aws_region"`             // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
 	RedisPassword                 string `name:"redis_password" json:"redis_password" yaml:"redis_password"` // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
-	Port                          int    `name:"port" json:"port" yaml:"port" usage:"Port that the gRPC service listens on."`
-	KernelRegistryPort            int    `name:"kernel-registry-port" usage:"Port on which the kernel Registry Server listens."`
+	Port                          int    `name:"port" json:"port" yaml:"port" usage:"JupyterGrpcPort that the gRPC service listens on."`
+	KernelRegistryPort            int    `name:"kernel-registry-port" usage:"JupyterGrpcPort on which the kernel Registry Server listens."`
 	RedisPort                     int    `name:"redis_port" json:"redis_port" yaml:"redis_port"`             // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
 	RedisDatabase                 int    `name:"redis_database" json:"redis_database" yaml:"redis_database"` // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 }
