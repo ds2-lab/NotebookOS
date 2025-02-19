@@ -428,6 +428,7 @@ class DistributedKernel(IPythonKernel):
 
         session_id: str = os.environ.get("SESSION_ID", default=UNAVAILABLE)
         self.kernel_id = os.environ.get("KERNEL_ID", default=UNAVAILABLE)
+        self.docker_container_id: str = "N/A"
 
         self.control_msg_types = [
             *self.control_msg_types,
@@ -1590,6 +1591,7 @@ class DistributedKernel(IPythonKernel):
                     notificationType=ErrorNotification,
                     kernelId=self.kernel_id,
                     replicaId=self.smr_node_id,
+                    containerId=self.docker_container_id,
                 )
             )
 
@@ -2802,6 +2804,7 @@ class DistributedKernel(IPythonKernel):
                     notificationType=ErrorNotification,
                     kernelId=self.kernel_id,
                     replicaId=self.smr_node_id,
+                    containerId=self.docker_container_id,
                 )
             )
             return
@@ -3672,6 +3675,7 @@ class DistributedKernel(IPythonKernel):
                     notificationType=ErrorNotification,
                     kernelId=self.kernel_id,
                     replicaId=self.smr_node_id,
+                    containerId=self.docker_container_id,
                 )
             )
 
@@ -4777,6 +4781,7 @@ class DistributedKernel(IPythonKernel):
                 notificationType=ErrorNotification,
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
+                containerId=self.docker_container_id,
             )
         )
 
@@ -4800,6 +4805,7 @@ class DistributedKernel(IPythonKernel):
                 notificationType=WarningNotification,
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
+                containerId=self.docker_container_id,
             )
         )
 
@@ -4830,6 +4836,7 @@ class DistributedKernel(IPythonKernel):
                 notificationType=notification_type,
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
+                containerId=self.docker_container_id,
             )
         )
 

@@ -3579,15 +3579,15 @@ func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, fram
 // in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
 func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
 	if notification.NotificationType == 0 {
-		d.log.Warn("Received error notification from replica %d of kernel %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, notification.Title, notification.Message)
+		d.log.Warn("Received error notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, notification.ContainerId, notification.Title, notification.Message)
 	} else {
-		d.log.Debug("Received notification from replica %d of kernel %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, notification.Title, notification.Message)
+		d.log.Debug("Received notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, notification.ContainerId, notification.Title, notification.Message)
 	}
 
-	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d]",
-		notification.Message, notification.KernelId, notification.ReplicaId)
+	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d, Container=%s]",
+		notification.Message, notification.KernelId, notification.ReplicaId, notification.ContainerId)
 
 	return d.provisioner.Notify(ctx, &proto.Notification{
 		Id:               uuid.NewString(),
