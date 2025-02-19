@@ -2037,10 +2037,10 @@ func (d *ClusterGatewayImpl) sendIdleStatusIoPub(kernel scheduling.Kernel) error
 		return fmt.Errorf("%w: IO socket", messaging.ErrSocketNotAvailable)
 	}
 
-	msg, err = d.sendStatusMessage(kernel, "idle")
+	msg, err := d.sendStatusMessage(kernel, "idle")
 	if err != nil {
-		d.log.Error("Failed to send 'idle' IOPub status message after waiting %v during creation of kernel \"%s\": %v",
-			sleepInterval, kernel.ID(), err)
+		d.log.Error("Failed to send 'idle' IOPub status message during creation of kernel \"%s\": %v",
+			kernel.ID(), err)
 		return err
 	}
 
