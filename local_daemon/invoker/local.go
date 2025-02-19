@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -41,6 +42,9 @@ type LocalInvoker struct {
 	createdAt time.Time
 
 	log logger.Logger
+
+	connectionFilePath string
+	configFilePath     string
 
 	// connInfo is the Jupyter connection info used to connect/communicate with the kernel.
 	connInfo *jupyter.ConnectionInfo
@@ -303,6 +307,8 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupy
 		return "", err
 	}
 
+	ivk.connectionFilePath = path.Join(dir, fmt.Sprintf(ConnectionFileFormat, name))
+
 	ivk.log.Debug("Created connection file \"%s\" in directory \"%s\"", f.Name(), targetDirForLogging)
 	ivk.log.Debug("Writing the following contents to connection file \"%s\": \"%v\"", f.Name(), string(jsonContent))
 	_, err = f.Write(jsonContent)
@@ -341,6 +347,9 @@ func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.
 		ivk.log.Error("CreateTemp(\"%s\", \"%s\") failed because: %v", targetDirForLogging, fmt.Sprintf(ConnectionFileFormat, name), err)
 		return "", err
 	}
+
+	ivk.configFilePath = path.Join(dir, fmt.Sprintf(ConfigFileFormat, name))
+
 	ivk.log.Debug("Created config file \"%s\"", f.Name())
 	ivk.log.Debug("Writing the following contents to config file \"%s\": \"%v\"", f.Name(), string(jsonContent))
 	_, err = f.Write(jsonContent)
@@ -430,4 +439,12 @@ func (ivk *LocalInvoker) TimeSinceKernelCreated() (time.Duration, bool) {
 
 func (ivk *LocalInvoker) ConnectionInfo() *jupyter.ConnectionInfo {
 	return ivk.connInfo
+}
+
+func (ivk *LocalInvoker) ConnectionFilePath() string {
+	return ivk.connectionFilePath
+}
+
+func (ivk *LocalInvoker) ConfigFilePath() string {
+	return ivk.configFilePath
 }

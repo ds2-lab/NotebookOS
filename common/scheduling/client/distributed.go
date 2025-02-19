@@ -316,21 +316,7 @@ func (c *DistributedKernelClient) InitRemoveReplicaContainersOperation() (bool, 
 	}
 
 	if c.replicas.Len() == 0 {
-		c.log.Debug("Began attempt to remove up to %d replica container(s), but replica(s) are already removed.",
-			c.targetNumReplicas)
-
-		concluded := c.concludeRemovingReplicaContainers()
-		if !concluded {
-			panic("Failed to conclude container removal operation immediately after initiating it...")
-		}
-
-		return false, nil
-	}
-
-	// Check if our replicas are already scheduled. If they are, then we'll return false and nil,
-	// indicating that our replicas are scheduled, and that nobody needs to do anything as a result.
-	if c.replicas.Len() == 0 {
-		c.log.Debug("Began attempt to remove %d replica container(s), but replica(s) are already removed.",
+		c.log.Warn("Began attempt to remove up to %d replica container(s), but replica(s) are already removed.",
 			c.targetNumReplicas)
 
 		concluded := c.concludeRemovingReplicaContainers()
@@ -483,11 +469,13 @@ func (c *DistributedKernelClient) concludeRemovingReplicaContainers() bool {
 		return false
 	}
 
-	if c.replicas.Len() == 0 {
+	numReplicas := c.replicas.Len()
+	if numReplicas == 0 {
 		c.log.Debug("Removed (up to) %d replica container(s).", c.targetNumReplicas)
 		c.replicaContainersStoppedAt = time.Now()
 	} else {
-		c.log.Warn("Attempt to remove (up to) %d replica container(s) has failed.", c.targetNumReplicas)
+		c.log.Warn("Attempt to remove (up to) %d replica container(s) has failed. Still have %d replica(s).",
+			c.targetNumReplicas, numReplicas)
 	}
 
 	c.removeReplicaContainersAttempt = nil
@@ -1141,7 +1129,7 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	defer c.mu.Unlock()
 
 	if c.replicaContainersAreBeingRemoved.Load() != 1 {
-		c.log.Error("'Replicas Are Being Removed Flag' is not set to 1...")
+		c.log.Warn("'Replicas Are Being Removed Flag' is not set to 1...")
 	}
 
 	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
@@ -1938,10 +1926,19 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 		}
 	}()
 
-	err := c.RemoveAllReplicas(remover, false, false)
-	if err != nil {
-		c.log.Error("Failed to remove all replicas: %v", err)
-		return err
+	// We may have already removed the replicas of the kernel.
+	if c.replicas.Len() > 0 {
+		if !c.replicaContainersAreBeingRemoved.CompareAndSwap(0, 1) {
+			c.log.Warn("'Replicas are Being Removed' flag is already set to 1...")
+		} else {
+			defer c.replicaContainersAreBeingRemoved.CompareAndSwap(1, 0)
+		}
+
+		err := c.RemoveAllReplicas(remover, false, false)
+		if err != nil {
+			c.log.Error("Failed to remove all replicas: %v", err)
+			return err
+		}
 	}
 
 	c.mu.Lock()
