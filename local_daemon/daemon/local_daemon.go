@@ -2649,19 +2649,26 @@ func (d *LocalScheduler) stopKernel(ctx context.Context, kernel scheduling.Kerne
 		return err
 	}
 
-	d.log.Debug("Sent \"%s\" message to replica %d of kernel %s.", messaging.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
+	d.log.Debug("Sent \"%s\" message to replica %d of kernel %s.",
+		messaging.MessageTypeShutdownRequest, kernel.ReplicaID(), kernel.ID())
 
 	wg.Wait()
 
 	if d.DockerMode() {
-		d.log.Debug("Stopping container for kernel %s-%d via its invoker now.", kernel.ID(), kernel.ReplicaID())
-		if err = d.getInvoker(kernel).Close(); err != nil {
-			d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
-			return err
-		}
-	} else {
-		d.log.Debug("Skipping invoker::Close step for kernel %s-%d; we're running in \"%v\" mode.", kernel.ID(), kernel.ReplicaID(), d.deploymentMode)
+		go func() {
+			d.log.Debug("Stopping container for kernel %s-%d via its invoker now.",
+				kernel.ID(), kernel.ReplicaID())
+			closeErr := d.getInvoker(kernel).Close()
+			if closeErr != nil {
+				d.log.Error("Error while closing kernel %s: %v", kernel.String(), closeErr)
+			}
+		}()
+
+		return nil
 	}
+
+	d.log.Debug("Skipping invoker::Close step for kernel %s-%d; we're running in \"%v\" mode.",
+		kernel.ID(), kernel.ReplicaID(), d.deploymentMode)
 	return nil
 }
 
