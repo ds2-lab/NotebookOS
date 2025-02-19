@@ -3192,7 +3192,8 @@ func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.Kerne
 		}
 	case v := <-notifyChan:
 		{
-			if err, ok := v.(error); !ok {
+			var ok bool
+			if err, ok = v.(error); !ok {
 				break
 			}
 

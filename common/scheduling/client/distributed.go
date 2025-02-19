@@ -1894,6 +1894,11 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	}
 }
 
+// IsShuttingDown returns true if the target DistributedKernelClient is in the process of shutting down.
+func (c *DistributedKernelClient) IsShuttingDown() bool {
+	return c.shuttingDown.Load() > 0
+}
+
 // Shutdown releases all replicas and closes the session.
 func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, restart bool) error {
 	c.log.Debug("Shutting down kernel %s.", c.id)

@@ -6796,6 +6796,20 @@ func (mr *MockKernelMockRecorder) IsReplicaReady(replicaId any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReplicaReady", reflect.TypeOf((*MockKernel)(nil).IsReplicaReady), replicaId)
 }
 
+// IsShuttingDown mocks base method.
+func (m *MockKernel) IsShuttingDown() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsShuttingDown")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsShuttingDown indicates an expected call of IsShuttingDown.
+func (mr *MockKernelMockRecorder) IsShuttingDown() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsShuttingDown", reflect.TypeOf((*MockKernel)(nil).IsShuttingDown))
+}
+
 // IsTraining mocks base method.
 func (m *MockKernel) IsTraining() bool {
 	m.ctrl.T.Helper()
