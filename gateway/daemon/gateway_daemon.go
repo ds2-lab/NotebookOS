@@ -1994,10 +1994,11 @@ func (d *ClusterGatewayImpl) sendStatusMessage(kernel scheduling.Kernel, executi
 	return jMsg, err
 }
 
-// sendIoPubStatusesOnStart is used by scheduling policies that only create kernel containers when processing
-// a training event. The Jupyter Server expects at least one IOPub message to be broadcast during the start-up
-// procedure. This satisfies that requirement.
-func (d *ClusterGatewayImpl) sendIoPubStatusesOnStart(kernel scheduling.Kernel) error {
+// sendStartingStatusIoPub is used when first starting a kernel.
+//
+// The Jupyter Server expects at least one IOPub message to be broadcast during the start-up procedure.
+// This satisfies that requirement.
+func (d *ClusterGatewayImpl) sendStartingStatusIoPub(kernel scheduling.Kernel) error {
 	iopubSocket := kernel.Socket(messaging.IOMessage)
 	if iopubSocket == nil {
 		return fmt.Errorf("%w: IO socket", messaging.ErrSocketNotAvailable)
@@ -2009,22 +2010,41 @@ func (d *ClusterGatewayImpl) sendIoPubStatusesOnStart(kernel scheduling.Kernel) 
 		d.log.Error("Failed to send 'starting' IOPub status message during creation of kernel \"%s\": %v",
 			kernel.ID(), err)
 		return err
-	} else {
-		d.log.Debug("Sent IOPub message: %v", msg)
 	}
 
-	// Send another "status" message in ~2 seconds with the "idle" status.
-	go func(sleepInterval time.Duration) {
-		time.Sleep(sleepInterval)
+	d.log.Debug("Sent IOPub message: %v", msg)
 
-		msg, err = d.sendStatusMessage(kernel, "idle")
-		if err != nil {
-			d.log.Error("Failed to send 'idle' IOPub status message after waiting %v during creation of kernel \"%s\": %v",
-				sleepInterval, kernel.ID(), err)
-		} else {
-			d.log.Debug("Sent IOPub message: %v", msg)
-		}
-	}(time.Millisecond * 2)
+	// Send another "status" message in ~2 seconds with the "idle" status.
+	//go func(sleepInterval time.Duration) {
+	//	time.Sleep(sleepInterval)
+	//
+	//	msg, err = d.sendStatusMessage(kernel, "idle")
+	//	if err != nil {
+	//		d.log.Error("Failed to send 'idle' IOPub status message after waiting %v during creation of kernel \"%s\": %v",
+	//			sleepInterval, kernel.ID(), err)
+	//	} else {
+	//		d.log.Debug("Sent IOPub message: %v", msg)
+	//	}
+	//}(time.Millisecond * 2)
+
+	return nil
+}
+
+// sendIdleStatusIoPub is used to inform the Jupyter Server that the target kernel is idle.
+func (d *ClusterGatewayImpl) sendIdleStatusIoPub(kernel scheduling.Kernel) error {
+	iopubSocket := kernel.Socket(messaging.IOMessage)
+	if iopubSocket == nil {
+		return fmt.Errorf("%w: IO socket", messaging.ErrSocketNotAvailable)
+	}
+
+	msg, err = d.sendStatusMessage(kernel, "idle")
+	if err != nil {
+		d.log.Error("Failed to send 'idle' IOPub status message after waiting %v during creation of kernel \"%s\": %v",
+			sleepInterval, kernel.ID(), err)
+		return err
+	}
+
+	d.log.Debug("Sent IOPub message: %v", msg)
 
 	return nil
 }
@@ -2064,29 +2084,29 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 		notifyChan <- err
 	}()
 
-	handleSchedulingError := func(err error) error {
-		d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
-
-		// Clean up everything since we failed to create the long-running kernel.
-		d.kernelIdToKernel.Delete(in.Id)
-		d.kernelsStarting.Delete(in.Id)
-		d.kernels.Delete(in.Id)
-		d.kernelSpecs.Delete(in.Id)
-		d.waitGroups.Delete(in.Id)
-
-		closeKernelError := kernel.Close()
-		if closeKernelError != nil {
-			d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
-		}
-
-		// The error should already be compatible with gRPC. But just in case it isn't...
-		_, ok := status.FromError(err)
-		if !ok {
-			err = status.Error(codes.Internal, err.Error())
-		}
-
-		return err
-	}
+	//handleSchedulingError := func(err error) error {
+	//	d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+	//
+	//	// Clean up everything since we failed to create the long-running kernel.
+	//	d.kernelIdToKernel.Delete(in.Id)
+	//	d.kernelsStarting.Delete(in.Id)
+	//	d.kernels.Delete(in.Id)
+	//	d.kernelSpecs.Delete(in.Id)
+	//	d.waitGroups.Delete(in.Id)
+	//
+	//	closeKernelError := kernel.Close()
+	//	if closeKernelError != nil {
+	//		d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
+	//	}
+	//
+	//	// The error should already be compatible with gRPC. But just in case it isn't...
+	//	_, ok := status.FromError(err)
+	//	if !ok {
+	//		err = status.Error(codes.Internal, err.Error())
+	//	}
+	//
+	//	return err
+	//}
 
 	var attempt scheduling.CreateReplicaContainersAttempt
 	select {
@@ -2109,7 +2129,7 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 			// If we received an error, then we already know that the operation failed (and we know why -- it is
 			// whatever the error is/says), so we can just return the error.
 			if err, ok := v.(error); ok {
-				return handleSchedulingError(err)
+				d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
 			}
 
 			// Print a warning message because this is suspicious, but not necessarily indicative
@@ -2151,7 +2171,7 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 			// whatever the error is/says), so we can just return the error. Otherwise, we just return optimistically.
 			var ok bool
 			if err, ok = v.(error); ok {
-				return handleSchedulingError(err)
+				d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
 			}
 		}
 	default:
@@ -2269,8 +2289,28 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	kernel.BindSession(in.Session)
 	d.kernels.Store(in.Session, kernel)
 
+	err = d.sendStartingStatusIoPub(kernel)
+
+	if err != nil {
+		d.log.Error("Failed to send IOPub status messages during start-up of kernel %s: %v", in.Id, err)
+		d.log.Error(
+			utils.RedStyle.Render(
+				"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
+			in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
+		return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
+	}
+
 	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Will wait to schedule container(s) for kernel %s until we receive an 'execute_request'.", in.Id)
+
+		// Since we're not going to schedule any replicas now, we'll send an 'idle' status update in 1.5-3 seconds.
+		go func() {
+			time.Sleep(time.Millisecond * time.Duration(1500+rand.Intn(1500)))
+			err = d.sendIdleStatusIoPub(kernel)
+			if err != nil {
+				d.log.Error("Failed to send 'idle' status update for new kernel \"%s\": %v", in.Id, err)
+			}
+		}()
 
 		// Since we won't be adding any replicas to the kernel right now, we need to assign a value to the
 		// SignatureScheme and Key fields of the connectionInfo used by the DistributedKernelClient's server.
@@ -2278,16 +2318,6 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		// If we skipped this step, then the kernel would not be able to sign messages correctly.
 		kernel.SetSignatureScheme(in.SignatureScheme)
 		kernel.SetKernelKey(in.Key)
-
-		err = d.sendIoPubStatusesOnStart(kernel)
-		if err != nil {
-			d.log.Error("Failed to send IOPub status messages during start-up of kernel %s: %v", in.Id, err)
-			d.log.Error(
-				utils.RedStyle.Render(
-					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
-				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
-		}
 	} else {
 		err = d.startLongRunningKernel(ctx, kernel, in)
 
@@ -2342,7 +2372,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.newKernelCreated(startTime, kernel.ID())
 
-	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v.", kernel.ID(), time.Since(startTime))
+	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v:\n%v",
+		kernel.ID(), time.Since(startTime), info.PrettyString())
 
 	d.log.Info(
 		utils.DarkGreenStyle.Render(
