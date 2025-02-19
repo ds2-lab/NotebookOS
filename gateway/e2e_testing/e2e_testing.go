@@ -78,7 +78,7 @@ var _ = Describe("End-to-End Tests", func() {
 
 			Expect(cluster.Len()).To(Equal(numHosts))
 
-			time.Sleep(time.Second * 5)
+			time.Sleep(time.Second * 2)
 		})
 	})
 })

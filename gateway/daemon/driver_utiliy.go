@@ -199,15 +199,15 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	// Start provisioning server
 	go func() {
 		defer finalize(true, "Provisioner Server", distributedCluster)
-		if err := provisioner.Serve(lisHost); err != nil {
-
+		if serveErr := provisioner.Serve(lisHost); serveErr != nil {
 			// If we're in local mode, then we're running unit tests, so we'll just... return.
 			if options.LocalMode {
-				globalLogger.Warn(utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), err)
+				globalLogger.Warn(
+					utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), serveErr)
 				return
 			}
 
-			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), serveErr)
 			panic(err)
 		}
 	}()

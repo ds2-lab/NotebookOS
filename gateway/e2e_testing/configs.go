@@ -41,7 +41,7 @@ const (
         "smr-port": 8080,
         "debug_port": 9996,
         "election_timeout_seconds": 3,
-        "local_mode": false,
+        "local_mode": true,
         "use_real_gpus": false,
         "acks_enabled": false,
         "debug_mode": true,
