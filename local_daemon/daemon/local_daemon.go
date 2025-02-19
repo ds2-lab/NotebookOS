@@ -2150,39 +2150,6 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// Allocate resources.
-	allocated, err := d.allocateResourcesForNewReplica(kernelReplicaSpec)
-	if err != nil {
-		d.log.Error("Failed to allocate resources to new replica %d of kernel %s during prewarm promotion: %v",
-			kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id, err)
-
-		d.log.Error(
-			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
-			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
-
-		return nil, err // Should already be compatible with gRPC
-	}
-
-	if !allocated {
-		d.log.Error("Expected to allocate resources to replica %d of kernel %s during prewarm promotion...")
-		d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
-			Id: uuid.NewString(),
-			Title: fmt.Sprintf("Resources Not Allocated to Container for kernel %s-%d During Prewarm Promotion",
-				kernelReplicaSpec.Kernel.Id, kernelReplicaSpec.ReplicaId),
-			Message:          "Resources were not allocated for some unknown reason.",
-			NotificationType: 0,
-			Panicked:         false,
-		})
-
-		d.log.Error(
-			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
-			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
-
-		return nil, status.Error(codes.Internal, "resources were not allocated for some unknown reason")
-	}
-
 	msgId := uuid.NewString()
 	msgTyp := messaging.ControlPromotePrewarmRequest
 	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, msgTyp, prewarmedContainerId)
@@ -2454,23 +2421,6 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, status.Error(codes.AlreadyExists, ErrExistingReplicaAlreadyRunning.Error())
 	}
 
-	// Allocate resources. If it's a pre-warm container, then resources will not be allocated.
-	_, err := d.allocateResourcesForNewReplica(in)
-	if err != nil {
-		d.log.Error("Failed to allocate resources to new replica %d of kernel %s: %v",
-			in.ReplicaId, in.Kernel.Id, err)
-
-		if in.PrewarmContainer {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[PrewarmId=%s, Spec=%v] ✗ Failure: %v"),
-				in.Kernel.Id, err)
-		} else {
-			d.log.Error(utils.RedStyle.Render("↩ StartKernelReplica[KernelId=%s, Spec=%v] ✗ Failure: %v"),
-				in.Kernel.Id, in, err)
-		}
-
-		return nil, err // Should already be compatible with gRPC
-	}
-
 	// Prepare the kernel invoker, which we'll use to create the kernel replica's container.
 	kernelInvoker, err := d.prepareKernelInvoker(in)
 	if err != nil {
@@ -2550,42 +2500,6 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	}
 
 	return nil, err
-}
-
-// allocateResourcesForNewReplica allocates resources to the new kernel replica in accordance with the
-// configured scheduling.Policy.
-//
-// allocateResourcesForNewReplica returns a flag indicating whether resources were allocated.
-//
-// If there's an error, allocateResourcesForNewReplica will return a gRPC-compatible error.
-func (d *LocalScheduler) allocateResourcesForNewReplica(in *proto.KernelReplicaSpec) (bool, error) {
-	// We only commit resources if the container is not a pre-warmed container.
-	// We commit resources for pre-warmed containers at the time that they are used/promoted.
-	if in.PrewarmContainer {
-		return false, nil
-	}
-
-	// We always create a pending resource allocation (i.e., for any scheduling policy).
-	resourceError := d.allocationManager.ContainerStartedRunningOnHost(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	if resourceError != nil {
-		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-		return false, status.Error(codes.Internal, resourceError.Error())
-	}
-
-	// If we're performing first-come, first-serve batch scheduling, then we commit resources right away.
-	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
-			in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
-
-		if resourceError != nil {
-			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
-				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
-			return false, status.Error(codes.Internal, resourceError.Error())
-		}
-	}
-
-	return true, nil
 }
 
 // createNewKernelClient creates a new *client.KernelReplicaClient for a new scheduling.KernelReplica that we're in the
@@ -2671,15 +2585,6 @@ func (d *LocalScheduler) KillKernel(_ context.Context, in *proto.KernelId) (*pro
 		return nil, err
 	}
 
-	// Release any resources allocated to the kernel.
-	if err := d.allocationManager.ReplicaEvicted(kernel.ReplicaID(), in.Id); err != nil {
-		d.log.Error("ResourceManager encountered error while evicting replica %d of kernel %s: %v",
-			kernel.ReplicaID(), in.Id, err)
-		return nil, err
-	}
-	//_ = d.allocationManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
-	//_ = d.allocationManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
-
 	return proto.VOID, nil
 }
 
@@ -2708,20 +2613,10 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
 	}
 
-	// Release any resources allocated to the kernel.
-	if err := d.allocationManager.ReplicaEvicted(kernel.ReplicaID(), in.Id); err != nil {
-		d.log.Error("ResourceManager encountered error while evicting replica %d of kernel %s: %v",
-			kernel.ReplicaID(), in.Id, err)
-		return nil, err
-	}
-
 	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
 	if !stopped {
 		d.log.Warn("Failed to stop 'execute_request' forwarder for kernel \"%s\"...", in.Id)
 	}
-
-	//_ = d.allocationManager.ReleaseAllocatedGPUs(kernel.ReplicaID(), in.Id)
-	//_ = d.allocationManager.ReleasePendingGPUs(kernel.ReplicaID(), in.Id)
 
 	return proto.VOID, nil
 }
@@ -3051,22 +2946,9 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 			NotificationType: 0,
 			Panicked:         false,
 		})
-
-		// Still need to release the pending message...
-		// kernelClient.ReceivedExecuteReply(msg)
-
-		// return err
 	}
 
 	var (
-		// releaseResourcesMustSucceed indicates whether we know for a fact that the call to the ResourceManager's
-		// ReleaseCommittedResources method should succeed or not. We know for a fact that it should succeed if the
-		// replica was in fact leading the execution.
-		//
-		// If the replica proposed 'yield', then we cannot say for sure, as we might've told it to propose 'yield'
-		// due to insufficient resources available prior to the replica's leader election.
-		releaseResourcesMustSucceed bool
-
 		// shouldCallTrainingStopped tells us whether to call SessionStoppedTraining on the associated KernelClient.
 		// We need to call SessionStoppedTraining if the replica was in fact leading its execution and therefore
 		// executing user-submitted code. If this wasn't the case, then the status of the message will be
@@ -3093,38 +2975,6 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 		d.notifyClusterGatewayAndPanic("Unexpected Message ResourceStatus in \"execute_reply\" Message", errorMessage, errorMessage)
 	}
 
-	// Check if we should be releasing resources at this point or not.
-	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
-		// Release any resources committed to the kernel replica, as it is done training and does not need the resources
-		// to be actively-bound/committed to it anymore.
-		//
-		// This may fail, as sometimes, the replica will not have resources allocated to it, such as if it
-		// proposed 'YIELD' during its leader election (like if there were not enough resources available on
-		// the node for it to train if it were to have won).
-		d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
-		err = d.allocationManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID(), msg.JupyterParentMessageId())
-
-		if err != nil && releaseResourcesMustSucceed {
-			errorMessage := fmt.Sprintf("Failed to release GPUs allocated to leader replica %d of kernel %s because: %v",
-				kernelClient.ReplicaID(), kernel.ID(), err)
-			d.log.Error(errorMessage)
-			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id:               uuid.NewString(),
-				Title:            "Failed to Release Committed TransactionResources",
-				Message:          errorMessage,
-				NotificationType: 0,
-				Panicked:         false,
-			})
-			return err
-		}
-
-		// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
-		// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
-		// These are described in greater detail in the comment(s) above.
-		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.",
-			kernelClient.ReplicaID(), kernel.ID())
-	}
-
 	if shouldCallTrainingStopped {
 		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
 
@@ -3136,9 +2986,6 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	}
 
 	kernelClient.ReceivedExecuteReply(msg, true)
-
-	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-	//_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
@@ -3158,15 +3005,7 @@ func (d *LocalScheduler) updateKernelResourceSpec(kernel scheduling.KernelReplic
 		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
 	}
 
-	d.log.Debug("Updating pending alloc for kernel %s: from %s to %s.",
-		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
-	err := d.allocationManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
-	if err != nil {
-		d.log.Warn("Failed to adjust pending resources assigned to kernel \"%s\": %v", kernel.ID(), err)
-		return err
-	}
-
-	err = kernel.UpdateResourceSpec(newSpec, nil)
+	err := kernel.UpdateResourceSpec(newSpec, nil)
 	if err != nil {
 		// This should succeed.
 		d.log.Error("Failed to update kernel %s's resource spec to [%v]: %v", kernel.ID(), newSpec, err)
@@ -3280,16 +3119,6 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	targetReplicaId, metadataDict, err := d.processExecuteRequestMetadata(msg, kernel)
 
-	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
-	var allocationFailedDueToInsufficientResources bool
-
-	var targetError scheduling.InsufficientResourcesError
-	if err != nil && errors.As(err, &targetError) {
-		d.log.Debug("Received InsufficientResourcesError while processing metadata of 'execute_request'. " +
-			"Must've tried to update resource request to some invalid value.")
-		allocationFailedDueToInsufficientResources = true
-	}
-
 	// Extract the workload ID (which may or may not be included in the metadata of the request),
 	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
 	if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
@@ -3304,74 +3133,28 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 
 	// Create a snapshot of the available idle resources on this node prior to our (potential) attempt
 	// to reserve resources for this kernel replica in anticipation of its leader election.
-	idleResourcesBeforeReservation := d.allocationManager.IdleResources()
-	shouldYield := differentTargetReplicaSpecified || allocationFailedDueToInsufficientResources || kernel.SupposedToYieldNextExecutionRequest() || msg.JupyterMessageType() == messaging.ShellYieldRequest
-	if !shouldYield && d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
-		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
-		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
-		// that neither of those two things are true, we can go ahead and try to reserve the resources.
-		d.log.Debug("[gid=%d] Attempting to pre-commit the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
-			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() || msg.JupyterMessageType() == messaging.ShellYieldRequest
+	if !shouldYield {
+		var gpuDeviceIds []int
 
-		var (
-			gpuDeviceIds            []int
-			resourceAllocationError error
-		)
-
-		if val, loaded := metadataDict["gpu_device_ids"]; loaded {
+		val, loaded := metadataDict["gpu_device_ids"]
+		if !loaded {
+			d.log.Warn("No GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\"",
+				msg.JupyterMessageId(), kernel.ID())
+			gpuDeviceIds = make([]int, 0)
+		} else {
 			gpuDeviceIds = val.([]int)
-
 			d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
 				msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
 		}
 
-		gpuDeviceIds, resourceAllocationError = d.allocationManager.PreCommitResourcesToExistingContainer(
-			kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec(), gpuDeviceIds)
-
-		if resourceAllocationError != nil {
-			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
-				gid, kernel.ReplicaID(), kernel.ID(), resourceAllocationError.Error())
-			d.log.Warn("[gid=%d] Replica %d of kernel %s requires the following resources: %s.",
-				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-			d.log.Warn("[gid=%d] The following resources are currently available on the node: %s.",
-				gid, idleResourcesBeforeReservation.String())
-
-			// There are other errors that could be returned here aside from "insufficient resources".
-			// So, we should only set allocationFailedDueToInsufficientResources to false if the returned error is
-			// in fact an "insufficient resources" type of error.
-			if errors.As(resourceAllocationError, &scheduling.InsufficientResourcesError{}) {
-				allocationFailedDueToInsufficientResources = true
-			}
-
-			shouldYield = true
-		} else {
-			d.log.Debug("[gid=%d] Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s (GPU Device IDs: %v).",
-				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String(), gpuDeviceIds)
-			allocationFailedDueToInsufficientResources = false
-
-			metadataDict["gpu_device_ids"] = gpuDeviceIds
-		}
-	} else if !shouldYield && d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		gpuDeviceIds, _ := d.allocationManager.GetGpuDeviceIdsAssignedToReplica(kernel.ReplicaID(), kernel.ID())
-
-		if gpuDeviceIds != nil {
-			metadataDict["gpu_device_ids"] = gpuDeviceIds
-		}
+		metadataDict["gpu_device_ids"] = gpuDeviceIds
 	}
 
-	// Include the quantities of idle GPUs available on the node PRIOR to our attempt to reserve resources for the kernel replica.
-	metadataDict["idle-gpus"] = idleResourcesBeforeReservation.GPU()
-	metadataDict["idle-millicpus"] = idleResourcesBeforeReservation.CPU()
-	metadataDict["idle-memory-mb"] = idleResourcesBeforeReservation.MemoryMB()
-	metadataDict["idle-vram-gb"] = idleResourcesBeforeReservation.VRAM()
 	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
 	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()
 	metadataDict["required-memory-mb"] = kernel.ResourceSpec().MemoryMB()
 	metadataDict["required-vram-gb"] = kernel.ResourceSpec().VRAM()
-
-	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s, idle VRAM: %s.",
-		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(4), idleResourcesBeforeReservation.MemoryMb.StringFixed(4),
-		idleResourcesBeforeReservation.GPUs.StringFixed(1), idleResourcesBeforeReservation.VRam.StringFixed(4))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
@@ -3390,10 +3173,6 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		} else if msg.JupyterMessageType() == messaging.ShellYieldRequest {
 			d.log.Debug("[gid=%d] Replica %d of kernel %s was sent an \"yield_request\" message instead of an \"execute_request\" message, presumably due to insufficient resources.",
 				gid, kernel.ReplicaID(), kernel.ID())
-			reason = domain.YieldInsufficientResourcesAvailable
-		} else if allocationFailedDueToInsufficientResources {
-			d.log.Debug("[gid=%d] There are insufficient resources available for replica %d of kernel %s to train. available: %s. Required: %s.",
-				gid, kernel.ReplicaID(), kernel.ID(), idleResourcesBeforeReservation.String(), kernel.ResourceSpec().String())
 			reason = domain.YieldInsufficientResourcesAvailable
 		} else {
 			d.log.Debug("[gid=%d] Replica %d of kernel %s must propose 'yield' for some other unspecified reason.",
@@ -3744,17 +3523,6 @@ func (d *LocalScheduler) processKernelResetReply(kernel scheduling.KernelReplica
 	d.log.Debug(utils.LightGreenStyle.Render("Successfully demoted replica %d of kernel \"%s\" to a %s container with ID=\"%s\"."),
 		prevReplicaId, prevKernelId, scheduling.PrewarmContainer, prewarmContainerId)
 
-	// Release any resources.
-	// TODO: I suspect there are many cases where the resources will have already been released.
-	// 		 In those cases, this should not be an error.
-	err = d.allocationManager.ReplicaEvicted(prevReplicaId, prevKernelId)
-	if err != nil {
-		d.log.Error("AllocationManager failed to release resources with now-demoted replica %d of kernel \"%s\" (prewarm ID=\"%s\"): %v",
-			prevReplicaId, prevKernelId, prewarmContainerId, err)
-
-		return err
-	}
-
 	// Attempt to retrieve the kernel's invoker.
 	kernelInvoker := d.getInvoker(kernel)
 	if kernelInvoker == nil {
@@ -3854,54 +3622,6 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. TransactionResources required: %v.",
 			kernel, leadMessage.GPURequired, kernel.ResourceSpec())
 
-		// If we're supposed to commit the resources when the container is scheduled, then it should already have
-		// resources commited to it. If it doesn't, then that's problematic.
-		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled &&
-			!d.allocationManager.ReplicaHasCommittedResources(kernel.ReplicaID(), kernel.ID()) {
-
-			d.log.Error("Replica %d of kernel %s does not already have resources committed to it.",
-				kernel.ReplicaID(), kernel.ID())
-			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id: uuid.NewString(),
-				Title: fmt.Sprintf("Replica %d of kernel %s Does Not Already Have TransactionResources Committed to It",
-					kernel.ReplicaID(), kernel.ID()),
-				Message:          "TransactionResources should already be committed to the kernel because we're using FCFS batch scheduling.",
-				NotificationType: 0,
-				Panicked:         true,
-			})
-
-			return fmt.Errorf("replica %d of kernel %s does not already have resources committed to it",
-				kernel.ReplicaID(), kernel.ID())
-		}
-
-		// If we're supposed to bind resources at training start, then we'd better do that now.
-		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
-			d.log.Debug("Promoting resource pre-commitment of replica %d of kernel %s now.",
-				kernel.ReplicaID(), kernel.ID())
-			err = d.allocationManager.PromotePreCommitment(kernel.ReplicaID(), kernel.ID())
-			if err != nil {
-				d.log.Error("Our attempt to promote pre-committed resources of replica %d of kernel %s failed because: %v.",
-					kernel.ReplicaID(), kernel.ID(), err)
-				go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-					Id:    uuid.NewString(),
-					Title: "Promotion of Resource Pre-Commitment Failed",
-					Message: fmt.Sprintf("Could not promote resource pre-commitment for replica %d of kernel %s because: %v",
-						kernel.ReplicaID(), kernel.ID(), err),
-					NotificationType: 0,
-					Panicked:         true,
-				})
-				//panic(err) // TODO(Ben): Handle gracefully.
-				return err
-			}
-		}
-
-		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
-		// _, err = d.addResourceSnapshotToJupyterMessage(jMsg, kernel)
-		//if err != nil {
-		//	d.log.Warn("Failed to embed resource snapshot in \"%s\" message \"%s\" for kernel \"%s\" because: %v",
-		//		jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), kernel.ID(), err)
-		//}
-
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = kernel.KernelStartedTraining(time.UnixMilli(leadMessage.UnixMilliseconds))
 
@@ -3923,66 +3643,6 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 	}
 
 	return nil
-}
-
-// addResourceSnapshotToJupyterMessage decodes the metadata frame of the given messaging.JupyterMessage
-// and adds an entry under the scheduling.SnapshotMetadataKey key with the value being a snapshot
-// of the current resource quantities of the Local Daemon's ResourceManager.
-func (d *LocalScheduler) addResourceSnapshotToJupyterMessage(jMsg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (*resource.ManagerSnapshot, error) {
-	var snapshot *resource.ManagerSnapshot
-
-	// Include in the message a snapshot of the current resource quantities of the ResourceManager.
-	metadata, decodeError := jMsg.DecodeMetadata()
-	if decodeError != nil {
-		errorMessage := fmt.Sprintf("Failed to decode metadata frame of IOPub \"%s\" Jupyter message: %v",
-			messaging.MessageTypeSMRLeadTask, decodeError)
-		d.log.Error(errorMessage)
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Failed to Decode Metadata Frame of Jupyter Message",
-			Message:          errorMessage,
-			NotificationType: 0,
-			Panicked:         false,
-		})
-
-		return nil, decodeError
-	} else {
-		snapshot = d.allocationManager.ResourcesSnapshot()
-		metadata[scheduling.SnapshotMetadataKey] = snapshot
-
-		// Re-encode the metadata frame. It will have the number of idle GPUs available,
-		// as well as the reason that the request was yielded (if it was yielded).
-		encodeErr := jMsg.EncodeMetadata(metadata)
-		if encodeErr != nil {
-			d.log.Error("Failed to encode metadata frame because: %v", encodeErr)
-			d.notifyClusterGatewayAndPanic("Failed to Encode Metadata Frame", encodeErr.Error(), encodeErr)
-		}
-
-		// Regenerate the signature.
-		_, err := jMsg.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
-		if err != nil {
-			message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v", jMsg.JupyterMessageType(), err)
-			d.notifyClusterGatewayAndPanic("Failed to Sign JupyterFrames", message, err)
-		}
-
-		if verified := messaging.ValidateFrames([]byte(kernel.ConnectionInfo().Key), kernel.ConnectionInfo().SignatureScheme, jMsg.JupyterFrames); !verified {
-			errorMessage := fmt.Sprintf("Failed to verify modified message with signature scheme '%v' and key '%v'",
-				kernel.ConnectionInfo().SignatureScheme, kernel.ConnectionInfo().Key)
-			d.log.Error(errorMessage)
-			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id:               uuid.NewString(),
-				Title:            "Failed to Validate Modified Jupyter Message with Resource Snapshot",
-				Message:          errorMessage,
-				NotificationType: 0,
-				Panicked:         false,
-			})
-			return nil, encodeErr
-		}
-	}
-
-	d.log.Debug("Added snapshot to Jupyter \"%s\" message: %s", jMsg.JupyterMessageType(), snapshot.String())
-	d.log.Debug("Message frames after adding snapshot: %s", jMsg.JupyterFrames.String())
-	return snapshot, nil
 }
 
 func (d *LocalScheduler) handleIgnoreMsg(kernel scheduling.KernelReplica, _ *messaging.JupyterFrames, raw *messaging.JupyterMessage) error {
