@@ -1847,6 +1847,8 @@ func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, re
 		}
 	}()
 
+	numReplicas := c.Size()
+
 	err := c.RemoveAllReplicas(remover, false, false)
 	if err != nil {
 		c.log.Error("Failed to remove all replicas: %v", err)
