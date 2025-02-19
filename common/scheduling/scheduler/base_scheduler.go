@@ -1301,7 +1301,7 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	select {
 	case <-ctx.Done():
 		{
-			s.log.Error("Timed-out waiting for response from host %s (ID=%s) for 'prepare-to-migrate' request for replica %d of kernel %s...",
+			s.log.Error("Timed out waiting for response from host %s (ID=%s) for 'prepare-to-migrate' request for replica %d of kernel %s...",
 				originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
 			return "", fmt.Errorf("timed out")
 		}
@@ -1565,10 +1565,10 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	// If there was an error (i.e., time-out) or we haven't migrated all the containers yet,
 	// then we'll return a timed-out error.
 	if err != nil || numContainersMigratedSuccessfully.Load() < int32(numContainersToMigrate) {
-		s.log.Debug("Timed-out waiting for %d worker(s) to migrate %d containers from host %s. Time elapsed: %v. Number of successful migrations: %d.",
+		s.log.Debug("Timed out waiting for %d worker(s) to migrate %d containers from host %s. Time elapsed: %v. Number of successful migrations: %d.",
 			nWorkers, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), numContainersMigratedSuccessfully.Load())
 
-		return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+		return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
 			types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 	}
 
@@ -1603,7 +1603,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Expected for the number of migrated containers (%d) to equal the target (%d)",
 							numContainersMigratedSuccessfully.Load(), numContainersToMigrate)
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+						return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
@@ -1614,7 +1614,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Number of successful migrations (%d) of containers from host %s is somehow > than target (%d)",
 							numContainersMigratedSuccessfully.Load(), host.GetNodeName(), numContainersToMigrate)
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+						return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
@@ -1625,7 +1625,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Host %s still has %d container(s), but we should've migrated all of them...",
 							host.GetNodeName(), host.NumContainers())
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+						return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 

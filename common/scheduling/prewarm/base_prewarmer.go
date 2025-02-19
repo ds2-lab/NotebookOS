@@ -712,7 +712,7 @@ func (p *BaseContainerPrewarmer) provisionContainers(host scheduling.Host, n int
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
 	defer cancel()
 
 	// TODO: Make the executable path configurable or passed via an environment variable.

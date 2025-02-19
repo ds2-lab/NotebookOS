@@ -291,7 +291,7 @@ func (c *DistributedKernelClient) InitRemoveReplicaContainersOperation() (bool, 
 	// TODO: What about concurrent scheduling/creation operation?
 
 	// Attempt to take ownership over the next/current scheduling attempt.
-	// If this CAS operation fails, then that means that there's another active container creation attempt.
+	// If this CAS operation fails, then that means that there's another active container removal attempt.
 	if !c.replicaContainersAreBeingRemoved.CompareAndSwap(0, 1) {
 		return false, c.removeReplicaContainersAttempt
 	}
@@ -308,9 +308,9 @@ func (c *DistributedKernelClient) InitRemoveReplicaContainersOperation() (bool, 
 		c.log.Debug("Began attempt to remove up to %d replica container(s), but replica(s) are already removed.",
 			c.targetNumReplicas)
 
-		concluded := c.concludeSchedulingReplicaContainers()
+		concluded := c.concludeRemovingReplicaContainers()
 		if !concluded {
-			panic("Failed to conclude container creation operation immediately after initiating it...")
+			panic("Failed to conclude container removal operation immediately after initiating it...")
 		}
 
 		return false, nil
