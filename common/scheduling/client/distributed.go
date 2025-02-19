@@ -205,7 +205,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		spec:                 spec,
 		targetNumReplicas:    int32(numReplicas),
 		cleaned:              make(chan struct{}),
-		replicas:             hashmap.NewCornelkMap[int32, scheduling.KernelReplica](16),
+		replicas:             hashmap.NewConcurrentMapWithCustomShardingFunction[int32, scheduling.KernelReplica](32, types.Int32StringerFnv32),
 		// replicas:             make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
 	}
 	kernelClient.nextNodeId.Store(int32(numReplicas + 1))
@@ -2240,20 +2240,38 @@ func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, st
 		err = fmt.Errorf("zmq4 message is null")
 	}
 
-	// Initiate idle status collection.
-	if status == messaging.MessageKernelStatusBusy {
-		c.busyStatus.Collect(context.Background(), c.replicas.Len(), c.replicas.Len(), messaging.MessageKernelStatusIdle, c.pubIOMessage)
-		// Fill matched status that has been received before collecting.
-		// for _, replica := range c.replicas {
-		c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
-			status, msg := replica.BusyStatus()
-			if status == messaging.MessageKernelStatusIdle {
-				c.busyStatus.Reduce(replica.ReplicaID(), messaging.MessageKernelStatusIdle, msg, c.pubIOMessage)
-			}
-
-			return true
-		})
+	// If we're shutting down, then don't bother with collecting the status of the replicas.
+	if msg.JupyterMessageType() == messaging.MessageTypeShutdownRequest {
+		return nil
 	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.log.Error("Recovered from panic: %v", r)
+			}
+		}()
+
+		// Initiate idle status collection.
+		if status == messaging.MessageKernelStatusBusy {
+			c.busyStatus.Collect(context.Background(), c.replicas.Len(), c.replicas.Len(), messaging.MessageKernelStatusIdle, c.pubIOMessage)
+			// Fill matched status that has been received before collecting.
+			// for _, replica := range c.replicas {
+			c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
+				if replica == nil {
+					c.log.Warn("Replica %d is apparently nil...", i)
+					return true
+				}
+
+				status, msg = replica.BusyStatus()
+				if status == messaging.MessageKernelStatusIdle {
+					c.busyStatus.Reduce(replica.ReplicaID(), messaging.MessageKernelStatusIdle, msg, c.pubIOMessage)
+				}
+
+				return true
+			})
+		}
+	}()
 
 	return err
 }

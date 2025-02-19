@@ -2163,25 +2163,27 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 		return err
 	}
 
-	select {
-	// Check if there's already an error available, in which case we'll return it.
-	case v := <-notifyChan:
-		{
-			// If we received an error, then we already know that the operation failed (and we know why -- it is
-			// whatever the error is/says), so we can just return the error. Otherwise, we just return optimistically.
-			var ok bool
-			if err, ok = v.(error); ok {
-				d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
-			}
-		}
-	default:
-		{
-			// No-op.
-		}
-	}
+	return attempt.Wait(ctx)
 
-	d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
-	return nil
+	//select {
+	//// Check if there's already an error available, in which case we'll return it.
+	//case v := <-notifyChan:
+	//	{
+	//		// If we received an error, then we already know that the operation failed (and we know why -- it is
+	//		// whatever the error is/says), so we can just return the error. Otherwise, we just return optimistically.
+	//		var ok bool
+	//		if err, ok = v.(error); ok {
+	//			d.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+	//		}
+	//	}
+	//default:
+	//	{
+	//		// No-op.
+	//	}
+	//}
+	//
+	//d.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
+	//return nil
 }
 
 // StartKernel launches a new kernel.
