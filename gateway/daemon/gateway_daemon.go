@@ -4297,7 +4297,13 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 			kernel.ID(), jMsg.JupyterMessageType(), err)
 
 		// We'll send an error message to the associated client here.
-		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+		go func() {
+			sendErr := d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+			if sendErr != nil {
+				d.log.Error("Failed to send error response for shell \"%s\" message \"%s\": %v",
+					jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), sendErr)
+			}
+		}()
 		return err
 	}
 

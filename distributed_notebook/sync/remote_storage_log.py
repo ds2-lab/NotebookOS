@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 import pickle
@@ -302,10 +303,14 @@ class RemoteStorageLog(object):
         metadata_key: str = self.__get_path_for_metadata()
 
         try:
-            data: Dict[str, Any] | bytes = self.storage_provider.read_value(metadata_key)
+            data: Dict[str, Any] | bytes | io.BytesIO = self.storage_provider.read_value(metadata_key)
         except InvalidKeyError:
             self.log.debug(f'No data stored at metadata key "{metadata_key}". No state to load and apply.')
             return set()
+
+        if isinstance(data, io.BytesIO):
+            data.seek(0)
+            data = data.getbuffer().tobytes()
 
         try:
             data = pickle.loads(data)

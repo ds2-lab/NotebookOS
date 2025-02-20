@@ -161,8 +161,8 @@ func NewSocketWithHandlerAndRemoteName(socket zmq4.Socket, port int, typ Message
 }
 
 func (s *Socket) Send(msg zmq4.Msg) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	//s.mu.Lock()
+	//defer s.mu.Unlock()
 	err := s.Socket.Send(msg)
 
 	if err != nil {

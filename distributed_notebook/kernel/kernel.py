@@ -4059,7 +4059,7 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
 
-        if self.synchronizer:
+        if hasattr(self, "synchronizer"):
             self.log.info("Closing the Synchronizer.")
             self.synchronizer.close()
             self.log.info("Successfully closed the Synchronizer.")

@@ -25,8 +25,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
-	"github.com/scusemua/distributed-notebook/local_daemon/daemon"
-	schedulerDomain "github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"log"

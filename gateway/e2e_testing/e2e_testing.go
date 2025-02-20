@@ -1,7 +1,6 @@
 package e2e_testing
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
@@ -17,7 +16,6 @@ import (
 	"github.com/scusemua/distributed-notebook/local_daemon/invoker"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
-	"net"
 	"os"
 	"sync"
 	"time"
