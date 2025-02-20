@@ -2085,6 +2085,7 @@ class DistributedKernel(IPythonKernel):
             # self.current_execution_stats = ExecutionStats()
 
             return
+
         try:
             content = parent["content"]
             code = content["code"]
@@ -2223,10 +2224,16 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
 
-        # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
-        # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
-        # or Redis, depending on the system's configuration.
-        await self.synchronize_updated_state(term_number)
+        # Synchronize updated state if we executed the user-submitted code.
+        if was_primary_replica:
+            self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
+
+            # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
+            # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
+            # or Redis, depending on the system's configuration.
+            await self.synchronize_updated_state(term_number)
+        else:
+            self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronizion step.")
 
         # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
         #
