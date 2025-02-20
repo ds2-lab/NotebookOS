@@ -1561,7 +1561,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		nWorkers = numContainersToMigrate / 4
 	}
 
-	timeoutInterval := time.Minute * time.Duration(float64(numContainersToMigrate)*1.5)
+	timeoutInterval := time.Minute * time.Duration(float64(numContainersToMigrate)*2.5)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1658,11 +1658,11 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	// If there was an error (i.e., time-out) or we haven't migrated all the containers yet,
 	// then we'll return a timed-out error.
 	if err != nil || numContainersMigratedSuccessfully.Load() < int32(numContainersToMigrate) {
-		s.log.Debug("Timed out waiting for %d worker(s) to migrate %d containers from host %s. Time elapsed: %v. Number of successful migrations: %d.",
-			nWorkers, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), numContainersMigratedSuccessfully.Load())
+		s.log.Debug("Timed out waiting for %d worker(s) to migrate %d containers from host %s. Time elapsed: %v. Number of successful migrations: %d. %v",
+			nWorkers, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), numContainersMigratedSuccessfully.Load(), err)
 
-		return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
-			types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
+		return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v: %v",
+			types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), err)
 	}
 
 	err = nil
