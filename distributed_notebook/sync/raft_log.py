@@ -1956,12 +1956,14 @@ class RaftLog(object):
         if self._current_election.was_skipped:
             return True
 
+        current_term: int = self._current_election.term_number
         if self._current_election.voting_phase_completed_successfully:
-            self.log.warning("Current/previous election completed voting phase. "
-                             "Have not received 'execution complete' notification yet, though."
-                             "Will assume that everything is OK and begin handling next election.")
-            return True
+            self.log.warning(f"Current/previous election for term {current_term} completed voting phase, "
+                             f"but we've not yet received the 'execution complete' notification yet...")
+            return False
 
+        self.log.warning(f"Current/previous election for term {current_term} has not even finished voting yet...")
+        self.log.warning(f"We must be pretty far behind...")
         return False
 
     async def _validate_prev_election(self, term_number: int)->int:
