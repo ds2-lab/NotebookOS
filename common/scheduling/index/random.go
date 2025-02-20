@@ -55,13 +55,6 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 }
 
 func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	if !host.Enabled() {
-		// If the host is not enabled, then it is ineligible to be added to the index.
-		// In general, disabled hosts will not be attempted to be added to the index,
-		// but if that happens, then we return scheduling.IndexUnqualified.
-		return expectedRandomIndex, scheduling.IndexUnqualified
-	}
-
 	// Since all hosts are qualified, we check if the host is in the index only.
 	val := host.GetMeta(HostMetaRandomIndex)
 	if val == nil {
@@ -70,9 +63,16 @@ func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{},
 
 	if _, ok := val.(int32); ok {
 		return expectedRandomIndex, scheduling.IndexQualified
-	} else {
-		return expectedRandomIndex, scheduling.IndexNewQualified
 	}
+
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
+	return expectedRandomIndex, scheduling.IndexNewQualified
 }
 
 // NumReshuffles returns the number of times that this index has reshuffled its internal permutation.
