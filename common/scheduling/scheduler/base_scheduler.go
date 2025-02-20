@@ -1473,22 +1473,6 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		return nil
 	}
 
-	// If there's just one, then just migrate the one container.
-	if numContainersToMigrate == 1 {
-		s.log.Debug("There's just one container on host %s to migrate.", host.GetNodeName())
-
-		var err error
-		host.Containers().Range(func(containerId string, container scheduling.KernelContainer) (contd bool) {
-			err = migrateContainer(containerId, container)
-
-			// There should just be one container to migrate, so we should ultimately stop looping immediately
-			// either way.
-			return err == nil
-		})
-
-		return err
-	}
-
 	aborted := false
 
 	// Called if we have to abort the migration because we couldn't find a viable target for some replica.
@@ -1552,6 +1536,22 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 
 		return fmt.Errorf("%w: failed to find viable migration targets for one or more containers",
 			scheduling.ErrMigrationFailed)
+	}
+
+	// If there's just one, then just migrate the one container.
+	if numContainersToMigrate == 1 {
+		s.log.Debug("There's just one container on host %s to migrate.", host.GetNodeName())
+
+		var err error
+		host.Containers().Range(func(containerId string, container scheduling.KernelContainer) (contd bool) {
+			err = migrateContainer(containerId, container)
+
+			// There should just be one container to migrate, so we should ultimately stop looping immediately
+			// either way.
+			return err == nil
+		})
+
+		return err
 	}
 
 	var nWorkers int
