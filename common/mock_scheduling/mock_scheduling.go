@@ -855,17 +855,17 @@ func (mr *MockSchedulerMockRecorder) ContainerPrewarmer() *gomock.Call {
 }
 
 // DeployKernelReplicas mocks base method.
-func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
+func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32, blacklistedHosts []scheduling.Host) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeployKernelReplicas", ctx, kernel, blacklistedHosts)
+	ret := m.ctrl.Call(m, "DeployKernelReplicas", ctx, kernel, numReplicasToSchedule, blacklistedHosts)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DeployKernelReplicas indicates an expected call of DeployKernelReplicas.
-func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernel, blacklistedHosts any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernel, numReplicasToSchedule, blacklistedHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernel, blacklistedHosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernel, numReplicasToSchedule, blacklistedHosts)
 }
 
 // FindReadyReplica mocks base method.
@@ -913,33 +913,33 @@ func (mr *MockSchedulerMockRecorder) GetAddReplicaOperationManager() *gomock.Cal
 }
 
 // GetCandidateHost mocks base method.
-func (m *MockScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+func (m *MockScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining, createNewHostPermitted bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCandidateHost", replica, blacklistedHosts, forTraining)
+	ret := m.ctrl.Call(m, "GetCandidateHost", replica, blacklistedHosts, forTraining, createNewHostPermitted)
 	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetCandidateHost indicates an expected call of GetCandidateHost.
-func (mr *MockSchedulerMockRecorder) GetCandidateHost(replica, blacklistedHosts, forTraining any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) GetCandidateHost(replica, blacklistedHosts, forTraining, createNewHostPermitted any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHost", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHost), replica, blacklistedHosts, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHost", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHost), replica, blacklistedHosts, forTraining, createNewHostPermitted)
 }
 
 // GetCandidateHosts mocks base method.
-func (m *MockScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
+func (m *MockScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32) ([]scheduling.Host, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCandidateHosts", ctx, kernelSpec)
+	ret := m.ctrl.Call(m, "GetCandidateHosts", ctx, kernelSpec, numHosts)
 	ret0, _ := ret[0].([]scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetCandidateHosts indicates an expected call of GetCandidateHosts.
-func (mr *MockSchedulerMockRecorder) GetCandidateHosts(ctx, kernelSpec any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) GetCandidateHosts(ctx, kernelSpec, numHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHosts", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHosts), ctx, kernelSpec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHosts", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHosts), ctx, kernelSpec, numHosts)
 }
 
 // GetOversubscriptionFactor mocks base method.
@@ -981,9 +981,9 @@ func (mr *MockSchedulerMockRecorder) HostRemoved(host any) *gomock.Call {
 }
 
 // MigrateKernelReplica mocks base method.
-func (m *MockScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error, error) {
+func (m *MockScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica, targetHostId string, forTraining, createNewHostPermitted bool) (*proto.MigrateKernelResponse, error, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MigrateKernelReplica", ctx, kernelReplica, targetHostId, forTraining)
+	ret := m.ctrl.Call(m, "MigrateKernelReplica", ctx, kernelReplica, targetHostId, forTraining, createNewHostPermitted)
 	ret0, _ := ret[0].(*proto.MigrateKernelResponse)
 	ret1, _ := ret[1].(error)
 	ret2, _ := ret[2].(error)
@@ -991,9 +991,9 @@ func (m *MockScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 }
 
 // MigrateKernelReplica indicates an expected call of MigrateKernelReplica.
-func (mr *MockSchedulerMockRecorder) MigrateKernelReplica(ctx, kernelReplica, targetHostId, forTraining any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) MigrateKernelReplica(ctx, kernelReplica, targetHostId, forTraining, createNewHostPermitted any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrateKernelReplica", reflect.TypeOf((*MockScheduler)(nil).MigrateKernelReplica), ctx, kernelReplica, targetHostId, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrateKernelReplica", reflect.TypeOf((*MockScheduler)(nil).MigrateKernelReplica), ctx, kernelReplica, targetHostId, forTraining, createNewHostPermitted)
 }
 
 // MinimumCapacity mocks base method.
@@ -6908,6 +6908,20 @@ func (m *MockKernel) MessageAcknowledgementsEnabled() bool {
 func (mr *MockKernelMockRecorder) MessageAcknowledgementsEnabled() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MessageAcknowledgementsEnabled", reflect.TypeOf((*MockKernel)(nil).MessageAcknowledgementsEnabled))
+}
+
+// MissingReplicaIds mocks base method.
+func (m *MockKernel) MissingReplicaIds() []int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MissingReplicaIds")
+	ret0, _ := ret[0].([]int32)
+	return ret0
+}
+
+// MissingReplicaIds indicates an expected call of MissingReplicaIds.
+func (mr *MockKernelMockRecorder) MissingReplicaIds() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MissingReplicaIds", reflect.TypeOf((*MockKernel)(nil).MissingReplicaIds))
 }
 
 // NumActiveExecutionOperations mocks base method.

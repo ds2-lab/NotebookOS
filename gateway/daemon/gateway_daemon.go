@@ -1784,7 +1784,25 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec,
 	attemptChan chan<- scheduling.CreateReplicaContainersAttempt) error {
 
-	d.log.Debug("Scheduling %d replica container(s) of kernel %s.", d.NumReplicas(), kernel.ID())
+	// Check if any replicas are being migrated and, if so, then wait for them to finish being migrated.
+	migrationCtx, migrateCancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer migrateCancel()
+
+	err := kernel.WaitForMigrationsToComplete(migrationCtx)
+	if err != nil {
+		return err
+	}
+
+	replicasToSchedule := kernel.MissingReplicaIds()
+	numReplicasToSchedule := len(replicasToSchedule)
+
+	if numReplicasToSchedule == 0 {
+		d.log.Warn("All replicas of kernel \"%s\" are already scheduled...?", kernel.ID())
+		return nil
+	}
+
+	d.log.Debug("Scheduling %d replica container(s) of kernel %s.",
+		numReplicasToSchedule, kernel.ID())
 
 	var (
 		startedScheduling bool
@@ -1858,8 +1876,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	d.clusterStatisticsMutex.Lock()
 	startTime := time.Now()
-	for i := 0; i < d.NumReplicas(); i++ {
-		replicaId := int32(i + 1)
+	for _, replicaId := range replicasToSchedule {
 		event := &metrics.ClusterEvent{
 			EventId:             uuid.NewString(),
 			Name:                metrics.ScheduleReplicasStarted,
@@ -1876,7 +1893,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// Record that this kernel is starting.
 	kernelStartedChan := make(chan struct{})
 	d.kernelsStarting.Store(in.Id, kernelStartedChan)
-	created := newRegistrationWaitGroups(d.NumReplicas())
+	created := newRegistrationWaitGroups(numReplicasToSchedule)
 	created.AddOnReplicaRegisteredCallback(func(replicaId int32) {
 		replicaRegisteredEventsMutex.Lock()
 		defer replicaRegisteredEventsMutex.Unlock()
@@ -1885,7 +1902,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	})
 	d.waitGroups.Store(in.Id, created)
 
-	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, kernel, []scheduling.Host{ /* No blacklisted hosts */ })
+	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, kernel, int32(numReplicasToSchedule), []scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
 		d.log.Warn("Failed to deploy kernel replica(s) for kernel \"%s\" because: %v", kernel.ID(), err)
 
@@ -1904,20 +1921,20 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// Note that creation just means that the Container/Pod was created.
 	// It does not mean that the Container/Pod has entered the active/running state.
 	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of Kernels starting: %d.",
-		in.Id, d.kernelsStarting.Len())
+		in.Id, numReplicasToSchedule)
 	created.Wait()
 	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
-		d.NumReplicas(), in.Id)
+		numReplicasToSchedule, in.Id)
 
 	// Wait until all replicas have started.
-	for i := 0; i < d.NumReplicas(); i++ {
+	for i := 0; i < numReplicasToSchedule; i++ {
 		<-kernelStartedChan // Wait for all replicas to join their SMR cluster.
 	}
 
 	// Clean up.
 	d.kernelsStarting.Delete(in.Id)
-	d.log.Debug("All %d replica(s) of new kernel %s have registered and joined their SMR cluster. Number of Kernels starting: %d.",
-		d.NumReplicas(), in.Id, d.kernelsStarting.Len())
+	d.log.Debug("All %d replica(s) of kernel %s have registered and joined their SMR cluster. Number of Kernels starting: %d.",
+		numReplicasToSchedule, in.Id, numReplicasToSchedule)
 
 	// Sanity check.
 	if kernel.Size() == 0 {
@@ -3950,6 +3967,15 @@ func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, 
 func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.Kernel, msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, bool, error) {
 	d.log.Debug("Verifying that replicas of kernel %s are all scheduled before processing %s \"%s\" request \"%s\"",
 		kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
+
+	// Check if any replicas are being migrated and, if so, then wait for them to finish being migrated.
+	migrationCtx, migrateCancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer migrateCancel()
+
+	err := kernel.WaitForMigrationsToComplete(migrationCtx)
+	if err != nil {
+		return nil, false, err
+	}
 
 	// Check if the kernel is being descheduled. If so, then we'll wait for a bit for it to finish being descheduled.
 	_, removalAttempt := kernel.ReplicaContainersAreBeingRemoved()

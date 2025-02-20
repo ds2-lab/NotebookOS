@@ -211,6 +211,18 @@ type Kernel interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 
+	// MigrationInProgress returns true if one or more of the target Kernel's replicas are being migrated.
+	MigrationInProgress() bool
+
+	// MigrationStarted records that a replica of the target Kernel is being migrated.
+	MigrationStarted() error
+
+	// WaitForMigrationsToComplete waits for any active migrations to complete.
+	WaitForMigrationsToComplete(ctx context.Context) error
+
+	// MigrationConcluded records that a replica of the target Kernel is done being migrated.
+	MigrationConcluded()
+
 	// NumContainersCreated returns the total number of KernelContainer instances that have been created or provisioned
 	// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
 	// KernelContainer instance(s) as well as any KernelContainer instance(s) created during migrations or as on-demand.
@@ -261,6 +273,8 @@ type Kernel interface {
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
+	// MissingReplicaIds returns the replica IDs of the replicas that the kernel is missing.
+	MissingReplicaIds() []int32
 	NumActiveMigrationOperations() int
 	AddOperationStarted()
 	AddOperationCompleted()

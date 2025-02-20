@@ -576,7 +576,7 @@ func (s *DockerScheduler) removeOrphanedReplicas(ctx context.Context, kernel sch
 }
 
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
+func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32, blacklistedHosts []scheduling.Host) error {
 	st := time.Now()
 
 	kernelSpec := kernel.KernelSpec()
@@ -591,7 +591,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 	}
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
-	hosts, candidateError := s.GetCandidateHosts(ctx, kernelSpec)
+	hosts, candidateError := s.GetCandidateHosts(ctx, kernelSpec, numReplicasToSchedule)
 	if candidateError != nil {
 		return candidateError
 	}

@@ -135,6 +135,9 @@ type DistributedKernelClient struct {
 	// When there is an active operation, the value of createReplicaContainersAttempt will be strictly positive.
 	replicaContainersAreBeingScheduled atomic.Int32
 
+	// migrationSemaphore indicates that one or more replicas are being migrated when the value is > 1.
+	migrationSemaphore *semaphore.Weighted
+
 	// removeReplicaContainersAttempt is non-nil when there's an active 'remove containers/replicas' operation for
 	// this DistributedKernelClient. The removeReplicaContainersAttempt encapsulates info about that operation.
 	//
@@ -213,6 +216,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	kernelClient.SessionManager = NewSessionManager(spec.Session)
 	kernelClient.busyStatus = NewAggregateKernelStatus(kernelClient, numReplicas)
 	kernelClient.log = kernelClient.server.Log
+	kernelClient.migrationSemaphore = semaphore.NewWeighted(int64(numReplicas))
 
 	temporaryKernelReplicaClient := &TemporaryKernelReplicaClient{kernelClient}
 	kernelClient.temporaryKernelReplicaClient = temporaryKernelReplicaClient
@@ -330,6 +334,51 @@ func (c *DistributedKernelClient) InitRemoveReplicaContainersOperation() (bool, 
 	c.log.Debug("Beginning attempt to remove %d replica container(s).", c.replicas.Len())
 	c.removeReplicaContainersAttempt = newRemoveReplicaContainersAttempt(c)
 	return true, c.removeReplicaContainersAttempt
+}
+
+// MigrationStarted records that a replica of the target DistributedKernelClient is being migrated.
+func (c *DistributedKernelClient) MigrationStarted() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	err := c.migrationSemaphore.Acquire(ctx, 1)
+	if err != nil {
+		return fmt.Errorf("could not acquire migration semaphore: %w", err)
+	}
+
+	return nil
+}
+
+// MigrationInProgress returns true if one or more of the target Kernel's replicas are being migrated.
+func (c *DistributedKernelClient) MigrationInProgress() bool {
+	acquired := c.migrationSemaphore.TryAcquire(int64(c.targetNumReplicas))
+	if acquired {
+		// Acquired. There must be no active migrations.
+		// Make sure to release.
+		c.migrationSemaphore.Release(int64(c.targetNumReplicas))
+		return false
+	}
+
+	// Failed to acquire. At least one replica is being migrated.
+	return true
+}
+
+// MigrationConcluded records that a replica of the target Kernel is done being migrated.
+func (c *DistributedKernelClient) MigrationConcluded() {
+	c.migrationSemaphore.Release(1)
+}
+
+// WaitForMigrationsToComplete waits for any active migrations to complete.
+func (c *DistributedKernelClient) WaitForMigrationsToComplete(ctx context.Context) error {
+	err := c.migrationSemaphore.Acquire(ctx, int64(c.targetNumReplicas))
+	if err != nil {
+		c.log.Warn("Timed-out waiting for migrations to complete: %v", err)
+		return err
+	}
+
+	// Make sure to release.
+	c.migrationSemaphore.Release(int64(c.targetNumReplicas))
+	return nil
 }
 
 // InitSchedulingReplicaContainersOperation attempts to take ownership over the next/current scheduling attempt.
@@ -2072,6 +2121,25 @@ func (c *DistributedKernelClient) closeLocked() error {
 	close(c.cleaned)
 
 	return nil
+}
+
+// MissingReplicaIds returns the replica IDs of the replicas that the kernel is missing.
+func (c *DistributedKernelClient) MissingReplicaIds() []int32 {
+	sz := int(c.targetNumReplicas) - c.Size()
+	if sz < 0 {
+		sz = 1
+	}
+
+	missingIds := make([]int32, 0, sz)
+	for i := int32(1); i < c.targetNumReplicas+1; i++ {
+		if _, loaded := c.replicas.Load(i); loaded {
+			continue
+		}
+
+		missingIds = append(missingIds, i)
+	}
+
+	return missingIds
 }
 
 func (c *DistributedKernelClient) queryCloseLocked() error {

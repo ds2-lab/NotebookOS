@@ -460,7 +460,7 @@ func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
-// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster) S
+// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
 // if it fails to find sufficiently many viable Host instances. This process will be attempted three times.
 // If GetCandidateHosts is unsuccessful (at finding sufficiently many viable hosts) after those three attempts,
 // then GetCandidateHosts will give up and return an error.
@@ -468,7 +468,7 @@ func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
 //
 // This function is NOT idempotent. This locks the Hosts that are returned.
-func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32) ([]scheduling.Host, error) {
 	var (
 		bestAttempt = 0
 		hosts       []scheduling.Host
@@ -485,11 +485,11 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		Cap:      time.Duration(float64(s.cluster.MeanScaleOutTime()) * 1.50),
 	}
 
-	for retryParameters.Steps > 0 && len(hosts) < s.schedulingPolicy.NumReplicas() {
-		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
+	for retryParameters.Steps > 0 && int32(len(hosts)) < numHosts {
+		numHostsRequired := numHosts - int32(len(hosts))
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
-		hostBatch, err := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		hostBatch, err := s.FindCandidateHosts(int(numHostsRequired), kernelSpec) // note: this function executes atomically.
 		if err != nil {
 			s.log.Error("Error while searching for %d candidate host(s) for kernel %s: %v",
 				numHostsRequired, kernelSpec.Id, err)
@@ -500,18 +500,18 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far (attempt=%d).",
-				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
+				len(hosts), numHosts, kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 			if !s.isScalingOutEnabled() {
 				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
 				break // Give up.
 			}
 
-			numHostsRequired = s.schedulingPolicy.NumReplicas() - len(hosts)
+			numHostsRequired = numHosts - int32(len(hosts))
 			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
 				numHostsRequired, kernelSpec.Id)
 
-			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
+			p := s.cluster.RequestHosts(ctx, numHostsRequired)
 			if err = p.Error(); err != nil {
 				if errors.Is(err, scheduling.ErrScalingActive) {
 					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
@@ -539,14 +539,14 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		}
 
 		s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, hosts)
+			numHosts, kernelSpec.Id, hosts)
 	}
 
 	// Check if we were able to reserve the requested number of hosts.
 	// If not, then we need to release any hosts we did reserve.
-	if len(hosts) < s.schedulingPolicy.NumReplicas() {
+	if int32(len(hosts)) < numHosts {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
+			numHosts, kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 		// Release any resource reservations that we created, since we're aborting the scheduling
 		// of the replicas of the kernel.
@@ -587,8 +587,8 @@ func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, rep
 }
 
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
-	return s.instance.DeployKernelReplicas(ctx, kernel, blacklistedHosts)
+func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32, blacklistedHosts []scheduling.Host) error {
+	return s.instance.DeployKernelReplicas(ctx, kernel, numReplicasToSchedule, blacklistedHosts)
 }
 
 // RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
@@ -1039,13 +1039,16 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilOriginalHost
 	}
 
-	var (
-		targetHost scheduling.Host
-		loaded     bool
-	)
+	kernel, loaded := s.kernelProvider.GetKernel(kernelReplica.ID())
+	if !loaded {
+		s.log.Error("Could not find kernel \"%s\" associated with replica %d being migrated...",
+			kernelReplica.ID(), kernelReplica.ReplicaID())
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, types.ErrKernelNotFound
+	}
 
 	// If the caller specified a particular host, then we'll verify that the specified host exists.
 	// If it doesn't, then we'll return an error.
+	var targetHost scheduling.Host
 	if targetHostId != "" {
 		targetHost, loaded = s.cluster.GetHost(targetHostId)
 
@@ -1090,6 +1093,16 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 
 	s.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
 		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
+
+	// Record that the migration operation is starting.
+	err = kernel.MigrationStarted()
+	if err != nil {
+		s.log.Error("Could not initiate migration of replica %d of kernel \"%s\": %v",
+			kernelReplica.ReplicaID(), kernelReplica.ReplicaID(), err)
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, types.ErrKernelNotFound
+	}
+
+	defer kernel.MigrationConcluded()
 
 	var dataDirectory string
 	dataDirectory, err = s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
@@ -1459,6 +1472,8 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 	}
 
 	getMigrationTarget := func(containerId string, container scheduling.KernelContainer) (scheduling.Host, error) {
+		// Get a candidate host, but do not allow the cluster to provision new hosts/scale out, as that would
+		// defeat the purpose of idle-reclaiming this host.
 		return s.GetCandidateHost(container.GetClient(), nil, false, false)
 	}
 
@@ -1474,6 +1489,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 		migrationTarget := migrationTargets[containerId]
 
 		// Pass true for `noNewHost`, as we don't want to create a new host for this.
+		// (We already have a migration target selected, so it shouldn't matter, but still.)
 		_, failedMigrationReason, err := s.MigrateKernelReplica(context.Background(), container.GetClient(),
 			migrationTarget.TargetHost.GetID(), forTraining, false)
 

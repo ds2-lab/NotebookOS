@@ -52,7 +52,7 @@ type KernelScheduler interface {
 		createNewHostPermitted bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployKernelReplicas(ctx context.Context, kernel Kernel, blacklistedHosts []Host) error
+	DeployKernelReplicas(ctx context.Context, kernel Kernel, numReplicasToSchedule int32, blacklistedHosts []Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
@@ -128,7 +128,7 @@ type HostScheduler interface {
 
 	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
 	// before returning them.
-	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]Host, error)
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32) ([]Host, error)
 
 	// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
 	// before returning them.
