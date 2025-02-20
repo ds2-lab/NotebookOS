@@ -115,11 +115,11 @@ signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
 
-DeployModeKubernetes: str = "KUBERNETES"
-DeployModeDockerSwarm: str = "DOCKER-SWARM"
-DeployModeDockerCompose: str = "DOCKER-COMPOSE"
-DeployModeDocker: str = "DOCKER"
-DeployModeLocal: str = "LOCAL"
+DeployModeKubernetes: str = "kubernetes" # Running via Kubernetes rather than Docker.
+DeployModeDockerSwarm: str = "docker-swarm" # Running via Docker Swarm on one or more machines.
+DeployModeDockerCompose: str = "docker-compose" # Running via Docker Compose on a single system.
+DeployModeDocker: str = "docker" # Used to match against either docker modes.
+DeployModeLocal: str = "local" # Old, used to be used for debugging, no longer used.
 
 # The average time to initialize CUDA on an AWS P3 instance (with a V100 GPU), based on our empirical benchmark.
 AverageCudaInitTimeSec: float = 0.17389775
