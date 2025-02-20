@@ -4645,8 +4645,9 @@ func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *
 			ReplicaId:    targetReplica.ReplicaID(),
 			PersistentId: kernel.PersistentID(),
 		},
-		ForTraining:  true,
-		TargetNodeId: nil,
+		ForTraining:      true,
+		CanCreateNewHost: true,
+		TargetNodeId:     nil,
 	}
 
 	resp, migrationError := d.MigrateKernelReplica(context.Background(), req)
