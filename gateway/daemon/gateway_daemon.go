@@ -2071,7 +2071,7 @@ func (d *ClusterGatewayImpl) startLongRunningKernel(ctx context.Context, kernel 
 		}
 
 		if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
-			d.log.Warn("Insufficient hosts available to schedule replica container(s) of new kernel %s",
+			d.log.Warn("Insufficient hosts available to schedule replica container(s) of new kernel %s: %v",
 				in.Id, err)
 		} else {
 			d.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v",
