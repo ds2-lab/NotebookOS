@@ -662,7 +662,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *messaging.Jupyter
 		return nil, signingError
 	}
 
-	// Add the destination frame, in case we're in the Local Daemon and this has to go back to the Cluster Gateway.
+	// AddHost the destination frame, in case we're in the Local Daemon and this has to go back to the Cluster Gateway.
 	jMsg := messaging.NewJupyterMessage(&msg)
 	jMsg.AddDestinationId(originalMessage.DestinationId)
 
@@ -718,7 +718,7 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 //  3. Wait for timeout. If the context is not cancellable, a default timeout will be applied.
 //
 // available options:
-//   - SROptionRemoveDestFrame bool Remove the destination frame from the response.
+//   - SROptionRemoveDestFrame bool RemoveHost the destination frame from the response.
 //
 // Params:
 //   - server: The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
@@ -1377,7 +1377,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 					msg.JupyterFrames.RemoveDestFrame(true)
 				}
 
-				// Remove pending request and return registered handler. If timeout, the handler will be nil.
+				// RemoveHost pending request and return registered handler. If timeout, the handler will be nil.
 				if pending, exist := pendingRequests.LoadAndDelete(rspId); exist {
 					handler = pending.Handle // Handle will release the pending request once called.
 					request = pending.Request()

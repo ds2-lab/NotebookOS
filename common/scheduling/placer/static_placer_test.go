@@ -394,7 +394,7 @@ var _ = Describe("Static Placer Tests", func() {
 			hostPool, loaded := staticPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticIndexBucket(5, int32(hostSpec.GPU()))))
+			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticMultiIndexBucket(5, int32(hostSpec.GPU()))))
 			Expect(hostPool.Len()).To(Equal(1))
 			Expect(hostPool.Size()).To(Equal(1))
 
@@ -433,7 +433,7 @@ var _ = Describe("Static Placer Tests", func() {
 			hostPool, loaded = staticPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticIndexBucket(5, int32(hostSpec.GPU()))))
+			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticMultiIndexBucket(5, int32(hostSpec.GPU()))))
 			Expect(hostPool.Len()).To(Equal(2))
 			Expect(hostPool.Size()).To(Equal(2))
 
@@ -469,7 +469,7 @@ var _ = Describe("Static Placer Tests", func() {
 			hostPool, loaded = staticPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticIndexBucket(5, int32(hostSpec.GPU()))))
+			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticMultiIndexBucket(5, int32(hostSpec.GPU()))))
 			Expect(hostPool.Len()).To(Equal(2))
 			Expect(hostPool.Size()).To(Equal(2))
 		})
@@ -535,7 +535,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(1, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(1, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -560,7 +560,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(2, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(2, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -585,7 +585,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(4, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(4, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -610,7 +610,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(8, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(8, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -711,7 +711,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(8, gpusPerHost)] = 2
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(8, gpusPerHost)] = 2
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -792,7 +792,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(2, gpusPerHost)] = 2
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(2, gpusPerHost)] = 2
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))

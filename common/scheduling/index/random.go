@@ -55,13 +55,6 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 }
 
 func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	if !host.Enabled() {
-		// If the host is not enabled, then it is ineligible to be added to the index.
-		// In general, disabled hosts will not be attempted to be added to the index,
-		// but if that happens, then we return scheduling.IndexUnqualified.
-		return expectedRandomIndex, scheduling.IndexUnqualified
-	}
-
 	// Since all hosts are qualified, we check if the host is in the index only.
 	val := host.GetMeta(HostMetaRandomIndex)
 	if val == nil {
@@ -70,9 +63,16 @@ func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{},
 
 	if _, ok := val.(int32); ok {
 		return expectedRandomIndex, scheduling.IndexQualified
-	} else {
-		return expectedRandomIndex, scheduling.IndexNewQualified
 	}
+
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
+	return expectedRandomIndex, scheduling.IndexNewQualified
 }
 
 // NumReshuffles returns the number of times that this index has reshuffled its internal permutation.
@@ -84,7 +84,7 @@ func (index *RandomClusterIndex) Len() int {
 	return int(index.len)
 }
 
-func (index *RandomClusterIndex) Add(host scheduling.Host) {
+func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -132,14 +132,16 @@ func (index *RandomClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *RandomClusterIndex) Remove(host scheduling.Host) {
+func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+
+	index.log.Debug("Removing host %s (ID=%s) from RandomClusterIndex.", host.GetNodeName(), host.GetID())
 
 	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
 	if !ok {
 		index.log.Warn("Cannot remove host %s; it is not present within RandomClusterIndex", host.GetID())
-		return
+		return false
 	}
 
 	if !host.IsContainedWithinIndex() {
@@ -190,6 +192,8 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 
 	// Invoke callback.
 	index.InvokeHostRemovedCallbacks(host)
+
+	return true
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {
@@ -280,6 +284,23 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	return ret, pos, err
 }
 
+func (index *RandomClusterIndex) checkHostForViability(candidateHost scheduling.Host, criteriaFunc scheduling.HostCriteriaFunction) bool {
+	if criteriaFunc == nil {
+		return true
+	}
+
+	// Check that the host is not outright excluded from scheduling right now and
+	// that it satisfies whatever scheduling criteria was specified by the user.
+	err := criteriaFunc(candidateHost)
+	if err != nil {
+		index.log.Debug("Host %s (ID=%s) failed supplied criteria function: %v",
+			candidateHost.GetNodeName(), candidateHost.GetID(), err)
+		return false
+	}
+
+	return true
+}
+
 // SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
@@ -345,22 +366,28 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 		// In case we reshuffled, make sure we haven't already received this host.
 		// If indeed it is new, then we'll add it to the host map.
-		if _, loaded := hostsMap[candidateHost.GetID()]; !loaded {
-			// Check that the host is not outright excluded from scheduling right now and
-			// that it satisfies whatever scheduling criteria was specified by the user.
-			hostSatisfiesSchedulingCriteria := criteriaFunc == nil || criteriaFunc(candidateHost)
-
-			// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
-			// before marking it as being considered.
-			if hostSatisfiesSchedulingCriteria && candidateHost.ConsiderForScheduling() {
-				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
-				hostsMap[candidateHost.GetID()] = candidateHost
-			} else {
-				index.log.Debug("host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
-			}
-		} else {
-			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.GetNodeName(), candidateHost.GetID())
+		_, loaded := hostsMap[candidateHost.GetID()]
+		if loaded {
+			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+			continue
 		}
+
+		viable := index.checkHostForViability(candidateHost, criteriaFunc)
+		if !viable {
+			continue
+		}
+
+		// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
+		// before marking it as being considered.
+		if candidateHost.ConsiderForScheduling() {
+			index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
+			hostsMap[candidateHost.GetID()] = candidateHost
+			continue
+		}
+
+		index.log.Warn("Viable candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
 	}
 
 	// Put all the hosts from the map into the slice and return it.

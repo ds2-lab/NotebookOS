@@ -55,7 +55,7 @@ const (
 )
 
 var (
-	kubeStorageBase = "/remote_storage"                                                                                // TODO(Ben): Don't hard-code this. What should this be?
+	kubeStorageBase = "/storage"                                                                                       // TODO(Ben): Don't hard-code this. What should this be?
 	clonesetRes     = schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "clonesets"} // Identifier for Kubernetes CloneSet resources.
 
 	ErrNodeNotFound = errors.New("could not find kubernetes node with the specified name")
@@ -74,13 +74,13 @@ type BasicKubeClient struct {
 	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
 	localDaemonServiceName string                                     // Name of the service controlling the routing of the local daemon. It only routes traffic on the same node.
 	kubeNamespace          string                                     // Kubernetes namespace that all of these components reside in.
-	remoteStorageEndpoint  string                                     // Hostname of the remote remote_storage. The SyncLog's remote remote_storage client will connect to this.
-	remoteStorage          string                                     // The type of remote remote_storage we're using (hdfs or redis).
+	remoteStorageEndpoint  string                                     // Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
+	remoteStorage          string                                     // The type of remote storage we're using (hdfs or redis).
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
-	localDaemonServicePort int                                        // Port that local daemon service will be routing traffic to.
-	smrPort                int                                        // Port used for the SMR protocol.
+	localDaemonServicePort int                                        // JupyterGrpcPort that local daemon service will be routing traffic to.
+	smrPort                int                                        // JupyterGrpcPort used for the SMR protocol.
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
 	useStatefulSet         bool                                       // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
 	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the newKernels should perform checkpointing after a migration and after executing code.
@@ -111,7 +111,7 @@ func NewKubeClient(gatewayDaemon ClusterGateway, clusterDaemonOptions *domain.Cl
 	}
 
 	if client.remoteStorageEndpoint == "" {
-		panic("The remote remote_storage endpoint cannot be \"\"")
+		panic("The remote storage endpoint cannot be \"\"")
 	}
 
 	config.InitLogger(&client.log, client)
@@ -483,7 +483,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // 	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
 // }
 
-// Add the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
+// AddHost the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
 // The labeled Pod will be prioritized for deletion when the CloneSet is scaled down.
 // This is used as part of the replica migration protocol.
 //
@@ -590,7 +590,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 		if !ok {
 			panic(fmt.Sprintf("Expected to find slice of scale-up channels for kernel %s.", kernelId))
 		}
-		// Remove the channel that we just added, as the scale-out operation failed.
+		// RemoveHost the channel that we just added, as the scale-out operation failed.
 		channels = channels[:len(channels)-1]
 		c.scaleUpChannels.Set(kernelId, channels)
 
@@ -1010,7 +1010,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *prot
 		panic(err)
 	}
 
-	// Remove the control-plane node.
+	// RemoveHost the control-plane node.
 	for _, node := range nodes.Items {
 		if strings.HasSuffix(node.Name, "control-plane") {
 			continue

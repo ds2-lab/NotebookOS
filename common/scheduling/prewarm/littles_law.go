@@ -161,6 +161,17 @@ func (p *LittlesLawPrewarmer) ValidatePoolCapacity() {
 
 	numProvisioning := int32(0)
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
+		if !host.Enabled() {
+			p.log.Debug("Host %s is disabled. Won't bother provisioning pre-warm containers.", host.GetNodeName())
+			return true
+		}
+
+		if host.IsExcludedFromScheduling() {
+			p.log.Debug("Host %s is excluded from scheduling. (Idle reclamation in progress?) "+
+				"Won't bother provisioning pre-warm containers.", host.GetNodeName())
+			return true
+		}
+
 		val, loaded := p.NumPrewarmContainersProvisioningPerHost[hostId]
 
 		var nProvisioning int32

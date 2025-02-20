@@ -12,7 +12,7 @@ func main() {
 	projectName := flag.String("project-name", "distributed_notebook", "The name of the Docker Swarm stack for the distributed notebook cluster.")
 	networkName := flag.String("network-name", "traefik-public", "The name of the overlay network used in your Docker Swarm cluster.")
 	remoteHost := flag.String("remote-host", "gateway", "IP of server to forward events to")
-	remotePort := flag.Int("remote-port", 5821, "Port on which target server is listening")
+	remotePort := flag.Int("remote-port", 5821, "JupyterGrpcPort on which target server is listening")
 
 	// Parse the flags
 	flag.Parse()

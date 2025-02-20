@@ -90,12 +90,25 @@ func (m *CornelkMap[K, V]) Range(cb func(K, V) bool) {
 
 func (m *CornelkMap[K, V]) RangeSafe(cb func(K, V) bool) {
 	next := true
-	for item := range m.hashmap.Iter() {
-		if next {
-			v, _ := item.Value.(V)
-			next = cb(item.Key.(K), v)
+
+	kvs := make([]hashmap.KeyValue, 0, m.hashmap.Len())
+	for kv := range m.hashmap.Iter() {
+		kvs = append(kvs, kv)
+	}
+
+	for i := 0; i < len(kvs); i++ {
+		if kvs[i].Value == nil {
+			continue
 		}
-		// iterate over all items to drain the channel
+
+		key := kvs[i].Key.(K)
+		val := kvs[i].Value.(V)
+
+		if next {
+			next = cb(key, val)
+		} else {
+			break
+		}
 	}
 }
 

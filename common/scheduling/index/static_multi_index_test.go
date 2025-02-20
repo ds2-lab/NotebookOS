@@ -38,7 +38,7 @@ var _ = Describe("Static Index Tests", func() {
 	})
 
 	It("Will be instantiated correctly", func() {
-		staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+		staticIndex := index.NewStaticMultiIndex(int32(hostSpec.GPU()))
 		Expect(staticIndex).ToNot(BeNil())
 
 		expectedHostPoolIds := []int32{1, 2, 4, 8}
@@ -69,11 +69,11 @@ var _ = Describe("Static Index Tests", func() {
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
-				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+				staticIndex := index.NewStaticMultiIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
-				staticIndex.Add(host1)
+				staticIndex.AddHost(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
 				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
@@ -98,11 +98,11 @@ var _ = Describe("Static Index Tests", func() {
 			})
 
 			It("Will handle an add followed by a remove correctly", func() {
-				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+				staticIndex := index.NewStaticMultiIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
-				staticIndex.Add(host1)
+				staticIndex.AddHost(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
 				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
@@ -111,7 +111,7 @@ var _ = Describe("Static Index Tests", func() {
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(1))
 
-				staticIndex.Remove(host1)
+				staticIndex.RemoveHost(host1)
 				Expect(staticIndex.Len()).To(Equal(0))
 
 				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
@@ -119,11 +119,11 @@ var _ = Describe("Static Index Tests", func() {
 			})
 
 			It("Will handle multiple add and remove operations correctly", func() {
-				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+				staticIndex := index.NewStaticMultiIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
-				staticIndex.Add(host1)
+				staticIndex.AddHost(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
 				meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
@@ -140,7 +140,7 @@ var _ = Describe("Static Index Tests", func() {
 				Expect(meta.(int32)).To(Equal(int32(0)))
 
 				host2 := createHost(2, mockCtrl, mockCluster, hostSpec)
-				staticIndex.Add(host2)
+				staticIndex.AddHost(host2)
 				Expect(staticIndex.Len()).To(Equal(2))
 
 				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
@@ -175,7 +175,7 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly removing one of the two hosts")
 
-				staticIndex.Remove(host1)
+				staticIndex.RemoveHost(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
 				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
@@ -191,7 +191,7 @@ var _ = Describe("Static Index Tests", func() {
 				Expect(meta.(int32)).To(Equal(int32(0)))
 
 				fmt.Printf("Removing final host.")
-				staticIndex.Remove(host2)
+				staticIndex.RemoveHost(host2)
 				Expect(staticIndex.Len()).To(Equal(0))
 
 				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
@@ -199,30 +199,30 @@ var _ = Describe("Static Index Tests", func() {
 			})
 		})
 
-		It("Will correctly compute values GetStaticIndexBucket", func() {
+		It("Will correctly compute values GetStaticMultiIndexBucket", func() {
 			gpusPerHost := int32(8)
 
-			Expect(index.GetStaticIndexBucket(0, gpusPerHost)).To(Equal(int32(8)))
-			Expect(index.GetStaticIndexBucket(1, gpusPerHost)).To(Equal(int32(8)))
-			Expect(index.GetStaticIndexBucket(2, gpusPerHost)).To(Equal(int32(4)))
-			Expect(index.GetStaticIndexBucket(3, gpusPerHost)).To(Equal(int32(2)))
-			Expect(index.GetStaticIndexBucket(4, gpusPerHost)).To(Equal(int32(2)))
-			Expect(index.GetStaticIndexBucket(5, gpusPerHost)).To(Equal(int32(1)))
-			Expect(index.GetStaticIndexBucket(6, gpusPerHost)).To(Equal(int32(1)))
-			Expect(index.GetStaticIndexBucket(7, gpusPerHost)).To(Equal(int32(1)))
-			Expect(index.GetStaticIndexBucket(8, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticMultiIndexBucket(0, gpusPerHost)).To(Equal(int32(8)))
+			Expect(index.GetStaticMultiIndexBucket(1, gpusPerHost)).To(Equal(int32(8)))
+			Expect(index.GetStaticMultiIndexBucket(2, gpusPerHost)).To(Equal(int32(4)))
+			Expect(index.GetStaticMultiIndexBucket(3, gpusPerHost)).To(Equal(int32(2)))
+			Expect(index.GetStaticMultiIndexBucket(4, gpusPerHost)).To(Equal(int32(2)))
+			Expect(index.GetStaticMultiIndexBucket(5, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticMultiIndexBucket(6, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticMultiIndexBucket(7, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticMultiIndexBucket(8, gpusPerHost)).To(Equal(int32(1)))
 		})
 
 		Context("Non-Empty Hosts", func() {
 			var (
-				staticIndex *index.StaticIndex
+				staticIndex *index.StaticMultiIndex
 				host1       scheduling.UnitTestingHost
 				host2       scheduling.UnitTestingHost
 				host3       scheduling.UnitTestingHost
 			)
 
 			BeforeEach(func() {
-				staticIndex = index.NewStaticIndex(int32(hostSpec.GPU()))
+				staticIndex = index.NewStaticMultiIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 = createHost(1, mockCtrl, mockCluster, hostSpec)
@@ -244,9 +244,9 @@ var _ = Describe("Static Index Tests", func() {
 				err = host3.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 6, 2))
 				Expect(err).To(BeNil())
 
-				staticIndex.Add(host1)
-				staticIndex.Add(host2)
-				staticIndex.Add(host3)
+				staticIndex.AddHost(host1)
+				staticIndex.AddHost(host2)
+				staticIndex.AddHost(host3)
 
 				Expect(staticIndex.Len()).To(Equal(3))
 				Expect(staticIndex.NumFreeHosts()).To(Equal(3))
@@ -266,7 +266,7 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly handling the removal of the least-loaded host")
 
-				staticIndex.Remove(host1)
+				staticIndex.RemoveHost(host1)
 				Expect(staticIndex.Len()).To(Equal(2))
 
 				By("Correctly returning the 'new' least-loaded host")
@@ -279,7 +279,7 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly handling the removal of the least-loaded host")
 
-				staticIndex.Remove(host2)
+				staticIndex.RemoveHost(host2)
 				Expect(staticIndex.Len()).To(Equal(1))
 
 				By("Correctly returning the 'new' least-loaded host")
@@ -292,7 +292,7 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly handling the removal of final remaining host")
 
-				staticIndex.Remove(host3)
+				staticIndex.RemoveHost(host3)
 				Expect(staticIndex.Len()).To(Equal(0))
 
 				By("Correctly returning no hosts because the index is empty")

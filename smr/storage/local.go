@@ -23,7 +23,7 @@ func (l *LocalProvider) Close() error {
 	return nil
 }
 
-// WriteDataDirectory writes the data directory for this Raft node from local remote_storage to remote remote_storage.
+// WriteDataDirectory writes the data directory for this Raft node from local storage to remote storage.
 func (l *LocalProvider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
 	panic("Not implemented")
 }

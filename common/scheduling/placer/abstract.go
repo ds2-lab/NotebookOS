@@ -21,25 +21,8 @@ type AbstractPlacer struct {
 	instance         internalPlacer
 	schedulingPolicy scheduling.Policy
 
-	// kernelResourceReserver is used by placers to reserve resources on candidate hosts for arbitrary/unspecified
-	// replicas of a particular kernel.
-	//
-	// kernelResourceReserver returns true (and nil) if resources were reserved.
-	//
-	// If resources could not be reserved, then false is returned, along with an error explaining why
-	// the resources could not be reserved.
-	kernelResourceReserver kernelResourceReserver
-
-	// replicaResourceReserver is used by placers to reserve resources on candidate hosts for specified replicas of a
-	// particular kernel.
-	//
-	// replicaResourceReserver returns true (and nil) if resources were reserved.
-	//
-	// If resources could not be reserved, then false is returned, along with an error explaining why
-	// the resources could not be reserved.
-	replicaResourceReserver replicaResourceReserver
-	numReplicas             int
-	mu                      sync.Mutex
+	numReplicas int
+	mu          sync.Mutex
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
@@ -50,87 +33,118 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 		schedulingPolicy: schedulingPolicy,
 	}
 
-	placer.kernelResourceReserver = placer.getKernelResourceReserver()
-	placer.replicaResourceReserver = placer.getReplicaResourceReserver()
-
 	config.InitLogger(&placer.log, placer)
 	return placer
 }
 
-// getKernelResourceReserver returns a kernelResourceReserver based on the closure created by passing a value for
-// reservationShouldUsePendingResources, which may differ depending on the placer implementation and
-// configured scheduling policy.
-func (placer *AbstractPlacer) getReplicaResourceReserver() replicaResourceReserver {
-	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
-	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
-	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
-	// depending upon the scheduling.Policy configured for the AllocationManager.
-	return func(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
-		var usePendingReservation bool
+// reserveResourcesForKernel is used by placers to reserve resources on candidate hosts for arbitrary/unspecified
+// replicas of a particular kernel.
+//
+// reserveResourcesForKernel returns true (and nil) if resources were reserved.
+//
+// If resources could not be reserved, then false is returned, along with an error explaining why
+// the resources could not be reserved.
+//
+// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+// depending upon the scheduling.Policy configured for the AllocationManager.
+func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
+	var usePendingReservation bool
 
-		// If we are migrating a replica that needs to begin training right away,
-		// then we should not use a pending reservation.
-		//
-		// The container will need resources committed to it immediately.
-		//
-		// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
-		// begin training immediately upon being created, then we defer to the configured scheduling policy.
-		// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
-		// the placer's 'reservationShouldUsePendingResources' method.
-		if forTraining {
-			usePendingReservation = false
-		} else {
-			usePendingReservation = placer.reservationShouldUsePendingResources()
-		}
-
-		reserved, err := candidateHost.ReserveResourcesForSpecificReplica(replicaSpec, usePendingReservation)
-		if err != nil {
-			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
-			if reserved {
-				panic("We successfully reserved resources on a host despite ReserveResources also returning an error...")
-			}
-		}
-
-		return reserved, err
+	// If we are migrating a replica that needs to begin training right away,
+	// then we should not use a pending reservation.
+	//
+	// The container will need resources committed to it immediately.
+	//
+	// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
+	// begin training immediately upon being created, then we defer to the configured scheduling policy.
+	// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
+	// the placer's 'reservationShouldUsePendingResources' method.
+	if forTraining {
+		usePendingReservation = false
+	} else {
+		usePendingReservation = placer.reservationShouldUsePendingResources()
 	}
+
+	if candidateHost.IsExcludedFromScheduling() {
+		placer.log.Warn("Candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
+
+		return false, scheduling.ErrHostExcludedFromScheduling
+	}
+
+	if !candidateHost.Enabled() {
+		placer.log.Error("Candidate host %s (ID=%s) is disabled...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
+
+		return false, scheduling.ErrHostDisabled
+	}
+
+	reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
+	if err != nil {
+		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
+		if reserved {
+			panic("We successfully reserved resources on a host despite ReserveResources also returning an error...")
+		}
+	}
+
+	return reserved, err
 }
 
-// getKernelResourceReserver returns a kernelResourceReserver based on the closure created by passing a value for
-// reservationShouldUsePendingResources, which may differ depending on the placer implementation and
-// configured scheduling policy.
-func (placer *AbstractPlacer) getKernelResourceReserver() kernelResourceReserver {
-	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
-	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
-	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
-	// depending upon the scheduling.Policy configured for the AllocationManager.
-	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
-		var usePendingReservation bool
+// reserveResourcesForReplica is used by placers to reserve resources on candidate hosts for specified replicas of a
+// particular kernel.
+//
+// reserveResourcesForReplica returns true (and nil) if resources were reserved.
+//
+// If resources could not be reserved, then false is returned, along with an error explaining why
+// the resources could not be reserved.
+//
+// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+// depending upon the scheduling.Policy configured for the AllocationManager.
+func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+	var usePendingReservation bool
 
-		// If we are migrating a replica that needs to begin training right away,
-		// then we should not use a pending reservation.
-		//
-		// The container will need resources committed to it immediately.
-		//
-		// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
-		// begin training immediately upon being created, then we defer to the configured scheduling policy.
-		// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
-		// the placer's 'reservationShouldUsePendingResources' method.
-		if forTraining {
-			usePendingReservation = false
-		} else {
-			usePendingReservation = placer.reservationShouldUsePendingResources()
-		}
-
-		reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
-		if err != nil {
-			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
-			if reserved {
-				panic("We successfully reserved resources on a host despite ReserveResources also returning an error...")
-			}
-		}
-
-		return reserved, err
+	// If we are migrating a replica that needs to begin training right away,
+	// then we should not use a pending reservation.
+	//
+	// The container will need resources committed to it immediately.
+	//
+	// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
+	// begin training immediately upon being created, then we defer to the configured scheduling policy.
+	// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
+	// the placer's 'reservationShouldUsePendingResources' method.
+	if forTraining {
+		usePendingReservation = false
+	} else {
+		usePendingReservation = placer.reservationShouldUsePendingResources()
 	}
+
+	if candidateHost.IsExcludedFromScheduling() {
+		placer.log.Warn("Candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
+
+		return false, scheduling.ErrHostExcludedFromScheduling
+	}
+
+	if !candidateHost.Enabled() {
+		placer.log.Error("Candidate host %s (ID=%s) is disabled...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
+
+		return false, scheduling.ErrHostDisabled
+	}
+
+	reserved, err := candidateHost.ReserveResourcesForSpecificReplica(replicaSpec, usePendingReservation)
+	if err != nil {
+		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
+		if reserved {
+			panic("We successfully reserved resources on a host despite ReserveResources also returning an error...")
+		}
+	}
+
+	return reserved, err
 }
 
 // reservationShouldUsePendingResources returns true if resource reservations on candidate hosts should be made

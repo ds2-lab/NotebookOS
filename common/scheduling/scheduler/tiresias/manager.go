@@ -162,7 +162,7 @@ func (m *JobManager) tryPromoteJobToQueue0(job *Job) (err error) {
 	job.ExecutedTime = 0
 	job.LastPendingTime = 0
 
-	// Remove the job from its current queue.
+	// RemoveHost the job from its current queue.
 	m.dequeueJob(job)
 
 	// Enqueue the job in Queue #0.
@@ -293,7 +293,7 @@ func (m *JobManager) scheduleJobs() error {
 				m.log.Debug("Will schedule job %s [queue=%d] for kernel %s", jobId, queueIndex, job.KernelId)
 				jobsToSchedule = append(jobsToSchedule, job)
 
-				// TODO: Add this logic?
+				// TODO: AddHost this logic?
 				// CLUSTER.free_gpu = int(CLUSTER.free_gpu - job['num_gpu'])
 			} else if job.IsRunning() {
 				// We cannot run the job. If it's currently running, then we need to preempt it.
@@ -411,7 +411,7 @@ func (m *JobManager) preemptJob(job *Job) {
 //			queueId := job.CurrentQueueId
 //			if !m.isLastQueue(queueId) {
 //				jumpTimeFloat := math.Ceil(float64((m.QueueLimits[queueId] - job.ExecutedTime) / time.Duration(job.NumGPUs())))
-//				jumpTime := time.Now().Add(time.Duration(jumpTimeFloat))
+//				jumpTime := time.Now().AddHost(time.Duration(jumpTimeFloat))
 //
 //				if jumpTime.Before(nextJump) {
 //					nextJump = jumpTime
@@ -425,7 +425,7 @@ func (m *JobManager) preemptJob(job *Job) {
 //			if m.StarvationLimit > 0 && job.CurrentQueueId > 0 && job.ExecutedTime > 0 {
 //				timeDifference := (job.ExecutedTime * m.StarvationLimit) - job.LastPendingTime
 //				if timeDifference > 0 {
-//					jumpTime := time.Now().Add(timeDifference)
+//					jumpTime := time.Now().AddHost(timeDifference)
 //
 //					if jumpTime.Before(nextJump) {
 //						nextJump = jumpTime

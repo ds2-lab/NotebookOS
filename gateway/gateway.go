@@ -35,7 +35,7 @@ func init() {
 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 	// Set default options.
-	options.Port = 8080
+	options.JupyterGrpcPort = 8080
 	options.ProvisionerPort = 8081
 	options.ConnectionInfo.Transport = "tcp"
 
@@ -98,7 +98,7 @@ func main() {
 	logger.Info("Starting Cluster Gateway with the following options:\n%s\n", options.String())
 
 	if options.PrettyPrintOptions {
-		logger.Info("Cluster Gateway Options pretty-printed:\n%s\n", options.PrettyString(2))
+		logger.Info("Cluster Gateway ClusterGatewayOptions pretty-printed:\n%s\n", options.PrettyString(2))
 	}
 
 	if options.ClusterDaemonOptions.CommonOptions.DebugMode {

@@ -50,9 +50,9 @@ type SessionManager interface {
 	ClearSessions()            // ClearSessions clears all sessions.
 }
 
-// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
-// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
+// ExecutionLatencyCallback is provided by the internalCluster Gateway to each Kernel.
+// When a Kernel receives a notification that a kernel has started execution user-submitted code,
+// the Kernel will check if its Execution struct has the original "sent-at" timestamp
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
@@ -64,9 +64,9 @@ type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.Jupyter
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type CallbackProvider interface {
-	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
-	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-	// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each Kernel.
+	// When a Kernel receives a notification that a kernel has started execution user-submitted code,
+	// the Kernel will check if its Execution struct has the original "sent-at" timestamp
 	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
 	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 	// so that a relevant Prometheus metric can be updated.
@@ -228,7 +228,7 @@ type Kernel interface {
 	// for the target Kernel, the KernelReplica / KernelContainer was created using a cold KernelContainer.
 	NumColdContainersUsed() int32
 
-	// RecordContainerCreated records that a scheduling.KernelContainer was created for the target DistributedKernelClient.
+	// RecordContainerCreated records that a scheduling.KernelContainer was created for the target Kernel.
 	//
 	// The argument to RecordContainerCreated indicates whether the created container was warm or cold.
 	RecordContainerCreated(warm bool)
@@ -273,7 +273,7 @@ type Kernel interface {
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
 	RemoveAllReplicas(remover ReplicaRemover, noop bool, isIdleReclaim bool) error
 	// InitialContainerCreationFailed is called by the Cluster Gateway/Scheduler if the initial attempt to schedule
-	// the replica containers of the target DistributedKernelClient fails.
+	// the replica containers of the target Kernel fails.
 	InitialContainerCreationFailed()
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
@@ -291,11 +291,14 @@ type Kernel interface {
 	WaitClosed() jupyter.KernelStatus
 	DebugMode() bool
 
-	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
+	// IsShuttingDown returns true if the target Kernel is in the process of shutting down.
+	IsShuttingDown() bool
+
+	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the Kernel.
 	SetKernelKey(string)
 
 	// SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
-	// DistributedKernelClient.
+	// Kernel.
 	SetSignatureScheme(string)
 
 	// NumActiveExecutionOperations returns the number of ActiveExecution structs registered with
@@ -305,13 +308,13 @@ type Kernel interface {
 	// This method is thread safe.
 	NumActiveExecutionOperations() int
 
-	// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the DistributedKernelClient.
+	// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the Kernel.
 	//
 	// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
 	// of a given kernel is/are not scheduled, and that kernel receives a message.
 	TemporaryKernelReplicaClient() KernelReplicaInfo
 
-	// ActiveTrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
+	// ActiveTrainingStartedAt returns the time at which one of the target Kernel's replicas
 	// began actively training, if there is an actively-training replica.
 	ActiveTrainingStartedAt() time.Time
 
@@ -349,7 +352,7 @@ type Kernel interface {
 	// associated with the active/ongoing container creation operation.
 	//
 	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
-	// BeginSchedulingReplicaContainers will return false and nil.
+	// InitSchedulingReplicaContainersOperation will return false and nil.
 	InitSchedulingReplicaContainersOperation() (bool, CreateReplicaContainersAttempt)
 
 	// InitRemoveReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
@@ -460,7 +463,7 @@ type KernelReplica interface {
 	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
-	// IOSubSocketPort return the Port of the IO Socket of the target KernelReplica's client.
+	// IOSubSocketPort return the JupyterGrpcPort of the IO Socket of the target KernelReplica's client.
 	IOSubSocketPort() int
 
 	// WasPrewarmContainer returns true if the target KernelReplicaClient was originally a pre-warmed container.

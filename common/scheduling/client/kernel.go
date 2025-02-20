@@ -196,10 +196,10 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			}
 
 			// We do not set handlers of the sockets here. So no server routine will be started on dialing.
-			s.Sockets.Control = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.ControlPort, messaging.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Ctrl[%s]", remoteComponentName, spec.Kernel.Id))
-			s.Sockets.Shell = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.ShellPort, messaging.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Shell[%s]", remoteComponentName, spec.Kernel.Id))
-			s.Sockets.Stdin = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.StdinPort, messaging.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Stdin[%s]", remoteComponentName, spec.Kernel.Id))
-			s.Sockets.HB = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx), info.HBPort, messaging.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-HB[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.Control = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), info.ControlPort, messaging.ControlMessage, fmt.Sprintf("K-Dealer-Ctrl[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Ctrl[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.Shell = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), info.ShellPort, messaging.ShellMessage, fmt.Sprintf("K-Dealer-Shell[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Shell[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.Stdin = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), info.StdinPort, messaging.StdinMessage, fmt.Sprintf("K-Dealer-Stdin[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-Stdin[%s]", remoteComponentName, spec.Kernel.Id))
+			s.Sockets.HB = messaging.NewSocketWithRemoteName(zmq4.NewDealer(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), info.HBPort, messaging.HBMessage, fmt.Sprintf("K-Dealer-HB[%s]", spec.Kernel.Id), fmt.Sprintf("K-%s-HB[%s]", remoteComponentName, spec.Kernel.Id))
 			s.ReconnectOnAckFailure = true
 			s.PrependId = false
 			s.ComponentId = componentId
@@ -210,7 +210,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 
 			/* kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
-			// s.Sockets.Ack = messaging.NewSocket(Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
+			// s.Sockets.Ack = messaging.NewSocket(Socket: zmq4.NewReq(s.Ctx), JupyterGrpcPort: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
 			if spec.ReplicaId == 0 {
 				config.InitLogger(&s.Log, fmt.Sprintf("kernel %s ", spec.Kernel.Id))
@@ -1058,7 +1058,7 @@ func (c *KernelReplicaClient) Validate() error {
 func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*messaging.Socket, error) {
 	c.log.Debug("Initializing shell forwarder for kernel client.")
 
-	shell := messaging.NewSocket(zmq4.NewRouter(c.client.Ctx), 0, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id))
+	shell := messaging.NewSocket(zmq4.NewRouter(c.client.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), 0, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id))
 	if err := c.client.Listen(shell); err != nil {
 		return nil, err
 	}
@@ -1083,7 +1083,7 @@ func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.Kernel
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.
 func (c *KernelReplicaClient) InitializeIOForwarder() (*messaging.Socket, error) {
-	iopub := messaging.NewSocket(zmq4.NewPub(c.client.Ctx), 0, messaging.IOMessage, fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id))
+	iopub := messaging.NewSocket(zmq4.NewPub(c.client.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), 0, messaging.IOMessage, fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id))
 
 	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
 
@@ -1134,7 +1134,7 @@ func (c *KernelReplicaClient) InitializeIOSub(handler messaging.MessageHandler, 
 	return c.client.Sockets.IO, nil
 }
 
-// IOSubSocketPort return the Port of the IO Socket of the target KernelReplicaClient's client.
+// IOSubSocketPort return the JupyterGrpcPort of the IO Socket of the target KernelReplicaClient's client.
 func (c *KernelReplicaClient) IOSubSocketPort() int {
 	if c.client == nil || c.client.Sockets == nil || c.client.Sockets.IO == nil {
 		return -1

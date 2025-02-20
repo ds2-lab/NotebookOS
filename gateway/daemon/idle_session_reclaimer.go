@@ -254,9 +254,10 @@ func (r *IdleSessionReclaimer) identifyIdleSessions() []scheduling.Kernel {
 		}
 
 		// If the kernel's containers are actively being scheduled right now, then we shouldn't reclaim it.
-		// Likewise, if they're actively being removed right now, then we shouldn't reclaim it.
+		// Likewise, if they're actively being removed right now -- or if the kernel is being shut down right
+		// now -- then we shouldn't reclaim it.
 		_, removalAttempt := kernel.ReplicaContainersAreBeingRemoved()
-		if kernel.ReplicaContainersAreBeingScheduled() || removalAttempt != nil {
+		if kernel.ReplicaContainersAreBeingScheduled() || removalAttempt != nil || kernel.IsShuttingDown() {
 			continue
 		}
 

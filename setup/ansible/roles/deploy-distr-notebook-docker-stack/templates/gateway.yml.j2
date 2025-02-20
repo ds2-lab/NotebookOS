@@ -14,7 +14,7 @@ remote-storage-endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address | 
 {% elif distributed_notebook_remote_storage_type == 'redis' %}
 remote-storage-endpoint: redis:{{ redis_port }}
 {% elif distributed_notebook_remote_storage_type == 's3' %}
-remote-storage-endpoint: s3
+remote-storage-endpoint: {{ distributed_notebook_remote_storage_s3_bucket }}
 {% endif %}
 remote-storage: {{ distributed_notebook_remote_storage_type }}
 debug: {{ gateway_debug_logging_enabled }}

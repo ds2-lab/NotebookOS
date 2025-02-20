@@ -59,12 +59,12 @@ checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
 initial-cluster-size: 12
 initial-connection-period: 20
-election_timeout_seconds: 3
+election_timeout_seconds: 4
 simulate_checkpointing_latency: true
-mean_scale_out_per_host_sec: 15
-std_dev_scale_out_per_host_sec: 2
-mean_scale_in_per_host_sec: 10
-std_dev_scale_in_per_host_sec: 1
+mean_scale_out_per_host_sec: 4
+std_dev_scale_out_per_host_sec: 1
+mean_scale_in_per_host_sec: 2
+std_dev_scale_in_per_host_sec: 0.75
 starting_resource_port: 9007
 num_resource_ports: 4096
 use_real_gpus: false

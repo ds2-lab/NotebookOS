@@ -10,7 +10,23 @@ type ConcurrentMap[K comparable, V comparable] struct {
 
 func NewConcurrentMap[V comparable](shards int) *ConcurrentMap[string, V] {
 	cmap.SHARD_COUNT = shards
-	return &ConcurrentMap[string, V]{backend: cmap.New[V]()}
+	return &ConcurrentMap[string, V]{
+		backend: cmap.New[V](),
+	}
+}
+
+func NewConcurrentMapStringer[K cmap.Stringer, V comparable](shards int) *ConcurrentMap[K, V] {
+	cmap.SHARD_COUNT = shards
+	return &ConcurrentMap[K, V]{
+		backend: cmap.NewStringer[K, V](),
+	}
+}
+
+func NewConcurrentMapWithCustomShardingFunction[K comparable, V comparable](shards int, sharding func(key K) uint32) *ConcurrentMap[K, V] {
+	cmap.SHARD_COUNT = shards
+	return &ConcurrentMap[K, V]{
+		backend: cmap.NewWithCustomShardingFunction[K, V](sharding),
+	}
 }
 
 func (m *ConcurrentMap[K, V]) Delete(key K) {

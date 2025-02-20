@@ -1,7 +1,7 @@
-# Here, we define the "local-remote_storage" StorageClass and additional resources, including an external provisioner, to manage/provision PVCs of this type.
+# Here, we define the "local-storage" StorageClass and additional resources, including an external provisioner, to manage/provision PVCs of this type.
 
 kind: StorageClass
-apiVersion: remote_storage.k8s.io/v1
+apiVersion: storage.k8s.io/v1
 metadata:
   name: local-storage
   labels:

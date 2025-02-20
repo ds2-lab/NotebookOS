@@ -62,6 +62,17 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if !host.Enabled() {
+		p.log.Debug("Host %s is disabled. Won't bother provisioning pre-warm containers.", host.GetNodeName())
+		return
+	}
+
+	if host.IsExcludedFromScheduling() {
+		p.log.Debug("Host %s is excluded from scheduling. (Idle reclamation in progress?) "+
+			"Won't bother provisioning pre-warm containers.", host.GetNodeName())
+		return
+	}
+
 	count, provisioning := p.unsafeHostLen(host)
 	combined := count + provisioning
 

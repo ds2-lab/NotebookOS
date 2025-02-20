@@ -224,7 +224,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		numReplicasPerKernel:        numReplicasPerKernel,
 		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
 		metricsProvider:             metricsProvider,
-		log:                         config.GetLogger(fmt.Sprintf("host %s ", confirmedId.NodeName)),
+		log:                         config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                  hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
 		trainingContainers:          make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
 		penalties:                   make([]cachedPenalty, int(resourceSpec.GPU())),
@@ -760,6 +760,15 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 func (h *Host) reserveResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec, usePending bool) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
+
+	// Check this right away, even if it's a little redundant, as we can skip all the other checks if we know there's
+	// another replica of the kernel already scheduled here.
+	if h.numReplicasPerKernel > 1 && h.allocationManager.HasReservationForKernel(kernelId) {
+		h.log.Debug("Host %s already has resources allocated to another replica of kernel \"%s\". Cannot reserve resources for replica %d.",
+			h.GetNodeName(), kernelId, replicaId)
+		return fmt.Errorf("%w: existing resource allocation found for another replica of kernel %s",
+			resource.ErrInvalidAllocationRequest, kernelId)
+	}
 
 	h.log.Debug("Creating resource reservation for new replica %d of kernel \"%s\". UsePending=%v. Request=%s. Current resources on host: %v.",
 		replicaId, kernelId, usePending, resourceRequest.String(), h.GetResourceCountsAsString())

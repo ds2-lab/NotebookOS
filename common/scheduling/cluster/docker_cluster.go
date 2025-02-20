@@ -157,7 +157,7 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 			scheduling.ErrInvalidHost, id)
 	}
 
-	c.log.Debug("Disabling host %s now...", id)
+	c.log.Debug("Disabling host with ID=\"%s\" now...", id)
 	if err := host.Disable(); err != nil {
 		// This really shouldn't happen.
 		// This would mean that the host was in an inconsistent state relative to the Cluster,
@@ -305,7 +305,7 @@ func (c *DockerCluster) unsafeIdentifyDisabledHostsForScaleOut(scaleOpId string,
 			scaleOutDuration = duration
 		}
 
-		// Add the host to the slice of hosts to be enabled.
+		// AddHost the host to the slice of hosts to be enabled.
 		hostsToEnable = append(hostsToEnable, host)
 
 		// Update these counters to keep track of how many hosts we need.
@@ -334,7 +334,7 @@ func (c *DockerCluster) unsafeEnableDisabledHostsForScaleOut(hostsToEnable []sch
 	// Simulate the scale-out.
 	time.Sleep(scaleOutDuration)
 
-	// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the
+	// RemoveHost all the previously-disabled hosts (that we used in the scale-out operation) from the
 	// "disabled hosts" mapping.
 	for _, host := range hostsToEnable {
 		// First, enable the host.

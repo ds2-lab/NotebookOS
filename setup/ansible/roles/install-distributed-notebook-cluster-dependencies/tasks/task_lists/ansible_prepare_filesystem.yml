@@ -6,7 +6,7 @@
     group: "{{ remote_username }}"
     mode: '0777'
 
-- name: Create kernel remote_storage directory.
+- name: Create kernel storage directory.
   file:
     path: "{{ kernel_storage_directory }}"
     state: directory

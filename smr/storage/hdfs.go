@@ -56,7 +56,7 @@ func (p *HdfsProvider) Close() error {
 }
 
 func (p *HdfsProvider) Connect() error {
-	p.logger.Debug("Connecting to remote remote_storage",
+	p.logger.Debug("Connecting to remote storage",
 		zap.String("remote_storage", "hdfs"),
 		zap.String("hostname", p.hostname))
 
@@ -124,7 +124,7 @@ func (p *HdfsProvider) Connect() error {
 	return nil
 }
 
-// WriteDataDirectory writes the data directory for this Raft node from local remote_storage to HDFS.
+// WriteDataDirectory writes the data directory for this Raft node from local storage to HDFS.
 func (p *HdfsProvider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
 	p.logger.Debug("Writing data directory to HDFS.",
 		zap.String("WAL directory", waldir),
@@ -243,7 +243,7 @@ func (p *HdfsProvider) writeRaftLogSerializedStateToHdfs(serializedState []byte,
 		destFilename := SerializedStateBaseFileName + fmt.Sprintf("-node%d", p.nodeId) + SerializedStateFileExtension
 		destFilepath := filepath.Join(serializedStateFileDir, destFilename)
 
-		// Remove the existing file. We'll copy the new one in its place.
+		// RemoveHost the existing file. We'll copy the new one in its place.
 		err = p.hdfsClient.Remove(destFilepath)
 
 		if err != nil {
@@ -401,7 +401,7 @@ func (p *HdfsProvider) readRaftLogSerializedStateFromHdfs(dataDirectory string) 
 }
 
 func (p *HdfsProvider) readDirectoryFromHdfs(dir string, progressChannel chan<- string) error {
-	p.sugaredLogger.Debugf("Walking directory (in HDFS), copying remote files and directories to local remote_storage: '%s'", dir)
+	p.sugaredLogger.Debugf("Walking directory (in HDFS), copying remote files and directories to local storage: '%s'", dir)
 	walkErr := p.hdfsClient.Walk(dir, func(path string, info fs.FileInfo, err error) error {
 		p.sugaredLogger.Debugf("Processing file system object at path \"%s\"", path)
 		p.sugaredLogger.Debugf("Base name: \"%s\", Len: %d bytes, Mode: %v, ModTime: %v, IsDir: %v", info.Name(), info.Size(), info.Mode(), info.ModTime(), info.IsDir())
@@ -435,7 +435,7 @@ func (p *HdfsProvider) readDirectoryFromHdfs(dir string, progressChannel chan<- 
 	})
 
 	if walkErr != nil {
-		p.sugaredLogger.Errorf("Exception encountered while trying to copy HDFS file or directory '%s' to local remote_storage: %v", dir, walkErr)
+		p.sugaredLogger.Errorf("Exception encountered while trying to copy HDFS file or directory '%s' to local storage: %v", dir, walkErr)
 		return walkErr
 	}
 

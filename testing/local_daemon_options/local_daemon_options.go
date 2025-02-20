@@ -22,5 +22,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("Local Daemon Options:\n%s\n", opts.PrettyString(2))
+	fmt.Printf("Local Daemon ClusterGatewayOptions:\n%s\n", opts.PrettyString(2))
 }

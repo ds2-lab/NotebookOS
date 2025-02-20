@@ -144,8 +144,8 @@ func (b *Provider) Validate() error {
 	}
 
 	if b.Options == nil {
-		b.log.Error("Cannot create %s cluster. Missing Options argument.", b.ClusterType.String())
-		return fmt.Errorf("%w: Options", ErrMissingRequiredArgument)
+		b.log.Error("Cannot create %s cluster. Missing ClusterGatewayOptions argument.", b.ClusterType.String())
+		return fmt.Errorf("%w: ClusterGatewayOptions", ErrMissingRequiredArgument)
 	}
 
 	// If unspecified, then we'll create it ourselves here.

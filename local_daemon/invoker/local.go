@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,7 +33,7 @@ const (
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
 // throttle stop
-// kernel replica is not supported so far. Add if needed.
+// kernel replica is not supported so far. AddHost if needed.
 type LocalInvoker struct {
 	// closedAt is the time at which the KernelInvoker closed or stopped its kernel.
 	closedAt time.Time
@@ -41,6 +42,9 @@ type LocalInvoker struct {
 	createdAt time.Time
 
 	log logger.Logger
+
+	connectionFilePath string
+	configFilePath     string
 
 	// connInfo is the Jupyter connection info used to connect/communicate with the kernel.
 	connInfo *jupyter.ConnectionInfo
@@ -59,31 +63,31 @@ type LocalInvoker struct {
 	// id uniquely identifies this Invoker instance.
 	id string
 
-	// remoteStorageEndpoint is the network endpoint of the remote remote_storage.
+	// remoteStorageEndpoint is the network endpoint of the remote storage.
 	remoteStorageEndpoint string
 
-	// remoteStorage indicates the type of remote remote_storage, either 'hdfs' or 'redis'
+	// remoteStorage indicates the type of remote storage, either 'hdfs' or 'redis'
 	remoteStorage string
 
 	// DeploymentMode is the deployment mode of the cluster
 	DeploymentMode types.DeploymentMode
 
-	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote remote_storage.
+	// S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
 	S3Bucket string
 
-	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote remote_storage).
+	// AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
 	AwsRegion string
 
-	// RedisPassword is the password to access Redis (only relevant if using Redis for remote remote_storage).
+	// RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
 	RedisPassword string
 
-	// RedisPort is the port of the Redis server (only relevant if using Redis for remote remote_storage).
+	// RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
 	RedisPort int
 
 	// SMRPort is the network port used by the SMR cluster.
 	SMRPort int
 
-	// RedisDatabase is the database number to use (only relevant if using Redis for remote remote_storage).
+	// RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 	RedisDatabase int
 
 	AssignedGpuDeviceIds                 []int32 // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
@@ -303,6 +307,8 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupy
 		return "", err
 	}
 
+	ivk.connectionFilePath = path.Join(dir, fmt.Sprintf(ConnectionFileFormat, name))
+
 	ivk.log.Debug("Created connection file \"%s\" in directory \"%s\"", f.Name(), targetDirForLogging)
 	ivk.log.Debug("Writing the following contents to connection file \"%s\": \"%v\"", f.Name(), string(jsonContent))
 	_, err = f.Write(jsonContent)
@@ -341,6 +347,9 @@ func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.
 		ivk.log.Error("CreateTemp(\"%s\", \"%s\") failed because: %v", targetDirForLogging, fmt.Sprintf(ConnectionFileFormat, name), err)
 		return "", err
 	}
+
+	ivk.configFilePath = path.Join(dir, fmt.Sprintf(ConfigFileFormat, name))
+
 	ivk.log.Debug("Created config file \"%s\"", f.Name())
 	ivk.log.Debug("Writing the following contents to config file \"%s\": \"%v\"", f.Name(), string(jsonContent))
 	_, err = f.Write(jsonContent)
@@ -426,4 +435,16 @@ func (ivk *LocalInvoker) TimeSinceKernelCreated() (time.Duration, bool) {
 	}
 
 	return time.Since(ivk.createdAt), true
+}
+
+func (ivk *LocalInvoker) ConnectionInfo() *jupyter.ConnectionInfo {
+	return ivk.connInfo
+}
+
+func (ivk *LocalInvoker) ConnectionFilePath() string {
+	return ivk.connectionFilePath
+}
+
+func (ivk *LocalInvoker) ConfigFilePath() string {
+	return ivk.configFilePath
 }

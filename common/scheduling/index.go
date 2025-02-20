@@ -6,7 +6,7 @@ package scheduling
 // A HostCriteriaFunction accepts a Host as an argument and returns a boolean indicating whether the Host
 // is viable (true) or not (false) based on whatever criteria are defined and implemented within the
 // HostCriteriaFunction function body.
-type HostCriteriaFunction func(Host) bool
+type HostCriteriaFunction func(Host) error
 
 type ClusterIndexQuerier interface {
 	// Seek returns the host specified by the metrics.

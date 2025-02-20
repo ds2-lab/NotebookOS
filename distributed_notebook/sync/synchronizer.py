@@ -343,14 +343,11 @@ class Synchronizer:
         granted, which may cause duplication execution.
         """
         self.log.debug("Synchronizer is proposing to lead term %d" % term_number)
+        we_won: bool = False
         try:
             # Propose to lead specified term.
             # Term 0 tries to lead the next term whatever and will always success.
-            if await self._synclog.try_lead_execution(jupyter_message_id, term_number):
-                self.log.debug("We won the election to lead term %d" % term_number)
-                # Synchronized, execution_count was updated to last execution.
-                self._async_loop = asyncio.get_running_loop()  # Update async_loop.
-                return self._synclog.term
+            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number)
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -358,10 +355,8 @@ class Synchronizer:
             for frame in stack:
                 self.log.error(frame)
         except DiscardMessageError as dme:
-            self.log.warning(
-                f"Received direction to discard Jupyter Message {jupyter_message_id}, "
-                f"as election for term {term_number} was skipped: {dme}"
-            )
+            self.log.warning(f"Received direction to discard Jupyter Message {jupyter_message_id}, "
+                             f"as election for term {term_number} was skipped: {dme}")
             raise dme
         except Exception as e:
             self.log.error("Exception encountered while proposing LEAD: %s" % str(e))
@@ -371,7 +366,13 @@ class Synchronizer:
                 self.log.error(frame)
             raise e
 
-        self.log.debug("We lost the election to lead term %d" % term_number)
+        if we_won:
+            self.log.debug("We won the election to lead term %d" % term_number)
+            # Synchronized, execution_count was updated to last execution.
+            self._async_loop = asyncio.get_running_loop()  # Update async_loop.
+            return self._synclog.term
+
+        self.log.debug(f"We lost the election to lead term {term_number}.")
         # Failed to lead the term
         return 0
 
