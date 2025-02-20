@@ -1859,9 +1859,10 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		s.log.Debug("Releasing idle host %d/%d: host %s. NumContainers: %d.",
 			numReleased+1, n, idleHost.Host.GetNodeName(), idleHost.Host.NumContainers())
 
-		err := s.releaseIdleHost(idleHost.Host)
+		err = s.releaseIdleHost(idleHost.Host)
 		if err != nil {
 			s.log.Warn("Could not release idle host \"%s\" because: %v", idleHost.Host.GetNodeName(), err)
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host})
 			break
 		}
 
