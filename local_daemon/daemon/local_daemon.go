@@ -3578,16 +3578,24 @@ func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, fram
 // Typically, this API is used to inform the Local Daemon that an error has occurred, so that the Local Daemon can
 // in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
 func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
+	containerId := notification.ContainerId
+	if containerId == "" || containerId == "N/A" {
+		kernel, _ := d.kernels.Load(notification.KernelId)
+		if kernel != nil {
+			containerId = kernel.GetPodOrContainerName()
+		}
+	}
+	
 	if notification.NotificationType == 0 {
 		d.log.Warn("Received error notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, notification.ContainerId, notification.Title, notification.Message)
+			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
 	} else {
 		d.log.Debug("Received notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, notification.ContainerId, notification.Title, notification.Message)
+			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
 	}
 
 	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d, Container=%s]",
-		notification.Message, notification.KernelId, notification.ReplicaId, notification.ContainerId)
+		notification.Message, notification.KernelId, notification.ReplicaId, containerId)
 
 	return d.provisioner.Notify(ctx, &proto.Notification{
 		Id:               uuid.NewString(),
