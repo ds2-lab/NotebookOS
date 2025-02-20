@@ -7,9 +7,14 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"go.uber.org/atomic"
 	"log"
 	"sync"
 	"time"
+)
+
+const (
+	defaultTargetReplicaId = int32(-1)
 )
 
 // Execution encapsulates the submission of a single 'execute_request' message for a particular kernel.
@@ -82,6 +87,11 @@ type Execution struct {
 	// ExecutionIndex uniquely identifies this Execution and enables a total ordering between all Execution structs.
 	ExecutionIndex int32
 
+	// targetReplicaId is the replica that was explicitly selected as the primary replica by the Cluster Gateway.
+	// The targetReplicaId is not always set. A value of defaultTargetReplicaId indicates that there was no single
+	// target replica.
+	targetReplicaId atomic.Int32
+
 	originallySentAtDecoded bool
 
 	workloadIdSet bool
@@ -104,6 +114,8 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 		State:                   Pending,
 		ExecutionIndex:          executionIndex,
 	}
+
+	activeExecution.targetReplicaId.Store(defaultTargetReplicaId)
 
 	var metadataDict map[string]interface{}
 	err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
@@ -324,4 +336,17 @@ func (e *Execution) GetWorkloadId() string {
 
 func (e *Execution) GetExecuteRequestMessageId() string {
 	return e.ExecuteRequestMessageId
+}
+
+func (e *Execution) GetTargetReplicaId() int32 {
+	return e.targetReplicaId.Load()
+}
+
+// SetTargetReplica is used to record the expected target replica for an execution.
+func (e *Execution) SetTargetReplica(replicaId int32) error {
+	if !e.targetReplicaId.CompareAndSwap(defaultTargetReplicaId, replicaId) {
+		return fmt.Errorf("%w: %d", ErrTargetReplicaAlreadySpecified, e.targetReplicaId.Load())
+	}
+	
+	return nil
 }

@@ -1442,13 +1442,9 @@ class DistributedKernel(IPythonKernel):
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id: str = msg["header"]["msg_id"]
         msg_type: str = msg["header"]["msg_type"]
-        self.log.debug(
-            "=============================================================================================="
-        )
-        self.log.debug(f'Received SHELL message {msg_id} of type "{msg_type}": {msg}')
-        self.log.debug(
-            "=============================================================================================="
-        )
+        self.log.debug("=============================================================================================")
+        self.log.debug(f'→ Received SHELL message {msg_id} of type "{msg_type}": {msg}')
+        self.log.debug("=============================================================================================")
         sys.stderr.flush()
         sys.stdout.flush()
         self.send_ack(
@@ -1499,10 +1495,8 @@ class DistributedKernel(IPythonKernel):
                 if inspect.isawaitable(result):
                     await result
             except Exception as ex:
-                self.log.error(
-                    f'Exception in shell message handler for "{msg_type}" message "{msg_id}": {ex}',
-                    exc_info=True,
-                )  # noqa: G201
+                self.log.error(f'Exception in shell message handler for "{msg_type}" message "{msg_id}": {ex}',
+                               exc_info=True,)  # noqa: G201
                 self.report_error(
                     error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
                                 f'While Executing Handler for Shell Request "{msg_id}" of type "{msg_type}"',
@@ -1515,9 +1509,7 @@ class DistributedKernel(IPythonKernel):
                 try:
                     self.post_handler_hook()
                 except Exception as ex:
-                    self.log.debug(
-                        "Unable to signal in post_handler_hook:", exc_info=True
-                    )
+                    self.log.debug("Unable to signal in post_handler_hook:", exc_info=True)
                     self.report_error(
                         error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
                                     f'While Signaling in post_handler_hook for Shell Request "{msg_id}" of '
@@ -1525,9 +1517,7 @@ class DistributedKernel(IPythonKernel):
                         error_message=str(ex),
                     )
 
-        self.log.debug(
-            f'Finished processing shell message {msg_id} of type "{msg_type}"'
-        )
+        self.log.debug(f'← Finished processing shell message {msg_id} of type "{msg_type}"')
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1630,13 +1620,9 @@ class DistributedKernel(IPythonKernel):
         msg_type: str = header["msg_type"]
         msg_id: str = header["msg_id"]
 
-        self.log.debug(
-            "=============================================================================================="
-        )
-        self.log.debug(f'Received control message {msg_id} of type "{msg_type}"')
-        self.log.debug(
-            "=============================================================================================="
-        )
+        self.log.debug("=============================================================================================")
+        self.log.debug(f'→ Received CONTROL message {msg_id} of type "{msg_type}"')
+        self.log.debug("=============================================================================================")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1678,9 +1664,7 @@ class DistributedKernel(IPythonKernel):
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
 
-        self.log.debug(
-            f'Finished processing control message {msg_id} of type "{msg_type}"'
-        )
+        self.log.debug(f'← Finished processing control message {msg_id} of type "{msg_type}"')
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1688,9 +1672,7 @@ class DistributedKernel(IPythonKernel):
         if await self.check_persistent_store():
             return self.gen_simple_response()
 
-        self.log.info(
-            'Initializing persistent datastore now using code "%s"' % str(code)
-        )
+        self.log.info('Initializing persistent datastore now using code "%s"' % str(code))
 
         # By executing code, we can get persistent id later.
         # The execution_count should not be counted and will reset later.

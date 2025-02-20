@@ -1738,7 +1738,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// Just pass the first message. Doesn't matter if it is "execute_request" or "yield_request".
 	if messaging.IsExecuteOrYieldRequest(jupyterMessages[0]) {
 		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
-		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessages[0])
+		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessages)
 		if err != nil {
 			c.log.Error("ExecutionManager reported error for \"%s\" message \"%s\": %v",
 				jupyterMessages[0].JupyterMessageType(), jupyterMessages[0].JupyterMessageId(), err)

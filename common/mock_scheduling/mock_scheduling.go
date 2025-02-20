@@ -10045,17 +10045,17 @@ func (mr *MockExecutionManagerMockRecorder) ReplicaRemoved(replica any) *gomock.
 }
 
 // SendingExecuteRequest mocks base method.
-func (m *MockExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) error {
+func (m *MockExecutionManager) SendingExecuteRequest(messages []*messaging.JupyterMessage) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SendingExecuteRequest", msg)
+	ret := m.ctrl.Call(m, "SendingExecuteRequest", messages)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SendingExecuteRequest indicates an expected call of SendingExecuteRequest.
-func (mr *MockExecutionManagerMockRecorder) SendingExecuteRequest(msg any) *gomock.Call {
+func (mr *MockExecutionManagerMockRecorder) SendingExecuteRequest(messages any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendingExecuteRequest", reflect.TypeOf((*MockExecutionManager)(nil).SendingExecuteRequest), msg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendingExecuteRequest", reflect.TypeOf((*MockExecutionManager)(nil).SendingExecuteRequest), messages)
 }
 
 // TotalNumExecutionOperations mocks base method.
@@ -10178,6 +10178,20 @@ func (m *MockExecution) GetOriginallySentAtTime() time.Time {
 func (mr *MockExecutionMockRecorder) GetOriginallySentAtTime() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOriginallySentAtTime", reflect.TypeOf((*MockExecution)(nil).GetOriginallySentAtTime))
+}
+
+// GetTargetReplicaId mocks base method.
+func (m *MockExecution) GetTargetReplicaId() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTargetReplicaId")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// GetTargetReplicaId indicates an expected call of GetTargetReplicaId.
+func (mr *MockExecutionMockRecorder) GetTargetReplicaId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTargetReplicaId", reflect.TypeOf((*MockExecution)(nil).GetTargetReplicaId))
 }
 
 // GetWorkloadId mocks base method.
@@ -10462,6 +10476,20 @@ func (m *MockExecution) SetExecuted() {
 func (mr *MockExecutionMockRecorder) SetExecuted() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExecuted", reflect.TypeOf((*MockExecution)(nil).SetExecuted))
+}
+
+// SetTargetReplica mocks base method.
+func (m *MockExecution) SetTargetReplica(arg0 int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetTargetReplica", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetTargetReplica indicates an expected call of SetTargetReplica.
+func (mr *MockExecutionMockRecorder) SetTargetReplica(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTargetReplica", reflect.TypeOf((*MockExecution)(nil).SetTargetReplica), arg0)
 }
 
 // String mocks base method.

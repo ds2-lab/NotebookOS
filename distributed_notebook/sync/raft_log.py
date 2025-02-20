@@ -2015,59 +2015,49 @@ class RaftLog(object):
             expected_attempt_number: the expected attempt number of the current election
         """
         assert self._current_election is not None and expected_attempt_number >= 0
-        assert (
-                self._current_election.is_active
-                or self._current_election.is_in_failed_state
-        )
+        assert self._current_election.is_active or self._current_election.is_in_failed_state
 
         # If we already have an election with a different term number, then that's problematic.
         if self._current_election.term_number != term_number:
-            self.log.error(
-                f"Creating new election with term number {term_number} despite already having an active election with "
-                f"term number {self._current_election.term_number}"
-            )
-            raise ValueError(
-                "attempted to create new election while already having an active election"
-            )
+            self.log.error(f"Creating new election with term number {term_number} despite "
+                           f"already having an active election with "
+                           f"term number {self._current_election.term_number}")
+
+            raise ValueError("attempted to create new election while already having an active election")
 
         # If the Jupyter message IDs do not match, then that is problematic.
         if self._current_election.jupyter_message_id != jupyter_message_id:
-            raise ValueError(
-                f"Attempting to get or retrieve election for term {term_number} with "
-                f"JupyterMessageID={jupyter_message_id}, which does not match the JupyterMessageID "
-                f"of our current election for term {term_number}, "
-                f"{self._current_election.jupyter_message_id}."
-            )
+            raise ValueError(f"Attempting to get or retrieve election for term {term_number} with "
+                             f"JupyterMessageID={jupyter_message_id}, which does not match the JupyterMessageID "
+                             f"of our current election for term {term_number}, "
+                             f"{self._current_election.jupyter_message_id}.")
 
-        # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_request') ZMQ message.
-        # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to either create or restart the election at that point.
+        # If we have an election with the same term number, then there may have just been some delay in us receiving
+        # the 'execute_request' (or 'yield_request') ZMQ message.
+        #
+        # During this delay, we may have received a committed proposal from another replica for this election,
+        # which prompted us to either create or restart the election at that point.
+        #
         # So, if we have a current election already, and that election is in a non-active state, then we restart it.
-        # If we have a current election that is already active, then we should have at least one proposal already (otherwise, why would the election be active already?)
+        # If we have a current election that is already active, then we should have at least one proposal already
+        # (otherwise, why would the election be active already?)
         if self._current_election.is_active:
-            self.log.debug(
-                f"Reusing existing, already-active election {self._current_election.term_number}. "
-                f"Number of proposals received (not counting ours): "
-                f"{self._current_election.num_proposals_received}."
-            )
+            self.log.debug(f"Reusing existing, already-active election {self._current_election.term_number}. "
+                           f"Number of proposals received (not counting ours): "
+                           f"{self._current_election.num_proposals_received}.")
 
             # Sanity check.
             # If the current election is already active, then we necessarily should have received a proposal from a peer,
             # which triggered either the creation of this election, or the restarting of the election if it had already
             # existed and was in the failed state.
             if self._current_election.num_proposals_received == 0:
-                raise ValueError(
-                    f"Existing election for term {term_number} is already active; "
-                    f"however, it has no registered proposals, so it should not be active already"
-                )
+                raise ValueError(f"Existing election for term {term_number} is already active; "
+                                 f"however, it has no registered proposals, so it should not be active already")
         else:
             assert self._current_election.is_in_failed_state
-            self.log.debug(
-                f"Restarting existing election {self._current_election.term_number}. "
-                f"Current state: {self._current_election.election_state.get_name()}."
-            )
-            self._current_election.restart(
-                latest_attempt_number=expected_attempt_number
-            )
+            self.log.debug(f"Restarting existing election {self._current_election.term_number}. "
+                           f"Current state: {self._current_election.election_state.get_name()}.")
+            self._current_election.restart(latest_attempt_number=expected_attempt_number)
 
     def _handle_unexpected_election(
             self,

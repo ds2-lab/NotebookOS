@@ -2066,7 +2066,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 	d.log.Debug(
 		utils.LightBlueStyle.Render(
-			"↪ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s]"),
+			"↪ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s]"),
 		prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 	if kernelReplicaSpec.Kernel == nil {
@@ -2075,7 +2075,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, ErrNilArgument
@@ -2087,7 +2087,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.InvalidArgument,
@@ -2101,7 +2101,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, errorMessage)
@@ -2130,7 +2130,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 			d.log.Error(
 				utils.RedStyle.Render(
-					"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+					"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 				prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 			return nil, status.Error(codes.Internal, "expected to promote container of KernelInvoker")
@@ -2144,7 +2144,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2162,7 +2162,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2210,7 +2210,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2224,7 +2224,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2259,7 +2259,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 		d.log.Error(
 			utils.RedStyle.Render(
-				"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
+				"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Failure ✗"),
 			prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2311,7 +2311,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 
 	d.log.Debug(
 		utils.LightGreenStyle.Render(
-			"↩ PromotePrewarmedContainer[PrewarmID=%s, TargetReplicaId=%d, TargetKernelId=%s] Success ✓"),
+			"↩ PromotePrewarmedContainer[PrewarmID=%s, targetReplicaId=%d, TargetKernelId=%s] Success ✓"),
 		prewarmedContainerId, kernelReplicaSpec.ReplicaId, kernelReplicaSpec.Kernel.Id)
 
 	return info, nil

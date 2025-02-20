@@ -708,7 +708,7 @@ class Election(object):
         else:
             self.election_finished_event.set()
 
-        self.log.debug(f"Election {self.term_number} has officially failed (in attempt {self.current_attempt_number}.")
+        self.log.debug(f"Election {self.term_number} has failed (in attempt {self.current_attempt_number}).")
 
     async def wait_for_election_to_end(self):
         """
