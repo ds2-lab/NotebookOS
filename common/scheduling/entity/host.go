@@ -224,7 +224,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		numReplicasPerKernel:        numReplicasPerKernel,
 		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
 		metricsProvider:             metricsProvider,
-		log:                         config.GetLogger(fmt.Sprintf("host %s ", confirmedId.NodeName)),
+		log:                         config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                  hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
 		trainingContainers:          make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
 		penalties:                   make([]cachedPenalty, int(resourceSpec.GPU())),

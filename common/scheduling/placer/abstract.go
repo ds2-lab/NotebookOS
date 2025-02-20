@@ -123,7 +123,7 @@ func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost schedulin
 	}
 
 	if candidateHost.IsExcludedFromScheduling() {
-		placer.log.Error("Candidate host %s (ID=%s) is excluded from scheduling...",
+		placer.log.Warn("Candidate host %s (ID=%s) is excluded from scheduling...",
 			candidateHost.GetNodeName(), candidateHost.GetID())
 
 		return false, scheduling.ErrHostExcludedFromScheduling
