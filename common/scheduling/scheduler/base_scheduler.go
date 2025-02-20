@@ -1607,7 +1607,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 		targetHost, err := getMigrationTarget(containerId, container)
 		if err != nil {
 			s.log.Warn("Could not find viable migration target for container %s; aborting migration of all containers from idle host %s: %v",
-				containerId, targetHost.GetNodeName(), err)
+				containerId, host.GetNodeName(), err)
 
 			// Failed to find a viable migration target, so we must abort.
 			abortMigrationOperation()
@@ -1664,7 +1664,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 				container.KernelID(), containerId)
 
 			foundActiveTraining = true
-			aborted = true
+			//aborted = true
 			abortMigrationOperation()
 			return false
 		}
@@ -1675,7 +1675,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 				kernel.ID(), container.ReplicaId())
 
 			foundActiveTraining = true
-			aborted = true
+			//aborted = true
 			abortMigrationOperation()
 			return false
 		}

@@ -6910,6 +6910,46 @@ func (mr *MockKernelMockRecorder) MessageAcknowledgementsEnabled() *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MessageAcknowledgementsEnabled", reflect.TypeOf((*MockKernel)(nil).MessageAcknowledgementsEnabled))
 }
 
+// MigrationConcluded mocks base method.
+func (m *MockKernel) MigrationConcluded() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "MigrationConcluded")
+}
+
+// MigrationConcluded indicates an expected call of MigrationConcluded.
+func (mr *MockKernelMockRecorder) MigrationConcluded() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrationConcluded", reflect.TypeOf((*MockKernel)(nil).MigrationConcluded))
+}
+
+// MigrationInProgress mocks base method.
+func (m *MockKernel) MigrationInProgress() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MigrationInProgress")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// MigrationInProgress indicates an expected call of MigrationInProgress.
+func (mr *MockKernelMockRecorder) MigrationInProgress() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrationInProgress", reflect.TypeOf((*MockKernel)(nil).MigrationInProgress))
+}
+
+// MigrationStarted mocks base method.
+func (m *MockKernel) MigrationStarted() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MigrationStarted")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MigrationStarted indicates an expected call of MigrationStarted.
+func (mr *MockKernelMockRecorder) MigrationStarted() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrationStarted", reflect.TypeOf((*MockKernel)(nil).MigrationStarted))
+}
+
 // MissingReplicaIds mocks base method.
 func (m *MockKernel) MissingReplicaIds() []int32 {
 	m.ctrl.T.Helper()
@@ -7573,6 +7613,20 @@ func (m *MockKernel) WaitClosed() jupyter.KernelStatus {
 func (mr *MockKernelMockRecorder) WaitClosed() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitClosed", reflect.TypeOf((*MockKernel)(nil).WaitClosed))
+}
+
+// WaitForMigrationsToComplete mocks base method.
+func (m *MockKernel) WaitForMigrationsToComplete(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WaitForMigrationsToComplete", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WaitForMigrationsToComplete indicates an expected call of WaitForMigrationsToComplete.
+func (mr *MockKernelMockRecorder) WaitForMigrationsToComplete(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForMigrationsToComplete", reflect.TypeOf((*MockKernel)(nil).WaitForMigrationsToComplete), ctx)
 }
 
 // MockKernelReplica is a mock of KernelReplica interface.
