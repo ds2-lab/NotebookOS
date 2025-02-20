@@ -43,7 +43,7 @@ func (placer *StaticPlacer) findHosts(blacklist []interface{}, spec *proto.Kerne
 
 	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
 	reserveResources := func(candidateHost scheduling.Host) bool {
-		reserved, _ := placer.kernelResourceReserver(candidateHost, spec, forTraining)
+		reserved, _ := placer.reserveResourcesForKernel(candidateHost, spec, forTraining)
 		return reserved
 	}
 
@@ -68,7 +68,7 @@ func (placer *StaticPlacer) findHost(blacklist []interface{}, replicaSpec *proto
 
 	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
 	reserveResources := func(candidateHost scheduling.Host) bool {
-		reserved, _ := placer.replicaResourceReserver(candidateHost, replicaSpec, forTraining)
+		reserved, _ := placer.reserveResourcesForReplica(candidateHost, replicaSpec, forTraining)
 		return reserved
 	}
 
