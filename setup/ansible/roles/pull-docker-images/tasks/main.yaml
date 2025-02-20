@@ -19,15 +19,15 @@
 #  vars:
 #    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 #
-#- name: Pull the Local Daemon Docker image
-#  community.docker.docker_image_pull:
-#    name: "{{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}"
-#    pull: always
-#    tag: "{{ local_daemon_docker_image_tag }}"
-#  environment:
-#    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
-#  vars:
-#    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+- name: Pull the Local Daemon Docker image
+  community.docker.docker_image_pull:
+    name: "{{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}"
+    pull: always
+    tag: "{{ local_daemon_docker_image_tag }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 #- name: Pull the Jupyter Server Docker image
 #  community.docker.docker_image_pull:

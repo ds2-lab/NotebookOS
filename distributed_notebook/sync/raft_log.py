@@ -489,7 +489,8 @@ class RaftLog(object):
                 self.log.warning(f"Received vote from term {vote.election_term} "
                                  f"(with attempt number {vote.attempt_number})."
                                  f"The vote's term is > the election term prior "
-                                 f"to our migration (i.e., {self._leader_term_before_migration}). Buffering vote now.")
+                                 f"to our migration (i.e., {self._leader_term_before_migration}). "
+                                 f"Buffering vote now: {vote}")
                 self.__buffer_vote(vote, received_at=received_at)
                 sys.stderr.flush()
                 sys.stdout.flush()
@@ -883,7 +884,10 @@ class RaftLog(object):
             self.log.debug(f"Recording that election for term {notification.election_term} has completed. "
                            f"Learned about this whilst catching up.")
             self.current_election.set_execution_complete(
-                fast_forwarding=False, fast_forwarded_winner_id=notification.proposer_id)
+                catching_up=True,
+                fast_forwarding=False,
+                fast_forwarded_winner_id=notification.proposer_id
+            )
 
     def __handle_execution_complete_notification(
             self, notification: ExecutionCompleteNotification
@@ -1042,7 +1046,7 @@ class RaftLog(object):
                 self.log.warning(f"Received proposal from term {proposal.election_term} "
                                  f"(with attempt number {proposal.attempt_number})."
                                  f"The proposal's term is > the election term prior to our migration "
-                                 f"(i.e., {self._leader_term_before_migration}). Buffering proposal now.")
+                                 f"(i.e., {self._leader_term_before_migration}). Buffering proposal now: {proposal}.")
                 self.__buffer_proposal(proposal, received_at=received_at)
                 sys.stderr.flush()
                 sys.stdout.flush()
