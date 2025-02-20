@@ -998,7 +998,9 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 // It simply provides an explanation for why the migration failed.
 //
 // The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
+func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica,
+	targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
+
 	if kernelReplica == nil {
 		s.log.Error("MigrateContainer received nil KernelReplica")
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
@@ -1226,7 +1228,7 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, ker
 	// If we were able to resolve the host, then let's also verify that the host doesn't already contain
 	// another replica of the same kernel (or the replica we're migrating). If so, then the host is not viable.
 	existingReplica := targetHost.GetAnyReplicaOfKernel(kernelReplica.ID())
-	if existingReplica != nil {
+	if existingReplica != nil && existingReplica.ReplicaId() == kernelReplica.ReplicaID() {
 		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s. "+
 			"Host %s is already hosting replica %d of kernel %s.", kernelReplica.ReplicaID(), kernelReplica.ID(),
 			targetHost.GetID(), targetHost.GetID(), existingReplica.ReplicaId(), kernelReplica.ID())
@@ -1432,10 +1434,24 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		return nil
 	}
 
+	getMigrationTarget := func(containerId string, container scheduling.KernelContainer) (scheduling.Host, error) {
+		return s.GetCandidateHost(container.GetClient(), nil, false)
+	}
+
+	type MigrationTarget struct {
+		TargetHost scheduling.Host
+		Container  scheduling.KernelContainer
+	}
+
+	migrationTargets := make(map[string]*MigrationTarget, host.Containers().Len())
+
+	// This actually migrates the container.
 	migrateContainer := func(containerId string, container scheduling.KernelContainer) error {
+		migrationTarget := migrationTargets[containerId]
+
 		// Pass true for `noNewHost`, as we don't want to create a new host for this.
 		_, failedMigrationReason, err := s.MigrateKernelReplica(context.Background(), container.GetClient(),
-			"", forTraining)
+			migrationTarget.TargetHost.GetID(), forTraining)
 
 		if err != nil {
 			// We cannot migrate the Container due to an actual error.
@@ -1471,6 +1487,71 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		})
 
 		return err
+	}
+
+	aborted := false
+
+	// Called if we have to abort the migration because we couldn't find a viable target for some replica.
+	abortMigrationOperation := func() {
+		s.log.Warn("Aborting migration of containers from host %s. Releasing %d reservation(s).",
+			host.GetNodeName(), len(migrationTargets))
+
+		aborted = true
+
+		counter := 0
+		for containerId, migrationTarget := range migrationTargets {
+			container := migrationTarget.Container
+			targetHost := migrationTarget.TargetHost
+
+			replica := container.GetClient()
+
+			s.log.Debug("Releasing reservation made for container %s on host %s (ID=%s) (migration cancelled).",
+				containerId, host.GetNodeName(), host.GetID())
+
+			err := targetHost.ReleaseReservation(replica.KernelSpec())
+			if err != nil {
+				s.log.Error("Failed to release reservation %d/%d: container %s on host %s: %v",
+					counter+1, len(migrationTargets), containerId, host.GetNodeName(), err)
+			} else {
+				s.log.Debug("Successfully released reservation %d/%d: container %s on host %s: %v",
+					counter+1, len(migrationTargets), containerId, host.GetNodeName(), err)
+			}
+
+			counter += 1
+		}
+	}
+
+	// First, identify target hosts for all the replicas that need to be migrated.
+	// If any of them fail to find a target, then we'll abort.
+	// AddHost all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
+	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
+		targetHost, err := getMigrationTarget(containerId, container)
+		if err != nil {
+			s.log.Warn("Could not find viable migration target for container %s; aborting migration of all containers from host %s: %v",
+				containerId, targetHost.GetNodeName(), err)
+
+			// Failed to find a viable migration target, so we must abort.
+			abortMigrationOperation()
+			return false
+		}
+
+		s.log.Debug("Identified migration target for container %s: host %s",
+			container, targetHost.GetNodeName())
+
+		migrationTargets[containerId] = &MigrationTarget{
+			TargetHost: targetHost,
+			Container:  container,
+		}
+
+		return true
+	})
+
+	if aborted {
+		s.log.Warn("Operation to migrate all %d container(s) from host %s has been aborted.",
+			host.Containers().Len(), host.GetNodeName())
+
+		return fmt.Errorf("%w: failed to find viable migration targets for one or more containers",
+			scheduling.ErrMigrationFailed)
 	}
 
 	var nWorkers int
