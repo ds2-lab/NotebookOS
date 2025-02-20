@@ -2251,7 +2251,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				mockedSession.EXPECT().GetReplicaContainer(replicaId).AnyTimes().Return(container, true)
 				mockedSession.EXPECT().RemoveReplicaById(replicaId).MaxTimes(1).Return(nil)
 
-				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-kernel-%s-Replica-%d", kernelId, replicaId))
+				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background(), zmq4.WithTimeout(time.Millisecond*3500)), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-kernel-%s-Replica-%d", kernelId, replicaId))
 				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
 				replica.EXPECT().KernelSpec().AnyTimes().Return(mockedKernelSpec)
 				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
