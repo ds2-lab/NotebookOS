@@ -244,6 +244,36 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 	return host, -1, nil
 }
 
+func (index *LeastLoadedIndex) considerHostForScheduling(candidateHost scheduling.Host) bool {
+	// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
+	// before marking it as being considered.
+	if !candidateHost.ConsiderForScheduling() {
+		index.log.Warn("Otherwise viable candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
+		return false
+	}
+
+	return true
+}
+
+func (index *LeastLoadedIndex) checkHostForViability(candidateHost scheduling.Host, criteriaFunc scheduling.HostCriteriaFunction) bool {
+	if criteriaFunc == nil {
+		// No criteria function. Just mark the host as being considered for scheduling.
+		return index.considerHostForScheduling(candidateHost)
+	}
+
+	// Check that the host satisfies whatever scheduling criteria was specified by the user.
+	err := criteriaFunc(candidateHost)
+	if err != nil {
+		index.log.Debug("Host %s (ID=%s) failed supplied criteria function: %v",
+			candidateHost.GetNodeName(), candidateHost.GetID(), err)
+		return false
+	}
+
+	// Check that the host is not outright excluded from scheduling right now.
+	return index.considerHostForScheduling(candidateHost)
+}
+
 // SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
@@ -287,19 +317,14 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 				candidateHost.GetNodeName(), candidateHost.GetID()))
 		}
 
-		// Check that the host is not outright excluded from scheduling right now and
-		// that it satisfies whatever scheduling criteria was specified by the user.
-		hostSatisfiesSchedulingCriteria := criteriaFunc == nil || criteriaFunc(candidateHost)
-
-		// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
-		// before marking it as being considered.
-		if hostSatisfiesSchedulingCriteria && candidateHost.ConsiderForScheduling() {
+		viable := index.checkHostForViability(candidateHost, criteriaFunc)
+		if !viable {
+			index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.\n",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+		} else {
 			index.log.Debug("Found candidate: host %s (ID=%s)",
 				candidateHost.GetNodeName(), candidateHost.GetID())
 			hostsMap[candidateHost.GetID()] = candidateHost
-		} else {
-			index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.\n",
-				candidateHost.GetNodeName(), candidateHost.GetID())
 		}
 
 		// We're done when the length of hostMap is equal to n.

@@ -367,9 +367,9 @@ func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, sche
 //
 // Seek calls SeekMultipleFrom, passing 1 as the number of hosts. SeekMultipleFrom requires a "criteria"
 // function, whereas Seek doesn't. Thus, Seek passes seekCriteria to SeekMultipleFrom, and seekCriteria
-// always returns true.
-func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) bool {
-	return true
+// always returns nil.
+func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) error {
+	return nil
 }
 
 func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {

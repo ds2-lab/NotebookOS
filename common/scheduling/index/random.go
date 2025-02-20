@@ -284,6 +284,23 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	return ret, pos, err
 }
 
+func (index *RandomClusterIndex) checkHostForViability(candidateHost scheduling.Host, criteriaFunc scheduling.HostCriteriaFunction) bool {
+	if criteriaFunc == nil {
+		return true
+	}
+
+	// Check that the host is not outright excluded from scheduling right now and
+	// that it satisfies whatever scheduling criteria was specified by the user.
+	err := criteriaFunc(candidateHost)
+	if err != nil {
+		index.log.Debug("Host %s (ID=%s) failed supplied criteria function: %v",
+			candidateHost.GetNodeName(), candidateHost.GetID(), err)
+		return false
+	}
+
+	return true
+}
+
 // SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
@@ -349,22 +366,28 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 		// In case we reshuffled, make sure we haven't already received this host.
 		// If indeed it is new, then we'll add it to the host map.
-		if _, loaded := hostsMap[candidateHost.GetID()]; !loaded {
-			// Check that the host is not outright excluded from scheduling right now and
-			// that it satisfies whatever scheduling criteria was specified by the user.
-			hostSatisfiesSchedulingCriteria := criteriaFunc == nil || criteriaFunc(candidateHost)
-
-			// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
-			// before marking it as being considered.
-			if hostSatisfiesSchedulingCriteria && candidateHost.ConsiderForScheduling() {
-				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
-				hostsMap[candidateHost.GetID()] = candidateHost
-			} else {
-				index.log.Debug("host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
-			}
-		} else {
-			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.GetNodeName(), candidateHost.GetID())
+		_, loaded := hostsMap[candidateHost.GetID()]
+		if loaded {
+			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+			continue
 		}
+
+		viable := index.checkHostForViability(candidateHost, criteriaFunc)
+		if !viable {
+			continue
+		}
+
+		// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
+		// before marking it as being considered.
+		if candidateHost.ConsiderForScheduling() {
+			index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
+			hostsMap[candidateHost.GetID()] = candidateHost
+			continue
+		}
+
+		index.log.Warn("Viable candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
 	}
 
 	// Put all the hosts from the map into the slice and return it.
