@@ -506,10 +506,7 @@ class RaftLog(object):
                 return GoNilError()
 
         # If we receive an old vote out-of-order or after a delay, then we can just discard it.
-        if (
-                self._current_election is not None
-                and vote.election_term < self._current_election.term_number
-        ):
+        if (self._current_election is not None and vote.election_term < self._current_election.term_number):
             self.log.warning(
                 f'Received old vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
                 f"with term number {vote.election_term}, while our current election is for term  "
@@ -543,9 +540,7 @@ class RaftLog(object):
             # This is basically just a sanity check to make sure we don't somehow get
             # stuck in a loop of buffering the same vote(s) over and over again.
             if not buffered_vote:
-                raise ValueError(
-                    "We're already handling a buffered vote. We should not be trying to buffer it again!"
-                )
+                raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
 
             return self.__buffer_vote(vote, received_at=received_at)
         elif vote.election_term > self.current_election_term:
@@ -560,9 +555,7 @@ class RaftLog(object):
             # This is basically just a sanity check to make sure we don't somehow get
             # stuck in a loop of buffering the same vote(s) over and over again.
             if not buffered_vote:
-                raise ValueError(
-                    "We're already handling a buffered vote. We should not be trying to buffer it again!"
-                )
+                raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
 
             return self.__buffer_vote(vote, received_at=received_at)
 
@@ -571,36 +564,29 @@ class RaftLog(object):
         # The first 'VOTE' proposal received during the term automatically wins.
         with self._election_lock:
             was_first_vote_proposal: bool = self._current_election.add_vote_proposal(
-                vote, overwrite=True, received_at=received_at
-            )
+                vote, overwrite=True, received_at=received_at)
+
         if not was_first_vote_proposal:
-            self.log.debug(
-                f"We've already received at least 1 other 'VOTE' proposal during term {self._current_election.term_number}. "
-                f"Ignoring 'VOTE' proposal from node {vote.proposer_id}."
-            )
+            self.log.debug(f"We've already received at least 1 other 'VOTE' "
+                           f"proposal during term {self._current_election.term_number}. "
+                           f"Ignoring 'VOTE' proposal from node {vote.proposer_id}.")
             return GoNilError()
 
         if self._leader_term < vote.election_term:
-            self.log.debug(
-                "Our 'leader_term' (%d) < 'election_term' of latest committed 'SYNC' (%d). Setting our 'leader_term' to %d and the 'leader_id' to %d (from newly-committed value)."
-                % (
-                    self._leader_term,
-                    vote.election_term,
-                    vote.election_term,
-                    vote.proposed_node_id,
-                )
-            )
+            self.log.debug(f"Our 'leader_term' ({self._leader_term}) < 'election_term' of latest committed 'SYNC' "
+                           f"({vote.election_term}). Setting our 'leader_term' to {vote.election_term} and the "
+                           f"'leader_id' to {vote.proposed_node_id} (from newly-committed value).")
             self._leader_term = vote.election_term
             self._leader_id = vote.proposed_node_id
-            self.log.debug(
-                "Node %d has won in term %d as proposed by node %d."
-                % (vote.proposed_node_id, vote.election_term, vote.proposer_id)
-            )
+
+            if vote.proposed_node_id == self.node_id:
+                self.log.debug(f"We have won in term {vote.election_term} as proposed by node {vote.proposer_id}.")
+            else:
+                self.log.debug("Node %d has won in term %d as proposed by node %d."
+                               % (vote.proposed_node_id, vote.election_term, vote.proposer_id))
 
             with self._election_lock:
-                self._current_election.set_election_vote_completed(
-                    vote.proposed_node_id
-                )
+                self._current_election.set_election_vote_completed(vote.proposed_node_id)
 
                 _received_vote_future = self._received_vote_future
                 if (
@@ -609,24 +595,18 @@ class RaftLog(object):
                         and not _received_vote_future.done()
                 ):
                     self._received_vote_future = None
-                    self._future_io_loop.call_soon_threadsafe(
-                        _received_vote_future.set_result, vote
-                    )
+                    self._future_io_loop.call_soon_threadsafe(_received_vote_future.set_result, vote)
 
             self._last_winner_id = vote.proposed_node_id
             self._last_completed_election = self._current_election
         else:
-            self.log.warning(
-                "Our leader_term (%d) >= the 'election_term' of latest committed 'SYNC' message (%d)..."
-                % (self._leader_term, vote.election_term)
-            )
+            self.log.warning("Our leader_term (%d) >= the 'election_term' of latest committed 'SYNC' message (%d)..."
+                             % (self._leader_term, vote.election_term))
 
         # Set the future if the term is expected.
         _leading_future = self._leading_future
         if _leading_future is not None and self._leader_term >= self._expected_term:
-            self.log.debug(
-                f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}."
-            )
+            self.log.debug(f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}."            )
             # self._future_io_loop.call_later(0, _leading_future.set_result, self._leader_term) # type: ignore
 
             if self._future_io_loop is None and self._fallback_future_io_loop is not None:
@@ -635,28 +615,22 @@ class RaftLog(object):
                 self._future_io_loop.set_debug(True)
 
             if self._future_io_loop is None:
-                self.log.error(
-                    f"Our 'future' IO loop is None; we cannot schedule result of '_leading_future' for term {self._leader_term}..."
-                )
+                self.log.error(f"Our 'future' IO loop is None; we cannot schedule "
+                               f"result of '_leading_future' for term {self._leader_term}...")
                 sys.stderr.flush()
                 sys.stdout.flush()
-                raise ValueError(
-                    f"'future' IO loop is None while trying to schedule result of '_leading_future' during term {self._leader_term}"
-                )
+                raise ValueError(f"'future' IO loop is None while trying to schedule"
+                                 f"result of '_leading_future' during term {self._leader_term}")
 
             def set_leading_future_result(term):
                 self.log.debug(f"Setting result of _leading_future to {term} now.")
                 _leading_future.set_result(term)
                 self.log.debug(f"Set result of _leading_future to {term}.")
 
-            self._future_io_loop.call_soon_threadsafe(
-                set_leading_future_result, self._leader_term
-            )
+            self._future_io_loop.call_soon_threadsafe(set_leading_future_result, self._leader_term)
             # leading_future.set_result(self._leader_term)
             self._leading_future = None  # Ensure the future is set only once.
-            self.log.debug(
-                "Scheduled setting of result on '_leading_future' future."
-            )
+            self.log.debug("Scheduled setting of result on '_leading_future' future.")
         else:
             self.log.debug(
                 "Skipping setting result on _leading_future. _leading_future is None: %s. self._leader_term (%d) >= self._expected_term (%d): %s."
@@ -2209,7 +2183,7 @@ class RaftLog(object):
             )
             return True
 
-    async def _process_buffered_proposals(
+    async def _process_proposals(
             self,
             buffered_proposals: list[BufferedLeaderElectionProposal],
             election_term: int,
@@ -2229,8 +2203,7 @@ class RaftLog(object):
         :param _election_decision_future:
         :param _leading_future:
         :param _received_vote_future:
-        :return: a tuple where first element indicates if we're done processing the election,
-        and second is result if so.
+        :return: a tuple where 1st element indicates if we're done processing the election, and 2nd is result if so.
         """
         num_buffered_proposals_processed: int = 0
 
@@ -2273,10 +2246,8 @@ class RaftLog(object):
                              f"while processing buffered votes for election {election_term}...")
             return True, False
 
-        done, pending = await asyncio.wait(
-            [_election_decision_future, _received_vote_future],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        done, pending = await asyncio.wait([_election_decision_future, _received_vote_future],
+                                           return_when=asyncio.FIRST_COMPLETED)
 
         if _received_vote_future in done or _received_vote_future.done():
             self.log.debug(f"The voting phase for election {election_term} has already completed, "
@@ -2298,7 +2269,7 @@ class RaftLog(object):
             assert self._current_election.voting_phase_completed_successfully
             self._received_vote_future = None
             self._election_decision_future = None
-            return True, False
+            return False, False
 
         assert _election_decision_future.done()
         voteProposal: LeaderElectionVote = _election_decision_future.result()
@@ -2463,10 +2434,10 @@ class RaftLog(object):
         buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(proposal.election_term, [])
         buffered_proposals: List[BufferedLeaderElectionProposal] = self._buffered_proposals.get(proposal.election_term, [])
 
-        # If skip_buffered_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
-        # propose something ourselves. skip_buffered_proposals is set to True if we have a buffered vote that decides
+        # If skip_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
+        # propose something ourselves. skip_proposals is set to True if we have a buffered vote that decides
         # the election for us.
-        skip_buffered_proposals: bool = False
+        skip_proposals: bool = False
 
         num_buffered_votes_processed: int = 0
 
@@ -2476,10 +2447,13 @@ class RaftLog(object):
                        f"buffered vote(s) for election {election_term}.")
 
         if len(buffered_votes) > 0:
-            skip_buffered_proposals, num_buffered_votes_processed = await self._process_buffered_votes(buffered_votes, election_term)
+            skip_proposals, num_buffered_votes_processed = await self._process_buffered_votes(buffered_votes, election_term)
 
-        if not skip_buffered_proposals:
-            done, is_leading = await self._process_buffered_proposals(
+        if skip_proposals:
+            self.log.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
+                           f"for election {election_term}.")
+        else:
+            done, is_leading = await self._process_proposals(
                 buffered_proposals,
                 election_term,
                 target_term_number,
@@ -2497,9 +2471,6 @@ class RaftLog(object):
 
             self.log.debug(f"Not yet finished handling election {election_term} after processing "
                            f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
-        else:
-            self.log.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
-                           f"for election {election_term}.")
 
         # Validate the term
         wait, is_leading = self._is_leading(target_term_number)
@@ -3029,51 +3000,38 @@ class RaftLog(object):
         the user-submitted code.
         """
         election = self._elections.get(term_number, None)
+
         if election is None:
-            raise ValueError(
-                f"No election found for term number {term_number}. "
-                "Cannot notify peer replicas of execution complete..."
-            )
+            raise ValueError(f"No election found for term number {term_number}. "
+                             "Cannot notify peer replicas of execution complete...")
         elif not election.voting_phase_completed_successfully:
-            raise ValueError(
-                f"Election {term_number} has not yet completed or did not complete successfully. "
-                "Cannot notify peer replicas of execution complete..."
-            )
+            raise ValueError(f"Election {term_number} has not yet completed or did not complete successfully. "
+                             "Cannot notify peer replicas of execution complete...")
         elif self._node_id != election.winner_id:
-            raise ValueError(
-                f"We did not win election {term_number}. "
-                f"Instead, node {election.winner_id} won election {term_number}. "
-                "Cannot notify peer replicas of execution complete..."
-            )
+            raise ValueError(f"We did not win election {term_number}. "
+                             f"Instead, node {election.winner_id} won election {term_number}. "
+                             "Cannot notify peer replicas of execution complete...")
 
         notification = ExecutionCompleteNotification(
             election.jupyter_message_id,
             proposer_id=self._node_id,
             election_term=term_number,
         )
-        self.log.debug(
-            "Serializing and appending "
-            f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
-            f"ValueID={notification.id}] now."
-        )
+        self.log.debug(f"Serializing & appending ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
+                       f"ValueID={notification.id}] now.")
         await self.append_execution_end_notification(notification)
-        self.log.debug(
-            "Finished serializing and appending "
-            f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
-            f"ValueID={notification.id}]."
-        )
+        self.log.debug("Finished serializing & appending "
+                       f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
+                       f"ValueID={notification.id}].")
 
-    async def try_lead_execution(
-            self, jupyter_message_id: str, term_number: int
-    ) -> bool:
+    async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """
-        Request to serve as the leader for the update of a term (and therefore to be the replica to execute user-submitted code).
+        Request to serve as the leader for the update of a term (and therefore to be the
+        replica to execute user-submitted code).
 
         A subsequent call to append (without successfully being elected as leader) will fail.
         """
-        self.log.debug(
-            "RaftLog %d is proposing to lead term %d." % (self._node_id, term_number)
-        )
+        self.log.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
 
         # Create a 'LEAD' proposal.
         proposal: LeaderElectionProposal = await self._create_election_proposal(
@@ -3089,15 +3047,11 @@ class RaftLog(object):
 
         return is_leading
 
-    async def try_yield_execution(
-            self, jupyter_message_id: str, term_number: int
-    ) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """
         Request to explicitly yield the current term update (and therefore the execution of user-submitted code) to another replica.
         """
-        self.log.debug(
-            "RaftLog %d: proposing to yield term %d." % (self._node_id, term_number)
-        )
+        self.log.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
 
         # Create a 'YIELD' proposal.
         proposal: LeaderElectionProposal = await self._create_election_proposal(
@@ -3114,9 +3068,7 @@ class RaftLog(object):
         # If is_leading is True, then we have a problem, as we proposed YIELD.
         # We should never be elected leader if we propose YIELD.
         if is_leading:
-            raise RuntimeError(
-                f"we were elected leader of election {term_number} despite proposing 'YIELD'"
-            )
+            raise RuntimeError(f"we were elected leader of election {term_number} despite proposing 'YIELD'")
 
         # Return hard-coded False, as is_leading must be False.
         return False
