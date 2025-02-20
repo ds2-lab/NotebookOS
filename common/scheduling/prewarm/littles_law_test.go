@@ -367,11 +367,11 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 		It("Will correctly maintain the size of the warm container pool", func() {
 			numHosts := 2
 			initialCapacity := 1
-			averageDur := time.Second * 2
-			averageIat := 2.0
-			maxCapacity := 4
+			averageDur := time.Second * 120
+			averageArrivalRatePerMin := 2.0
+			maxCapacity := 8
 
-			createAndInitializePrewarmer(initialCapacity, maxCapacity, averageDur, averageIat)
+			createAndInitializePrewarmer(initialCapacity, maxCapacity, averageDur, averageArrivalRatePerMin)
 
 			By("Correctly provisioning the initial round of prewarm containers")
 
@@ -404,6 +404,8 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 							Times(1).
 							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								globalLogger.Info("StartKernelReplica called on Local Gateway Client #%d.", idx)
+
 								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
 								return connInfo, nil
 							})
@@ -464,6 +466,8 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 					Times(1).
 					DoAndReturn(
 						func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+							globalLogger.Info("StartKernelReplica called on Local Gateway Client #%d.", i)
+
 							time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
 							n := 128
 
