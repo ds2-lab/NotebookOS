@@ -48,7 +48,8 @@ type KernelScheduler interface {
 	// It simply provides an explanation for why the migration failed.
 	//
 	// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-	MigrateKernelReplica(ctx context.Context, kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
+	MigrateKernelReplica(ctx context.Context, kernelReplica KernelReplica, targetHostId string, forTraining bool,
+		createNewHostPermitted bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
 	DeployKernelReplicas(ctx context.Context, kernel Kernel, blacklistedHosts []Host) error
@@ -134,7 +135,7 @@ type HostScheduler interface {
 	//
 	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it
 	// to the blacklist.
-	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool) (Host, error)
+	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool, createNewHostPermitted bool) (Host, error)
 
 	// CanScaleIn returns true if scaling-in is possible now.
 	CanScaleIn() bool

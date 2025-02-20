@@ -408,7 +408,9 @@ func (s *BaseScheduler) isScalingInEnabled() bool {
 //
 // If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
 // the blacklist.
-func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host,
+	forTraining bool, createNewHostPermitted bool) (scheduling.Host, error) {
+
 	if blacklistedHosts == nil {
 		blacklistedHosts = make([]scheduling.Host, 0)
 	}
@@ -430,7 +432,7 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 		}
 	}
 
-	candidate, err := s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
+	candidate, err := s.findViableHostForReplica(replica, blacklistedHosts, forTraining, createNewHostPermitted)
 	if candidate != nil {
 		s.log.Debug("Found viable candidate host for replica %d of kernel %s: host %s",
 			replica.ReplicaID(), replica.ID(), candidate.GetNodeName())
@@ -954,7 +956,8 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 // Otherwise, an error is returned.
 //
 // If we fail to find a host, then we'll try to scale-out (if we're allowed).
-func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (host scheduling.Host, failureReason error) {
+func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host,
+	forTraining bool, createNewHostPermitted bool) (host scheduling.Host, failureReason error) {
 	numTries := 0
 
 	// We'll try a few times if we keep scaling-out successfully but somehow manage to fail again and again.
@@ -970,6 +973,18 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining, failureReason)
 
 		if !s.isScalingOutEnabled() || !errors.Is(failureReason, scheduling.ErrInsufficientHostsAvailable) {
+			return nil, failureReason
+		}
+
+		// Check if we're allowed to try to provision a new host.
+		//
+		// We usually are, but if we're idle-reclaiming a host and migrating replicas, then we don't want to scale-out,
+		// as that would defeat the purposes of reclaiming the idle host.
+		if errors.Is(failureReason, scheduling.ErrInsufficientHostsAvailable) && !createNewHostPermitted {
+			s.log.Warn("Could not find viable host for replica %d of kernel %s due to a lack of available resources, "+
+				"and createNewHostPermitted is false. Giving up.",
+				replicaSpec.ReplicaID(), replicaSpec.ID())
+
 			return nil, failureReason
 		}
 
@@ -1001,7 +1016,7 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 //
 // The second error that is returned (i.e., 'err') indicates that an actual error occurs.
 func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica,
-	targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
+	targetHostId string, forTraining bool, createNewHostPermitted bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
 
 	if kernelReplica == nil {
 		s.log.Error("MigrateContainer received nil KernelReplica")
@@ -1059,7 +1074,10 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 
 	// If we weren't already given a target host to migrate the kernel replica to, then let's try to find one now.
 	if targetHost == nil {
-		targetHost, reason = s.findViableHostForReplica(kernelReplica, []scheduling.Host{originalHost}, forTraining)
+		// Search for a viable replica, but do not allow the cluster to create a new host/scale out.
+		targetHost, reason = s.findViableHostForReplica(kernelReplica, []scheduling.Host{originalHost}, forTraining,
+			createNewHostPermitted)
+
 		if reason != nil || targetHost == nil {
 			s.log.Warn("Failed to find a viable host for replica %d of kernel %s: %v",
 				kernelReplica.ReplicaID(), kernelReplica.ID(), reason)
@@ -1441,7 +1459,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 	}
 
 	getMigrationTarget := func(containerId string, container scheduling.KernelContainer) (scheduling.Host, error) {
-		return s.GetCandidateHost(container.GetClient(), nil, false)
+		return s.GetCandidateHost(container.GetClient(), nil, false, false)
 	}
 
 	type MigrationTarget struct {
@@ -1457,7 +1475,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 
 		// Pass true for `noNewHost`, as we don't want to create a new host for this.
 		_, failedMigrationReason, err := s.MigrateKernelReplica(context.Background(), container.GetClient(),
-			migrationTarget.TargetHost.GetID(), forTraining)
+			migrationTarget.TargetHost.GetID(), forTraining, false)
 
 		if err != nil {
 			// We cannot migrate the Container due to an actual error.

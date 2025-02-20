@@ -1022,7 +1022,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					go func() {
 						// defer GinkgoRecover()
-						resp, reason, err := dockerScheduler.MigrateKernelReplica(context.Background(), kernelReplica1, "", true)
+						resp, reason, err := dockerScheduler.MigrateKernelReplica(context.Background(), kernelReplica1,
+							"", true, true)
+
 						Expect(err).To(BeNil())
 						Expect(reason).To(BeNil())
 						Expect(resp).ToNot(BeNil())

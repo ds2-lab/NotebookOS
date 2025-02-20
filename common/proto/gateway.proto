@@ -837,6 +837,7 @@ message MigrationRequest {
   ReplicaInfo targetReplica = 1;
   bool forTraining = 2;
   optional string targetNodeId = 3;
+  bool canCreateNewHost = 4;
 }
 
 message SmrReadyNotification {

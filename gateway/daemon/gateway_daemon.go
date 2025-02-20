@@ -3501,7 +3501,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 		return nil, err
 	}
 
-	resp, reason, err := d.cluster.Scheduler().MigrateKernelReplica(ctx, kernelReplica, targetNodeId, in.ForTraining)
+	resp, reason, err := d.cluster.Scheduler().MigrateKernelReplica(ctx, kernelReplica, targetNodeId, in.ForTraining,
+		in.CanCreateNewHost)
 
 	duration := time.Since(startTime)
 	if err != nil || reason != nil {
