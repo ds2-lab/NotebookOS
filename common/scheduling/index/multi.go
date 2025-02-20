@@ -278,7 +278,7 @@ func (index *MultiIndex[T]) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) {
+func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -296,7 +296,7 @@ func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) {
 		if removed {
 			index.Size -= 1
 			index.log.Debug("Removed host %s (ID=%s) from FreeHosts queue.", host.GetNodeName(), host.GetID())
-			return
+			return true
 		}
 
 		index.log.Error("Expected host %s (ID=%s) to be in the FreeHosts queue; "+
@@ -308,7 +308,7 @@ func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) {
 	if !loaded {
 		index.log.Warn("Could not load host pool for host %s (ID=%s). Cannot remove host.",
 			host.GetNodeName(), host.GetID())
-		return
+		return false
 	}
 
 	hostPool.Pool.RemoveHost(host)
@@ -316,6 +316,8 @@ func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) {
 
 	index.log.Debug("Removed host %s (ID=%s) from host pool %s.",
 		host.GetNodeName(), host.GetID(), hostPool.Identifier)
+
+	return true
 }
 
 func (index *MultiIndex[T]) GetMetrics(host scheduling.Host) []float64 {

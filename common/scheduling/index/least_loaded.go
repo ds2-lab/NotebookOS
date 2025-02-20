@@ -136,7 +136,7 @@ func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *LeastLoadedIndex) RemoveHost(host scheduling.Host) {
+func (index *LeastLoadedIndex) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -145,7 +145,7 @@ func (index *LeastLoadedIndex) RemoveHost(host scheduling.Host) {
 	i, ok := host.GetMeta(LeastLoadedIndexMetadataKey).(int32)
 	if !ok {
 		index.log.Warn("Cannot remove host %s; it is not present within LeastLoadedIndex", host.GetID())
-		return
+		return false
 	}
 
 	if !host.IsContainedWithinIndex() {
@@ -164,6 +164,8 @@ func (index *LeastLoadedIndex) RemoveHost(host scheduling.Host) {
 
 	// Invoke callback.
 	index.InvokeHostRemovedCallbacks(host)
+
+	return true
 }
 
 func (index *LeastLoadedIndex) GetMetrics(_ scheduling.Host) []float64 {

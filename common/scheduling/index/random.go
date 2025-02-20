@@ -132,7 +132,7 @@ func (index *RandomClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) {
+func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -141,7 +141,7 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) {
 	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
 	if !ok {
 		index.log.Warn("Cannot remove host %s; it is not present within RandomClusterIndex", host.GetID())
-		return
+		return false
 	}
 
 	if !host.IsContainedWithinIndex() {
@@ -192,6 +192,8 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) {
 
 	// Invoke callback.
 	index.InvokeHostRemovedCallbacks(host)
+
+	return true
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {

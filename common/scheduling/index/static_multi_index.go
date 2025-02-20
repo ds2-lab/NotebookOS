@@ -326,10 +326,10 @@ func (index *StaticMultiIndex) UpdateMultiple(hosts []scheduling.Host) {
 }
 
 // RemoveHost removes a scheduling.Host from the index.
-func (index *StaticMultiIndex) RemoveHost(host scheduling.Host) {
+func (index *StaticMultiIndex) RemoveHost(host scheduling.Host) bool {
 	index.log.Debug("Removing host %s (ID=%s) from StaticMultiIndex.", host.GetNodeName(), host.GetID())
 
-	index.MultiIndex.RemoveHost(host)
+	return index.MultiIndex.RemoveHost(host)
 }
 
 // GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.

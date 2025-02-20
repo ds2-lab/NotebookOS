@@ -38,8 +38,12 @@ type IndexProvider interface {
 	// UpdateMultiple updates multiple Host instances in the index.
 	UpdateMultiple([]Host)
 
-	// Remove removes a Host from the index.
-	RemoveHost(Host)
+	// RemoveHost removes a Host from the index.
+	//
+	// RemoveHost returns true if the Host was found and removed.
+	//
+	// RemoveHost returns false if the Host was not present.
+	RemoveHost(Host) bool
 
 	// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
 	GetMetrics(Host) (metrics []float64)

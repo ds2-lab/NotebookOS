@@ -561,12 +561,23 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	c.scheduler.HostRemoved(host)
 
+	removedFromIndex := 0
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
-			index.RemoveHost(host)
+			removed := index.RemoveHost(host)
+
+			if removed {
+				removedFromIndex += 1
+			}
 		}
 		return true
 	})
+
+	if removedFromIndex == 0 {
+		c.log.Warn("Host %s (ID=%s) was not removed from ANY indices...", host.GetNodeName(), host.GetID())
+	} else {
+		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID())
+	}
 
 	c.scalingOpMutex.Lock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
