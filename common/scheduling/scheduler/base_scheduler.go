@@ -1826,8 +1826,12 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	s.log.Debug("Attempting to release %d idle host(s). Currently %d host(s) in the Cluster. Length of idle hosts: %d.",
 		n, s.cluster.Len(), s.idleHosts.Len())
 
-	toBeReleased := make([]scheduling.Host, 0, n)
-	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
+	var (
+		err         error
+		numReleased int32
+	)
+
+	for numReleased < n {
 		idleHost := s.idleHosts.Peek().(*idleSortedHost)
 
 		// If the host is not completely idle, then we'll break and stop looking.
@@ -1837,8 +1841,6 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		excluded := idleHost.Host.ExcludeFromScheduling()
 		if excluded {
-			// If we failed to exclude the host, then we won't reclaim it.
-			toBeReleased = append(toBeReleased, idleHost.Host)
 			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
 
 			// RemoveHost the host so that we can get to the next host.
@@ -1853,42 +1855,28 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 				idleHost.Host.GetNodeName(), idleHost.Host.GetID())
 			break
 		}
-	}
 
-	var (
-		failedToRelease = make([]scheduling.Host, 0)
-		released        int
-		err             error
-	)
-
-	for i, host := range toBeReleased {
 		s.log.Debug("Releasing idle host %d/%d: host %s. NumContainers: %d.",
-			i+1, len(toBeReleased), host.GetNodeName(), host.NumContainers())
+			numReleased+1, n, idleHost.Host.GetNodeName(), idleHost.Host.NumContainers())
 
-		err = s.releaseIdleHost(host)
+		err := s.releaseIdleHost(idleHost.Host)
 		if err != nil {
-			s.log.Warn("Could not release idle host \"%s\" because: %v", host.GetNodeName(), err)
-			failedToRelease = append(failedToRelease, host)
-			continue
+			s.log.Warn("Could not release idle host \"%s\" because: %v", idleHost.Host.GetNodeName(), err)
+			break
 		}
 
 		s.log.Debug("Successfully released idle host %d/%d: host %s.",
-			i+1, len(toBeReleased), host.GetNodeName())
-		released += 1
+			numReleased+1, n, idleHost.Host.GetNodeName())
+		numReleased += 1
 	}
 
-	if len(failedToRelease) > 0 {
-		s.log.Warn("Failed to release %d/%d idle host(s).", len(failedToRelease), n)
-		s.includeHostsInScheduling(failedToRelease)
-	}
-
-	if released > 0 {
-		s.log.Debug("Released %d/%d idle host(s).", released, n)
+	if numReleased > 0 {
+		s.log.Debug("Released %d/%d idle host(s).", numReleased, n)
 	} else {
-		s.log.Warn("Released %d/%d idle host(s).", released, n)
+		s.log.Warn("Released %d/%d idle host(s).", numReleased, n)
 	}
 
-	return released, err
+	return int(numReleased), err
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
