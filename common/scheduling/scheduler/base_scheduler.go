@@ -1513,8 +1513,39 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 		return nil
 	}
 
-	aborted := false
+	// Do one pass where we just check for actively-training kernels, so we don't waste time trying to reserve
+	// resources on hosts only to abort everything because another kernel is actively training.
+	foundActiveTraining := false
+	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
+		kernel, loaded := s.kernelProvider.GetKernel(container.KernelID())
+		if !loaded {
+			s.log.Error("Could not find kernel \"%s\" associated with container \"%s\" that we're trying to migrate...",
+				container.KernelID(), containerId)
 
+			foundActiveTraining = true
+			return false
+		}
+
+		// Verify that none of the kernels are actively training.
+		if kernel.HasActiveTraining() {
+			s.log.Debug("Kernel \"%s\" is actively training. We should not migrate replica %d, even if that replica is not the primary replica.",
+				kernel.ID(), container.ReplicaId())
+
+			foundActiveTraining = true
+			return false
+		}
+
+		return true
+	})
+
+	if foundActiveTraining {
+		s.log.Warn("Found at least one container whose kernel is actively training. Aborting migration of idle host \"%s\".",
+			host.GetNodeName())
+
+		return fmt.Errorf("%w: %w", scheduling.ErrMigrationFailed, scheduling.ErrAssociatedKernelActiveTraining)
+	}
+
+	aborted := false
 	// Called if we have to abort the migration because we couldn't find a viable target for some replica.
 	abortMigrationOperation := func() {
 		s.log.Warn("Aborting migration of containers from idle host %s. Releasing %d reservation(s).",
@@ -1552,6 +1583,27 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 		s.log.Debug("Searching for migration target for container %s from idle host %s.",
 			containerId, host.GetNodeName())
 
+		kernel, loaded := s.kernelProvider.GetKernel(container.KernelID())
+		if !loaded {
+			s.log.Error("Could not find kernel \"%s\" associated with container \"%s\" that we're trying to migrate...",
+				container.KernelID(), containerId)
+
+			// Failed to find a viable migration target, so we must abort.
+			abortMigrationOperation()
+			return false
+		}
+
+		// Verify that none of the kernels are actively training.
+		if kernel.HasActiveTraining() {
+			s.log.Debug("Kernel \"%s\" is actively training. We should not migrate replica %d, even if that replica is not the primary replica.",
+				kernel.ID(), container.ReplicaId())
+
+			// Failed to find a viable migration target, so we must abort.
+			abortMigrationOperation()
+			foundActiveTraining = true
+			return false
+		}
+
 		targetHost, err := getMigrationTarget(containerId, container)
 		if err != nil {
 			s.log.Warn("Could not find viable migration target for container %s; aborting migration of all containers from idle host %s: %v",
@@ -1573,9 +1625,16 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 		return true
 	})
 
-	if aborted {
+	if aborted || foundActiveTraining {
 		s.log.Warn("Operation to migrate all %d container(s) from idle host %s has been aborted.",
 			host.Containers().Len(), host.GetNodeName())
+
+		if foundActiveTraining {
+			s.log.Warn("Found at least one container whose kernel is actively training. Aborting migration of idle host \"%s\".",
+				host.GetNodeName())
+
+			return fmt.Errorf("%w: %w", scheduling.ErrMigrationFailed, scheduling.ErrAssociatedKernelActiveTraining)
+		}
 
 		return fmt.Errorf("%w: failed to find viable migration targets for one or more containers",
 			scheduling.ErrMigrationFailed)
