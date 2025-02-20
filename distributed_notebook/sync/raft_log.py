@@ -1944,6 +1944,9 @@ class RaftLog(object):
         sys.stdout.flush()
 
     def _check_prev_election_state(self)->bool:
+        """
+        Check if the current/previous election is done.
+        """
         if self._current_election is None:
             return True
 
@@ -1961,30 +1964,45 @@ class RaftLog(object):
 
         return False
 
-    async def _create_new_election(self, term_number: int = -1, jupyter_message_id: str = ""):
+    async def _validate_prev_election(self, term_number: int)->int:
         """
-        Creates the next election with the target term number and Jupyter message ID.
+        Called while creating a new election.
 
-        This should only be called when we do not yet have a local election or when the last local election
-        completed successfully.
+        Waits a bit for previous election to resolve before giving up on that and just plowing on ahead.
         """
         num_tries: int = 0
-        max_num_tries: int = 3
+        max_num_tries: int = 5
 
+        # Cache this locally.
+        current_term: int = 1
+        if self._current_election is not None:
+            current_term = self._current_election.term_number
+
+        prev_election_resolved: bool = False
         while num_tries < max_num_tries:
-            prev_election_resolved:bool = self._check_prev_election_state()
+            prev_election_resolved = self._check_prev_election_state()
 
+            # Is last election complete (or null)? If so, we'll break out.
             if prev_election_resolved:
                 break
 
-            current_term: int = self._current_election.term_number
+            # If we're about to run out of tries, then we'll just give up from here.
             if (num_tries + 1) >= max_num_tries:
-                raise ValueError(f"Previous election (for term {current_term}) has not been sufficiently "
-                             "resolved for us to begin working on the next election...")
+                self.log.warning(f"Previous election (for term {current_term}) has not been sufficiently "
+                                 "resolved for us to begin working on the next election...")
+
+                # Print a warning if the next term is not equal to whatever was specified.
+                if current_term + 1 != term_number:
+                    self.log.warning(f"Will use term number {current_term + 1} "
+                                     f"instead of specified term number {term_number}.")
+
+                # Return the "next" term based on our current/previous election's term.
+                return current_term + 1
 
             num_tries += 1
 
-            sleep_interval_seconds: float = 2
+            # Wait for a little bit before checking again.
+            sleep_interval_seconds: float = 1.25
             sleep_interval_seconds = sleep_interval_seconds * num_tries
             sleep_interval_seconds += random.uniform(0, 2)
 
@@ -1992,6 +2010,53 @@ class RaftLog(object):
                              f"Sleeping for {sleep_interval_seconds} seconds before checking again...")
 
             await asyncio.sleep(sleep_interval_seconds)
+
+        # If the last election is not done, then we'll use a term number one higher.
+        if not prev_election_resolved:
+            self.log.warning(f"Previous election (for term {current_term}) has not been sufficiently "
+                             "resolved for us to begin working on the next election...")
+
+            if current_term + 1 != term_number:
+                self.log.warning(f"Will use term number {current_term + 1} "
+                                 f"instead of specified term number {term_number}.")
+
+            return self._current_election.term_number + 1
+
+        # If we don't have a current election, then we'll use the specified term number, which should be 1.
+        if self._current_election is None:
+            assert term_number == 1
+            return term_number
+
+        # If we originally specified something higher, then we'll assume that we know what we're doing.
+        if term_number > self._current_election.term_number:
+            return term_number
+
+        self.log.warning(f"Specified term number is {term_number}; "
+                         f"however, previous election has term {self._current_election.term_number}.")
+        self.log.warning(f"Using term number {self._current_election.term_number + 1} instead...")
+        return self._current_election.term_number + 1
+
+    async def _create_new_election(self, term_number: int = -1, jupyter_message_id: str = ""):
+        """
+        Creates the next election with the target term number and Jupyter message ID.
+
+        This should only be called when we do not yet have a local election or when the last local election
+        completed successfully.
+        """
+
+        # Check if the previous election finished. If it hasn't finished yet, then we'll wait a bit for it to finish
+        # before just plowing on ahead. We'll eventually be blocked by the Raft-based election protocol anyway.
+        #
+        # The real issue is determining what term number we should be using. If the last election isn't over yet, then
+        # whatever term number we specified is liable to be incorrect, because we base the term number on the
+        # Synchronizer's execution count, and that won't be incremented until we're done synchronizing with the primary
+        # replica at the conclusion of the current/last election.
+        try:
+            term_number = await self._validate_prev_election(term_number)
+        except ValueError:
+            self.log.warning("Previous election has not yet completed. Making educated guess about term number...")
+            term_number = self._current_election.term_number + 1
+
 
         # Create a new election. We don't have an existing election to restart/use.
         election: Election = Election(
