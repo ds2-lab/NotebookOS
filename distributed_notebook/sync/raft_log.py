@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import pickle
+import random
 import threading
 import traceback
 from collections import OrderedDict
@@ -1942,18 +1943,55 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-    def _create_new_election(self, term_number: int = -1, jupyter_message_id: str = ""):
+    def _check_prev_election_state(self)->bool:
+        if self._current_election is None:
+            return True
+
+        if self._current_election.code_execution_completed_successfully:
+            return True
+
+        if self._current_election.was_skipped:
+            return True
+
+        if self._current_election.voting_phase_completed_successfully:
+            self.log.warning("Current/previous election completed voting phase. "
+                             "Have not received 'execution complete' notification yet, though."
+                             "Will assume that everything is OK and begin handling next election.")
+            return True
+
+        return False
+
+    async def _create_new_election(self, term_number: int = -1, jupyter_message_id: str = ""):
         """
         Creates the next election with the target term number and Jupyter message ID.
 
         This should only be called when we do not yet have a local election or when the last local election
         completed successfully.
         """
-        assert (
-                self._current_election is None
-                or self._current_election.code_execution_completed_successfully
-                or self._current_election.was_skipped
-        )
+        num_tries: int = 0
+        max_num_tries: int = 3
+
+        while num_tries < max_num_tries:
+            prev_election_resolved:bool = self._check_prev_election_state()
+
+            if prev_election_resolved:
+                break
+
+            current_term: int = self._current_election.term_number
+            if (num_tries + 1) >= max_num_tries:
+                raise ValueError(f"Previous election (for term {current_term}) has not been sufficiently "
+                             "resolved for us to begin working on the next election...")
+
+            num_tries += 1
+
+            sleep_interval_seconds: float = 2
+            sleep_interval_seconds = sleep_interval_seconds * num_tries
+            sleep_interval_seconds += random.uniform(0, 2)
+
+            self.log.warning(f"Election {current_term} has not resolved sufficiently for us to proceed. "
+                             f"Sleeping for {sleep_interval_seconds} seconds before checking again...")
+
+            await asyncio.sleep(sleep_interval_seconds)
 
         # Create a new election. We don't have an existing election to restart/use.
         election: Election = Election(
@@ -2117,10 +2155,7 @@ class RaftLog(object):
             if self._current_election is None:
                 self.log.debug(f"Current election is None. Creating new election for term {target_term_number} "
                                f"with Jupyter message ID = {jupyter_message_id}.")
-                self._create_new_election(
-                    term_number=target_term_number,
-                    jupyter_message_id=jupyter_message_id,
-                )
+                await self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
                 return True
 
             if target_term_number == self.current_election_term and (
@@ -2168,9 +2203,8 @@ class RaftLog(object):
                 self._handle_unexpected_election(term_number=target_term_number)
                 return False  # The above method raises an exception, so we won't actually return.
 
-            self._create_new_election(
-                term_number=target_term_number, jupyter_message_id=jupyter_message_id
-            )
+            await self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
+
             return True
 
     async def _process_proposals(
