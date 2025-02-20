@@ -115,10 +115,11 @@ signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
 
-DeploymentMode_Kubernetes: str = "KUBERNETES"
-DeploymentMode_DockerSwarm: str = "DOCKER-SWARM"
-DeploymentMode_DockerCompose: str = "DOCKER-COMPOSE"
-DeploymentMode_Local: str = "LOCAL"
+DeployModeKubernetes: str = "KUBERNETES"
+DeployModeDockerSwarm: str = "DOCKER-SWARM"
+DeployModeDockerCompose: str = "DOCKER-COMPOSE"
+DeployModeDocker: str = "DOCKER"
+DeployModeLocal: str = "LOCAL"
 
 # The average time to initialize CUDA on an AWS P3 instance (with a V100 GPU), based on our empirical benchmark.
 AverageCudaInitTimeSec: float = 0.17389775
@@ -874,28 +875,25 @@ class DistributedKernel(IPythonKernel):
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
 
         self.deployment_mode: str = os.environ.get(
-            "DEPLOYMENT_MODE", DeploymentMode_Local
+            "DEPLOYMENT_MODE", DeployModeDocker
         )
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:
             self.log.debug(f"Deployment mode: {self.deployment_mode}")
 
-        if self.deployment_mode == DeploymentMode_Kubernetes:
+        if self.deployment_mode == DeployModeKubernetes:
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
-            self.docker_container_id: str = "N/A"
-        elif (
-                self.deployment_mode == DeploymentMode_DockerSwarm
-                or self.deployment_mode == DeploymentMode_DockerCompose
-        ):
+            self.docker_container_id: str = self.pod_name
+        elif DeployModeDocker in self.deployment_mode: # compose or swarm
             self.docker_container_id: str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
         else:
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
-            self.docker_container_id: str = "N/A"
+            self.docker_container_id: str = self.pod_name
 
         self.log.info('Connection file path: "%s"' % connection_file_path)
         self.log.info('IPython config file path: "%s"' % config_file_path)

@@ -59,6 +59,7 @@ const (
 	VarSessionId         = "{session_id}"
 	VarDebugPort         = "{kernel_debug_port}"
 	VarAwsRegion         = "{aws_region}"
+	VarDeploymentMode    = "{deployment_mode}"
 	VarKernelDebugPyPort = "{kernel_debugpy_port}"
 	HostMountDir         = "{host_mount_dir}"
 	TargetMountDir       = "{target_mount_dir}"
@@ -90,7 +91,7 @@ var (
 
 	// This version has debugpy.
 	// dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
-	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e AWS_REGION={aws_region} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
+	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e DEPLOYMENT_MODE={deployment_mode} -e AWS_REGION={aws_region} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
 
 	// dockerShutdownCmd is used to shut down a running kernel container
 	dockerShutdownCmd = "docker stop {container_name}"
@@ -540,6 +541,8 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
 	cmd = strings.ReplaceAll(cmd, VarAwsRegion, ivk.AwsRegion)
 	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.KernelDebugPort))
+	cmd = strings.ReplaceAll(cmd, VarDeploymentMode, ivk.DeploymentMode.String())
+
 	// cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.KernelDebugPort+10000))
 
 	for i, arg := range spec.Kernel.Argv {

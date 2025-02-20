@@ -3585,7 +3585,7 @@ func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelN
 			containerId = kernel.GetPodOrContainerName()
 		}
 	}
-	
+
 	if notification.NotificationType == 0 {
 		d.log.Warn("Received error notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
 			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
