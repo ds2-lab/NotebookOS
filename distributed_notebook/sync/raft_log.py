@@ -486,28 +486,24 @@ class RaftLog(object):
                     and self._current_election is not None
                     and vote.attempt_number > self._current_election.current_attempt_number
             ):
-                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-                self.log.warning(
-                    f"Received vote from term {vote.election_term} (with attempt number {vote.attempt_number})."
-                    f"The vote's term is > the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
-                    f"Buffering vote now."
-                )
+                self.log.warning(f"Received vote from term {vote.election_term} "
+                                 f"(with attempt number {vote.attempt_number})."
+                                 f"The vote's term is > the election term prior "
+                                 f"to our migration (i.e., {self._leader_term_before_migration}). Buffering vote now.")
                 self.__buffer_vote(vote, received_at=received_at)
                 sys.stderr.flush()
                 sys.stdout.flush()
                 return GoNilError()
             else:
-                self.log.debug(
-                    f"Discarding old LeaderElectionVote from term {vote.election_term} "
-                    f"with attempt number {vote.attempt_number}, "
-                    f"as we need to catch-up: {vote}"
-                )
+                self.log.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
+                               f"with attempt number {vote.attempt_number}, "
+                               f"as we need to catch-up: {vote}")
                 sys.stderr.flush()
                 sys.stdout.flush()
                 return GoNilError()
 
         # If we receive an old vote out-of-order or after a delay, then we can just discard it.
-        if (self._current_election is not None and vote.election_term < self._current_election.term_number):
+        if self._current_election is not None and vote.election_term < self._current_election.term_number:
             self.log.warning(
                 f'Received old vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
                 f"with term number {vote.election_term}, while our current election is for term  "
@@ -698,41 +694,32 @@ class RaftLog(object):
 
             # If we've not finished the voting phase in our current election, then do that next.
             if not self._current_election.voting_phase_completed_successfully:
-                self.log.debug(
-                    f"Fast-forwarding election {current_term_number} to VOTING_COMPLETE state "
-                    f"from state {self._current_election.election_state.get_name()}"
-                )
-                self._current_election.set_election_vote_completed(
-                    notification.proposer_id
-                )
+                self.log.debug(f"Fast-forwarding election {current_term_number} to VOTING_COMPLETE state "
+                               f"from state {self._current_election.election_state.get_name()}")
+                self._current_election.set_election_vote_completed(notification.proposer_id)
 
                 # TODO: Should we try setting value on "vote received" future here?
 
             # Now designate the current election as complete (skipped, specifically, in this case).
             if not self._current_election.code_execution_completed_successfully:
-                self.log.debug(
-                    f"Fast-forwarding election {current_term_number} to EXECUTION_COMPLETE state "
-                    f"(and subsequently to the SKIPPED state) from current state "
-                    f"of {self._current_election.election_state.get_name()}"
-                )
+                self.log.debug(f"Fast-forwarding election {current_term_number} to EXECUTION_COMPLETE state "
+                               f"(and subsequently to the SKIPPED state) from current state "
+                               f"of {self._current_election.election_state.get_name()}")
                 self._current_election.set_execution_complete(fast_forwarding=True)
                 self._num_elections_skipped += 1
 
                 try:
                     self._set_execution_count_handler(current_term_number)
                 except ValueError:
-                    self.log.warning(
-                        f"Failed to set execution count to {current_term_number}; current value must be higher..."
-                    )
+                    self.log.warning(f"Failed to set execution count to {current_term_number}; "
+                                     f"current value must be higher...")
                     pass
 
                 # self._fast_forward_execution_count_handler()
         else:
-            self.log.debug(
-                f"Fast-forwarding from election term {current_term_number} to election term "
-                f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s). "
-                "We do not have an active/existing local election as of right now."
-            )
+            self.log.debug(f"Fast-forwarding from election term {current_term_number} to election term "
+                           f"{notification.election_term}. Skipping ahead by {notification.election_term} "
+                           f"term number(s). We do not have an active/existing local election as of right now.")
 
         # Define a function to create and skip elections so we can skip ahead as far as is necessary.
         def create_and_skip_election(
@@ -840,6 +827,64 @@ class RaftLog(object):
         self._leader_id = notification.proposer_id
         self._leader_term = notification.election_term
 
+    def __handle_execution_complete_notification_while_catching_up(self, notification: ExecutionCompleteNotification):
+        if notification.election_term > self._leader_term_before_migration:
+            self.log.warning(f"Received ExecutionCompleteNotification from future term {notification.election_term} "
+                             f"which is > the election term prior to our migration "
+                             f"(i.e., {self._leader_term_before_migration}). "
+                             f"But the election shouldn't be able to end until we've caught-up and started "
+                             f"participating again...")
+            raise ValueError(f"Received ExecutionCompleteNotification from term {notification.election_term} "
+                             f"with attempt number {notification.attempt_number}, "
+                             f"which is >= the election term prior to our migration "
+                             f"(i.e., {self._leader_term_before_migration}).")
+
+        # This case should be covered by the above case, but just in case it isn't...
+        if notification.election_term > self._current_election.term_number:
+            self.log.warning(f"Received ExecutionCompleteNotification from future term {notification.election_term} "
+                             f"which is > the election term prior to our migration "
+                             f"(i.e., {self._current_election.term_number}). "
+                             f"But the election shouldn't be able to end until we've caught-up and started "
+                             f"participating again...")
+            raise ValueError(f"Unexpected case. Received ExecutionCompleteNotification from term "
+                             f"{notification.election_term} with attempt number {notification.attempt_number}, "
+                             f"which is >= our current election term of {self._current_election.term_number}.")
+
+        # If this leader notification is strictly old, then we'll just ignore it.
+        if self._current_election.term_number > notification.election_term:
+            self.log.debug(f"Discarding old ExecutionCompleteNotification from old term={notification.election_term} "
+                           f", attempt_number={notification.attempt_number}, as we need to catch-up: {notification}")
+            return
+
+        self.log.debug(f"Received ExecutionCompleteNotification for current election term "
+                       f"{notification.election_term} while catching up. "
+                       f"Current election state: {self._current_election.state.get_name()}")
+        assert self._current_election.term_number == notification.election_term
+
+        # First, check if we know that the voting phase has completed.
+        # If not, then we'll update that first.
+        if not self.current_election.voting_phase_completed_successfully:
+            self.log.debug(f"We first must record that the voting phase for election {notification.election_term} "
+                           f"has completed, as we apparently didn't know that before migrating...")
+
+            with self._election_lock:
+                self.current_election.set_election_vote_completed(notification.proposer_id)
+
+        # Now, check if we know that the code execution completed successfully.
+        # If we know about it already, then we'll just return.
+        if self._current_election.code_execution_completed_successfully:
+            self.log.debug(f"Discarding ExecutionCompleteNotification from current term {notification.election_term} with "
+                           f"attempt number {notification.attempt_number}, as we already know that election finished: "
+                           f"{notification}")
+            return
+
+        # Record that the code execution phase completed successfully.
+        with self._election_lock:
+            self.log.debug(f"Recording that election for term {notification.election_term} has completed. "
+                           f"Learned about this whilst catching up.")
+            self.current_election.set_execution_complete(
+                fast_forwarding=False, fast_forwarded_winner_id=notification.proposer_id)
+
     def __handle_execution_complete_notification(
             self, notification: ExecutionCompleteNotification
     ) -> bytes:
@@ -854,46 +899,25 @@ class RaftLog(object):
         )
 
         if self.needs_to_catch_up:
-            if notification.election_term > self._leader_term_before_migration:
-                # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
-                self.log.warning(
-                    f"Received ExecutionCompleteNotification from term {notification.election_term} "
-                    f"which is > the election term prior to our migration (i.e., {self._leader_term_before_migration}). "
-                    f"But the election shouldn't be able to end until we've caught-up and started "
-                    f"participating again..."
-                )
-                raise ValueError(
-                    f"Received ExecutionCompleteNotification from term {notification.election_term} "
-                    f"with attempt number {notification.attempt_number}, "
-                    f"which is >= the election term prior to our migration "
-                    f"(i.e., {self._leader_term_before_migration})."
-                )
-            else:
-                self.log.debug(
-                    f"Discarding old ExecutionCompleteNotification from term {notification.election_term} "
-                    f"with attempt number {notification.attempt_number}, "
-                    f"as we need to catch-up: {notification}"
-                )
-                sys.stderr.flush()
-                sys.stdout.flush()
-                return GoNilError()
+            self.__handle_execution_complete_notification_while_catching_up(notification)
+            sys.stderr.flush()
+            sys.stdout.flush()
+            return GoNilError()
 
         with self._election_lock:
             fast_forwarding: bool = False
 
             if self.current_election is None:
-                self.log.warning(
-                    f"We just received a notification that code execution has completed for "
-                    f"election {notification.election_term}; however, our current election is nil..."
-                )
+                self.log.warning(f"We just received a notification that code execution has completed for "
+                                 f"election {notification.election_term}; however, our current election is nil...")
                 self.__fast_forward_to_future_election(notification)
                 fast_forwarding = True
 
             if self.current_election.term_number != notification.election_term:
-                self.log.warning(
-                    f"Current election is for term {self.current_election.term_number} (state={self.current_election.state.get_name()}, "
-                    f"but we just received a notification that election {notification.election_term} has finished..."
-                )
+                self.log.warning(f"Current election is for term {self.current_election.term_number} "
+                                 f"(state={self.current_election.state.get_name()}, "
+                                 f"but we just received a notification that election "
+                                 f"{notification.election_term} has finished...")
 
                 if notification.election_term > self.current_election.term_number:
                     self.__fast_forward_to_future_election(notification)
@@ -907,12 +931,10 @@ class RaftLog(object):
                     )
 
             if self.leader_id != notification.proposer_id:
-                self.log.warning(
-                    f'Current leader ID is {self.leader_id}, but we just received an '
-                    f'"election finished" notification with proposer ID = {notification.proposer_id}. '
-                    f'Notification term number: {notification.election_term}. Our local election term: '
-                    f'{self.current_election_term}. Leader term: {self.leader_term}.'
-                )
+                self.log.warning(f'Current leader ID is {self.leader_id}, but we just received an '
+                                 f'"election finished" notification with proposer ID = {notification.proposer_id}. '
+                                 f'Notification term number: {notification.election_term}. Our local election term: '
+                                 f'{self.current_election_term}. Leader term: {self.leader_term}.')
 
                 # Pretty sure this is a bug/race condition of some sort, in which something updated our leader term,
                 # but not our leader ID. Maybe the leader checkpointed some state right before sending the 'execution
@@ -924,19 +946,21 @@ class RaftLog(object):
                 # still send an error notification so that I can potentially debug this.
                 if self.leader_term == notification.election_term and self.current_election_term == notification.election_term:
                     self._leader_id = notification.proposer_id
-                    self._report_error_callback(
-                        f"Inconsistency detected between our local leader ID and the proposer ID of 'election finished' notification.",
-                        f'Leader ID: {self.leader_id}. "Election finished" notification proposer ID: '
-                        f"{notification.proposer_id}. Notification term number: {notification.election_term}. "
-                        f"Our local election term: {self.current_election_term}. Leader term: {self.leader_term}."
-                    )
+                    self._report_error_callback(f"Inconsistency detected between our local leader ID and the "
+                                                f"proposer ID of 'election finished' notification.",
+                                                f'Leader ID: {self.leader_id}. "Election finished" '
+                                                f'notification proposer ID: {notification.proposer_id}. '
+                                                f"Notification term number: {notification.election_term}. "
+                                                f"Our local election term: {self.current_election_term}. "
+                                                f"Leader term: {self.leader_term}.")
                 else:
-                    raise ValueError(
-                        f'Inconsistency detected between our local leader ID and the proposer ID of "election finished" notification. '
-                        f'Leader ID: {self.leader_id}. "Election finished" notification proposer ID: '
-                        f"{notification.proposer_id}. Notification term number: {notification.election_term}. "
-                        f"Our local election term: {self.current_election_term}. Leader term: {self.leader_term}."
-                    )
+                    raise ValueError(f'Inconsistency detected between our local leader ID '
+                                     f'and the proposer ID of "election finished" notification. '
+                                     f'Leader ID: {self.leader_id}. "Election finished" notification proposer ID: '
+                                     f"{notification.proposer_id}. "
+                                     f"Notification term number: {notification.election_term}. "
+                                     f"Our local election term: {self.current_election_term}. "
+                                     f"Leader term: {self.leader_term}.")
 
             self.current_election.set_execution_complete(
                 fast_forwarding=fast_forwarding,
@@ -948,26 +972,19 @@ class RaftLog(object):
                 try:
                     self._set_execution_count_handler(notification.election_term)
                 except ValueError:
-                    self.log.warning(
-                        f"Failed to set execution count to {notification.election_term}; current value must be higher..."
-                    )
+                    self.log.warning(f"Failed to set execution count to {notification.election_term}; "
+                                     f"current value must be higher...")
                     pass
 
         return GoNilError()
 
-    def __buffer_proposal(
-            self, proposal: LeaderElectionProposal, received_at: float = time.time()
-    ) -> bytes:
+    def __buffer_proposal(self, proposal: LeaderElectionProposal, received_at: float = time.time()) -> bytes:
         # Save the proposal in the "buffered proposals" mapping.
         with self._buffered_proposals_lock:
             buffered_proposals: List[BufferedLeaderElectionProposal] = (
                 self._buffered_proposals.get(proposal.election_term, [])
             )
-            buffered_proposals.append(
-                BufferedLeaderElectionProposal(
-                    proposal=proposal, received_at=received_at
-                )
-            )
+            buffered_proposals.append(BufferedLeaderElectionProposal(proposal=proposal, received_at=received_at))
             self._buffered_proposals[proposal.election_term] = buffered_proposals
             sys.stderr.flush()
             sys.stdout.flush()

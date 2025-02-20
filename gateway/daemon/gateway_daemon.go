@@ -4603,7 +4603,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 // a code execution request. If successful, tryPerformMigration will return the ID of the migrated replica.
 func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *messaging.JupyterMessage) (scheduling.KernelReplica, error) {
 	d.log.Debug("All %d replicas of kernel \"%s\" are ineligible to execute code. Initiating migration.",
-		kernel.ID(), len(kernel.Replicas()))
+		len(kernel.Replicas()), kernel.ID())
 
 	targetReplica, err := d.Scheduler().SelectReplicaForMigration(kernel)
 	if targetReplica == nil {
@@ -4611,7 +4611,7 @@ func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *
 	}
 
 	d.log.Debug(utils.LightBlueStyle.Render("Preemptively migrating replica %d of kernel %s now."),
-		targetReplica, kernel.ID())
+		targetReplica.ReplicaID(), kernel.ID())
 	req := &proto.MigrationRequest{
 		TargetReplica: &proto.ReplicaInfo{
 			KernelId:     kernel.ID(),
