@@ -118,8 +118,12 @@ class RemoteCheckpointer(Checkpointer):
         self.log.debug(f"Reading description of dataset \"{dataset_name}\" from {self.storage_name} at key \"{key}\"")
 
         st = time.time()
-        val: str|bytes|memoryview = self.storage_provider.read_value(key)
+        val: str|bytes|memoryview|io.BytesIO = self.storage_provider.read_value(key)
         et = time.time()
+
+        if isinstance(val, io.BytesIO):
+            val.seek(0)
+            val = val.getbuffer().tobytes()
 
         if val is None:
             self.log.error(f"Failed to read dataset \"{dataset_name}\". "
@@ -225,8 +229,10 @@ class RemoteCheckpointer(Checkpointer):
 
         if not isinstance(val, io.BytesIO):
             buffer: io.BytesIO = io.BytesIO(val)
+            buffer.seek(0)
         else:
             buffer: io.BytesIO = val
+            buffer.seek(0)
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                        f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")

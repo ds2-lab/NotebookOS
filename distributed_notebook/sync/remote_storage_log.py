@@ -353,7 +353,11 @@ class RemoteStorageLog(object):
 
             self.log.debug(f'Retrieving value for variable "{variable_name}" from {self.storage_name} at key "{key}".')
 
-            variable_value: bytes = self.storage_provider.read_value(key)
+            variable_value: Dict[str, Any] | bytes | io.BytesIO = self.storage_provider.read_value(key)
+
+            if isinstance(variable_value, io.BytesIO):
+                variable_value.seek(0)
+                variable_value = variable_value.getbuffer().tobytes()
 
             try:
                 variable: SynchronizedValue = pickle.loads(variable_value)
