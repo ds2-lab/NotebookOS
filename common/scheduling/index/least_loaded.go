@@ -48,13 +48,6 @@ func (index *LeastLoadedIndex) Category() (string, interface{}) {
 }
 
 func (index *LeastLoadedIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	if !host.Enabled() {
-		// If the host is not enabled, then it is ineligible to be added to the index.
-		// In general, disabled hosts will not be attempted to be added to the index,
-		// but if that happens, then we return scheduling.IndexUnqualified.
-		return expectedRandomIndex, scheduling.IndexUnqualified
-	}
-
 	val := host.GetMeta(LeastLoadedIndexMetadataKey)
 	if val == nil {
 		return "*", scheduling.IndexNewQualified
@@ -62,16 +55,23 @@ func (index *LeastLoadedIndex) IsQualified(host scheduling.Host) (interface{}, s
 
 	if _, ok := val.(int32); ok {
 		return "*", scheduling.IndexQualified
-	} else {
-		return "*", scheduling.IndexNewQualified
 	}
+
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
+	return "*", scheduling.IndexNewQualified
 }
 
 func (index *LeastLoadedIndex) Len() int {
 	return index.hosts.Len()
 }
 
-func (index *LeastLoadedIndex) Add(host scheduling.Host) {
+func (index *LeastLoadedIndex) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -136,14 +136,16 @@ func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *LeastLoadedIndex) Remove(host scheduling.Host) {
+func (index *LeastLoadedIndex) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+
+	index.log.Debug("Removing host %s (ID=%s) from LeastLoadedIndex.", host.GetNodeName(), host.GetID())
 
 	i, ok := host.GetMeta(LeastLoadedIndexMetadataKey).(int32)
 	if !ok {
 		index.log.Warn("Cannot remove host %s; it is not present within LeastLoadedIndex", host.GetID())
-		return
+		return false
 	}
 
 	if !host.IsContainedWithinIndex() {
@@ -162,6 +164,8 @@ func (index *LeastLoadedIndex) Remove(host scheduling.Host) {
 
 	// Invoke callback.
 	index.InvokeHostRemovedCallbacks(host)
+
+	return true
 }
 
 func (index *LeastLoadedIndex) GetMetrics(_ scheduling.Host) []float64 {
@@ -199,7 +203,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 				index.log.Debug("host %s (ID=%s) is black-listed. Temporarily removing the host from the index.",
 					host.GetNodeName(), host.GetID())
 
-				// Remove the host from the index temporarily so that we don't get it again.
+				// RemoveHost the host from the index temporarily so that we don't get it again.
 				// We can't return it because it's blacklisted, but we need to keep looking.
 				heap.Pop(index.hosts)
 
@@ -217,7 +221,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 		index.log.Debug("Exhausted remaining hosts in index; failed to find non-blacklisted host.")
 	}
 
-	// Add back any hosts that we skipped over due to them being blacklisted.
+	// AddHost back any hosts that we skipped over due to them being blacklisted.
 	for _, hostToBeAddedBack := range hostsToBeAddedBack {
 		index.log.Debug("Adding blacklisted host %s (ID=%s) to index.",
 			hostToBeAddedBack.GetNodeName(), hostToBeAddedBack.GetID())
@@ -238,6 +242,36 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 	//}
 
 	return host, -1, nil
+}
+
+func (index *LeastLoadedIndex) considerHostForScheduling(candidateHost scheduling.Host) bool {
+	// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
+	// before marking it as being considered.
+	if !candidateHost.ConsiderForScheduling() {
+		index.log.Warn("Otherwise viable candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
+		return false
+	}
+
+	return true
+}
+
+func (index *LeastLoadedIndex) checkHostForViability(candidateHost scheduling.Host, criteriaFunc scheduling.HostCriteriaFunction) bool {
+	if criteriaFunc == nil {
+		// No criteria function. Just mark the host as being considered for scheduling.
+		return index.considerHostForScheduling(candidateHost)
+	}
+
+	// Check that the host satisfies whatever scheduling criteria was specified by the user.
+	err := criteriaFunc(candidateHost)
+	if err != nil {
+		index.log.Debug("Host %s (ID=%s) failed supplied criteria function: %v",
+			candidateHost.GetNodeName(), candidateHost.GetID(), err)
+		return false
+	}
+
+	// Check that the host is not outright excluded from scheduling right now.
+	return index.considerHostForScheduling(candidateHost)
 }
 
 // SeekMultipleFrom seeks n host instances from a random permutation of the index.
@@ -265,7 +299,8 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 
 	// We'll explicitly stop the loop.
 	for {
-		index.log.Debug("Searching for a total of %d hosts. Found so far: %d.", n, len(hosts))
+		index.log.Debug("Searching for %d hosts total. Found %d/%d. Tried: %d.",
+			n, len(hosts), n, len(hostsToBeAddedBack))
 
 		candidateHost := index.unsafeSeek(blacklist)
 
@@ -278,20 +313,15 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 
 		_, loaded := hostsMap[candidateHost.GetID()]
 		if loaded {
-			panic(fmt.Sprintf("Found duplicate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID()))
+			panic(fmt.Sprintf("Found duplicate: host %s (ID=%s)",
+				candidateHost.GetNodeName(), candidateHost.GetID()))
 		}
 
-		// Check that the host is not outright excluded from scheduling right now and
-		// that it satisfies whatever scheduling criteria was specified by the user.
-		hostSatisfiesSchedulingCriteria := criteriaFunc == nil || criteriaFunc(candidateHost)
-
-		// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
-		// before marking it as being considered.
-		if hostSatisfiesSchedulingCriteria && candidateHost.ConsiderForScheduling() {
-			index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
+		viable := index.checkHostForViability(candidateHost, criteriaFunc)
+		if viable {
+			index.log.Debug("Found candidate: host %s (ID=%s)",
+				candidateHost.GetNodeName(), candidateHost.GetID())
 			hostsMap[candidateHost.GetID()] = candidateHost
-		} else {
-			index.log.Debug("host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
 		}
 
 		// We're done when the length of hostMap is equal to n.
@@ -300,10 +330,10 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 			break
 		}
 
-		// Remove the host so that we don't get it again if we need to keep looking.
+		// RemoveHost the host so that we don't get it again if we need to keep looking.
 		// We'll add it back once we're done finding all the hosts.
 		//
-		// We use heap.Remove instead of heap.Pop because the criteriaFunc called up above may reserve
+		// We use heap.RemoveHost instead of heap.Pop because the criteriaFunc called up above may reserve
 		// resources on the host, which may cause its position in the heap to be updated. In this case,
 		// it may no longer be the next element in the heap, so we remove it explicitly using whatever
 		// its current index is.

@@ -1,5 +1,8 @@
 from typing import Dict, Any
 
+class ElectionAbortedException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
 
 def extract_header(msg_or_header: Dict[str, Any]) -> Dict[str, Any]:
     """Given a message or header, return the header."""

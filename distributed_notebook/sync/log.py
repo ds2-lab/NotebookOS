@@ -84,7 +84,11 @@ class SynchronizedValue(object):
         return metadata
 
     def __str__(self):
-        string: str = f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},ID={self._id}"
+        string: str = (f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},"
+                       f"Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},"
+                       f"AttemptNumber={self._attempt_number},"
+                       f"Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},"
+                       f"ID={self._id}")
 
         if hasattr(self, "_jupyter_message_id"):
             jupyter_message_id: Optional[str] = getattr(self, "_jupyter_message_id")
@@ -464,9 +468,11 @@ class SyncLog(Protocol):
         :return: return a boolean indicating whether we've created the first election yet.
         """
 
-    def get_election(self, term_number: int)->Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
 
     def get_known_election_terms(self)->Optional[list[int]]:
@@ -489,7 +495,7 @@ class SyncLog(Protocol):
     @property
     def restoration_time_seconds(self)->float:
         """
-        Return the time spent on restoring previous state from remote remote_storage.
+        Return the time spent on restoring previous state from remote storage.
         """
 
     def clear_restoration_time(self):
@@ -533,6 +539,34 @@ class SyncLog(Protocol):
         or until we know that all replicas yielded.
 
         :param term_number: the term number of the election
+        """
+
+    async def does_election_already_exist(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
         """
 
     async def notify_execution_complete(self, term_number: int):

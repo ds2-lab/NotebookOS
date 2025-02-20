@@ -301,10 +301,6 @@ class Slice_walpb_Snapshot(go.GoClass):
 
 #---- Constants from Go: Python can only ask that you please don't change these! ---
 DoneString = "DONE"
-NewSerializedStateBaseFileName = "serialized_state_new"
-SerializedStateBaseFileName = "serialized_state.json"
-SerializedStateDirectory = "serialized_raft_log_states"
-SerializedStateFileExtension = ".json"
 VersionText = "1.0.1"
 
 
@@ -346,6 +342,28 @@ def Set_ProposalDeadline(value):
 
 
 # ---- Interfaces ---
+
+# Python type for interface smr.WriteCloser
+class WriteCloser(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_WriteCloser_Close(self.handle)
+	def Write(self, p):
+		"""Write(object p) object"""
+		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
 
 # Python type for interface smr.LogSnapshotter
 class LogSnapshotter(go.GoClass):
@@ -422,12 +440,17 @@ class ReadCloser(go.GoClass):
 		"""Read(object p) object"""
 		return IntRet(handle=_smr.smr_ReadCloser_Read(self.handle, p.handle))
 
-# Python type for interface smr.WriteCloser
-class WriteCloser(go.GoClass):
+
+# ---- Structs ---
+
+# Python type for struct smr.SMRContext
+class SMRContext(go.context_Context):
 	""""""
 	def __init__(self, *args, **kwargs):
 		"""
 		handle=A Go-side object is always initialized with an explicit handle=arg
+		otherwise parameters can be unnamed in order of field names or named fields
+		in which case a new Go object is constructed first
 		"""
 		if len(kwargs) == 1 and 'handle' in kwargs:
 			self.handle = kwargs['handle']
@@ -436,16 +459,36 @@ class WriteCloser(go.GoClass):
 			self.handle = args[0].handle
 			_smr.IncRef(self.handle)
 		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_WriteCloser_Close(self.handle)
-	def Write(self, p):
-		"""Write(object p) object"""
-		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
-
-
-# ---- Structs ---
+			self.handle = _smr.smr_SMRContext_CTor()
+			_smr.IncRef(self.handle)
+	def __del__(self):
+		_smr.DecRef(self.handle)
+	def __str__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext{'
+		first = True
+		for v in pr:
+			if callable(v[1]):
+				continue
+			if first:
+				first = False
+			else:
+				sv += ', '
+			sv += v[0] + '=' + str(v[1])
+		return sv + '}'
+	def __repr__(self):
+		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
+		sv = 'smr.SMRContext ( '
+		for v in pr:
+			if not callable(v[1]):
+				sv += v[0] + '=' + str(v[1]) + ', '
+		return sv + ')'
+	def ID(self):
+		"""ID() str"""
+		return _smr.smr_SMRContext_ID(self.handle)
+	def Cancel(self, goRun=False):
+		"""Cancel() """
+		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
 # Python type for struct smr.Bytes
 class Bytes(go.GoClass):
@@ -613,14 +656,14 @@ class LogNode(go.GoClass):
 	def RemoteStorageReadLatencyMilliseconds(self):
 		"""RemoteStorageReadLatencyMilliseconds() int
 		
-		RemoteStorageReadLatencyMilliseconds returns the latency of the remote remote_storage read operation(s) performed by the LogNode.
-		If the LogNode did not read data from remote remote_storage, then -1 is returned.
+		RemoteStorageReadLatencyMilliseconds returns the latency of the remote storage read operation(s) performed by the LogNode.
+		If the LogNode did not read data from remote storage, then -1 is returned.
 		"""
 		return _smr.smr_LogNode_RemoteStorageReadLatencyMilliseconds(self.handle)
 	def ConnectedToRemoteStorage(self):
 		"""ConnectedToRemoteStorage() bool
 		
-		ConnectedToRemoteStorage returns true if we successfully connected to remote remote_storage.
+		ConnectedToRemoteStorage returns true if we successfully connected to remote storage.
 		"""
 		return _smr.smr_LogNode_ConnectedToRemoteStorage(self.handle)
 	def NumChanges(self):
@@ -663,7 +706,7 @@ class LogNode(go.GoClass):
 		
 		Close closes the LogNode.
 		
-		NOTE: Close does NOT close the remote remote_storage client.
+		NOTE: Close does NOT close the remote storage client.
 		This is because, when migrating a raft cluster member, we must first stop the raft
 		node before copying the contents of its data directory.
 		"""
@@ -674,7 +717,7 @@ class LogNode(go.GoClass):
 	def WriteDataDirectoryToRemoteStorage(self, serializedState, resolve, goRun=False):
 		"""WriteDataDirectoryToRemoteStorage([]int serializedState, callable resolve) 
 		
-		WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local remote_storage to remote remote_storage.
+		WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local storage to remote storage.
 		"""
 		_smr.smr_LogNode_WriteDataDirectoryToRemoteStorage(self.handle, serializedState.handle, resolve, goRun)
 	def Process(self, ctx, m):
@@ -784,53 +827,6 @@ class LogNodeConfig(go.GoClass):
 	def String(self):
 		"""String() str"""
 		return _smr.smr_LogNodeConfig_String(self.handle)
-
-# Python type for struct smr.SMRContext
-class SMRContext(go.context_Context):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		otherwise parameters can be unnamed in order of field names or named fields
-		in which case a new Go object is constructed first
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = _smr.smr_SMRContext_CTor()
-			_smr.IncRef(self.handle)
-	def __del__(self):
-		_smr.DecRef(self.handle)
-	def __str__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext{'
-		first = True
-		for v in pr:
-			if callable(v[1]):
-				continue
-			if first:
-				first = False
-			else:
-				sv += ', '
-			sv += v[0] + '=' + str(v[1])
-		return sv + '}'
-	def __repr__(self):
-		pr = [(p, getattr(self, p)) for p in dir(self) if not p.startswith('__')]
-		sv = 'smr.SMRContext ( '
-		for v in pr:
-			if not callable(v[1]):
-				sv += v[0] + '=' + str(v[1]) + ', '
-		return sv + ')'
-	def ID(self):
-		"""ID() str"""
-		return _smr.smr_SMRContext_ID(self.handle)
-	def Cancel(self, goRun=False):
-		"""Cancel() """
-		_smr.smr_SMRContext_Cancel(self.handle, goRun)
 
 
 # ---- Slices ---

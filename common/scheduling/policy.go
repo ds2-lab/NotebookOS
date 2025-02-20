@@ -64,7 +64,7 @@ func (rbm ResourceBindingMode) String() string {
 	return string(rbm)
 }
 
-// ContainerLifetime defines how long containers of a kernel live. Options include for the duration of a single
+// ContainerLifetime defines how long containers of a kernel live. ClusterGatewayOptions include for the duration of a single
 // training event or long-running.
 type ContainerLifetime string
 

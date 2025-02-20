@@ -84,7 +84,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
-      - remote_storage:/home/$USER/kernel_storage
+      - storage:/home/$USER/kernel_storage
       - ./local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway

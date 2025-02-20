@@ -44,9 +44,9 @@ remote_checkpointer_factory: dict[str, Any] = {
 
 def get_checkpointer(remote_storage_name: str, **kwargs)->Checkpointer:
     if remote_storage_name is None:
-        raise ValueError("remote remote_storage cannot be null")
+        raise ValueError("remote storage cannot be null")
 
     if remote_storage_name.lower() not in remote_checkpointer_factory:
-        raise ValueError(f"invalid or unsupported remote remote_storage: \"{remote_storage_name}\"")
+        raise ValueError(f"invalid or unsupported remote storage: \"{remote_storage_name}\"")
 
     return remote_checkpointer_factory[remote_storage_name.lower()](**kwargs)

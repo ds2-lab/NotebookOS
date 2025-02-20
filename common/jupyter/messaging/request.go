@@ -623,7 +623,7 @@ func (r *BasicRequest) PrepareForResubmission() error {
 	// Get the date.
 	date, _ := r.JupyterTimestamp()
 
-	// Add a single microsecond to the date.
+	// AddHost a single microsecond to the date.
 	modifiedDate := date.Add(time.Microsecond)
 
 	// Change the date in the header.

@@ -125,8 +125,8 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	// We "blacklist" all the hosts for which other replicas of this kernel are scheduled.
 	// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
 	for _, host := range replicaHosts {
-		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
-			host.GetID(), host.GetNodeName(), kernelId, replicaSpec.ReplicaId)
+		s.log.Debug("Adding host %s (ID=%s) to blacklist for kernel %s-%d.",
+			host.GetNodeName(), host.GetID(), kernelId, replicaSpec.ReplicaId)
 		blacklist = append(blacklist, host)
 	}
 
@@ -317,6 +317,10 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(ctx context.Context, repl
 	// Validate argument.
 	if targetHost == nil {
 		panic("Invalid arguments to scheduling kernel replica prewarm (targetHost is nil).")
+	}
+
+	if container.Host() == nil {
+		panic("Invalid arguments to scheduling kernel replica prewarm (host of prewarm container is nil).")
 	}
 
 	// Validate that the target host matches the pre-warmed container's host.

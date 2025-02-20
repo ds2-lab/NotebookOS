@@ -100,7 +100,7 @@ type ExecutionManager interface {
 	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
 	//
 	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
-	SendingExecuteRequest(msg *messaging.JupyterMessage) error
+	SendingExecuteRequest(messages []*messaging.JupyterMessage) error
 
 	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
 	// code execution, or nil if no code executions have occurred.
@@ -147,6 +147,10 @@ type Execution interface {
 	GetOriginallySentAtTime() time.Time
 	GetWorkloadId() string
 	GetExecuteRequestMessageId() string
+
+	// SetTargetReplica is used to record the expected target replica for an execution.
+	SetTargetReplica(int32) error
+	GetTargetReplicaId() int32
 
 	// GetExecutionIndex returns the ExecutionIndex of the target Execution.
 	GetExecutionIndex() int32

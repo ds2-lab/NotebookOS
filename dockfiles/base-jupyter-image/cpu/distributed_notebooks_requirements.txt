@@ -6,7 +6,7 @@ grpcio-tools
 pybindgen>=0.22.1
 ansible
 ansible_runner
-torch @ https://download.pytorch.org/whl/cpu-cxx11-abi/torch-2.5.1%2Bcpu.cxx11.abi-cp312-cp312-linux_x86_64.whl#sha256=0b55f1516410e4255132533b9f5a9621e48b7504d8adf22d927c57c9fa441bfd
+torch @ https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=4856f9d6925121d13c2df07aa7580b767f449dfe71ae5acde9c27535d5da4840
 typing_extensions
 debugpy
 aiohttp>=3.11.11
@@ -33,5 +33,6 @@ transformers
 datasets
 portalocker>=2.0.0
 torchaudio @ https://download.pytorch.org/whl/cpu/torchaudio-2.5.1%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=b7fbd9c264dcbe28efb061364c76d3770eb13ae692d2982949b583edfb9ed7f5
-torchvision @ https://download.pytorch.org/whl/cpu/torchvision-0.20.0%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=beddcb1b9331446502906f5a711ccffd4e42a20e4c60d9b4f9fc3e79110f29d1
-aioboto3
+torchvision @ https://download.pytorch.org/whl/cpu/torchvision-0.20.1%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=5f46c7ac7f00a065cb40bfb1e1bfc4ba16a35f5d46b3fe70cca6b3cea7f822f7
+aioboto3>=13.4.0
+moto

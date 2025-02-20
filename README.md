@@ -79,7 +79,7 @@ The AWS EC2 development and evaluation environment was as follows:
 - Python: `Python 3.12.6`
 - Protoc: `libprotoc 27.2`
 ``` sh
-$ lsb_release -agit 
+$ lsb_release -a
 Distributor ID: Ubuntu
 Description:    Ubuntu 24.04.1 LTS
 Release:        24.04

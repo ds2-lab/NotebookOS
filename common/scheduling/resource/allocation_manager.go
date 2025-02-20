@@ -2317,8 +2317,8 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 		spec = allocation.ToDecimalSpec()
 	}
 
-	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be deallocated: %v.",
-		m.resourceManager.GetResourceCountsAsString(), spec.String())
+	m.log.Debug("Releasing committed resources from replica %d of kernel \"%s\". Current resource counts: %s. Resources to be deallocated: %v.",
+		allocation.GetReplicaId(), allocation.GetKernelId(), m.resourceManager.GetResourceCountsAsString(), spec.String())
 
 	deviceIdsToReturn := allocation.GetGpuDeviceIds()
 	numToReturn := len(deviceIdsToReturn)
@@ -2382,7 +2382,8 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 	// Update Prometheus metrics.
 	m.unsafeUpdatePrometheusResourceMetrics()
 
-	m.log.Debug("Released committed resources. Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
+	m.log.Debug("Released committed resources [%v] from replica %d of kernel \"%s\". Updated resource counts: %s.",
+		allocation.ToSpecString(), allocation.GetReplicaId(), allocation.GetKernelId(), m.resourceManager.GetResourceCountsAsString())
 	return nil
 }
 

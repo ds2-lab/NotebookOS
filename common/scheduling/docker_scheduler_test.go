@@ -198,7 +198,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.BasicPlacer)
 			Expect(ok).To(BeTrue())
 
-			_, ok = clusterPlacer.GetIndex().(*index.StaticIndex)
+			_, ok = clusterPlacer.GetIndex().(*index.StaticMultiIndex)
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
@@ -339,7 +339,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					Expect(dockerCluster.Len()).To(Equal(5))
 
-					// Add a sixth host, but set it to be disabled initially.
+					// AddHost a sixth host, but set it to be disabled initially.
 					hostId := uuid.NewString()
 					nodeName := fmt.Sprintf("TestNode%d", 5)
 					resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
@@ -1022,7 +1022,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					go func() {
 						// defer GinkgoRecover()
-						resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
+						resp, reason, err := dockerScheduler.MigrateKernelReplica(context.Background(), kernelReplica1, "", true)
 						Expect(err).To(BeNil())
 						Expect(reason).To(BeNil())
 						Expect(resp).ToNot(BeNil())
@@ -1135,7 +1135,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    smallResourceSpec,
 				}
 
-				// Remove two of the smaller hosts so that the only hosts left are one small host and two big hosts.
+				// RemoveHost two of the smaller hosts so that the only hosts left are one small host and two big hosts.
 				dockerCluster.RemoveHost(hosts[0].GetID())
 				dockerCluster.RemoveHost(hosts[1].GetID())
 
@@ -1527,7 +1527,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    smallResourceSpec,
 				}
 
-				// Remove two of the smaller hosts so that the only hosts left are one small host and two big hosts.
+				// RemoveHost two of the smaller hosts so that the only hosts left are one small host and two big hosts.
 				dockerCluster.RemoveHost(hosts[0].GetID())
 				dockerCluster.RemoveHost(hosts[1].GetID())
 
@@ -1823,7 +1823,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    smallResourceSpec,
 				}
 
-				// Remove two of the smaller hosts so that the only hosts left are one small host and two big hosts.
+				// RemoveHost two of the smaller hosts so that the only hosts left are one small host and two big hosts.
 				dockerCluster.RemoveHost(hosts[0].GetID())
 				dockerCluster.RemoveHost(hosts[1].GetID())
 

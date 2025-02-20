@@ -26,9 +26,15 @@ type S3Provider struct {
 }
 
 func NewS3Provider(hostname string, deploymentMode string, nodeId int, atom *zap.AtomicLevel) *S3Provider {
-	return &S3Provider{
+	provider := &S3Provider{
 		baseProvider: newBaseProvider(hostname, deploymentMode, nodeId, atom),
+		s3Bucket:     hostname,
 	}
+
+	provider.logger.Debug("Initialized AWS S3 storage provider.",
+		zap.String("bucket", "hostname"))
+
+	return provider
 }
 
 func (p *S3Provider) Close() error {
@@ -36,7 +42,7 @@ func (p *S3Provider) Close() error {
 }
 
 func (p *S3Provider) Connect() error {
-	p.logger.Debug("Connecting to remote remote_storage",
+	p.logger.Debug("Connecting to remote storage",
 		zap.String("remote_storage", "AWS S3"),
 		zap.String("hostname", p.hostname))
 
@@ -53,14 +59,14 @@ func (p *S3Provider) Connect() error {
 
 	p.status = Connected
 
-	p.logger.Debug("Successfully connected to remote remote_storage",
+	p.logger.Debug("Successfully connected to remote storage",
 		zap.String("remote_storage", "AWS S3"),
 		zap.String("hostname", p.hostname))
 
 	return nil
 }
 
-// WriteDataDirectory writes the data directory for this Raft node from local remote_storage to AWS S3.
+// WriteDataDirectory writes the data directory for this Raft node from local storage to AWS S3.
 func (p *S3Provider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
 	p.logger.Debug("Writing data directory to AWS S3.",
 		zap.String("WAL directory", waldir),
@@ -144,6 +150,11 @@ func (p *S3Provider) writeLocalDirectoryToS3(ctx context.Context, dir string) er
 			return err
 		}
 
+		stat, err := local.Stat()
+		if err != nil {
+			return err
+		}
+
 		_, err = p.s3Client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(p.s3Bucket),
 			Key:    aws.String(path),
@@ -156,7 +167,10 @@ func (p *S3Provider) writeLocalDirectoryToS3(ctx context.Context, dir string) er
 		}
 
 		p.logger.Info(fmt.Sprintf("Successfully copied local file to AWS S3: '%s'", path),
-			zap.String("file", path), zap.String("bucket", p.s3Bucket))
+			zap.Int64("num_bytes", stat.Size()),
+			zap.String("duration", dir),
+			zap.String("file", path),
+			zap.String("bucket", p.s3Bucket))
 
 		return nil
 	})
@@ -337,15 +351,15 @@ func (p *S3Provider) readDirectoryFromS3(ctx context.Context, dir string, progre
 			return err
 		}
 
-		p.logger.Debug("Successfully read object from AWS S3.",
+		p.logger.Debug("Successfully read object from AWS S3 to local file.",
 			zap.String("directory", dir),
 			zap.String("key", key),
+			zap.String("path", key), /* we use the S3 key as the local path */
 			zap.String("bucket", p.s3Bucket),
+			zap.Int("num_bytes", len(data)),
 			zap.Duration("read_duration", readDuration),
 			zap.Duration("write_duration", time.Since(writeStart)),
 			zap.Duration("total_time_elapsed", time.Since(startTime)))
-
-		return nil
 	}
 
 	p.logger.Debug("Successfully read all data from AWS S3 directory.",

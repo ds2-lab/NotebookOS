@@ -111,7 +111,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	tracer, consulClient := CreateConsulAndTracer(options)
 
 	// Initialize listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.JupyterGrpcPort))
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
@@ -124,7 +124,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
-		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+		globalLogger.Info("Initializing Cluster Gateway with options: %s", options.PrettyString(2))
+
 		srv.SetClusterOptions(&options.SchedulerOptions)
 		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 	})
@@ -133,9 +134,9 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
 	if err != nil {
-		log.Fatalf("Failed to listen with Distributed internalCluster Service server: %v", err)
+		log.Fatalf("Failed to listen with Distributed Cluster Service server: %v", err)
 	}
-	globalLogger.Info("Distributed internalCluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
+	globalLogger.Info("Distributed Cluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
 
 	// Listen on provisioner port
 	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
@@ -152,12 +153,12 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	registrar := grpc.NewServer(GetGrpcOptions("Jupyter gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterLocalGatewayServer(registrar, srv)
 
-	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed internalCluster gRPC Server", tracer, distributedCluster)...)
+	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed Cluster gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
 	if consulClient != nil {
-		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.Port)
+		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.JupyterGrpcPort)
 		if err != nil {
 			log.Fatalf("Failed to register in consul: %v", err)
 		}
@@ -198,22 +199,22 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	// Start provisioning server
 	go func() {
 		defer finalize(true, "Provisioner Server", distributedCluster)
-		if err := provisioner.Serve(lisHost); err != nil {
-
+		if serveErr := provisioner.Serve(lisHost); serveErr != nil {
 			// If we're in local mode, then we're running unit tests, so we'll just... return.
 			if options.LocalMode {
-				globalLogger.Warn(utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), err)
+				globalLogger.Warn(
+					utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), serveErr)
 				return
 			}
 
-			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), serveErr)
 			panic(err)
 		}
 	}()
 
 	// Start distributed cluster gRPC server.
 	go func() {
-		defer finalize(true, "Distributed internalCluster Server", distributedCluster)
+		defer finalize(true, "Distributed Cluster Server", distributedCluster)
 		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
 			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), err)
 
@@ -228,7 +229,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Start daemon
 	go func() {
-		defer finalize(true, "internalCluster Gateway Daemon", distributedCluster)
+		defer finalize(true, "Cluster Gateway Daemon", distributedCluster)
 		if err := srv.Start(); err != nil {
 			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), err)
 

@@ -28,49 +28,49 @@ class RemoteCheckpointer(Checkpointer):
     @property
     def num_objects_written(self) -> int:
         """
-        :return: the total, cumulative number of objects written to remote remote_storage.
+        :return: the total, cumulative number of objects written to remote storage.
         """
         return self.storage_provider.num_objects_written
 
     @property
     def num_objects_read(self) -> int:
         """
-        :return: the total, cumulative number of objects read from remote remote_storage.
+        :return: the total, cumulative number of objects read from remote storage.
         """
         return self.storage_provider.num_objects_read
 
     @property
     def num_objects_deleted(self) -> int:
         """
-        :return: the total, cumulative number of objects deleted from remote remote_storage.
+        :return: the total, cumulative number of objects deleted from remote storage.
         """
         return self.storage_provider.num_objects_deleted
 
     @property
     def bytes_read(self) -> int:
         """
-        :return: the total, cumulative number of bytes read from remote remote_storage.
+        :return: the total, cumulative number of bytes read from remote storage.
         """
         return self.storage_provider.bytes_read
 
     @property
     def bytes_written(self) -> int:
         """
-        :return: the total, cumulative number of bytes written to remote remote_storage.
+        :return: the total, cumulative number of bytes written to remote storage.
         """
         return self.storage_provider.bytes_written
 
     @property
     def read_time(self) -> float:
         """
-        :return: the total time spent reading data from remote remote_storage in seconds.
+        :return: the total time spent reading data from remote storage in seconds.
         """
         return self.storage_provider.read_time
 
     @property
     def write_time(self) -> float:
         """
-        :return: the total time spent writing data to remote remote_storage in seconds.
+        :return: the total time spent writing data to remote storage in seconds.
         """
         return self.storage_provider.write_time
 
@@ -84,7 +84,7 @@ class RemoteCheckpointer(Checkpointer):
 
     def delete_data(self, key: str)->bool:
         """
-        Delete an object from remote remote_storage.
+        Delete an object from remote storage.
         :param key: the name/key of the object to delete
         :return: True if the object was deleted successfully, otherwise False.
         """
@@ -97,7 +97,7 @@ class RemoteCheckpointer(Checkpointer):
 
     async def delete_data_async(self, key: str)->bool:
         """
-        Asynchronously delete an object from remote remote_storage.
+        Asynchronously delete an object from remote storage.
         :param key: the name/key of the object to delete
         :return: True if the object was deleted successfully, otherwise False.
         """
@@ -118,8 +118,12 @@ class RemoteCheckpointer(Checkpointer):
         self.log.debug(f"Reading description of dataset \"{dataset_name}\" from {self.storage_name} at key \"{key}\"")
 
         st = time.time()
-        val: str|bytes|memoryview = self.storage_provider.read_value(key)
+        val: str|bytes|memoryview|io.BytesIO = self.storage_provider.read_value(key)
         et = time.time()
+
+        if isinstance(val, io.BytesIO):
+            val.seek(0)
+            val = val.getbuffer().tobytes()
 
         if val is None:
             self.log.error(f"Failed to read dataset \"{dataset_name}\". "
@@ -151,12 +155,12 @@ class RemoteCheckpointer(Checkpointer):
 
     async def __read_state_dict_async(self, key: str, model_name: str)->Optional[Dict[str, Any]]:
         """
-        Read a single state dictionary from remote remote_storage.
+        Read a single state dictionary from remote storage.
 
         :param key: the key at which the desired state dictionary is stored
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to read
 
-        :return: the desired state dictionary after being retrieved from remote remote_storage and deserialized using torch.load()
+        :return: the desired state dictionary after being retrieved from remote storage and deserialized using torch.load()
         """
         try:
             st: float = time.time()
@@ -197,12 +201,12 @@ class RemoteCheckpointer(Checkpointer):
 
     def __read_state_dict(self, key: str, model_name: str)->Optional[Dict[str, Any]]:
         """
-        Read a single state dictionary from remote remote_storage.
+        Read a single state dictionary from remote storage.
 
         :param key: the key at which the desired state dictionary is stored
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to read
 
-        :return: the desired state dictionary after being retrieved from remote remote_storage and deserialized using torch.load()
+        :return: the desired state dictionary after being retrieved from remote storage and deserialized using torch.load()
         """
         try:
             st: float = time.time()
@@ -225,8 +229,10 @@ class RemoteCheckpointer(Checkpointer):
 
         if not isinstance(val, io.BytesIO):
             buffer: io.BytesIO = io.BytesIO(val)
+            buffer.seek(0)
         else:
             buffer: io.BytesIO = val
+            buffer.seek(0)
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                        f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")
@@ -337,7 +343,7 @@ class RemoteCheckpointer(Checkpointer):
 
     def __write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
-        Write an individual state dictionary to remote remote_storage.
+        Write an individual state dictionary to remote storage.
 
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
@@ -361,7 +367,7 @@ class RemoteCheckpointer(Checkpointer):
 
     async def __async_write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
-        Write an individual state dictionary to remote remote_storage.
+        Write an individual state dictionary to remote storage.
 
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
@@ -414,7 +420,10 @@ class RemoteCheckpointer(Checkpointer):
             constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
             await self.__async_write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
-            pointer.wrote_model_state()
+            try:
+                pointer.wrote_model_state()
+            except ValueError as ex:
+                self.log.warning(ex) # Just log the error. What's done is done.
 
             return [model_key, optimizer_key, criterion_key, constructor_state_key]
 
@@ -441,6 +450,9 @@ class RemoteCheckpointer(Checkpointer):
         constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
         self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
-        pointer.wrote_model_state()
+        try:
+            pointer.wrote_model_state()
+        except ValueError as ex:
+            self.log.warning(ex) # Just log the error. What's done is done.
 
         return [model_key, optimizer_key, criterion_key, constructor_state_key]

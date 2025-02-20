@@ -14,7 +14,7 @@ remote-storage-endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address | 
 {% elif distributed_notebook_remote_storage_type == 'redis' %}
 remote-storage-endpoint: redis:{{ redis_port }}
 {% elif distributed_notebook_remote_storage_type == 's3' %}
-remote-storage-endpoint: {{ distributed_notebook_s3_bucket }}
+remote-storage-endpoint: {{ distributed_notebook_remote_storage_s3_bucket }}
 {% endif %}
 remote-storage: {{ distributed_notebook_remote_storage_type }}
 debug: {{ local_daemon_debug_logging_enabled }}
@@ -71,7 +71,7 @@ num_resource_ports: 4096
 use_real_gpus: {{ distributed_notebook_use_real_gpus }}
 bind_debugpy_port: {{ distributed_notebook_bind_debugpy_port }}
 save_stopped_kernel_containers: {{ distributed_notebook_save_stopped_kernel_containers }}
-s3_bucket: {{ distributed_notebook_s3_bucket }}
+s3_bucket: {{ distributed_notebook_remote_storage_s3_bucket }}
 aws_region: {{ distributed_notebook_aws_region }}
 redis_password: {{ redis_password }}
 redis_port: {{ redis_port }}

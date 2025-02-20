@@ -75,7 +75,7 @@ func (p *StaticPolicy) SmrEnabled() bool {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticIndex), nil
+	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticMultiIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticMultiIndex), nil
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.

@@ -28,7 +28,7 @@ type KubernetesScheduler struct {
 	// TODO: There is a gap between the Host interface and the Kubernetes nodes returned by Kube API.
 	kubeNodes []v1.Node
 
-	kubeSchedulerServicePort int // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
+	kubeSchedulerServicePort int // JupyterGrpcPort that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
 }
 
 func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,

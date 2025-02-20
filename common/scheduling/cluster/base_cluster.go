@@ -526,13 +526,13 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 	c.indexes.Range(func(indexKey string, index scheduling.IndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
 			c.log.Debug("Adding new host to index %s: %v", indexKey, host)
-			index.Add(host)
+			index.AddHost(host)
 		} else if qualificationStatus == scheduling.IndexQualified {
 			c.log.Debug("Updating existing host within index %s: %v", indexKey, host)
 			index.Update(host)
 		} else if qualificationStatus == scheduling.IndexDisqualified {
 			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
-			index.Remove(host)
+			index.RemoveHost(host)
 		} else {
 			// Log level is set to warn because, as of right now, there are never any actual qualifications.
 			c.log.Warn("host %s (ID=%s) is not qualified to be added to index '%s'.",
@@ -561,12 +561,23 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	c.scheduler.HostRemoved(host)
 
+	removedFromIndex := 0
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
-			index.Remove(host)
+			removed := index.RemoveHost(host)
+
+			if removed {
+				removedFromIndex += 1
+			}
 		}
 		return true
 	})
+
+	if removedFromIndex == 0 {
+		c.log.Warn("Host %s (ID=%s) was not removed from ANY indices...", host.GetNodeName(), host.GetID())
+	} else {
+		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID())
+	}
 
 	c.scalingOpMutex.Lock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)

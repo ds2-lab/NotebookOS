@@ -231,20 +231,18 @@ class Synchronizer:
                 if isinstance(val.data, SyncObject):
                     existed = val.data
                 else:
-                    existed = SyncObjectWrapper(
-                        self._referer
-                    )  # Initialize an empty object wrapper.
+                    # Initialize an empty object wrapper.
+                    existed = SyncObjectWrapper(self._referer)
 
             # Switch context
             old_main_modules = sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
-            self.log.debug(
-                f'Handling updated/changed SynchronizedValue with key="{val.key}" of type {type(val).__name__}: {val}'
-            )
-
+            self.log.debug(f'Handling updated value of type '
+                           f'{type(val).__name__} with key="{val.key}": {val}')
             diff = existed.update(val)
-            self.log.debug(f"{val.key} of type {type(diff).__name__}: {diff}")
+            self.log.debug(f"Variable \"{val.key}\" of type "
+                           f"{type(diff).__name__} has changed: {diff}")
 
             sys.modules["__main__"] = old_main_modules
             # End of switch context
@@ -261,22 +259,15 @@ class Synchronizer:
                 self.log.debug("<< exit execution syncing [2]")
         except Exception as e:
             # print_trace(limit = 10)
-            self.log.error(
-                "Exception encountered in change handler for synchronizer: %s" % str(e)
-            )
+            self.log.error("Exception encountered in change handler for synchronizer: %s" % str(e))
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
         local_election: Election = self.current_election
-        if (
-            local_election is not None
-            and local_election.term_number < self.execution_count
-        ):
-            self.log.warning(
-                f"Current local election has term number {local_election.term_number}, "
-                f"but we (now) have execution count of {self.execution_count}. We're out-of-sync..."
-            )
+        if local_election is not None and local_election.term_number < self.execution_count:
+            self.log.warning(f"Current local election has term number {local_election.term_number}, "
+                             f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
@@ -352,14 +343,11 @@ class Synchronizer:
         granted, which may cause duplication execution.
         """
         self.log.debug("Synchronizer is proposing to lead term %d" % term_number)
+        we_won: bool = False
         try:
             # Propose to lead specified term.
             # Term 0 tries to lead the next term whatever and will always success.
-            if await self._synclog.try_lead_execution(jupyter_message_id, term_number):
-                self.log.debug("We won the election to lead term %d" % term_number)
-                # Synchronized, execution_count was updated to last execution.
-                self._async_loop = asyncio.get_running_loop()  # Update async_loop.
-                return self._synclog.term
+            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number)
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -367,10 +355,8 @@ class Synchronizer:
             for frame in stack:
                 self.log.error(frame)
         except DiscardMessageError as dme:
-            self.log.warning(
-                f"Received direction to discard Jupyter Message {jupyter_message_id}, "
-                f"as election for term {term_number} was skipped: {dme}"
-            )
+            self.log.warning(f"Received direction to discard Jupyter Message {jupyter_message_id}, "
+                             f"as election for term {term_number} was skipped: {dme}")
             raise dme
         except Exception as e:
             self.log.error("Exception encountered while proposing LEAD: %s" % str(e))
@@ -380,7 +366,13 @@ class Synchronizer:
                 self.log.error(frame)
             raise e
 
-        self.log.debug("We lost the election to lead term %d" % term_number)
+        if we_won:
+            self.log.debug("We won the election to lead term %d" % term_number)
+            # Synchronized, execution_count was updated to last execution.
+            self._async_loop = asyncio.get_running_loop()  # Update async_loop.
+            return self._synclog.term
+
+        self.log.debug(f"We lost the election to lead term {term_number}.")
         # Failed to lead the term
         return 0
 
@@ -448,12 +440,8 @@ class Synchronizer:
         self.log.debug("Synchronizer is proposing to yield term %d" % term_number)
         try:
             if await self._synclog.try_yield_execution(jupyter_message_id, term_number):
-                self.log.error(
-                    "synclog.yield_exection returned true despite the fact that we're yielding..."
-                )
-                raise ValueError(
-                    "synclog.yield_exection returned true despite the fact that we're yielding"
-                )
+                self.log.error("synclog.yield_execution returned true despite the fact that we're yielding...")
+                raise ValueError("synclog.yield_execution returned true despite the fact that we're yielding")
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -468,10 +456,7 @@ class Synchronizer:
                 self.log.error(frame)
             raise e
 
-        self.log.debug(
-            "Successfully yielded the execution to another replica for term %d"
-            % term_number
-        )
+        self.log.debug(f"Successfully yielded the execution to another replica for term {term_number}")
         # Failed to lead the term, which is what we want to happen since we're YIELDING.
         return 0
 
@@ -479,7 +464,6 @@ class Synchronizer:
         """
         Wait until the leader of the specified election finishes executing the code,
         or until we know that all replicas yielded.
-
         :param term_number: the term number of the election
         """
         self.log.debug(

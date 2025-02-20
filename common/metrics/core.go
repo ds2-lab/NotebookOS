@@ -221,7 +221,7 @@ func (m *basePrometheusManager) initializeHttpServer() {
 	m.engine = gin.New()
 
 	if m.port <= 0 {
-		m.log.Debug("Prometheus Port is set to %d. Not serving HTTP server.", m.port)
+		m.log.Debug("Prometheus JupyterGrpcPort is set to %d. Not serving HTTP server.", m.port)
 		return
 	}
 

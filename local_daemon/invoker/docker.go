@@ -53,12 +53,13 @@ const (
 	VarContainerName     = "{container_name}"
 	VarContainerNewName  = "{container_new_name}"
 	VarContainerNetwork  = "{network_name}"
-	VarStorageVolume     = "{remote_storage}"
+	VarStorageVolume     = "{storage}"
 	VarConfigFile        = "{config_file}"
 	VarKernelId          = "{kernel_id}"
 	VarSessionId         = "{session_id}"
 	VarDebugPort         = "{kernel_debug_port}"
 	VarAwsRegion         = "{aws_region}"
+	VarDeploymentMode    = "{deployment_mode}"
 	VarKernelDebugPyPort = "{kernel_debugpy_port}"
 	HostMountDir         = "{host_mount_dir}"
 	TargetMountDir       = "{target_mount_dir}"
@@ -83,14 +84,14 @@ const (
 )
 
 var (
-	// dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {remote_storage}:/remote_storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
-	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {remote_storage}:/remote_storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
-	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {remote_storage}:/remote_storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
-	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {remote_storage}:/remote_storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
+	// dockerInvokerCmd  = "docker run -d --rm --name {container_name} -v {connection_file}:{connection_file} -v {storage}:/storage -v {config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
+	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
 
 	// This version has debugpy.
-	// dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {remote_storage}:/remote_storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
-	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {remote_storage}:/remote_storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e AWS_REGION={aws_region} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
+	// dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
+	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e DEPLOYMENT_MODE={deployment_mode} -e AWS_REGION={aws_region} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
 
 	// dockerShutdownCmd is used to shut down a running kernel container
 	dockerShutdownCmd = "docker stop {container_name}"
@@ -185,10 +186,10 @@ type DockerInvoker struct {
 // DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
 // to properly configure the kernel replica containers.
 type DockerInvokerOptions struct {
-	// RemoteStorageEndpoint is the endpoint of the remote remote_storage.
+	// RemoteStorageEndpoint is the endpoint of the remote storage.
 	RemoteStorageEndpoint string
 
-	// RemoteStorage is the type of remote remote_storage, either 'hdfs' or 'redis'
+	// RemoteStorage is the type of remote storage, either 'hdfs' or 'redis'
 	RemoteStorage string
 
 	// DockerStorageBase is the base directory in which the persistent store data is stored when running in docker mode.
@@ -272,7 +273,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	}
 
 	if len(opts.RemoteStorageEndpoint) == 0 {
-		panic("remote remote_storage endpoint is empty.")
+		panic("remote storage endpoint is empty.")
 	}
 
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
@@ -489,7 +490,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		}
 	}
 
-	ivk.log.Debug("[DockerInvoker] kernel Name: \"%s\". Port: %d.\n", kernelName, port)
+	ivk.log.Debug("[DockerInvoker] kernel Name: \"%s\". JupyterGrpcPort: %d.\n", kernelName, port)
 
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionInfo(spec.Kernel)
@@ -497,9 +498,6 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 		ivk.log.Error("Error while preparing connection file: %v.\n", err)
 		return nil, ivk.reportLaunchError(err)
 	}
-
-	//hostMountDir := os.Getenv("HOST_MOUNT_DIR")
-	//targetMountDir := os.Getenv("TARGET_MOUNT_DIR")
 
 	ivk.log.Debug("hostMountDir = \"%v\"\n", ivk.hostMountDir)
 	ivk.log.Debug("targetMountDir = \"%v\"\n", ivk.hostMountDir)
@@ -528,15 +526,6 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 
 	ivk.log.Debug("Wrote config file: %v\n", configFile)
 
-	//ivk.log.Debug("filepath.Base(connectionFile)=\"%v\"\n", filepath.Base(connectionFile))
-	//ivk.log.Debug("filepath.Base(configFile)=\"%v\"\n", filepath.Base(configFile))
-	//
-	//ivk.log.Debug("{hostMountDir}/{connectionFile}\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(connectionFile))
-	//ivk.log.Debug("{hostMountDir}/{configFile}=\"%v\"\n", ivk.hostMountDir+"/"+filepath.Base(configFile))
-	//
-	//ivk.log.Debug("{targetMountDir}/{connectionFile}\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(connectionFile))
-	//ivk.log.Debug("{targetMountDir}/{configFile}=\"%v\"\n", ivk.targetMountDir+"/"+filepath.Base(configFile))
-
 	ivk.containerName = kernelName
 
 	if ivk.overwriteIpWithContainerName {
@@ -552,6 +541,8 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
 	cmd = strings.ReplaceAll(cmd, VarAwsRegion, ivk.AwsRegion)
 	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.KernelDebugPort))
+	cmd = strings.ReplaceAll(cmd, VarDeploymentMode, ivk.DeploymentMode.String())
+
 	// cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.KernelDebugPort+10000))
 
 	for i, arg := range spec.Kernel.Argv {

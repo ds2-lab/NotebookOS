@@ -69,7 +69,7 @@ class Checkpointer(ABC):
 
     def delete_data(self, key: str)->bool:
         """
-        Delete an object from remote remote_storage.
+        Delete an object from remote storage.
         :param key: the name/key of the object to delete
         :return: True if the object was deleted successfully, otherwise False.
         """
@@ -78,7 +78,7 @@ class Checkpointer(ABC):
 
     async def delete_data_async(self, key: str)->bool:
         """
-        Asynchronously delete an object from remote remote_storage.
+        Asynchronously delete an object from remote storage.
         :param key: the name/key of the object to delete
         :return: True if the object was deleted successfully, otherwise False.
         """

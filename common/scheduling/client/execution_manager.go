@@ -18,8 +18,9 @@ import (
 // validateRequest ensures that the given *messaging.JupyterMessage is either an "execute_request" message
 // or a "yield_request" message.
 func validateRequest(msg *messaging.JupyterMessage) error {
-	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
-		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidExecuteRegistrationMessage, msg.JupyterMessageType())
+	if !messaging.IsExecuteOrYieldRequest(msg) {
+		return fmt.Errorf("%w: message provided is of type \"%s\"",
+			ErrInvalidExecuteRegistrationMessage, msg.JupyterMessageType())
 	}
 
 	return nil
@@ -215,16 +216,23 @@ func (m *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
 // SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
 //
 // SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
-func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) error {
-	err := validateRequest(msg)
-	if err != nil {
-		return err
+func (m *ExecutionManager) SendingExecuteRequest(messages []*messaging.JupyterMessage) error {
+	if len(messages) == 0 {
+		m.log.Error("ExecutionManager::SendingExecuteRequest: messages slice is empty.")
+		return ErrEmptyMessagesSlice
+	}
+
+	for _, msg := range messages {
+		err := validateRequest(msg)
+		if err != nil {
+			return err
+		}
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	requestId := msg.JupyterMessageId()
+	requestId := messages[0].JupyterMessageId()
 
 	executionIndex, loaded := m.executionIndices[requestId]
 	if !loaded {
@@ -232,24 +240,28 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 			ErrUnknownActiveExecution, requestId)
 	}
 
+	execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
+	if execution == nil { // Sanity check.
+		m.log.Error(
+			utils.RedStyle.Render(
+				"ExecutionManager::SendingExecuteRequest: Expected to find Execution with last-submitted index %d."),
+			m.submittedExecutionIndex)
+
+		err := fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
+			ErrInvalidState, requestId, executionIndex, m.submittedExecutionIndex)
+
+		m.sendNotification("Execution Manager in Invalid TransactionState",
+			err.Error(), messaging.ErrorNotification, true)
+
+		return err
+	}
+
 	if executionIndex < m.submittedExecutionIndex {
-		execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
-		if execution == nil { // Sanity check.
-			m.log.Error(utils.RedStyle.Render("Expected to find Execution associated with last-submitted index %d."),
-				m.submittedExecutionIndex)
-
-			err = fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
-				ErrInvalidState, msg.JupyterMessageId(), executionIndex, m.submittedExecutionIndex)
-
-			m.sendNotification("Execution Manager in Invalid TransactionState", err.Error(), messaging.ErrorNotification, true)
-
-			return err
-		}
-
-		m.log.Error("Submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s.",
+		m.log.Error(
+			"ExecutionManager::SendingExecuteRequest: Submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s.",
 			requestId, executionIndex, m.submittedExecutionIndex, execution.ExecuteRequestMessageId)
 
-		err = fmt.Errorf("%w: submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s",
+		err := fmt.Errorf("%w: submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s",
 			ErrInconsistentExecutionIndices, requestId, executionIndex, m.submittedExecutionIndex, execution.ExecuteRequestMessageId)
 
 		m.sendNotification("Inconsistent Execution Indices", err.Error(), messaging.ErrorNotification, true)
@@ -263,6 +275,13 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 
 	if m.callbackProvider != nil {
 		m.callbackProvider.IncrementNumActiveExecutions()
+	}
+
+	err := m.checkAndSetTargetReplica(messages, execution)
+	if err != nil {
+		m.log.Error("ExecutionManager::SendingExecuteRequest: error while checking & setting target replica for execution \"%s\" (index=%d): %v",
+			messages[0].JupyterMessageId(), execution.GetExecutionIndex(), err)
+		return err
 	}
 
 	return nil
@@ -416,10 +435,40 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 		delete(m.activeExecutions, targetExecuteRequestId)
 		m.failedExecutions[targetExecuteRequestId] = associatedActiveExecution
 
-		executeRequestMsg, err := m.getExecuteRequestForResubmission(executeReplyMsg)
+		var executeRequestMsg *messaging.JupyterMessage
+		executeRequestMsg, err = m.getExecuteRequestForResubmission(executeReplyMsg)
 		if err != nil {
 			m.log.Error("Could not find original \"execute_request\" message for execution \"%s\" (index=%d).",
 				targetExecuteRequestId, associatedActiveExecution.ExecutionIndex)
+
+			title := fmt.Sprintf("Cannot Find \"execute_request\" Message \"%s\" Targeting Kernel \"%s\" for Resubmission",
+				activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID())
+			content := fmt.Sprintf("Could not find original \"execute_request\" message for execution \"%s\" (index=%d).",
+				targetExecuteRequestId, associatedActiveExecution.ExecutionIndex)
+			m.sendNotification(
+				title,
+				content,
+				messaging.ErrorNotification,
+				true,
+			)
+		}
+
+		// As a sort of sanity check, validate that there was no selected target replica, because if there was, then
+		// the election should not have failed.
+		targetReplicaId := activeExecution.GetTargetReplicaId()
+		if targetReplicaId != -1 && targetReplicaId != m.activeExecutionIndex {
+			m.log.Error("Target replica of execution \"%s\" was replica %d; however, all replicas proposed 'yield'.",
+				activeExecution.GetExecuteRequestMessageId(), targetReplicaId, replica.ReplicaID())
+
+			title := fmt.Sprintf("All Replicas Proposed 'YIELD' Despite Selecting Target Replica %d", targetReplicaId)
+			content := fmt.Sprintf("Execution \"%s\" targeting kernel \"%s\" failed, even though Cluster Gateway selected target replica %d.",
+				activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), targetReplicaId)
+			m.sendNotification(
+				title,
+				content,
+				messaging.ErrorNotification,
+				true,
+			)
 		}
 
 		// Call the handler.
@@ -546,7 +595,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// Update the execution's state.
 	activeExecution.State = Completed
 
-	// Remove the execution from the "active" map.
+	// RemoveHost the execution from the "active" map.
 	delete(m.activeExecutions, executeRequestId)
 
 	// Store the execution in the "finished" map.
@@ -602,6 +651,24 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
 		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)
+	}
+
+	// As a sort of sanity check, validate that the target replica matches the primary replica, assuming that a
+	// target replica was explicitly set for this execution.
+	targetReplicaId := activeExecution.GetTargetReplicaId()
+	if targetReplicaId != -1 && targetReplicaId != m.activeExecutionIndex {
+		m.log.Error("Target replica of execution \"%s\" was replica %d; however, replica %d was the primary.",
+			activeExecution.GetExecuteRequestMessageId(), targetReplicaId, replica.ReplicaID())
+
+		title := fmt.Sprintf("Unexpected Primary Replica for Execution \"%s\" Targeting Kernel \"%s\"",
+			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID())
+		content := fmt.Sprintf("Target replica: %d. Primary replica: %d.", targetReplicaId, replica.ReplicaID())
+		m.sendNotification(
+			title,
+			content,
+			messaging.ErrorNotification,
+			true,
+		)
 	}
 
 	if activeExecution.ActiveReplica == nil {
@@ -832,9 +899,7 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 
 	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
 
-	// We'll attempt to call 'stop training' on both replicas in attempt to salvage things,
-	// buuuut we're probably screwed.
-
+	// We'll attempt to call 'stop training' on both replicas in attempt to salvage things, but we're probably screwed.
 	var err1, err2 error
 	if activeExecution.ActiveReplica.IsTraining() {
 		m.log.Warn("Calling KernelStoppedTraining on the replica recorded on the Execution struct for execution '%s'",
@@ -859,7 +924,7 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 		err = err1
 	} else if err1 == nil && err2 != nil {
 		err = err2
-	} else if err2 != nil && err1 != nil {
+	} else if err2 != nil /* && err1 != nil */ /* condition is always true, so I commented it out */ {
 		err = errors.Join(err1, err2)
 	}
 
@@ -990,4 +1055,49 @@ func (m *ExecutionManager) getExecuteRequestForResubmission(executeReply *messag
 // Having an active training prevents a Kernel from being idle-reclaimed.
 func (m *ExecutionManager) HasActiveTraining() bool {
 	return m.hasActiveTraining.Load()
+}
+
+// checkAndSetTargetReplica checks if exactly one of the messaging.JupyterMessage structs has type
+// messaging.ShellExecuteRequest, as opposed to multiple having type messaging.ShellExecuteRequest or all having type
+// messaging.ShellYieldRequest.
+//
+// If a single target replica is identified, then the ExecutionManager will register this with the associated Execution.
+func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.JupyterMessage, exec scheduling.Execution) error {
+	if len(messages) == 0 {
+		m.log.Error("ExecutionManager::SendingExecuteRequest: messages slice is empty.")
+		return ErrEmptyMessagesSlice
+	}
+
+	if exec == nil {
+		m.log.Error("ExecutionManager::checkAndSetTargetReplica: scheduling.Execution argument is nil.")
+		return fmt.Errorf("execution argument is nil")
+	}
+
+	execRequestIndex := -1
+	for i, msg := range messages {
+		if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+			continue
+		}
+
+		// If the execution index is already set, then we've found two messages of type "execute_request".
+		if execRequestIndex != -1 {
+			m.log.Debug("Messages %d and %d are both of type \"%s\". No single target replica identified for execution \"%s\" (index=%d).",
+				execRequestIndex, i, messaging.ShellExecuteReply, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+			return nil
+		}
+
+		execRequestIndex = i
+	}
+
+	if execRequestIndex == -1 {
+		m.log.Debug("No single target replica identified for execution \"%s\" (index=%d).",
+			messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+		return nil
+	}
+
+	targetReplicaId := int32(execRequestIndex + 1) // Replica IDs start at 1.
+	m.log.Debug("Identified target replica for execution \"%s\" (index=%d): replica %d.",
+		messages[0].JupyterMessageId(), exec.GetExecutionIndex(), targetReplicaId)
+
+	return exec.SetTargetReplica(targetReplicaId)
 }

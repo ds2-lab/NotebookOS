@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"golang.org/x/net/context"
 	"math"
 	"time"
 )
@@ -106,7 +107,12 @@ func defaultTryScaleIn(policy scheduling.Policy, cluster scheduling.Cluster, log
 	log.Debug("Preparing to scale-in %d (idle) hosts. Current cluster size: %d.", numToRelease, oldClusterSize)
 	numReleased, err := cluster.Scheduler().ReleaseIdleHosts(numToRelease)
 	if err != nil {
-		log.Error("Error while releasing idle hosts: %v", err)
+		if errors.Is(err, scheduling.ErrScalingActive) {
+			// If it's just because there's already a scaling operation, then that's not really a problem.
+			log.Debug("Could not release %d idle host(s) because: %v", err)
+		} else {
+			log.Error("Error while releasing idle hosts: %v", err)
+		}
 	}
 
 	if numReleased > 0 {
@@ -171,7 +177,7 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 	// Only scale-out if that feature is enabled.
 	if cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
-		numProvisioned := 0
+		numProvisioned := int32(0)
 		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
 
 		log.Debug("Scaling out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
@@ -180,8 +186,8 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 		// The size of the pending host pool will grow each time we provision a new host.
 		numFailures := 0
 		for int32(cluster.Len()) < scaledOutNumHosts {
-			err := cluster.Scheduler().RequestNewHost()
-			if err != nil {
+			p := cluster.RequestHosts(context.Background(), targetNumProvisioned)
+			if err := p.Error(); err != nil {
 				log.Warn("Failed to add new host because: %v", err)
 				numFailures += 1
 
@@ -196,16 +202,18 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 				}
 			}
 
-			numProvisioned++
+			numProvisioned += targetNumProvisioned
 		}
 
 		// If we provisioned any hosts -- or if we were supposed to provision at least one host -- then we'll
 		// print a message about how many we provisioned, and how many failures we encountered.
 		if (numProvisioned > 0 || targetNumProvisioned > 0) && log.GetLevel() == logger.LOG_LEVEL_ALL {
-			log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, cluster.Len(), numFailures)
+			log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.",
+				numProvisioned, load, oldNumHosts, cluster.Len(), numFailures)
 		}
 	} else if !cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts { // If this was the reason the first if-statement evaluated to false, then we'll log a warning message.
-		log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
+		log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.",
+			scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
 	}
 
 	return limit, load

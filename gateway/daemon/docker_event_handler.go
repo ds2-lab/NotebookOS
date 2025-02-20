@@ -131,7 +131,7 @@ func (h *DockerEventHandler) ConsumeDockerEvent(event map[string]interface{}) {
 			unwatchedNotificationsForKernel = make([]*ContainerStartedNotification, 0, 3)
 		}
 
-		// Add the notification to the slice.
+		// AddHost the notification to the slice.
 		unwatchedNotificationsForKernel = append(unwatchedNotificationsForKernel, notification)
 
 		// Store the slice back to the unwatched notifications map.
@@ -150,7 +150,7 @@ func (h *DockerEventHandler) ConsumeDockerEvent(event map[string]interface{}) {
 	var channel chan string
 	channel, channels = channels[0], channels[1:]
 
-	// Add the remaining channels back.
+	// AddHost the remaining channels back.
 	h.channels.Store(kernelId, channels)
 
 	//////////////////////////

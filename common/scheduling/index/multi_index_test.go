@@ -48,7 +48,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
-					multiIndex.Add(host1)
+					multiIndex.AddHost(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
 					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
@@ -78,7 +78,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
-					multiIndex.Add(host1)
+					multiIndex.AddHost(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
 					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
@@ -87,7 +87,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(1))
 
-					multiIndex.Remove(host1)
+					multiIndex.RemoveHost(host1)
 					Expect(multiIndex.Len()).To(Equal(0))
 
 					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
@@ -99,7 +99,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
-					multiIndex.Add(host1)
+					multiIndex.AddHost(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
 					meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
@@ -116,7 +116,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(meta.(int32)).To(Equal(int32(0)))
 
 					host2 := createHost(2, mockCtrl, mockCluster, hostSpec)
-					multiIndex.Add(host2)
+					multiIndex.AddHost(host2)
 					Expect(multiIndex.Len()).To(Equal(2))
 
 					meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
@@ -151,7 +151,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly removing one of the two hosts")
 
-					multiIndex.Remove(host1)
+					multiIndex.RemoveHost(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
 					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
@@ -167,7 +167,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(meta.(int32)).To(Equal(int32(0)))
 
 					fmt.Printf("Removing final host.")
-					multiIndex.Remove(host2)
+					multiIndex.RemoveHost(host2)
 					Expect(multiIndex.Len()).To(Equal(0))
 
 					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
@@ -206,9 +206,9 @@ var _ = Describe("MultiIndex Tests", func() {
 					err = host3.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 6, 2))
 					Expect(err).To(BeNil())
 
-					multiIndex.Add(host1)
-					multiIndex.Add(host2)
-					multiIndex.Add(host3)
+					multiIndex.AddHost(host1)
+					multiIndex.AddHost(host2)
+					multiIndex.AddHost(host3)
 
 					Expect(multiIndex.Len()).To(Equal(3))
 					Expect(multiIndex.NumFreeHosts()).To(Equal(3))
@@ -228,7 +228,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly handling the removal of the least-loaded host")
 
-					multiIndex.Remove(host1)
+					multiIndex.RemoveHost(host1)
 					Expect(multiIndex.Len()).To(Equal(2))
 
 					By("Correctly returning the 'new' least-loaded host")
@@ -241,7 +241,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly handling the removal of the least-loaded host")
 
-					multiIndex.Remove(host2)
+					multiIndex.RemoveHost(host2)
 					Expect(multiIndex.Len()).To(Equal(1))
 
 					By("Correctly returning the 'new' least-loaded host")
@@ -254,7 +254,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly handling the removal of final remaining host")
 
-					multiIndex.Remove(host3)
+					multiIndex.RemoveHost(host3)
 					Expect(multiIndex.Len()).To(Equal(0))
 
 					By("Correctly returning no hosts because the index is empty")

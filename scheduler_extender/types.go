@@ -14,6 +14,6 @@ type SchedulerExtension interface {
 type Options struct {
 	config.LoggerOptions
 
-	Port               int `name:"port" usage:"Port the HTTP service listen on." description:"Port the HTTP service listen on."`
-	ClusterGatewayPort int `name:"cluster-gateway-port" description:"Port that the Cluster Gateway's HTTP kubernetes scheduler service is listening on." usage:"Port that the Cluster Gateway's HTTP kubernetes scheduler service is listening on."`
+	Port               int `name:"port" usage:"JupyterGrpcPort the HTTP service listen on." description:"JupyterGrpcPort the HTTP service listen on."`
+	ClusterGatewayPort int `name:"cluster-gateway-port" description:"JupyterGrpcPort that the Cluster Gateway's HTTP kubernetes scheduler service is listening on." usage:"JupyterGrpcPort that the Cluster Gateway's HTTP kubernetes scheduler service is listening on."`
 }

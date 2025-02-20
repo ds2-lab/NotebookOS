@@ -245,7 +245,7 @@ func (v *virtualGpuAllocatorImpl) doAllocate(vgpusRequired int32, candidatePod *
 	}
 	v.allocations[string(candidatePod.UID)] = allocation
 
-	// TODO(Ben): Add more in-depth logic for allocation here. This works, but doesn't hook into the new, more detailed architecture that I just setup.
+	// TODO(Ben): AddHost more in-depth logic for allocation here. This works, but doesn't hook into the new, more detailed architecture that I just setup.
 	response := &pluginapi.ContainerAllocateResponse{
 		Devices: deviceSpecs,
 	}

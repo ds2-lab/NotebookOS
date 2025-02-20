@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 import pickle
@@ -16,9 +17,9 @@ from distributed_notebook.sync.util import get_size
 class RemoteStorageLog(object):
     """
     RemoteStorageLog is an implementation of SyncLog -- just like RaftLog -- but RemoteStorageLog uses
-    an arbitrary remote remote_storage service to persist checkpointed state.
+    an arbitrary remote storage service to persist checkpointed state.
 
-    Access to the remote remote_storage service is provided by an implementation of RemoteStorageProvider.
+    Access to the remote storage service is provided by an implementation of RemoteStorageProvider.
 
     RemoteStorageLog only supports single-replica scheduling policies. Scheduling policies with > 1 replica, such as
     static or dynamic, should use the RaftLog class.
@@ -68,7 +69,7 @@ class RemoteStorageLog(object):
 
         self._base_path: str = base_path
 
-        # Basically just the number of times we've written something to remote remote_storage.
+        # Basically just the number of times we've written something to remote storage.
         self._num_changes: int = 0
         self._term: int = 0
         self._restore_namespace_time_seconds: float = 0.0
@@ -125,7 +126,7 @@ class RemoteStorageLog(object):
 
     async def catchup_with_peers(self)->None:
         """
-        RemoteStorageLog uses the catchup_with_peers to restore the namespace from remote remote_storage.
+        RemoteStorageLog uses the catchup_with_peers to restore the namespace from remote storage.
         """
         await self.restore_namespace()
 
@@ -182,7 +183,7 @@ class RemoteStorageLog(object):
 
     @property
     def num_reads(self) -> int:  # type: ignore
-        """The number of individual remote remote_storage reads."""
+        """The number of individual remote storage reads."""
         return self.storage_provider.num_objects_read
 
     @property
@@ -209,9 +210,11 @@ class RemoteStorageLog(object):
         """
         return False
 
-    def get_election(self, term_number: int) -> Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
         return None
 
@@ -300,10 +303,14 @@ class RemoteStorageLog(object):
         metadata_key: str = self.__get_path_for_metadata()
 
         try:
-            data: Dict[str, Any] | bytes = self.storage_provider.read_value(metadata_key)
+            data: Dict[str, Any] | bytes | io.BytesIO = self.storage_provider.read_value(metadata_key)
         except InvalidKeyError:
             self.log.debug(f'No data stored at metadata key "{metadata_key}". No state to load and apply.')
             return set()
+
+        if isinstance(data, io.BytesIO):
+            data.seek(0)
+            data = data.getbuffer().tobytes()
 
         try:
             data = pickle.loads(data)
@@ -324,7 +331,7 @@ class RemoteStorageLog(object):
 
     async def restore_namespace(self) -> Dict[str, SynchronizedValue]:
         """
-        Retrieve metadata from remote remote_storage and use the metadata to read all the keys from the namespace.
+        Retrieve metadata from remote storage and use the metadata to read all the keys from the namespace.
 
         This does NOT restore models/datasets from their pointers.
 
@@ -346,7 +353,11 @@ class RemoteStorageLog(object):
 
             self.log.debug(f'Retrieving value for variable "{variable_name}" from {self.storage_name} at key "{key}".')
 
-            variable_value: bytes = self.storage_provider.read_value(key)
+            variable_value: Dict[str, Any] | bytes | io.BytesIO = self.storage_provider.read_value(key)
+
+            if isinstance(variable_value, io.BytesIO):
+                variable_value.seek(0)
+                variable_value = variable_value.getbuffer().tobytes()
 
             try:
                 variable: SynchronizedValue = pickle.loads(variable_value)
@@ -456,3 +467,25 @@ class RemoteStorageLog(object):
         This is not relevant for RemoteStorageLog.
         """
         pass
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        pass # not supported when SMR is disabled
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        pass # not supported when SMR is disabled
