@@ -1397,14 +1397,18 @@ type idleSortedHost struct {
 func (h *idleSortedHost) Compare(other interface{}) float64 {
 	// MaxHeap based on the number of idle GPUs.
 	diff := other.(*idleSortedHost).IdleGPUs() - h.IdleGPUs()
-
 	if diff != 0 {
 		return diff
 	}
 
 	// MaxHeap based on the subscription ratio, in order to promote rebalancing.
 	diff = other.(scheduling.Host).SubscribedRatio() - h.SubscribedRatio()
+	if diff != 0 {
+		return diff
+	}
 
+	// MinHeap based on the number of containers. Fewer containers means less overhead to migrate.
+	diff = float64(h.NumContainers() - other.(scheduling.Host).NumContainers())
 	if diff != 0 {
 		return diff
 	}
@@ -1836,6 +1840,11 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// If the host is not completely idle, then we'll break and stop looking.
 		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() {
+			break
+		}
+
+		// If there are too many containers on it, then it isn't necessarily worth the overhead of migrating the host.
+		if idleHost.NumContainers() > 4 {
 			break
 		}
 
