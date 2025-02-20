@@ -89,6 +89,7 @@ class RaftLog(object):
             fast_forward_execution_count_handler: Callable[[], None] = None,
             set_execution_count_handler: Callable[[int], None] = None,
             loaded_serialized_state_callback: Callable[[dict[str, Any]], None] = None,
+            shell_io_loop: asyncio.AbstractEventLoop = None,
             election_timeout_seconds: float = 10,
             deployment_mode: str = "LOCAL",
     ):
@@ -131,6 +132,7 @@ class RaftLog(object):
         self._leader_term: int = 0
         # The id of the leader.
         self._leader_id: int = 0
+        self._shell_io_loop: asyncio.AbstractEventLoop = shell_io_loop
         self._persistent_store_path: str = base_path
         self._node_id: int = node_id
         self._offloader: FileLog = FileLog(self._persistent_store_path)
@@ -158,9 +160,7 @@ class RaftLog(object):
         try:
             self._create_persistent_store_directory(base_path)
         except Exception as ex:
-            self.log.error(
-                f'Error while creating persistent datastore directory "{base_path}": {ex}'
-            )
+            self.log.error(f'Error while creating persistent datastore directory "{base_path}": {ex}')
 
         self.log.info("persistent store path: %s" % self._persistent_store_path)
         self.log.info('remote storage hostname: "%s"' % remote_storage_hostname)
@@ -191,20 +191,16 @@ class RaftLog(object):
         self.log.info(f"Successfully created LogNode {node_id}.")
 
         if hasattr(self, "_log_node") and self._log_node is not None:
-            remote_storage_read_latency: int = (
-                self._log_node.RemoteStorageReadLatencyMilliseconds()
-            )
+            remote_storage_read_latency: int = self._log_node.RemoteStorageReadLatencyMilliseconds()
             if remote_storage_read_latency > 0:
-                self.log.debug(
-                    f"Retrieved remote storage read latency of {remote_storage_read_latency} milliseconds from LogNode."
-                )
+                self.log.debug(f"Retrieved remote storage read latency of {remote_storage_read_latency} "
+                               f"milliseconds from LogNode.")
 
                 if remote_storage_read_latency_callback is not None:
                     remote_storage_read_latency_callback(remote_storage_read_latency)
                 else:
-                    self.log.warning(
-                        "Callback for reporting remote storage read latency is None. Cannot report remote storage read latency."
-                    )
+                    self.log.warning("Callback for reporting remote storage read latency is None. "
+                                     "Cannot report remote storage read latency.")
 
         # Indicates whether we've created the first Election / at least one Election
         self.__created_first_election: bool = False
@@ -646,9 +642,7 @@ class RaftLog(object):
         sys.stdout.flush()
         return GoNilError()
 
-    def __fast_forward_to_future_election(
-            self, notification: ExecutionCompleteNotification
-    ) -> bytes:
+    def __fast_forward_to_future_election(self, notification: ExecutionCompleteNotification) -> bytes:
         """
         Fast-forward to a future election upon receiving an ExecutionCompleteNotification with term number
         greater than that of the local, current election.
@@ -828,6 +822,8 @@ class RaftLog(object):
         self._leader_id = notification.proposer_id
         self._leader_term = notification.election_term
 
+        return GoNilError()
+
     def __handle_execution_complete_notification_while_catching_up(self, notification: ExecutionCompleteNotification):
         if notification.election_term > self._leader_term_before_migration:
             self.log.warning(f"Received ExecutionCompleteNotification from future term {notification.election_term} "
@@ -889,18 +885,105 @@ class RaftLog(object):
                 fast_forwarded_winner_id=notification.proposer_id
             )
 
-    def __handle_execution_complete_notification(
-            self, notification: ExecutionCompleteNotification
-    ) -> bytes:
+    def __handle_inconsistent_term_numbers(self, notification: ExecutionCompleteNotification)->bool:
+        """
+        Called when handling an ExecutionCompleteNotification with an unexpected term number.
+
+        Return a boolean indicating whether we're fast-forwarding now.
+        """
+        notification_term: int = notification.election_term
+
+        self.log.warning(f"Current election is for term {self.current_election.term_number} "
+                         f"(state={self.current_election.state.get_name()}), "
+                         f"but we just received a notification that election "
+                         f"{notification_term} has finished...")
+
+        if notification_term > self.current_election.term_number:
+            self.__fast_forward_to_future_election(notification)
+            # fast_forwarding = True
+            return True
+
+        # This may be an error state, or we may be receiving this notification late / after a migration.
+        # That is, we may have been migrated before the Python handler for the "execution complete" notification
+        # for the previous election finished. So, we're handling it post-migration. We may even have an
+        # "execute_request" message that is blocked, waiting for the old election to complete. Let's see.
+        prior_election: Optional[Election] = self._elections[notification_term]
+
+        # If we don't even have an election with this term, then something is seriously wrong.
+        # We already know the term number is a mismatch, and that it's not greater than ours.
+        # So, it's less than ours, but we don't have a record of an election from that term? Bad.
+        if prior_election is None:
+            self.log.error(f"Inconsistent term numbers. Current: {self.current_election.term_number}. "
+                           f"Notification: {notification_term}. "
+                           f"We don't even have an election for term {notification_term}...")
+
+            raise InconsistentTermNumberError(
+                f"Inconsistent term numbers. Current: {self.current_election.term_number}. "
+                f"Notification: {notification_term}. We don't even have an election for term {notification_term}...",
+                election=self.current_election,
+                value=notification,
+            )
+
+        # If the prior election is already recorded as having been completed successfully,
+        # then indeed this is an error. Not necessarily the end of the world, but we shouldn't
+        # be receiving this notification now.
+        if prior_election.code_execution_completed_successfully:
+            self.log.error(f"Inconsistent term numbers. Current: {self.current_election.term_number}. "
+                           f"Notification: {notification_term}. Election from term {notification_term} is "
+                           f"already marked as having completed successfully...")
+
+            raise InconsistentTermNumberError(
+                f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
+                f"Notification: {notification_term}.",
+                election=self.current_election,
+                value=notification,
+            )
+
+        self.log.debug(f"Received 'old' ExecutionCompleteNotification for term {notification_term}; "
+                       f"however, election {notification_term} hasn't been recorded as complete yet.")
+
+        # First, check if we know that the voting phase has completed.
+        # If not, then we'll update that first.
+        if not prior_election.voting_phase_completed_successfully:
+            self.log.debug(f"We first must record that the voting phase for previous election {notification_term} "
+                           f"has completed, as we apparently didn't know that already...")
+
+            with self._election_lock:
+                prior_election.set_election_vote_completed(notification.proposer_id)
+
+        # Now, check if we know that the code execution completed successfully.
+        # If we know about it already, then we'll just return.
+        if prior_election.code_execution_completed_successfully:
+            self.log.debug(f"Discarding ExecutionCompleteNotification from previous term {notification_term} with "
+                           f"attempt number {notification.attempt_number}, as we already know that election finished: "
+                           f"{notification}")
+            return False
+
+        # Record that the code execution phase completed successfully.
+        with self._election_lock:
+            self.log.debug(f"Recording that election for term {notification_term} has completed. Learned about this "
+                           f"at an unusual time -- perhaps due to an inconveniently-timed migration.")
+
+            try:
+                prior_election.set_execution_complete(
+                    catching_up=True,
+                    fast_forwarding=False,
+                    fast_forwarded_winner_id=notification.proposer_id
+                )
+            except ValueError:
+                self.log.warning(f"Apparently nobody was waiting to learn that "
+                                 f"old election {notification_term} has finished...")
+
+        return False
+
+    def __handle_execution_complete_notification(self, notification: ExecutionCompleteNotification) -> bytes:
         """
         Handles a ExecutionCompleteNotification indicating that code execution has completed for a particular election.
 
         :param notification: the ExecutionCompleteNotification that we received
         """
-        self.log.debug(
-            f'Received "execution complete" notification for election term '
-            f"{notification.election_term} from node {notification.proposer_id}."
-        )
+        self.log.debug(f'Received "execution complete" notification for election term '
+                       f"{notification.election_term} from node {notification.proposer_id}.")
 
         if self.needs_to_catch_up:
             self.__handle_execution_complete_notification_while_catching_up(notification)
@@ -916,23 +999,8 @@ class RaftLog(object):
                                  f"election {notification.election_term}; however, our current election is nil...")
                 self.__fast_forward_to_future_election(notification)
                 fast_forwarding = True
-
-            if self.current_election.term_number != notification.election_term:
-                self.log.warning(f"Current election is for term {self.current_election.term_number} "
-                                 f"(state={self.current_election.state.get_name()}, "
-                                 f"but we just received a notification that election "
-                                 f"{notification.election_term} has finished...")
-
-                if notification.election_term > self.current_election.term_number:
-                    self.__fast_forward_to_future_election(notification)
-                    fast_forwarding = True
-                else:
-                    raise InconsistentTermNumberError(
-                        f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
-                        f"Notification: {notification.election_term}.",
-                        election=self.current_election,
-                        value=notification,
-                    )
+            elif self.current_election.term_number != notification.election_term:
+                fast_forwarding = self.__handle_inconsistent_term_numbers(notification)
 
             if self.leader_id != notification.proposer_id:
                 self.log.warning(f'Current leader ID is {self.leader_id}, but we just received an '
@@ -950,6 +1018,8 @@ class RaftLog(object):
                 # still send an error notification so that I can potentially debug this.
                 if self.leader_term == notification.election_term and self.current_election_term == notification.election_term:
                     self._leader_id = notification.proposer_id
+
+                    # This is more of a 'warning report' rather than an 'error report', strictly speaking.
                     self._report_error_callback(f"Inconsistency detected between our local leader ID and the "
                                                 f"proposer ID of 'election finished' notification.",
                                                 f'Leader ID: {self.leader_id}. "Election finished" '
@@ -1725,6 +1795,16 @@ class RaftLog(object):
         self._current_election = data_dict["current_election"]
         self._last_completed_election = data_dict["last_completed_election"]
 
+        # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
+        # (a) already know about and (b) aren't finished yet in some capacity.
+        for term_number, prior_election in self._elections.items():
+            voting_done: bool = prior_election.voting_phase_completed_successfully
+            execution_done: bool = prior_election.code_execution_completed_successfully
+
+            # Ensure the "election_finished_condition_waiter" loop is set.
+            if not voting_done or not execution_done:
+                prior_election.set_election_finished_condition_waiter_loop(self._shell_io_loop)
+
         # The value of _leader_term before a migration/eviction was triggered.
         self._leader_term_before_migration: int = data_dict["leader_term"]
 
@@ -1734,10 +1814,13 @@ class RaftLog(object):
         self._expected_term = data_dict["expected_term"]
 
         try:
-            self._future_io_loop: Optional[asyncio.AbstractEventLoop] = (
-                asyncio.get_running_loop()
-            )
+            # TODO: Is this correct? I'm pretty sure this will be in the control IO loop.
+            #       Don't we want this to be the shell's IO loop?
+            self._future_io_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
             self._future_io_loop.set_debug(True)
+
+            self.log.debug(f"Current/running event loop is equal to self._shell_io_loop: "
+                           f"{self._shell_io_loop == self._future_io_loop}")
         except RuntimeError:
             self.log.error("Failed to get running event loop from asyncio module.")
 
@@ -1964,28 +2047,32 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-    def _check_prev_election_state(self)->bool:
+    async def _check_prev_election_state(self):
         """
         Check if the current/previous election is done.
         """
         if self._current_election is None:
-            return True
+            return
 
         if self._current_election.code_execution_completed_successfully:
-            return True
+            return
 
         if self._current_election.was_skipped:
-            return True
+            return
 
         current_term: int = self._current_election.term_number
         if self._current_election.voting_phase_completed_successfully:
             self.log.warning(f"Current/previous election for term {current_term} completed voting phase, "
                              f"but we've not yet received the 'execution complete' notification yet...")
-            return False
+
+            await self._current_election.wait_for_election_to_end()
+            return
 
         self.log.warning(f"Current/previous election for term {current_term} has not even finished voting yet...")
         self.log.warning(f"We must be pretty far behind...")
-        return False
+
+        await self._current_election.wait_for_election_to_end()
+        return
 
     async def _validate_prev_election(self, term_number: int)->int:
         """
@@ -1993,57 +2080,13 @@ class RaftLog(object):
 
         Waits a bit for previous election to resolve before giving up on that and just plowing on ahead.
         """
-        num_tries: int = 0
-        max_num_tries: int = 5
 
         # Cache this locally.
         current_term: int = 1
         if self._current_election is not None:
             current_term = self._current_election.term_number
 
-        prev_election_resolved: bool = False
-        while num_tries < max_num_tries:
-            prev_election_resolved = self._check_prev_election_state()
-
-            # Is last election complete (or null)? If so, we'll break out.
-            if prev_election_resolved:
-                break
-
-            # If we're about to run out of tries, then we'll just give up from here.
-            if (num_tries + 1) >= max_num_tries:
-                self.log.warning(f"Previous election (for term {current_term}) has not been sufficiently "
-                                 "resolved for us to begin working on the next election...")
-
-                # Print a warning if the next term is not equal to whatever was specified.
-                if current_term + 1 != term_number:
-                    self.log.warning(f"Will use term number {current_term + 1} "
-                                     f"instead of specified term number {term_number}.")
-
-                # Return the "next" term based on our current/previous election's term.
-                return current_term + 1
-
-            num_tries += 1
-
-            # Wait for a little bit before checking again.
-            sleep_interval_seconds: float = 1.25
-            sleep_interval_seconds = sleep_interval_seconds * num_tries
-            sleep_interval_seconds += random.uniform(0, 2)
-
-            self.log.warning(f"Election {current_term} has not resolved sufficiently for us to proceed. "
-                             f"Sleeping for {sleep_interval_seconds} seconds before checking again...")
-
-            await asyncio.sleep(sleep_interval_seconds)
-
-        # If the last election is not done, then we'll use a term number one higher.
-        if not prev_election_resolved:
-            self.log.warning(f"Previous election (for term {current_term}) has not been sufficiently "
-                             "resolved for us to begin working on the next election...")
-
-            if current_term + 1 != term_number:
-                self.log.warning(f"Will use term number {current_term + 1} "
-                                 f"instead of specified term number {term_number}.")
-
-            return self._current_election.term_number + 1
+        await self._check_prev_election_state()
 
         # If we don't have a current election, then we'll use the specified term number, which should be 1.
         if self._current_election is None:
@@ -2051,13 +2094,13 @@ class RaftLog(object):
             return term_number
 
         # If we originally specified something higher, then we'll assume that we know what we're doing.
-        if term_number > self._current_election.term_number:
+        if term_number > current_term:
             return term_number
 
         self.log.warning(f"Specified term number is {term_number}; "
-                         f"however, previous election has term {self._current_election.term_number}.")
-        self.log.warning(f"Using term number {self._current_election.term_number + 1} instead...")
-        return self._current_election.term_number + 1
+                         f"however, previous election has term {current_term}.")
+        self.log.warning(f"Using term number {current_term + 1} instead...")
+        return current_term + 1
 
     async def _create_new_election(self, term_number: int = -1, jupyter_message_id: str = ""):
         """
@@ -2660,6 +2703,16 @@ class RaftLog(object):
             sys.stderr.flush()
             sys.stdout.flush()
             raise ValueError('"catchup" future is None')
+
+        # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
+        # (a) already know about and (b) aren't finished yet in some capacity.
+        for term_number, prior_election in self._elections.items():
+            voting_done: bool = prior_election.voting_phase_completed_successfully
+            execution_done: bool = prior_election.code_execution_completed_successfully
+
+            # Ensure the "election_finished_condition_waiter" loop is set.
+            if not voting_done or not execution_done:
+                prior_election.set_election_finished_condition_waiter_loop(asyncio.get_running_loop())
 
         self.log.debug('Proposing & appending our "catch up" value now.')
 

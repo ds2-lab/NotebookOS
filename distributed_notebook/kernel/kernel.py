@@ -1773,9 +1773,7 @@ class DistributedKernel(IPythonKernel):
             raise ex
 
         if isinstance(sync_log, RaftLog):
-            sync_log.set_fast_forward_executions_handler(
-                self.synchronizer.fast_forward_execution_count
-            )
+            sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
             sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
 
         self.init_synchronizer_event.set()
@@ -1840,9 +1838,7 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is required.
         async with self.persistent_store_cv:
-            self.log.debug(
-                "Calling `notify_all` on the Persistent Store condition variable."
-            )
+            self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
             self.persistent_store_cv.notify_all()
 
         self.log.info(f'Successfully initialized persistent store with ID "{persistent_id}".')
@@ -2604,9 +2600,7 @@ class DistributedKernel(IPythonKernel):
         faulthandler.dump_traceback(file=sys.stderr)
 
         cond: bool = asyncio.get_running_loop() == self.io_loop.asyncio_loop  # type: ignore
-        cond2: bool = (
-                asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
-        )
+        cond2: bool = asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
 
         self.log.debug(f"Running event loop is self.io_loop: {cond}")
         self.log.debug(f"Running event loop is self.control_thread.io_loop: {cond2}")
@@ -4960,10 +4954,7 @@ class DistributedKernel(IPythonKernel):
         """
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
-        if (
-                len(self.model_pointers_catchup) == 0
-                and len(self.dataset_pointers_catchup) == 0
-        ):
+        if (len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0):
             self.log.debug("There were no models or data committed during catch-up phase.")
             return
 
@@ -5136,35 +5127,21 @@ class DistributedKernel(IPythonKernel):
 
         # Warning: this does not acquire the _user_ns_lock; however, I don't think this code can run concurrently
         # with any of the other code...? Maybe?
-        existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get(
-            "model", None
-        )
-        if existing_model is not None and not isinstance(
-                existing_model, DeepLearningModel
-        ):
-            self.log.warning(
-                f"Found existing variable 'model' in shell user namespace of type "
-                f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                f"DeepLearningModel 'ResNet-18'."
-            )
-            existing_model = (
-                None  # So that we pass None for the existing_model argument below.
-            )
+        existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
+        if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
+            self.log.warning(f"Found existing variable 'model' in shell user namespace of type "
+                             f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                             f"DeepLearningModel 'ResNet-18'.")
+            existing_model = None  # So that we pass None for the existing_model argument below.
 
         st: float = time.time()
-        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(
-            pointer, existing_model=existing_model
-        )
+        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer, existing_model=existing_model)
         et: float = time.time()
 
-        self.log.debug(
-            f'Successfully loaded committed model "{pointer.large_object_name}" in {et - st} seconds.'
-        )
+        self.log.debug(f'Successfully loaded committed model "{pointer.large_object_name}" in {et - st} seconds.')
         return model
 
-    def large_object_pointer_committed(
-            self, pointer: SyncPointer
-    ) -> Optional[CustomDataset | DeepLearningModel]:
+    def large_object_pointer_committed(self, pointer: SyncPointer) -> Optional[CustomDataset | DeepLearningModel]:
         """
         Callback to be executed when a pointer to a large object is committed to the RaftLog.
         :param pointer: the pointer to the large object.
@@ -5174,12 +5151,8 @@ class DistributedKernel(IPythonKernel):
         elif isinstance(pointer, ModelPointer):
             return self.__model_committed(pointer)
         else:
-            self.log.error(
-                f"SyncPointer of unknown or unsupported type committed: {pointer}"
-            )
-            raise ValueError(
-                f"SyncPointer of unknown or unsupported type committed: {pointer}"
-            )
+            self.log.error(f"SyncPointer of unknown or unsupported type committed: {pointer}")
+            raise ValueError(f"SyncPointer of unknown or unsupported type committed: {pointer}")
 
     async def override_shell(self):
         """Override IPython Core"""
@@ -5201,10 +5174,8 @@ class DistributedKernel(IPythonKernel):
         If we've been started following a migration, then this should only be called once we're fully caught-up.
         """
         # Notify the client that the SMR is ready.
-        self.log.info(
-            f'Sending "smr_ready" notification to Local Daemon. Time elapsed since I was created: '
-            f"{time.time() - self.created_at} seconds."
-        )
+        self.log.info(f'Sending "smr_ready" notification to Local Daemon. Time elapsed since I was created: '
+                      f"{time.time() - self.created_at} seconds.")
 
         self.session.send(
             self.iopub_socket,
@@ -5213,10 +5184,8 @@ class DistributedKernel(IPythonKernel):
             ident=self._topic("smr_ready"),
         )  # type: ignore
 
-        self.log.info(
-            f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
-            f"{time.time() - self.created_at} seconds."
-        )
+        self.log.info(f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
+                      f"{time.time() - self.created_at} seconds.")
 
     async def get_synclog(self, store_path) -> SyncLog:
         assert isinstance(self.smr_nodes, list)
@@ -5268,6 +5237,7 @@ class DistributedKernel(IPythonKernel):
                     deployment_mode=self.deployment_mode,
                     election_timeout_seconds=self.election_timeout_seconds,
                     loaded_serialized_state_callback=self.loaded_serialized_state_callback,
+                    shell_io_loop=self.io_loop,
                 )
             except Exception as exc:
                 self.log.error("Error while creating RaftLog: %s" % str(exc))
@@ -5277,9 +5247,7 @@ class DistributedKernel(IPythonKernel):
                 for stack_entry in stack:
                     self.log.error(stack_entry)
 
-                self.report_error(
-                    error_title="Failed to Create RaftLog", error_message=str(exc)
-                )
+                self.report_error(error_title="Failed to Create RaftLog", error_message=str(exc))
 
                 # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
                 await asyncio.sleep(10)

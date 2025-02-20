@@ -73,7 +73,6 @@ class ElectionAlreadyDecidedError(Exception):
         # Call the base class constructor with the parameters it needs
         super().__init__(message)
 
-
 class Election(object):
     """
     Encapsulates the information about the current election term.
@@ -190,6 +189,8 @@ class Election(object):
         # proposed yield.
         self.election_finished_event: Optional[asyncio.Event] = asyncio.Event()
         self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
 
         # Used with the self.election_waiter_cond variable.
         # self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
@@ -714,19 +715,21 @@ class Election(object):
 
         self.log.debug(f"Election {self.term_number} has failed (in attempt {self.current_attempt_number}).")
 
+    async def set_election_finished_condition_waiter_loop(self, loop: asyncio.EventLoop):
+        self.election_finished_condition_waiter_loop = loop
+
     async def wait_for_election_to_end(self):
         """
         Wait for the election to end (or enter the failed state), either because the elected leader of this election
         successfully finished executing the user-submitted code, or because all replicas proposed YIELD.
         """
-        # async with self.election_waiter_mutex:
-        #    self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
-        #    self.election_waiter_cond.notify_all()
-
         if self.election_finished_condition_waiter_loop is not None:
             assert self.election_finished_condition_waiter_loop == asyncio.get_running_loop()
         else:
             self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
+
+        if self.code_execution_completed_successfully:
+            return
 
         await self.election_finished_event.wait()
 
