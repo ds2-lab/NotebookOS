@@ -5538,15 +5538,15 @@ func (m *MockClusterIndex) EXPECT() *MockClusterIndexMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockClusterIndex) Add(arg0 scheduling.Host) {
+func (m *MockClusterIndex) AddHost(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Add", arg0)
+	m.ctrl.Call(m, "AddHost", arg0)
 }
 
 // Add indicates an expected call of Add.
 func (mr *MockClusterIndexMockRecorder) Add(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockClusterIndex)(nil).Add), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddHost", reflect.TypeOf((*MockClusterIndex)(nil).AddHost), arg0)
 }
 
 // Category mocks base method.
@@ -5622,15 +5622,15 @@ func (mr *MockClusterIndexMockRecorder) Len() *gomock.Call {
 }
 
 // Remove mocks base method.
-func (m *MockClusterIndex) Remove(arg0 scheduling.Host) {
+func (m *MockClusterIndex) RemoveHost(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Remove", arg0)
+	m.ctrl.Call(m, "RemoveHost", arg0)
 }
 
 // Remove indicates an expected call of Remove.
 func (mr *MockClusterIndexMockRecorder) Remove(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockClusterIndex)(nil).Remove), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveHost", reflect.TypeOf((*MockClusterIndex)(nil).RemoveHost), arg0)
 }
 
 // Seek mocks base method.
@@ -12279,13 +12279,13 @@ func (m *MockTransactionResources) EXPECT() *MockTransactionResourcesMockRecorde
 // Add mocks base method.
 func (m *MockTransactionResources) Add(spec types.Spec) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Add", spec)
+	m.ctrl.Call(m, "AddHost", spec)
 }
 
 // Add indicates an expected call of Add.
 func (mr *MockTransactionResourcesMockRecorder) Add(spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockTransactionResources)(nil).Add), spec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddHost", reflect.TypeOf((*MockTransactionResources)(nil).Add), spec)
 }
 
 // Clone mocks base method.

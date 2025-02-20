@@ -1671,7 +1671,7 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 			}
 		}
 
-		// TODO: Remove this eventually once all bugs are fixed.
+		// TODO: RemoveHost this eventually once all bugs are fixed.
 		if response.JupyterMessageType() == "ping_reply" {
 			if handler == nil {
 				panic("Handler is nil")
@@ -1772,7 +1772,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			continue
 		}
 
-		//responseReceivedWg.Add(1)
+		//responseReceivedWg.AddHost(1)
 		_ = respReceivedSemaphore.Acquire(ctx, 1)
 
 		numResponsesExpected += 1

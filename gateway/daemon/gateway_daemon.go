@@ -2528,7 +2528,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	// Assign the Container to the kernel.
 	replica.SetContainer(container)
 
-	// Add the Container to the Host.
+	// AddHost the Container to the Host.
 	d.log.Debug("Adding scheduling.Container for replica %d of kernel %s onto Host %s",
 		replicaSpec.ReplicaId, addReplicaOp.KernelId(), host.GetID())
 	if err = host.ContainerStartedRunningOnHost(container); err != nil {
@@ -2619,7 +2619,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 func (d *ClusterGatewayImpl) AddReplicaDynamic(_ context.Context, in *proto.KernelId) error {
 	// Steps:
 	// - Identify a target node with sufficient resources to serve an execution request for the associated kernel.
-	// - Add a label to that node to ensure the new replica is scheduled onto that node.
+	// - AddHost a label to that node to ensure the new replica is scheduled onto that node.
 	// - Increase the size of the associated kernel's CloneSet.
 
 	kernelSpec, ok := d.kernelSpecs.Load(in.Id)
@@ -2636,7 +2636,7 @@ func (d *ClusterGatewayImpl) AddReplicaDynamic(_ context.Context, in *proto.Kern
 
 	// Identify a target node with sufficient resources to serve an execution request for the associated kernel.
 
-	// Add a label to that node to ensure the new replica is scheduled onto that node.
+	// AddHost a label to that node to ensure the new replica is scheduled onto that node.
 
 	// Increase the size of the associated kernel's CloneSet.
 
@@ -2825,7 +2825,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 
 	// d.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
 
-	// Add the Container to the Host.
+	// AddHost the Container to the Host.
 	if err := host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
 		go d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
@@ -3922,7 +3922,7 @@ func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, 
 				d.log.Error("Attempt to remove replicas of kernel %s resulted in an error: %v",
 					kernel.ID(), err)
 
-				errorTitle := fmt.Sprintf("Failed to Remove Replicas of Kernel \"%s\"", kernel.ID())
+				errorTitle := fmt.Sprintf("Failed to RemoveHost Replicas of Kernel \"%s\"", kernel.ID())
 				go d.notifyDashboardOfError(errorTitle, err.Error())
 
 				return err
@@ -5045,7 +5045,7 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 
 	//if trace.DownloadDependencyMicroseconds > 0 {
 	//	d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += float64(trace.DownloadDependencyMicroseconds)
-	//	d.ClusterStatistics.NumTimesDownloadedDependencies.Add(1)
+	//	d.ClusterStatistics.NumTimesDownloadedDependencies.AddHost(1)
 	//}
 
 	if trace.DownloadModelMicroseconds > 0 {
@@ -5506,20 +5506,20 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.
 	if inSeparateGoroutine {
 		go func() {
-			// Remove the replicas.
+			// RemoveHost the replicas.
 			_ = doRemoveReplicas()
 		}()
 
 		return nil
 	}
 
-	// Remove the replicas.
+	// RemoveHost the replicas.
 	err := doRemoveReplicas()
 
 	// This will be nil if de-schedule was successful,
 	// or if the caller specified that we should use a separate goroutine for the replica removal.
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Remove One or More Replicas of kernel \"%s\"",
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to RemoveHost One or More Replicas of kernel \"%s\"",
 			kernel.ID()), err.Error())
 
 		return err

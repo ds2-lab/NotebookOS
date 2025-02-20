@@ -33,7 +33,7 @@ const (
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
 // throttle stop
-// kernel replica is not supported so far. Add if needed.
+// kernel replica is not supported so far. AddHost if needed.
 type LocalInvoker struct {
 	// closedAt is the time at which the KernelInvoker closed or stopped its kernel.
 	closedAt time.Time

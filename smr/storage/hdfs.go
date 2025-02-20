@@ -243,7 +243,7 @@ func (p *HdfsProvider) writeRaftLogSerializedStateToHdfs(serializedState []byte,
 		destFilename := SerializedStateBaseFileName + fmt.Sprintf("-node%d", p.nodeId) + SerializedStateFileExtension
 		destFilepath := filepath.Join(serializedStateFileDir, destFilename)
 
-		// Remove the existing file. We'll copy the new one in its place.
+		// RemoveHost the existing file. We'll copy the new one in its place.
 		err = p.hdfsClient.Remove(destFilepath)
 
 		if err != nil {

@@ -1978,17 +1978,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			By("Correctly registering the first Host")
 
-			// Add first host.
+			// AddHost first host.
 			err = clusterGateway.RegisterNewHost(host1)
 
 			By("Correctly registering the second Host")
 
-			// Add second host.
+			// AddHost second host.
 			err = clusterGateway.RegisterNewHost(host2)
 
 			By("Correctly registering the third Host")
 
-			// Add third host.
+			// AddHost third host.
 			err = clusterGateway.RegisterNewHost(host3)
 
 			var startKernelReplicaCalled sync.WaitGroup
@@ -3409,7 +3409,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				var lastHost scheduling.Host
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
-					// Add 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
+					// AddHost 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
 					spec := types.NewDecimalSpec(0, 0, 7-host.CommittedGPUs(), 0)
 					err := host.(scheduling.UnitTestingHost).AddToCommittedResources(spec)
 					Expect(err).To(BeNil())
@@ -3457,7 +3457,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				time.Sleep(time.Second * 3)
 
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
-					// Remove all committed GPUs from all hosts.
+					// RemoveHost all committed GPUs from all hosts.
 					spec := types.NewDecimalSpec(0, 0, host.CommittedGPUs(), 0)
 					err := host.(scheduling.UnitTestingHost).SubtractFromCommittedResources(spec)
 					Expect(err).To(BeNil())
@@ -4051,7 +4051,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				By("Correctly registering the first Host")
 
-				// Add first host.
+				// AddHost first host.
 				err = clusterGateway.RegisterNewHost(host1)
 				Expect(err).To(BeNil())
 
@@ -4062,7 +4062,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				By("Correctly registering the second Host")
 
-				// Add second host.
+				// AddHost second host.
 				err = clusterGateway.RegisterNewHost(host2)
 				Expect(err).To(BeNil())
 
@@ -4073,7 +4073,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				By("Correctly registering the third Host")
 
-				// Add third host.
+				// AddHost third host.
 				err = clusterGateway.RegisterNewHost(host3)
 				Expect(err).To(BeNil())
 

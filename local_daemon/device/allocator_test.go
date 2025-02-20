@@ -526,7 +526,7 @@ var _ = Describe("Allocator Tests", func() {
 		}
 
 		activePodIDs3 := activePodIDs2.Clone()
-		activePodIDs3.Delete(activePodIDs.UnsortedList()...) // Remove the first Pod.
+		activePodIDs3.Delete(activePodIDs.UnsortedList()...) // RemoveHost the first Pod.
 		activePods3 := activePods2[1:]
 
 		activePods3[0].Status.Phase = corev1.PodRunning

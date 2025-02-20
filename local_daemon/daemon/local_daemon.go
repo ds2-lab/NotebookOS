@@ -1034,7 +1034,7 @@ func (d *LocalScheduler) connectToGateway(gatewayAddress string, finalize LocalD
 		errorChan <- struct{}{}
 	}()
 
-	// TODO: Add timeout option here.
+	// TODO: AddHost timeout option here.
 	select {
 	case <-provisioner.Ready():
 		{
@@ -2265,7 +2265,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// Remove the entry from the "prewarmed" mapping...
+	// RemoveHost the entry from the "prewarmed" mapping...
 	d.prewarmKernels.Delete(prewarmedContainerId)
 	// ... and add a new entry to the standard kernel replica mapping.
 	d.kernels.Store(kernelReplicaSpec.Kernel.Id, prewarmedKernelClient)
@@ -2606,7 +2606,7 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 
 	d.log.Debug("Successfully stopped replica %d of kernel %s.", kernel.ReplicaID(), in.Id)
 
-	// Remove the kernel from our hash map.
+	// RemoveHost the kernel from our hash map.
 	d.kernels.Delete(in.Id)
 
 	if d.prometheusManager != nil && d.prometheusEnabled {

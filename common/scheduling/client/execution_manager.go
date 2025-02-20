@@ -547,7 +547,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// Update the execution's state.
 	activeExecution.State = Completed
 
-	// Remove the execution from the "active" map.
+	// RemoveHost the execution from the "active" map.
 	delete(m.activeExecutions, executeRequestId)
 
 	// Store the execution in the "finished" map.

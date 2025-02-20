@@ -608,7 +608,7 @@ func (s *BaseScheduler) RequestNewHost() error {
 		}
 
 		s.log.Error("Failed to add new host because: %v", err)
-		s.sendErrorNotification("Failed to Add Host to Cluster", err.Error())
+		s.sendErrorNotification("Failed to AddHost Host to Cluster", err.Error())
 
 		return err
 	}
@@ -632,7 +632,7 @@ func (s *BaseScheduler) RemoveHost(hostId string) error {
 		// If the error isn't something trivial like there already being another concurrent scaling operation,
 		// then just we'll just return the error.
 		if !errors.Is(err, scheduling.ErrScalingActive) {
-			s.sendErrorNotification(fmt.Sprintf("Failed to Remove Host %s from the Cluster", hostId), err.Error())
+			s.sendErrorNotification(fmt.Sprintf("Failed to RemoveHost Host %s from the Cluster", hostId), err.Error())
 			s.log.Error("Failed to remove host %s because: %v", hostId, err)
 			return err
 		}
@@ -701,7 +701,7 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 	s.log.Debug("Adding replica %d to kernel \"%s\" as part of AddReplicaOperation \"%s\" now.",
 		newReplicaSpec.ReplicaId, kernelId, addReplicaOp.OperationID())
 
-	// Add the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
+	// AddHost the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
 	s.addReplicaMutex.Lock()
 	ops, ok := s.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
@@ -1119,7 +1119,7 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 		PersistentId: kernelReplica.PersistentID(),
 	}
 
-	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
+	// AddHost a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 
 	var addReplicaOp *scheduling.AddReplicaOperation
@@ -1537,7 +1537,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	s.log.Debug("Parallelizing the migration of %d containers from host %s using %d workers.",
 		numContainersToMigrate, host.GetNodeName(), nWorkers)
 
-	// Add all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
+	// AddHost all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
 	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
 		workQueue <- container
 		return true
@@ -1749,7 +1749,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 			toBeReleased = append(toBeReleased, idleHost.Host)
 			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
 
-			// Remove the host so that we can get to the next host.
+			// RemoveHost the host so that we can get to the next host.
 			tmpHost := heap.Pop(s.idleHosts)
 
 			// Sanity check.

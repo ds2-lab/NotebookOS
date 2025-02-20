@@ -26,11 +26,11 @@ type KubeClient interface {
 	// GetKubernetesNode returns the node with the given name, or nil of that node cannot be found.
 	GetKubernetesNode(string) (*corev1.Node, error)
 
-	// Add the specified label to the specified node.
+	// AddHost the specified label to the specified node.
 	// Returns nil on success; otherwise, returns an error.
 	// AddLabelToNode(nodeId string, labelKey string, labelValue string) error
 
-	// Remove the specified label from the specified node.
+	// RemoveHost the specified label from the specified node.
 	// Returns nil on success; otherwise, returns an error.
 	// RemoveLabelFromNode(nodeId string, labelKey string, labelValue string) error
 

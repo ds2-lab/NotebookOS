@@ -299,8 +299,8 @@ func (index *StaticMultiIndex) Len() int {
 	return index.MultiIndex.Len()
 }
 
-// Add adds a scheduling.Host to the index.
-func (index *StaticMultiIndex) Add(host scheduling.Host) {
+// AddHost adds a scheduling.Host to the index.
+func (index *StaticMultiIndex) AddHost(host scheduling.Host) {
 	index.log.Debug("Adding host %s (ID=%s) to StaticMultiIndex.", host.GetNodeName(), host.GetID())
 	//index.MultiIndex.mu.Lock()
 	//defer index.MultiIndex.mu.Unlock()
@@ -312,7 +312,7 @@ func (index *StaticMultiIndex) Add(host scheduling.Host) {
 	//
 	//index.MultiIndex.Size += 1
 
-	index.MultiIndex.Add(host)
+	index.MultiIndex.AddHost(host)
 }
 
 // Update updates a scheduling.Host in the index.
@@ -325,9 +325,11 @@ func (index *StaticMultiIndex) UpdateMultiple(hosts []scheduling.Host) {
 	index.MultiIndex.UpdateMultiple(hosts)
 }
 
-// Remove removes a scheduling.Host from the index.
-func (index *StaticMultiIndex) Remove(host scheduling.Host) {
-	index.MultiIndex.Remove(host)
+// RemoveHost removes a scheduling.Host from the index.
+func (index *StaticMultiIndex) RemoveHost(host scheduling.Host) {
+	index.log.Debug("Removing host %s (ID=%s) from StaticMultiIndex.", host.GetNodeName(), host.GetID())
+
+	index.MultiIndex.RemoveHost(host)
 }
 
 // GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.

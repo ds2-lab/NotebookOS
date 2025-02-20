@@ -251,7 +251,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(kernelFile).ToNot(Equal(""))
 			Expect(connFile).ToNot(Equal(""))
 
-			// Remove the kernel file. We don't need it, so let's just clean it up now.
+			// RemoveHost the kernel file. We don't need it, so let's just clean it up now.
 			Expect(os.Remove(kernelFile)).To(BeNil())
 
 			var connInfo *jupyter.ConnectionInfo
@@ -269,7 +269,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(connInfo.Key).To(Equal(kernelKey))
 			Expect(connInfo.SignatureScheme).To(Equal(messaging.JupyterSignatureScheme))
 
-			// Remove the connection file. We don't need it anymore, so let's just clean it up now.
+			// RemoveHost the connection file. We don't need it anymore, so let's just clean it up now.
 			Expect(os.Remove(connFile)).To(BeNil())
 
 			regPayload := &KernelRegistrationPayload{

@@ -52,7 +52,7 @@ func (p *HostPool[T]) Size() int {
 //
 // AddHost simply forwards the call directly to the target AddHost's Pool field (which is a scheduling.ClusterIndex).
 func (p *HostPool[T]) AddHost(host scheduling.Host) {
-	p.Pool.Add(host)
+	p.Pool.AddHost(host)
 }
 
 // Provider provides the individual indices used by a MultiIndex.
@@ -244,7 +244,7 @@ func (index *MultiIndex[T]) Len() int {
 	return index.Size
 }
 
-func (index *MultiIndex[T]) Add(host scheduling.Host) {
+func (index *MultiIndex[T]) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -278,9 +278,11 @@ func (index *MultiIndex[T]) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *MultiIndex[T]) Remove(host scheduling.Host) {
+func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+
+	index.log.Debug("Removing host %s (ID=%s) from MultiIndex.", host.GetNodeName(), host.GetID())
 
 	if _, loaded := index.FreeHostsMap[host.GetID()]; loaded {
 		_, removed := index.FreeHosts.Remove(host, func(h1 scheduling.Host, h2 scheduling.Host) bool {
@@ -293,6 +295,7 @@ func (index *MultiIndex[T]) Remove(host scheduling.Host) {
 		// If the host was found and removed from the unpooled hosts queue, then we're done.
 		if removed {
 			index.Size -= 1
+			index.log.Debug("Removed host %s (ID=%s) from FreeHosts queue.", host.GetNodeName(), host.GetID())
 			return
 		}
 
@@ -308,8 +311,11 @@ func (index *MultiIndex[T]) Remove(host scheduling.Host) {
 		return
 	}
 
-	hostPool.Pool.Remove(host)
+	hostPool.Pool.RemoveHost(host)
 	index.Size -= 1
+
+	index.log.Debug("Removed host %s (ID=%s) from host pool %s.",
+		host.GetNodeName(), host.GetID(), hostPool.Identifier)
 }
 
 func (index *MultiIndex[T]) GetMetrics(host scheduling.Host) []float64 {
@@ -519,7 +525,19 @@ func (index *MultiIndex[T]) unsafeUpdatePool(numHosts int, poolNumber int32) int
 			break
 		}
 
-		// Add the host to the pool.
+		if freeHost.IsExcludedFromScheduling() {
+			index.log.Error("Host %s (ID=%s) from our FreePool is excluded from scheduling...",
+				freeHost.GetNodeName(), freeHost.GetID())
+			continue
+		}
+
+		if !freeHost.Enabled() {
+			index.log.Error("Host %s (ID=%s) from our FreePool is disabled...",
+				freeHost.GetNodeName(), freeHost.GetID())
+			continue
+		}
+
+		// AddHost the host to the pool.
 		pool.AddHost(freeHost)
 
 		// Update mappings.

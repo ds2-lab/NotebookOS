@@ -84,7 +84,7 @@ func (index *RandomClusterIndex) Len() int {
 	return int(index.len)
 }
 
-func (index *RandomClusterIndex) Add(host scheduling.Host) {
+func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -132,9 +132,11 @@ func (index *RandomClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *RandomClusterIndex) Remove(host scheduling.Host) {
+func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+
+	index.log.Debug("Removing host %s (ID=%s) from RandomClusterIndex.", host.GetNodeName(), host.GetID())
 
 	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
 	if !ok {
