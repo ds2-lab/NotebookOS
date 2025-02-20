@@ -83,6 +83,20 @@ func (placer *AbstractPlacer) getReplicaResourceReserver() replicaResourceReserv
 			usePendingReservation = placer.reservationShouldUsePendingResources()
 		}
 
+		if candidateHost.IsExcludedFromScheduling() {
+			placer.log.Error("Candidate host %s (ID=%s) is excluded from scheduling...",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+
+			return false, scheduling.ErrHostExcludedFromScheduling
+		}
+
+		if !candidateHost.Enabled() {
+			placer.log.Error("Candidate host %s (ID=%s) is disabled...",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+
+			return false, scheduling.ErrHostDisabled
+		}
+
 		reserved, err := candidateHost.ReserveResourcesForSpecificReplica(replicaSpec, usePendingReservation)
 		if err != nil {
 			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
@@ -119,6 +133,20 @@ func (placer *AbstractPlacer) getKernelResourceReserver() kernelResourceReserver
 			usePendingReservation = false
 		} else {
 			usePendingReservation = placer.reservationShouldUsePendingResources()
+		}
+
+		if candidateHost.IsExcludedFromScheduling() {
+			placer.log.Error("Candidate host %s (ID=%s) is excluded from scheduling...",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+
+			return false, scheduling.ErrHostExcludedFromScheduling
+		}
+
+		if !candidateHost.Enabled() {
+			placer.log.Error("Candidate host %s (ID=%s) is disabled...",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+
+			return false, scheduling.ErrHostDisabled
 		}
 
 		reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
