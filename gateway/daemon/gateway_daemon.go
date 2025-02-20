@@ -2324,12 +2324,21 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		err = d.startLongRunningKernel(ctx, kernel, in)
 
 		if err != nil {
+			if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+				d.log.Warn("Failed to start long-running kernel \"%s\" due to resource contention: %v", in.Id, err)
+				d.log.Warn(
+					utils.OrangeStyle.Render(
+						"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
+					in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
+				return nil, ensureErrorGrpcCompatible(err, codes.Internal)
+			}
+
 			d.log.Error("Error while starting long-running kernel \"%s\": %v", in.Id, err)
 			d.log.Error(
 				utils.RedStyle.Render(
 					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
 				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-			return nil, ensureErrorGrpcCompatible(err, codes.Unknown)
+			return nil, ensureErrorGrpcCompatible(err, codes.Internal)
 		}
 	}
 
