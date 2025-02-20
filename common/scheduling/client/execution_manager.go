@@ -453,8 +453,8 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 			)
 		}
 
-		// As a sort of sanity check, validate that the target replica matches the primary replica, assuming that a
-		// target replica was explicitly set for this execution.
+		// As a sort of sanity check, validate that there was no selected target replica, because if there was, then
+		// the election should not have failed.
 		targetReplicaId := activeExecution.GetTargetReplicaId()
 		if targetReplicaId != -1 && targetReplicaId != m.activeExecutionIndex {
 			m.log.Error("Target replica of execution \"%s\" was replica %d; however, all replicas proposed 'yield'.",
