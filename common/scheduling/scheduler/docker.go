@@ -319,6 +319,10 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(ctx context.Context, repl
 		panic("Invalid arguments to scheduling kernel replica prewarm (targetHost is nil).")
 	}
 
+	if container.Host() == nil {
+		panic("Invalid arguments to scheduling kernel replica prewarm (host of prewarm container is nil).")
+	}
+
 	// Validate that the target host matches the pre-warmed container's host.
 	if container.Host() != targetHost {
 		panic("Invalid arguments to scheduling kernel replica prewarm (container.Host() != targetHost).")

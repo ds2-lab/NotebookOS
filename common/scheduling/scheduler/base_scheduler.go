@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1669,6 +1670,59 @@ func (s *BaseScheduler) ContainerPrewarmer() scheduling.ContainerPrewarmer {
 	return s.prewarmer
 }
 
+func (s *BaseScheduler) releaseIdleHost(host scheduling.Host) error {
+	// If the host has no containers running on it at all, then we can simply release the host.
+	var err error
+	if host.NumContainers() > 0 {
+		err = s.migrateContainersFromHost(host, false) // Host is completely idle, so no training.
+		if err != nil {
+			s.log.Warn("Failed to migrate all kernels from host %s because: %v", host.GetNodeName(), err)
+			return err
+		}
+	}
+
+	var (
+		numTries    = 0
+		maxNumTries = 16
+	)
+
+	for numTries < maxNumTries {
+		err = s.RemoveHost(host.GetID())
+		if err == nil {
+			return nil
+		}
+
+		if errors.Is(err, scheduling.ErrScalingActive) {
+			// If we've hit our maximum number of tries, then we'll just give up on this host.
+			// Don't need to sleep again for no reason.
+			if (numTries + 1) >= maxNumTries {
+				s.log.Debug("Cannot release idle host %s because there's already an active scaling operation.",
+					host.GetNodeName())
+				return err
+			}
+
+			// We'll wait for a bit and try again.
+			// Operation isn't necessarily a scale-out operation, but that's fine.
+			sleepInterval := (time.Duration(s.cluster.MeanScaleOutTime().Seconds()/4) * time.Second) + (time.Millisecond * time.Duration(rand.Int31n(1250)))
+
+			s.log.Debug("Cannot release idle host %s because there's already an active scaling operation. "+
+				"Will sleep for %v before trying again.", host.GetNodeName(), sleepInterval)
+			time.Sleep(sleepInterval)
+
+			numTries += 1
+			continue
+		}
+
+		// Some other error (i.e., not just an ErrScalingActive).
+		s.log.Error("Failed to remove host %s because: %v", host.GetNodeName(), err)
+		return err
+	}
+
+	s.log.Warn("Could not manage to release idle host %s within %d tries due to scaling contention...",
+		host.GetNodeName(), maxNumTries)
+	return err
+}
+
 // ReleaseIdleHosts tries to release n idle hosts. Return the number of hosts that were actually released.
 // Error will be nil on success and non-nil if some sort of failure is encountered.
 func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
@@ -1709,37 +1763,40 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		}
 	}
 
-	var released int
+	var (
+		failedToRelease = make([]scheduling.Host, 0)
+		released        int
+		err             error
+	)
+
 	for i, host := range toBeReleased {
 		s.log.Debug("Releasing idle host %d/%d: host %s. NumContainers: %d.",
 			i+1, len(toBeReleased), host.GetNodeName(), host.NumContainers())
 
-		// If the host has no containers running on it at all, then we can simply release the host.
-		if host.NumContainers() > 0 {
-			err := s.migrateContainersFromHost(host, false) // Host is completely idle, so no training.
-			if err != nil {
-				s.log.Warn("Failed to migrate all kernels from host %s because: %v", host.GetNodeName(), err)
-
-				s.includeHostsInScheduling(toBeReleased[i:])
-
-				return released, err
-			}
-		}
-
-		err := s.RemoveHost(host.GetID())
+		err = s.releaseIdleHost(host)
 		if err != nil {
-			s.log.Error("Failed to remove host %s because: %v", host.GetNodeName(), err)
-
-			s.includeHostsInScheduling(toBeReleased[i:])
-
-			return released, err
+			s.log.Warn("Could not release idle host \"%s\" because: %v", host.GetNodeName(), err)
+			failedToRelease = append(failedToRelease, host)
+			continue
 		}
 
+		s.log.Debug("Successfully released idle host %d/%d: host %s.",
+			i+1, len(toBeReleased), host.GetNodeName())
 		released += 1
-		s.log.Debug("Successfully released idle host %d/%d: host %s.", i+1, len(toBeReleased), host.GetNodeName())
 	}
 
-	return released, nil
+	if len(failedToRelease) > 0 {
+		s.log.Warn("Failed to release %d/%d idle host(s).", len(failedToRelease), n)
+		s.includeHostsInScheduling(failedToRelease)
+	}
+
+	if released > 0 {
+		s.log.Debug("Released %d/%d idle host(s).", released, n)
+	} else {
+		s.log.Warn("Released %d/%d idle host(s).", released, n)
+	}
+
+	return released, err
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.

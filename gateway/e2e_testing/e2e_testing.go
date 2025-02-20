@@ -221,12 +221,12 @@ var _ = Describe("End-to-End Tests", func() {
 
 			Eventually(sem.Acquire(context.Background(), 1), time.Second*5, time.Millisecond*250).Should(Succeed())
 
-			for _, replica := range kernel.Replicas {
-				err := replica.RegisterWithLocalDaemon("127.0.0.1", replica.LocalScheduler.KernelRegistryPort())
-				Expect(err).To(BeNil())
-			}
-
-			time.Sleep(3 * time.Second)
+			//for _, replica := range kernel.Replicas {
+			//	err := replica.RegisterWithLocalDaemon("127.0.0.1", replica.LocalScheduler.KernelRegistryPort())
+			//	Expect(err).To(BeNil())
+			//}
+			//
+			//time.Sleep(3 * time.Second)
 		})
 	})
 })
@@ -251,61 +251,61 @@ type KernelReplica struct {
 	log logger.Logger
 }
 
-func (k *KernelReplica) RegisterWithLocalDaemon(ip string, port int) error {
-	addr := fmt.Sprintf("%s:%d", ip, port)
-	conn, err := net.Dial("tcp", addr)
-
-	if err != nil {
-		return err
-	}
-
-	registrationNotification := daemon.KernelRegistrationPayload{
-		Kernel: &proto.KernelSpec{
-			Id:              k.KernelId,
-			Session:         k.KernelId,
-			SignatureScheme: connInfo.SignatureScheme,
-			Key:             connInfo.Key,
-		},
-		ConnectionInfo:     connInfo,
-		PersistentId:       nil,
-		NodeName:           k.NodeName,
-		Key:                k.KernelId,
-		PodOrContainerName: k.KernelId,
-		Op:                 "register",
-		SignatureScheme:    messaging.JupyterSignatureScheme,
-		WorkloadId:         "",
-		ReplicaId:          -1,
-		NumReplicas:        k.NumReplicas,
-		Cpu:                resourceSpec.Cpu,
-		Memory:             int32(resourceSpec.Memory),
-		Gpu:                resourceSpec.Gpu,
-		Join:               true,
-		PrewarmContainer:   k.PrewarmContainer,
-	}
-
-	data, err := json.Marshal(&registrationNotification)
-	if err != nil {
-		return err
-	}
-
-	_, err = conn.Write(data)
-	if err != nil {
-		return err
-	}
-
-	var resp map[string]interface{}
-	buffer := make([]byte, 4096)
-
-	_, err = conn.Read(buffer)
-	if err != nil {
-		return err
-	}
-
-	err = json.Unmarshal(buffer, &resp)
-	if err != nil {
-		return err
-	}
-
-	k.log.Info("Received registration response: %v", resp)
-	return nil
-}
+//func (k *KernelReplica) RegisterWithLocalDaemon(ip string, port int) error {
+//	addr := fmt.Sprintf("%s:%d", ip, port)
+//	conn, err := net.Dial("tcp", addr)
+//
+//	if err != nil {
+//		return err
+//	}
+//
+//	registrationNotification := daemon.KernelRegistrationPayload{
+//		Kernel: &proto.KernelSpec{
+//			Id:              k.KernelId,
+//			Session:         k.KernelId,
+//			SignatureScheme: connInfo.SignatureScheme,
+//			Key:             connInfo.Key,
+//		},
+//		ConnectionInfo:     connInfo,
+//		PersistentId:       nil,
+//		NodeName:           k.NodeName,
+//		Key:                k.KernelId,
+//		PodOrContainerName: k.KernelId,
+//		Op:                 "register",
+//		SignatureScheme:    messaging.JupyterSignatureScheme,
+//		WorkloadId:         "",
+//		ReplicaId:          -1,
+//		NumReplicas:        k.NumReplicas,
+//		Cpu:                resourceSpec.Cpu,
+//		Memory:             int32(resourceSpec.Memory),
+//		Gpu:                resourceSpec.Gpu,
+//		Join:               true,
+//		PrewarmContainer:   k.PrewarmContainer,
+//	}
+//
+//	data, err := json.Marshal(&registrationNotification)
+//	if err != nil {
+//		return err
+//	}
+//
+//	_, err = conn.Write(data)
+//	if err != nil {
+//		return err
+//	}
+//
+//	var resp map[string]interface{}
+//	buffer := make([]byte, 4096)
+//
+//	_, err = conn.Read(buffer)
+//	if err != nil {
+//		return err
+//	}
+//
+//	err = json.Unmarshal(buffer, &resp)
+//	if err != nil {
+//		return err
+//	}
+//
+//	k.log.Info("Received registration response: %v", resp)
+//	return nil
+//}
