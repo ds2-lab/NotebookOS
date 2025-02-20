@@ -430,7 +430,13 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 		}
 	}
 
-	return s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
+	candidate, err := s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
+	if candidate != nil {
+		s.log.Debug("Found viable candidate host for replica %d of kernel %s: host %s",
+			replica.ReplicaID(), replica.ID(), candidate.GetNodeName())
+	}
+
+	return candidate, err
 }
 
 // FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
@@ -953,6 +959,8 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 	for numTries < 5 {
 		host, failureReason = s.instance.selectViableHostForReplica(replicaSpec.KernelReplicaSpec(), blacklistedHosts, forTraining)
 		if host != nil {
+			s.log.Debug("Found viable host for replica %d of kernel %s: host %s",
+				replicaSpec.ReplicaID(), replicaSpec.ID(), host.GetNodeName())
 			return host, nil
 		}
 
@@ -1057,6 +1065,9 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 			}, reason, nil
 		}
 	}
+
+	s.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
+		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
 
 	var dataDirectory string
 	dataDirectory, err = s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
