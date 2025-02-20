@@ -1,7 +1,7 @@
 import boto3
 
 # This assumes you've named the "main" VM "Jupyter NaaS Leader"
-# and each of the followers is named "Jupyter NaaS Follower" (or at least prefixed with that string).
+# and each of the followers is named "Jupyter Jupyer Follower " (or at least prefixed with that string).
 
 def get_jupyter_naas_public_ips(name_filter_value:str = ""):
     # Initialize a session using Boto3
@@ -51,12 +51,12 @@ def get_jupyter_naas_private_ips(name_filter_value:str = ""):
 
     return private_ips
 
-follower_private_ips = get_jupyter_naas_private_ips(name_filter_value = 'Jupyter NaaS Follower*')
-dn_private_ips = get_jupyter_naas_private_ips(name_filter_value = 'Jupyter NaaS Follower*(DN*')
+follower_private_ips = get_jupyter_naas_private_ips(name_filter_value = 'Jupyer Follower *')
+dn_private_ips = get_jupyter_naas_private_ips(name_filter_value = 'Jupyer Follower *(DN*')
 leader_private_ip = get_jupyter_naas_private_ips(name_filter_value = 'Jupyter NaaS Leader')[0]
 
-follower_public_ips = get_jupyter_naas_public_ips(name_filter_value = 'Jupyter NaaS Follower*')
-dn_public_ips = get_jupyter_naas_public_ips(name_filter_value = 'Jupyter NaaS Follower*(DN*')
+follower_public_ips = get_jupyter_naas_public_ips(name_filter_value = 'Jupyer Follower *')
+dn_public_ips = get_jupyter_naas_public_ips(name_filter_value = 'Jupyer Follower *(DN*')
 leader_public_ip = get_jupyter_naas_public_ips(name_filter_value = 'Jupyter NaaS Leader')[0]
 
 print("[vms]")
