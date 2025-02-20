@@ -631,6 +631,8 @@ func (s *BaseScheduler) RequestNewHost() error {
 // RemoveHost removes a new from the kubernetes Cluster.
 // We simulate this using node taints.
 func (s *BaseScheduler) RemoveHost(hostId string) error {
+	s.log.Debug("Removing host with ID=\"%s\"", hostId)
+
 	p := s.cluster.ReleaseSpecificHosts(context.Background(), []string{hostId})
 
 	result, err := p.Result()
@@ -1428,8 +1430,8 @@ func (h *idleSortedHost) GetIdx(key types.HeapElementMetadataKey) int {
 	return h.Host.GetIdx(key)
 }
 
-// migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
-func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTraining bool) error {
+// migrateContainersFromIdleHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
+func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forTraining bool) error {
 	numContainersToMigrate := host.Containers().Len()
 
 	// If there are no containers to migrate, then we're done.
@@ -1481,7 +1483,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 
 	// Called if we have to abort the migration because we couldn't find a viable target for some replica.
 	abortMigrationOperation := func() {
-		s.log.Warn("Aborting migration of containers from host %s. Releasing %d reservation(s).",
+		s.log.Warn("Aborting migration of containers from idle host %s. Releasing %d reservation(s).",
 			host.GetNodeName(), len(migrationTargets))
 
 		aborted = true
@@ -1513,9 +1515,12 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	// If any of them fail to find a target, then we'll abort.
 	// AddHost all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
 	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
+		s.log.Debug("Searching for migration target for container %s from idle host %s.",
+			containerId, host.GetNodeName())
+
 		targetHost, err := getMigrationTarget(containerId, container)
 		if err != nil {
-			s.log.Warn("Could not find viable migration target for container %s; aborting migration of all containers from host %s: %v",
+			s.log.Warn("Could not find viable migration target for container %s; aborting migration of all containers from idle host %s: %v",
 				containerId, targetHost.GetNodeName(), err)
 
 			// Failed to find a viable migration target, so we must abort.
@@ -1535,7 +1540,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	})
 
 	if aborted {
-		s.log.Warn("Operation to migrate all %d container(s) from host %s has been aborted.",
+		s.log.Warn("Operation to migrate all %d container(s) from idle host %s has been aborted.",
 			host.Containers().Len(), host.GetNodeName())
 
 		return fmt.Errorf("%w: failed to find viable migration targets for one or more containers",
@@ -1544,7 +1549,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 
 	// If there's just one, then just migrate the one container.
 	if numContainersToMigrate == 1 {
-		s.log.Debug("There's just one container on host %s to migrate.", host.GetNodeName())
+		s.log.Debug("There's just one container on idle host %s to migrate.", host.GetNodeName())
 
 		var err error
 		host.Containers().Range(func(containerId string, container scheduling.KernelContainer) (contd bool) {
@@ -1559,10 +1564,14 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	}
 
 	var nWorkers int
-	if numContainersToMigrate <= 8 {
-		nWorkers = numContainersToMigrate / 2
+	if numContainersToMigrate == 2 {
+		nWorkers = 2
 	} else {
-		nWorkers = numContainersToMigrate / 4
+		nWorkers = numContainersToMigrate
+
+		if nWorkers > 8 {
+			nWorkers = 8
+		}
 	}
 
 	timeoutInterval := time.Minute * time.Duration(float64(numContainersToMigrate)*2.5)
@@ -1579,58 +1588,63 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	migrationWorker := func(workerId int) {
 		var numContainersMigrated int
 
-		select {
-		case container := <-workQueue:
-			{
-				// If another worker failed to migrate a kernel replica, then we might as well give up.
-				if errorOccurred.Load() {
-					s.log.Warn("Migration Worker #%d of Host %s is exiting because another worker failed to migrate a kernel replica.",
-						workerId, host.GetNodeName())
+		for !errorOccurred.Load() {
+			select {
+			case container := <-workQueue:
+				{
+					// If another worker failed to migrate a kernel replica, then we might as well give up.
+					if errorOccurred.Load() {
+						s.log.Warn("Migration Worker #%d of idle Host %s is exiting because another worker failed to migrate a kernel replica.",
+							workerId, host.GetNodeName())
+
+						// Increment the semaphore to signal to the main goroutine that we're done.
+						workerDoneSemaphore.Release(1)
+						return
+					}
+
+					startMigrateTime := time.Now()
+
+					s.log.Debug("Migration Worker #%d of idle Host %s is migrating container %s now.",
+						workerId, host.GetNodeName(), container.ContainerID())
+
+					// Migrate the container.
+					err := migrateContainer(container.ContainerID(), container)
+
+					// Check if we failed to migrate.
+					if err != nil {
+						errorChan <- err
+						errorOccurred.Store(true)
+
+						s.log.Warn("Migration Worker #%d for idle Host %s failed to migrate replica %d of kernel %s after %v: %v.",
+							workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), err)
+						s.log.Warn("Migration Worker #%d for idle Host %s is aborting. Number of containers migrated (by worker #%d): %d. Total time elapsed: %v.",
+							workerId, host.GetNodeName(), numContainersMigrated, workerId, time.Since(startTime))
+
+						// Increment the semaphore to signal to the main goroutine that we're done.
+						workerDoneSemaphore.Release(1)
+						return
+					}
+
+					s.log.Debug("Migration Worker #%d for idle Host %s successfully migrated replica %d of kernel %s in %v. Total time elapsed: %v.",
+						workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), time.Since(startTime))
+
+					numContainersMigrated += 1
+					numContainersMigratedSuccessfully.Add(1)
+				}
+			default:
+				{
+					s.log.Debug("Migration Worker #%d for idle Host %s is done. Number of containers migrated: %d. Time elapsed: %v.",
+						workerId, host.GetNodeName(), numContainersMigrated, time.Since(startTime))
 
 					// Increment the semaphore to signal to the main goroutine that we're done.
 					workerDoneSemaphore.Release(1)
 					return
 				}
-
-				startMigrateTime := time.Now()
-
-				// Migrate the container.
-				err := migrateContainer(container.ContainerID(), container)
-
-				// Check if we failed to migrate.
-				if err != nil {
-					errorChan <- err
-					errorOccurred.Store(true)
-
-					s.log.Warn("Migration Worker #%d for Host %s failed to migrate replica %d of kernel %s after %v: %v.",
-						workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), err)
-					s.log.Warn("Migration Worker #%d for Host %s is aborting. Number of containers migrated (by worker #%d): %d. Total time elapsed: %v.",
-						workerId, host.GetNodeName(), numContainersMigrated, workerId, time.Since(startTime))
-
-					// Increment the semaphore to signal to the main goroutine that we're done.
-					workerDoneSemaphore.Release(1)
-					return
-				}
-
-				s.log.Debug("Migration Worker #%d for Host %s successfully migrated replica %d of kernel %s in %v. Total time elapsed: %v.",
-					workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), time.Since(startTime))
-
-				numContainersMigrated += 1
-				numContainersMigratedSuccessfully.Add(1)
-			}
-		default:
-			{
-				s.log.Debug("Migration Worker #%d for Host %s is done. Number of containers migrated: %d. Time elapsed: %v.",
-					workerId, host.GetNodeName(), numContainersMigrated, time.Since(startTime))
-
-				// Increment the semaphore to signal to the main goroutine that we're done.
-				workerDoneSemaphore.Release(1)
-				return
 			}
 		}
 	}
 
-	s.log.Debug("Parallelizing the migration of %d containers from host %s using %d workers.",
+	s.log.Debug("Parallelizing the migration of %d containers from idle host %s using %d workers.",
 		numContainersToMigrate, host.GetNodeName(), nWorkers)
 
 	// AddHost all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
@@ -1653,7 +1667,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		go migrationWorker(i + 1)
 	}
 
-	s.log.Debug("Started %d workers to migrate %d kernel replicas from host %s. Waiting for up to %v.",
+	s.log.Debug("Started %d workers to migrate %d kernel replicas from idle host %s. Waiting for up to %v.",
 		nWorkers, numContainersToMigrate, host.GetNodeName(), timeoutInterval)
 
 	// Block until all workers are done, or until the operation times out.
@@ -1662,10 +1676,10 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	// If there was an error (i.e., time-out) or we haven't migrated all the containers yet,
 	// then we'll return a timed-out error.
 	if err != nil || numContainersMigratedSuccessfully.Load() < int32(numContainersToMigrate) {
-		s.log.Debug("Timed out waiting for %d worker(s) to migrate %d containers from host %s. Time elapsed: %v. Number of successful migrations: %d. %v",
+		s.log.Debug("Timed out waiting for %d worker(s) to migrate %d containers from idle host %s. Time elapsed: %v. Number of successful migrations: %d. %v",
 			nWorkers, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), numContainersMigratedSuccessfully.Load(), err)
 
-		return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v: %v",
+		return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v: %v",
 			types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), err)
 	}
 
@@ -1700,7 +1714,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Expected for the number of migrated containers (%d) to equal the target (%d)",
 							numContainersMigratedSuccessfully.Load(), numContainersToMigrate)
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
+						return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
@@ -1708,10 +1722,10 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 					//
 					// This should NEVER happen.
 					if numContainersMigratedSuccessfully.Load() > int32(numContainersToMigrate) {
-						s.log.Error("Number of successful migrations (%d) of containers from host %s is somehow > than target (%d)",
+						s.log.Error("Number of successful migrations (%d) of containers from idle host %s is somehow > than target (%d)",
 							numContainersMigratedSuccessfully.Load(), host.GetNodeName(), numContainersToMigrate)
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
+						return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
@@ -1722,17 +1736,17 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Host %s still has %d container(s), but we should've migrated all of them...",
 							host.GetNodeName(), host.NumContainers())
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed out after %v",
+						return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
-					s.log.Debug("Successfully migrated all %d kernel replica(s) from host %s in %v.",
+					s.log.Debug("Successfully migrated all %d kernel replica(s) from idle host %s in %v.",
 						numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					return nil
 				}
 
 				// The error variable was not nil, so 1+ migrations failed.
-				s.log.Warn("At least %d error(s) occurred while trying to migrate all %d kernel replica(s) from host %s: %v",
+				s.log.Warn("At least %d error(s) occurred while trying to migrate all %d kernel replica(s) from idle host %s: %v",
 					nErrors, numContainersToMigrate, host.GetNodeName(), err)
 				return err
 			}
@@ -1767,10 +1781,15 @@ func (s *BaseScheduler) ContainerPrewarmer() scheduling.ContainerPrewarmer {
 }
 
 func (s *BaseScheduler) releaseIdleHost(host scheduling.Host) error {
+	s.log.Debug("Releasing idle host %s (ID=%s)", host.GetNodeName(), host.GetID())
+
 	// If the host has no containers running on it at all, then we can simply release the host.
 	var err error
 	if host.NumContainers() > 0 {
-		err = s.migrateContainersFromHost(host, false) // Host is completely idle, so no training.
+		s.log.Debug("Must migrate %d container(s) from idle host %s before we remove it.",
+			host.NumContainers(), host.GetNodeName())
+
+		err = s.migrateContainersFromIdleHost(host, false) // Host is completely idle, so no training.
 		if err != nil {
 			s.log.Warn("Failed to migrate all kernels from host %s because: %v", host.GetNodeName(), err)
 			return err
