@@ -715,7 +715,7 @@ class Election(object):
 
         self.log.debug(f"Election {self.term_number} has failed (in attempt {self.current_attempt_number}).")
 
-    async def set_election_finished_condition_waiter_loop(self, loop: asyncio.EventLoop):
+    async def set_election_finished_condition_waiter_loop(self, loop: asyncio.AbstractEventLoop):
         self.election_finished_condition_waiter_loop = loop
 
     async def wait_for_election_to_end(self):
