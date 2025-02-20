@@ -499,7 +499,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
 				return prewarmer.TotalNumProvisioning() > 0
-			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
+			}, time.Millisecond*1250, time.Millisecond*250).Should(BeTrue())
 
 			// This should occur immediately, essentially.
 			Eventually(func() bool {

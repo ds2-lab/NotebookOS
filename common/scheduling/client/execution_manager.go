@@ -240,23 +240,23 @@ func (m *ExecutionManager) SendingExecuteRequest(messages []*messaging.JupyterMe
 			ErrUnknownActiveExecution, requestId)
 	}
 
-	execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
-	if execution == nil { // Sanity check.
-		m.log.Error(
-			utils.RedStyle.Render(
-				"ExecutionManager::SendingExecuteRequest: Expected to find Execution with last-submitted index %d."),
-			m.submittedExecutionIndex)
-
-		err := fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
-			ErrInvalidState, requestId, executionIndex, m.submittedExecutionIndex)
-
-		m.sendNotification("Execution Manager in Invalid TransactionState",
-			err.Error(), messaging.ErrorNotification, true)
-
-		return err
-	}
-
 	if executionIndex < m.submittedExecutionIndex {
+		execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
+		if execution == nil { // Sanity check.
+			m.log.Error(
+				utils.RedStyle.Render(
+					"ExecutionManager::SendingExecuteRequest: Expected to find Execution with last-submitted index %d."),
+				m.submittedExecutionIndex)
+
+			err := fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
+				ErrInvalidState, requestId, executionIndex, m.submittedExecutionIndex)
+
+			m.sendNotification("Execution Manager in Invalid TransactionState",
+				err.Error(), messaging.ErrorNotification, true)
+
+			return err
+		}
+
 		m.log.Error(
 			"ExecutionManager::SendingExecuteRequest: Submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s.",
 			requestId, executionIndex, m.submittedExecutionIndex, execution.ExecuteRequestMessageId)
@@ -277,10 +277,15 @@ func (m *ExecutionManager) SendingExecuteRequest(messages []*messaging.JupyterMe
 		m.callbackProvider.IncrementNumActiveExecutions()
 	}
 
-	err := m.checkAndSetTargetReplica(messages, execution)
+	activeExecution := m.activeExecutions[requestId]
+	if activeExecution == nil {
+		return fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, requestId)
+	}
+
+	err := m.checkAndSetTargetReplica(messages, activeExecution)
 	if err != nil {
 		m.log.Error("ExecutionManager::SendingExecuteRequest: error while checking & setting target replica for execution \"%s\" (index=%d): %v",
-			messages[0].JupyterMessageId(), execution.GetExecutionIndex(), err)
+			messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex(), err)
 		return err
 	}
 
