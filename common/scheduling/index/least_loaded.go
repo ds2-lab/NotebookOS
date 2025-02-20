@@ -318,10 +318,7 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 		}
 
 		viable := index.checkHostForViability(candidateHost, criteriaFunc)
-		if !viable {
-			index.log.Debug("Host %s (ID=%s) failed supplied criteria function. Rejecting.\n",
-				candidateHost.GetNodeName(), candidateHost.GetID())
-		} else {
+		if viable {
 			index.log.Debug("Found candidate: host %s (ID=%s)",
 				candidateHost.GetNodeName(), candidateHost.GetID())
 			hostsMap[candidateHost.GetID()] = candidateHost
