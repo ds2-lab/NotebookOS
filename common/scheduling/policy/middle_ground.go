@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"math"
 )
 
 // MiddleGroundPolicy defines the scheduling policy of the "middle ground" approach, in which training requests
@@ -29,7 +30,25 @@ type MiddleGroundPolicy struct {
 }
 
 func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*MiddleGroundPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
+	// This validation step should have already happened, but just in case, we'll ensure that the maximum number
+	// of nodes is unbounded.
+	if opts.MaximumNumNodes < 0 {
+		opts.MaximumNumNodes = math.MaxInt // Effectively unbounded.
+	}
+
+	// The "middle-ground" policy uses a fixed-size cluster atop which a warm container pool is maintained.
+	if opts.MinimumNumNodes < opts.MaximumNumNodes {
+		// The minimum and maximum number of nodes should be equal since the cluster size is fixed.
+		opts.MinimumNumNodes = opts.MaximumNumNodes
+	}
+
+	// The "middle-ground" policy uses a fixed-size cluster atop which a warm container pool is maintained.
+	if opts.InitialClusterSize < opts.MaximumNumNodes {
+		// The initial cluster size should be equal to the maximum cluster size as the cluster size should be fixed.
+		opts.InitialClusterSize = opts.MaximumNumNodes
+	}
+
+	basePolicy, err := newBaseSchedulingPolicy(opts, false, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -246,12 +265,16 @@ func (p *MiddleGroundPolicy) ScalingConfiguration() *scheduling.ScalingConfigura
 // ScalingPolicy implementation //
 //////////////////////////////////
 
+// ScalingOutEnabled is disabled for the MiddleGroundPolicy, as the MiddleGroundPolicy uses a fixed-size cluster
+// on which a warm container pool is created and maintained.
 func (p *MiddleGroundPolicy) ScalingOutEnabled() bool {
 	return p.scalingOutEnabled
 }
 
+// ScalingInEnabled is disabled for the MiddleGroundPolicy, as the MiddleGroundPolicy uses a fixed-size cluster
+// on which a warm container pool is created and maintained.
 func (p *MiddleGroundPolicy) ScalingInEnabled() bool {
-	return true
+	return false
 }
 
 /////////////////////////////////////////////

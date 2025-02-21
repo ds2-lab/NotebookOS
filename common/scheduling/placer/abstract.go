@@ -179,13 +179,17 @@ func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
 //
 // If FindHosts returns nil (rather than an empty slice), then an error occurred.
-func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) ([]scheduling.Host, error) {
+func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int,
+	forTraining bool) ([]scheduling.Host, error) {
+
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 	st := time.Now()
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numHosts, kernelSpec.ResourceSpec.String(), placer.instance.GetIndex().Len())
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.",
+		numHosts, kernelSpec.ResourceSpec.String(), placer.instance.GetIndex().Len())
+
 	if placer.instance.GetIndex().Len() < numHosts {
 		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d. "+
 			"We won't find enough hosts on this pass, but we can try to scale-out afterwards.",
@@ -235,7 +239,9 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 //
 // PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
 // on which the resources are to be reserved.
-func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica,
+	commitResources bool) error {
+
 	host := replica.Host()
 
 	decimalSpec := kernel.ResourceSpec()

@@ -235,6 +235,11 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 		return
 	}
 
+	// Should we scale in?
+	if !cluster.Scheduler().CanScaleIn() {
+		return
+	}
+
 	limit, load := multiReplicaTryScaleOut(policy, cluster, log)
 
 	defaultTryScaleIn(policy, cluster, log, limit, load)
@@ -247,6 +252,11 @@ func singleReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.
 	// Sanity check. The multiReplicaValidateCapacity function should only be called by
 	// policies that support predictive auto-scaling, but just in case...
 	if !policy.SupportsPredictiveAutoscaling() {
+		return
+	}
+
+	// Should we scale in?
+	if !cluster.Scheduler().CanScaleIn() {
 		return
 	}
 

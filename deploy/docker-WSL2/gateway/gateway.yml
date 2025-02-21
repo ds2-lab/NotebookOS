@@ -33,7 +33,7 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-scheduling-policy: static
+scheduling-policy: middle-ground
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.10
 scaling-interval: 15
@@ -74,11 +74,12 @@ idle_session_reclamation_enabled: true
 idle_session_reclamation_interval_sec: 60
 pretty_print_options: true
 prewarming_enabled: true
-initial_num_containers_per_host: 2
-min_prewarm_containers_per_host: 2
-max_prewarm_containers_per_host: 4
+initial_num_containers_per_host: 1
+min_prewarm_containers_per_host: 1
+max_prewarm_containers_per_host: -1
 littles_law_prewarmer_w: 25
 littles_law_prewarmer_lambda: 0.20
+proactive_prewarm_container_replacement_enabled: false
 # prewarming_policy: no_maintenance
 prewarming_policy: maintain_minimum_capacity
 # prewarming_policy: little_law_capacity

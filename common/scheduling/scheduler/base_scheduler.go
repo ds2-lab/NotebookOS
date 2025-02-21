@@ -443,6 +443,43 @@ func (s *BaseScheduler) SearchForCandidateHosts(numToFind int, kernelSpec *proto
 	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, forTraining)
 }
 
+// handleFailedAttemptToFindCandidateHosts is called upon failing to find the requested number of viable, candidate hosts.
+//
+// handleFailedAttemptToFindCandidateHosts returns true if another attempt should be made and false otherwise.
+func (s *BaseScheduler) handleFailedAttemptToFindCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) bool {
+	
+	if !s.isScalingOutEnabled() {
+		s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
+		return true
+	}
+
+	numHostsRequired := numHosts - int32(len(hosts))
+	s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
+		numHostsRequired, kernelSpec.Id)
+
+	p := s.cluster.RequestHosts(ctx, numHostsRequired)
+	err := p.Error()
+
+	if err != nil {
+		if errors.Is(err, scheduling.ErrScalingActive) {
+			s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
+				kernelSpec.Id)
+		} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+			s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+				numHostsRequired, kernelSpec.Id, err)
+
+			// We're out of hosts. Give up. It can be resubmitted by the client later.
+			return false
+		} else {
+			s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+				numHostsRequired, kernelSpec.Id, err)
+		}
+	}
+
+	return true
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -457,10 +494,7 @@ func (s *BaseScheduler) SearchForCandidateHosts(numToFind int, kernelSpec *proto
 func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32,
 	forTraining bool) ([]scheduling.Host, error) {
 
-	var (
-		bestAttempt = 0
-		hosts       []scheduling.Host
-	)
+	var hosts []scheduling.Host
 
 	// TODO: How many times should we really retry here? If we fail, try to scale out, and fail again,
 	// 		 then shouldn't we just give up and leave it to the client to resubmit?
@@ -492,44 +526,19 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far (attempt=%d).",
 				len(hosts), numHosts, kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
-			if !s.isScalingOutEnabled() {
-				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
-				break // Give up.
-			}
-
-			numHostsRequired = numHosts - int32(len(hosts))
-			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
-				numHostsRequired, kernelSpec.Id)
-
-			p := s.cluster.RequestHosts(ctx, numHostsRequired)
-			if err = p.Error(); err != nil {
-				if errors.Is(err, scheduling.ErrScalingActive) {
-					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
-						kernelSpec.Id)
-				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
-					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-						numHostsRequired, kernelSpec.Id, err)
-					break // We're out of hosts. Give up. It can be resubmitted by the client later.
-				} else {
-					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-						numHostsRequired, kernelSpec.Id, err)
-				}
-			}
-
-			if len(hosts) > bestAttempt {
-				bestAttempt = len(hosts)
+			shouldContinue := s.handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts)
+			if !shouldContinue {
+				break
 			}
 
 			sleepInterval := retryParameters.Step()
 			s.log.Debug("Sleeping for %v before retrying to find %d candidate host(s) for replica(s) of kernel %s.",
 				sleepInterval, numHostsRequired, kernelSpec.Id)
 			time.Sleep(sleepInterval)
-
-			continue
 		}
 
-		s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v",
-			numHosts, kernelSpec.Id, hosts)
+		s.log.Debug("Found %d/%d hosts to serve replicas of kernel %s: %v",
+			len(hosts), numHosts, kernelSpec.Id, hosts)
 	}
 
 	// Check if we were able to reserve the requested number of hosts.
