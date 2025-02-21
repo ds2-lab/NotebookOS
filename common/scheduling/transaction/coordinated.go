@@ -265,6 +265,14 @@ func (t *CoordinatedTransaction) Abort(err error) {
 	}
 
 	t.shouldAbort.Store(true)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.log.Error("We panicked upon decrementing the initGroup... (txId=%s)", t.id)
+			t.log.Error("Perhaps transaction %s did not abort cleanly...", t.id)
+		}
+	}()
+
 	t.initGroup.Done() // Should only call this if we know the participant won't be registering.
 }
 
@@ -433,6 +441,14 @@ func (t *CoordinatedTransaction) recordFinished(succeeded bool, failureReason er
 //
 // IMPORTANT: initializeAndLockParticipants is called with the CoordinatedTransaction's mu already locked.
 func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
+	if t.shouldAbort.Load() {
+		if t.failureReason == nil {
+			t.failureReason = fmt.Errorf("%w: unknown or unspecified reason", ErrTransactionAborted)
+		}
+
+		return t.failureReason
+	}
+
 	defer t.initGroup.Done()
 
 	if len(t.participants) != t.expectedNumParticipants {
