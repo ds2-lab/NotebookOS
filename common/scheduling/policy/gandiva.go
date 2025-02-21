@@ -45,6 +45,17 @@ func (p *GandivaPolicy) ReuseWarmContainers() bool {
 	return false
 }
 
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *GandivaPolicy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *GandivaPolicy) PrioritizePrewarmContainers() bool {
+	return false
+}
+
 func (p *GandivaPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
 	return p
 }

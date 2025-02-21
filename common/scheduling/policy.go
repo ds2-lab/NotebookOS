@@ -99,6 +99,13 @@ type Policy interface {
 	// for the lifetime of the associated UserSession.
 	ResourceBindingMode() ResourceBindingMode
 
+	// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+	RequirePrewarmContainer() bool
+
+	// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+	// a prewarm container available or not factor that into the placement decision.
+	PrioritizePrewarmContainers() bool
+
 	// GetNewPlacer returns a concrete Placer implementation based on the Policy.
 	GetNewPlacer(metricsProvider MetricsProvider) (Placer, error)
 

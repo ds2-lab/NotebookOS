@@ -53,6 +53,17 @@ func (p *FcfsBatchSchedulingPolicy) ReuseWarmContainers() bool {
 	return false
 }
 
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *FcfsBatchSchedulingPolicy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *FcfsBatchSchedulingPolicy) PrioritizePrewarmContainers() bool {
+	return false
+}
+
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if p.SupportsMigration() {

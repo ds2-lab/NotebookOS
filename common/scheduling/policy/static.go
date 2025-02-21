@@ -90,6 +90,17 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 	return kernel.GetReplicaByID(targetReplicaId)
 }
 
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *StaticPolicy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *StaticPolicy) PrioritizePrewarmContainers() bool {
+	return false
+}
+
 // FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be
 // pre-designated as the leader of a code execution.
 //

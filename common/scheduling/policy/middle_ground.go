@@ -62,6 +62,17 @@ func (p *MiddleGroundPolicy) ReuseWarmContainers() bool {
 	return true
 }
 
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *MiddleGroundPolicy) RequirePrewarmContainer() bool {
+	return true
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *MiddleGroundPolicy) PrioritizePrewarmContainers() bool {
+	return true
+}
+
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 func (p *MiddleGroundPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if p.SupportsMigration() {

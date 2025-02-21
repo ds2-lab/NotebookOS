@@ -62,6 +62,17 @@ func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) 
 	return replicas[0], nil
 }
 
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *ReservationPolicy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *ReservationPolicy) PrioritizePrewarmContainers() bool {
+	return false
+}
+
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.Reservation
 }
