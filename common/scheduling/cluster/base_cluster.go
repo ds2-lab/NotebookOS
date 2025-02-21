@@ -271,6 +271,14 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 }
 
 func (c *BaseCluster) initRatioUpdater() {
+	skipValidateCapacity := false
+
+	schedulingPolicy := c.Scheduler().Policy()
+	scalingPolicy := schedulingPolicy.ResourceScalingPolicy()
+	if !scalingPolicy.ScalingInEnabled() && !scalingPolicy.ScalingOutEnabled() && !schedulingPolicy.SupportsPredictiveAutoscaling() {
+		skipValidateCapacity = true
+	}
+
 	go func() {
 		c.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", c.validateCapacityInterval)
 
@@ -278,7 +286,7 @@ func (c *BaseCluster) initRatioUpdater() {
 		time.Sleep(c.validateCapacityInterval)
 
 		for !c.closed.Load() {
-			c.scheduler.UpdateRatio(false)
+			c.scheduler.UpdateRatio(skipValidateCapacity)
 			time.Sleep(c.validateCapacityInterval)
 		}
 	}()
