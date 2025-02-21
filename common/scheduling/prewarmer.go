@@ -103,6 +103,10 @@ type ContainerPrewarmer interface {
 	// maximum number that were supposed to be created (if no errors were to occur).
 	ProvisionInitialPrewarmContainers() (created int32, target int32)
 
+	// ProvisionInitialPrewarmContainersOnHost provisions the configured number of 'initial' pre-warm containers on the
+	// specified scheduling.Host.
+	ProvisionInitialPrewarmContainersOnHost(host Host, numCreatedChan chan<- int32)
+
 	// ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
 	// ContainerPrewarmer's policy.
 	ValidateHostCapacity(host Host)

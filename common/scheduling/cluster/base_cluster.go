@@ -551,6 +551,35 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 		}
 	}
+
+	// If we're outside the "initial connection" period, then we should provision the pre-warm containers on the host.
+	// If we're still within the "initial connection" period, then we skip this step here, because we'll trigger the
+	// creation of the pre-warm containers on the newly-connected hosts later, once they've all connected.
+	if !c.inInitialConnectionPeriod.Load() && host.Enabled() {
+		c.log.Debug("Provisioning initial pre-warm containers on new host, host %s.", host.GetNodeName())
+		go c.provisionInitialPrewarmContainersOnHost(host)
+	}
+}
+
+// provisionInitialPrewarmContainersOnHost is called when adding a new scheduling.Host after the conclusion of the
+// "initial connection" period.
+//
+// provisionInitialPrewarmContainersOnHost directs the BaseCluster's scheduling.ContainerPrewarmer to provision the
+// configured number of pre-warm containers on the new scheduling.Host.
+func (c *BaseCluster) provisionInitialPrewarmContainersOnHost(host scheduling.Host) {
+	prewarmer := c.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		return
+	}
+
+	numCreatedChan := make(chan int32, 1)
+	startTime := time.Now()
+
+	prewarmer.ProvisionInitialPrewarmContainersOnHost(host, numCreatedChan)
+
+	numCreated := <-numCreatedChan
+	c.log.Debug("Successfully provisioned %d initial pre-warm container(s) on new host %s in %v.",
+		numCreated, host.GetNodeName(), time.Since(startTime))
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.

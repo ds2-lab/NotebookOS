@@ -450,7 +450,9 @@ func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainers() (created in
 		return 0, 0
 	}
 
-	var wg sync.WaitGroup
+	expectedNumResponses := 0
+	numCreatedChan := make(chan int32)
+
 	target = 0
 	created = 0
 
@@ -465,24 +467,54 @@ func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainers() (created in
 		p.Config.InitialPrewarmedContainersPerHost)
 
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
-		wg.Add(1)
+		expectedNumResponses += 1
+
 		atomic.AddInt32(&target, int32(p.Config.InitialPrewarmedContainersPerHost))
-
-		fifo := queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
-		p.PrewarmContainersPerHost[host.GetID()] = fifo
-
-		go func() {
-			defer wg.Done()
-			numCreated := p.ProvisionContainers(host, p.Config.InitialPrewarmedContainersPerHost)
-			atomic.AddInt32(&created, numCreated)
-		}()
-
+		p.ProvisionInitialPrewarmContainersOnHost(host, numCreatedChan)
 		return true
 	})
 
-	wg.Wait()
+	numResponses := 0
+
+	for numResponses < expectedNumResponses {
+		select {
+		case numCreated := <-numCreatedChan:
+			{
+				atomic.AddInt32(&created, numCreated)
+			}
+		}
+	}
 
 	return atomic.LoadInt32(&created), atomic.LoadInt32(&target)
+}
+
+// ProvisionInitialPrewarmContainersOnHost provisions the configured number of 'initial' pre-warm containers on the
+// specified scheduling.Host.
+func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainersOnHost(host scheduling.Host, numCreatedChan chan<- int32) {
+	p.mu.Lock()
+
+	fifo, loaded := p.PrewarmContainersPerHost[host.GetID()]
+	if !loaded {
+		fifo = queue.NewThreadsafeFifo[scheduling.PrewarmedContainer](p.Config.InitialPrewarmedContainersPerHost)
+		p.PrewarmContainersPerHost[host.GetID()] = fifo
+	}
+
+	p.mu.Unlock()
+
+	numContainers := fifo.Len()
+	if numContainers >= p.Config.InitialPrewarmedContainersPerHost {
+		p.log.Debug("Host %s already has %d/%d prewarmed container(s) provisioned. Skipping initial provisioning step.",
+			host.GetNodeName(), numContainers, p.Config.InitialPrewarmedContainersPerHost)
+		numCreatedChan <- 0
+		return
+	}
+
+	go func() {
+		// defer wg.Done()
+		numCreated := p.ProvisionContainers(host, p.Config.InitialPrewarmedContainersPerHost)
+		numCreatedChan <- numCreated
+		// atomic.AddInt32(&created, numCreated)
+	}()
 }
 
 // ProvisionContainers is used to launch a job of provisioning n pre-warmed scheduling.KernelContainer instances on
