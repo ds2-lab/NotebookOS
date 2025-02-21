@@ -2888,36 +2888,29 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	// If not, we'll change the message's header to "yield_request".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest || msg.JupyterMessageType() == messaging.ShellYieldRequest {
-		d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
-			msg.JupyterMessageId(), kernel.ID())
-		resultChan := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
+		go func() {
+			err := d.handleExecuteRequest(msg, kernel)
 
-		// Wait for the result.
-		// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
-		res := <-resultChan
-
-		// Return the result as an error or nil if there was no error.
-		switch res.(type) {
-		case error:
-			return res.(error)
-		case struct{}:
-			return nil
-		}
-	} else { // Print a message about forwarding generic shell message.
-		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s",
-			msg.JupyterFrames.Len(), kernel.ReplicaID(), kernel.ID(), msg)
-
-		// Extract the workload ID (which may or may not be included in the metadata of the request),
-		// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
-		metadataDict, err := msg.DecodeMetadata()
-		if err == nil {
-			if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
-				kernel.SetWorkloadId(workloadId.(string))
+			if err != nil {
+				d.log.Error("Error while handling \"execute_request\" message \"%s\": %v", msg.JupyterMessageId(), err)
 			}
-		} else {
-			d.log.Warn("Could not decode metadata dictionary of %s \"%s\" message %s (JupyterID=\"%s\").",
-				messaging.ShellMessage, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		}()
+	}
+
+	// Print a message about forwarding generic shell message.
+	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s",
+		msg.JupyterFrames.Len(), kernel.ReplicaID(), kernel.ID(), msg)
+
+	// Extract the workload ID (which may or may not be included in the metadata of the request),
+	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
+	metadataDict, err := msg.DecodeMetadata()
+	if err == nil {
+		if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
+			kernel.SetWorkloadId(workloadId.(string))
 		}
+	} else {
+		d.log.Warn("Could not decode metadata dictionary of %s \"%s\" message %s (JupyterID=\"%s\").",
+			messaging.ShellMessage, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
 	}
 
 	// IMPORTANT NOTE: The code below the if-else-statement above is NOT executed for "execute_request"
@@ -2932,6 +2925,25 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	}
 
 	return nil
+}
+
+func (d *LocalScheduler) handleExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) error {
+	d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
+		msg.JupyterMessageId(), kernel.ID())
+
+	resultChan := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
+
+	// Wait for the result.
+	// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
+	res := <-resultChan
+
+	// Return the result as an error or nil if there was no error.
+	switch res.(type) {
+	case error:
+		return res.(error)
+	default:
+		return nil
+	}
 }
 
 // processExecuteReply handles the logic of deallocating resources that have been committed to a kernel so that it could execute user-submitted code.

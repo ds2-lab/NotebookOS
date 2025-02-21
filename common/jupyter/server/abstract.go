@@ -430,6 +430,71 @@ func (s *AbstractServer) tryHandleSpecialMessage(jMsg *messaging.JupyterMessage,
 	return true, nil
 }
 
+// serveMessage is called by Serve to serve a message.
+func (s *AbstractServer) serveMessage(msgOrErr interface{}, server messaging.JupyterServerInfo, socket *messaging.Socket, handler messaging.MessageHandler) (bool, error) {
+	goroutineId := goid.Get()
+
+	if err, ok := msgOrErr.(error); ok {
+		return false, err
+	}
+
+	jMsg, ok := msgOrErr.(*messaging.JupyterMessage)
+	if !ok {
+		panic("Unexpected type.")
+	}
+
+	if (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && !jMsg.IsAck() {
+		firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
+		secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
+		thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg.StringFormatted())
+		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+	}
+
+	var (
+		keepProcessing bool
+		err            error
+	)
+
+	keepProcessing, err = s.tryHandleSpecialMessage(jMsg, socket)
+	if err != nil {
+		panic(fmt.Sprintf("[gid=%d] Fatal error while attempting to handle message as special. Message: %v. Error: %v.", goroutineId, msgOrErr, err))
+	}
+
+	// If it was a special message, like an ACK, then we don't process it any further.
+	if !keepProcessing {
+		// Don't even send an ACK if we're not meant to keep processing this message.
+		return true, nil
+	}
+
+	// Send an ACK if (a) it is a Shell or Control message and (b) we've been configured to ACK messages in general.
+	//
+	// AbstractServers that live on the Cluster Gateway and receive messages from frontend clients typically
+	// do not ACK messages unless the frontend client is our custom Jupyter Golang client.
+	if !jMsg.IsAck() && (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && s.ShouldAckMessages {
+		ackErr := s.sendAck(jMsg, socket)
+		if ackErr != nil {
+			s.Log.Error("Error while sending 'ACK' for message. Message we failed to ACK: %s. Error: %v.", jMsg.String(), ackErr)
+		}
+	}
+
+	handlerStart := time.Now()
+	err = handler(server, socket.Type, jMsg)
+	if err != nil && !errors.Is(err, errServeOnce) {
+		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."),
+			goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
+
+		// Send an error message of some sort back to the original sender, in Jupyter format.
+		_ = s.replyWithError(jMsg, socket, err)
+	} else if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream") {
+		// Only print this next bit for Shell, Control, and non-stream IOPub messages.
+		// That's all we care about here.
+		s.Log.Debug(utils.LightGreenStyle.Render("[gid=%d] Finished handling %s \"%s\" message \"%s\" (JupyterID=\"%s\") in %v."),
+			goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart))
+	}
+
+	return false, err
+}
+
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
 func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messaging.Socket, handler messaging.MessageHandler) {
@@ -477,64 +542,14 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 				return
 			}
 
-			var (
-				err   error
-				isAck bool
-			)
-			switch v := msg.(type) {
-			case error:
-				err = v
-			case *messaging.JupyterMessage:
-				jMsg := v
+			definitelyContinue, err := s.serveMessage(msg, server, socket, handler)
 
-				if (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && !jMsg.IsAck() {
-					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
-					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
-					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg.StringFormatted())
-					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+			if definitelyContinue {
+				if contd != nil {
+					contd <- true
 				}
 
-				// This checks if the message is an ACK.
-				keepProcessing, err := s.tryHandleSpecialMessage(jMsg, socket)
-				if err != nil {
-					panic(fmt.Sprintf("[gid=%d] Fatal error while attempting to handle message as special. Message: %v. Error: %v.", goroutineId, msg, err))
-				}
-
-				// If it was a special message, like an ACK, then we don't process it any further.
-				if !keepProcessing {
-					if contd != nil {
-						contd <- true
-					}
-
-					// Don't even send an ACK if we're not meant to keep processing this message.
-					continue
-				}
-
-				// Send an ACK if (a) it is a Shell or Control message and (b) we've been configured to ACK messages in general.
-				//
-				// AbstractServers that live on the Cluster Gateway and receive messages from frontend clients typically
-				// do not ACK messages unless the frontend client is our custom Jupyter Golang client.
-				if !isAck && (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && s.ShouldAckMessages {
-					ackErr := s.sendAck(jMsg, socket)
-					if ackErr != nil {
-						s.Log.Error("Error while sending 'ACK' for message. Message we failed to ACK: %s. Error: %v.", jMsg.String(), ackErr)
-					}
-				}
-
-				handlerStart := time.Now()
-				err = handler(server, socket.Type, jMsg)
-				if err != nil && !errors.Is(err, errServeOnce) {
-					s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."),
-						goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
-
-					// Send an error message of some sort back to the original sender, in Jupyter format.
-					_ = s.replyWithError(jMsg, socket, err)
-				} else if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream") {
-					// Only print this next bit for Shell, Control, and non-stream IOPub messages.
-					// That's all we care about here.
-					s.Log.Debug(utils.LightGreenStyle.Render("[gid=%d] Finished handling %s \"%s\" message \"%s\" (JupyterID=\"%s\") in %v."),
-						goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart))
-				}
+				continue
 			}
 
 			// Stop serving on error.
