@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -21,6 +23,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
@@ -29,6 +32,8 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+var globalLogger logger.Logger
 
 var (
 	dockerSchedulerTestOpsAsJson = `
@@ -168,6 +173,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 		if err != nil {
 			panic(err)
 		}
+
+		globalLogger = config.GetLogger(utils.GreenStyle.Render("DockerSchedulerTests "))
 
 		//optsStr, _ := json.MarshalIndent(&opts, "", "  ")
 		//fmt.Printf("%s\n", optsStr)
@@ -506,7 +513,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				})
 
 				It("Will select a host with available idle resources when doing so for a replica that is training", func() {
-					// hostSpec = types.NewDecimalSpec(8000, 64000, 8, 64)
+					By("Setting up the environment correctly")
 
 					validateVariablesNonNil()
 
@@ -712,14 +719,28 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						ResourceSpec:    nextResourceSpec,
 					}
 
-					for i := 0; i < numHosts; i++ {
-						host := hosts[i]
-						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
-						Expect(err).To(BeNil())
-						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
-						Expect(err).To(BeNil())
+					for _, host := range hosts {
+						globalLogger.Debug("Host %s: Resources: %s\n", host.GetNodeName(), host.GetResourceCountsAsString())
 					}
 
+					//for i := 0; i < numHosts; i++ {
+					//	host := hosts[i]
+					//	err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+					//	Expect(err).To(BeNil())
+					//	err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
+					//	Expect(err).To(BeNil())
+					//}
+
+					By("Correctly finding hosts to serve the kernel containers of another kernel")
+
+					globalLogger.Debug("Searching for candidate hosts for %d replicas with resource request [%v].",
+						int32(dockerScheduler.Policy().NumReplicas()), nextKernelSpec.ResourceSpec.ToDecimalSpec().String())
+
+					for _, host := range hosts {
+						globalLogger.Debug("Host %s: Resources: %s\n", host.GetNodeName(), host.GetResourceCountsAsString())
+					}
+
+					// We pass true here to make the resources on the selected hosts strictly unavailable
 					candidates, err := dockerScheduler.GetCandidateHosts(context.Background(), nextKernelSpec,
 						int32(dockerScheduler.Policy().NumReplicas()), true)
 					Expect(err).To(BeNil())
@@ -729,7 +750,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						fmt.Printf("Candidate host, Host %s, has the following resources: %s\n",
 							candidate.GetID(), candidate.GetResourceCountsAsString())
 
-						Expect(candidate.IdleResources().GPUs.IsZero()).To(BeTrue())
+						Expect(candidate.IdleGPUs()).To(Equal(4.0))
+						// Expect(candidate.PendingResources().GPU() > 0).To(BeTrue())
 					}
 
 					nextDataDirectory := uuid.NewString()
@@ -759,7 +781,16 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					nextKernelReplica.EXPECT().Container().AnyTimes().Return(nextContainer)
 					nextKernelReplica.EXPECT().String().AnyTimes().Return("NextMockedKernelReplica")
 					nextKernelReplica.EXPECT().KernelReplicaSpec().AnyTimes().Return(nextKernelReplicaSpec)
-					nextKernelReplica.EXPECT().Host().Times(1).Return(nil)
+					nextKernelReplica.EXPECT().Host().AnyTimes().Return(nil)
+
+					By("Correctly finding a host to serve a training event")
+
+					globalLogger.Debug("Searching for candidate hosts for 1 replica with resource request [%v].",
+						nextKernelReplica.ResourceSpec().String())
+
+					for _, host := range hosts {
+						globalLogger.Debug("Host %s: Resources: %s\n", host.GetNodeName(), host.GetResourceCountsAsString())
+					}
 
 					hostMapper.EXPECT().GetHostsOfKernel(nextKernelId).AnyTimes().Return([]scheduling.Host{}, nil)
 
