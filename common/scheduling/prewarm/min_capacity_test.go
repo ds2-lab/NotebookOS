@@ -354,8 +354,9 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				return true
 			}, time.Second*5, time.Millisecond*100).Should(BeTrue())
 
-			created := <-createdChan
-			target := <-targetChan
+			var created, target int32
+			Eventually(createdChan, time.Second*1, time.Millisecond*250).Should(Receive(&created))
+			Eventually(targetChan, time.Second*1, time.Millisecond*250).Should(Receive(&target))
 
 			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
 			Expect(target).To(Equal(int32(numHosts * initialCapacity)))

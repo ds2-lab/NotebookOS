@@ -1066,6 +1066,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					var wg sync.WaitGroup
 					wg.Add(1)
 
+					kernel.EXPECT().MigrationStarted().Times(1).Return(nil)
+					kernel.EXPECT().MigrationConcluded().Times(1)
+
 					go func() {
 						// defer GinkgoRecover()
 						resp, reason, err := dockerScheduler.MigrateKernelReplica(context.Background(), kernelReplica1,

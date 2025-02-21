@@ -729,16 +729,24 @@ func (p *BaseContainerPrewarmer) onPrewarmedContainerUsed(container scheduling.P
 //
 // provisionContainers returns the number of pre-warmed scheduling.KernelContainer instances created.
 func (p *BaseContainerPrewarmer) provisionContainers(host scheduling.Host, n int) (int, error) {
+	startTime := time.Now()
 	for i := 0; i < n; i++ {
 		p.log.Debug("Provisioning new pre-warmed container %d/%d on host %s.", i+1, n, host.GetNodeName())
+
+		startCurrHost := time.Now()
 		err := p.provisionContainer(host)
 
 		if err != nil {
 			return i, err
 		}
+
+		p.log.Debug("Successfully provisioned new pre-warmed container %d/%d on host %s in %v.",
+			i+1, n, host.GetNodeName(), time.Since(startCurrHost))
 	}
 
-	p.log.Debug("Successfully provisioned %d pre-warmed container(s) on host %s.", n, host.GetNodeName())
+	p.log.Debug("Successfully provisioned %d pre-warmed container(s) on host %s in %v.",
+		n, host.GetNodeName(), time.Since(startTime))
+
 	return n, nil
 }
 
@@ -771,6 +779,8 @@ func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error 
 		DockerModeKernelDebugPort: -1,
 		PrewarmContainer:          true,
 	}
+
+	p.log.Debug("Calling StartKernelReplica on host %s...", host.GetNodeName())
 
 	resp, err := host.StartKernelReplica(ctx, spec)
 	if err != nil {
