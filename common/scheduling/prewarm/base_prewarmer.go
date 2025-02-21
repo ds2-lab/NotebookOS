@@ -481,6 +481,7 @@ func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainers() (created in
 		case numCreated := <-numCreatedChan:
 			{
 				atomic.AddInt32(&created, numCreated)
+				numResponses += 1
 			}
 		}
 	}
@@ -542,9 +543,11 @@ func (p *BaseContainerPrewarmer) ProvisionContainers(host scheduling.Host, n int
 		err := p.ProvisionContainer(host)
 
 		if err != nil {
+			p.log.Error("Failed to provision single container on host %s: %v", host.GetNodeName(), err)
 			return 0
 		}
 
+		p.log.Debug("Provisioned single container on host %s.", host.GetNodeName())
 		return 1
 	}
 
@@ -819,27 +822,8 @@ func (p *BaseContainerPrewarmer) unsafeRegisterPrewarmedContainer(container sche
 	fifo, _ := p.PrewarmContainersPerHost[container.HostId()]
 	fifo.Enqueue(container)
 
-	p.log.Debug("Number of pre-warmed containers on host %s: %d", container.HostName(), fifo.Len())
+	p.log.Debug("Number of pre-warmed containers on host \"%s\": %d", container.HostName(), fifo.Len())
 	return nil
-}
-
-// registerPrewarmedContainerInfo registers a pre-warmed container that was successfully created on the specified Host.
-//
-// registerPrewarmedContainerInfo is explicitly thread safe.
-func (p *BaseContainerPrewarmer) registerPrewarmedContainerInfo(connInfo *proto.KernelConnectionInfo, spec *proto.KernelReplicaSpec, host scheduling.Host) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.log.Debug("Registering pre-warmed container created on host %s.", host.GetNodeName())
-
-	prewarmedContainer := NewPrewarmedContainerBuilder().
-		WithHost(host).
-		WithKernelConnectionInfo(connInfo).
-		WithKernelReplicaSpec(spec).
-		WithPrewarmedContainerUsedCallback(p.onPrewarmedContainerUsed).
-		Build()
-
-	return p.unsafeRegisterPrewarmedContainer(prewarmedContainer)
 }
 
 // onPrewarmContainerProvisioned is called whenever a PrewarmedContainer is successfully provisioned.

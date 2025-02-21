@@ -270,14 +270,18 @@ var _ = Describe("Base Prewarmer Tests", func() {
 							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 							Times(initialCapacity).
 							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-								GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
+								globalLogger.Info("Creating prewarm container on host %s (ID=%s).",
 									host.GetNodeName(), host.GetID())
 
 								startReplicaCalledWg.Done()
 
+								globalLogger.Info("Passed startReplicaCalledWg.Done()")
+
 								blockStartReplicaWg.Wait()
 
-								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								globalLogger.Info("Passed blockStartReplicaWg.Wait()")
+
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 								return connInfo, nil
 							})
 
@@ -298,7 +302,9 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			}
 
 			go func() {
+				globalLogger.Info("Provision initial prewarm containers")
 				created, target := prewarmer.ProvisionInitialPrewarmContainers()
+				globalLogger.Info("Provisioned initial prewarm containers")
 
 				createdChan <- created
 				targetChan <- target
@@ -427,10 +433,9 @@ var _ = Describe("Base Prewarmer Tests", func() {
 							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 							Times(initialCapacity).
 							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-								GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
+								globalLogger.Info("Creating prewarm container on host %s (ID=%s).\n",
 									host.GetNodeName(), host.GetID())
-
-								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
 								return connInfo, nil
 							})
 
@@ -563,7 +568,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 								Times(1).
 								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -628,7 +633,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 								Times(1).
 								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -738,7 +743,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 								Times(1).
 								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -806,7 +811,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 									GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
 										host.GetNodeName(), host.GetID())
 
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
