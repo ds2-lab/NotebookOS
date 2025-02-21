@@ -159,6 +159,11 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 	}
 
 	Context("Unit Tests", func() {
+		AfterEach(func() {
+			if prewarmer != nil {
+				_ = prewarmer.Stop()
+			}
+		})
 
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
@@ -376,7 +381,7 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			mockCluster.EXPECT().Len().AnyTimes().Return(numHosts)
 
 			initialCapacity := 1
-			capacity := 2 * numHosts
+			capacity := 4 * numHosts
 
 			By("Being created or instantiated correctly")
 
@@ -540,11 +545,7 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			// Done provisioning.
-			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
-				Expect(curr).To(Equal(2))
-				Expect(prov).To(Equal(0))
-			}
+			Expect(prewarmer.Len()).To(Equal(capacity))
 
 			//////////////////////////////////////////////
 			//////////////////////////////////////////////
@@ -627,11 +628,7 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			// Done provisioning.
-			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
-				Expect(curr).To(Equal(2))
-				Expect(prov).To(Equal(0))
-			}
+			Expect(prewarmer.Len()).To(Equal(capacity))
 
 			///////////////////////////////////////////////
 			///////////////////////////////////////////////
@@ -716,11 +713,75 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			// Done provisioning.
-			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
-				Expect(curr).To(Equal(2))
-				Expect(prov).To(Equal(0))
-			}
+			Expect(prewarmer.Len()).To(Equal(capacity))
+		})
+
+		It("Will replace containers when they are used", func() {
+			numHosts := 3
+			initialCapacity := 2
+			capacity := numHosts * 6
+
+			By("Being created or instantiated correctly")
+
+			createAndInitializePrewarmer(initialCapacity, capacity)
+
+			Expect(prewarmer).ToNot(BeNil())
+			_, ok := prewarmer.(*prewarm.FixedCapacityPrewarmer)
+			Expect(ok).To(BeTrue())
+
+			Expect(prewarmer.InitialPrewarmedContainersPerHost()).To(Equal(initialCapacity))
+			Expect(prewarmer.MinPrewarmedContainersPerHost()).To(Equal(0))
+			Expect(prewarmer.MaxPrewarmedContainersPerHost()).To(Equal(-1))
+
+			Expect(prewarmer.Len()).To(Equal(0))
+
+			hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+			Expect(len(hosts)).To(Equal(numHosts))
+			Expect(len(localGatewayClients)).To(Equal(numHosts))
+
+			mockCluster.
+				EXPECT().
+				RangeOverHosts(gomock.Any()).
+				Times(1).
+				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+					for idx, host := range hosts {
+						connInfo := &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}
+
+						localGatewayClient := localGatewayClients[idx]
+						localGatewayClient.
+							EXPECT().
+							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+							Times(initialCapacity).
+							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
+									host.GetNodeName(), host.GetID())
+
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
+								return connInfo, nil
+							})
+
+						f(host.GetID(), host)
+					}
+				})
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
+
+			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
 		})
 
 		Context("Initial Capacity", func() {

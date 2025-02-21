@@ -151,6 +151,11 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 	}
 
 	Context("Unit Tests", func() {
+		AfterEach(func() {
+			if prewarmer != nil {
+				_ = prewarmer.Stop()
+			}
+		})
 
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())

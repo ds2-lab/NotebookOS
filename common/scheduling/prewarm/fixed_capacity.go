@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"go.uber.org/atomic"
 )
 
 type FixedCapacityPrewarmerConfig struct {
@@ -25,6 +26,12 @@ type FixedCapacityPrewarmer struct {
 	*BaseContainerPrewarmer
 
 	Config *FixedCapacityPrewarmerConfig
+
+	// capacityMetOnce is set to true when the target capacity is reached for the first time.
+	// Once this occurs, a FixedCapacityPrewarmer will not provision any additional prewarm containers unless
+	// the ProactiveReplacementEnabled field of its FixedCapacityPrewarmerConfig is set to true, in which case it
+	// will provision additional pre-warm containers in response to containers being used.
+	capacityMetOnce atomic.Bool
 }
 
 // NewFixedCapacityPrewarmer creates a new FixedCapacityPrewarmer struct and returns a pointer to it.
@@ -96,11 +103,25 @@ func (p *FixedCapacityPrewarmer) ValidatePoolCapacity() {
 	if totalSize >= p.Config.Capacity {
 		p.log.Debug("PoolSize: %d, Prov: %d, Target: %d. %s",
 			poolSize, numProvisioning, p.Config.Capacity, utils.GreenStyle.Render("[✓]"))
+
+		p.capacityMetOnce.Store(true)
+
 		return
 	}
 
-	p.log.Debug("PoolSize: %d, Prov: %d, Target: %d. %s",
-		poolSize, numProvisioning, p.Config.Capacity, utils.RedStyle.Render("[✗]"))
+	capacityMetOnce := p.capacityMetOnce.Load()
+
+	// If we've met the target capacity once, then we won't provision any additional containers as part of routine
+	// "maintenance". We only provision new containers if our ProactiveReplacementEnabled flag is set to true.
+	if capacityMetOnce {
+		p.log.Debug("PoolSize: %d, Prov: %d, Target: %d, TargetCapacityMetOnce: %v. %s",
+			poolSize, numProvisioning, p.Config.Capacity, capacityMetOnce, utils.OrangeStyle.Render("[✗]"))
+
+		return
+	}
+
+	p.log.Debug("PoolSize: %d, Prov: %d, Target: %d, TargetCapacityMetOnce: %v. %s",
+		poolSize, numProvisioning, p.Config.Capacity, capacityMetOnce, utils.RedStyle.Render("[✗]"))
 
 	numToCreate := p.Config.Capacity - totalSize
 	p.log.Debug("Need to create %d new prewarmed containers (curr=%d, target=%d).",
