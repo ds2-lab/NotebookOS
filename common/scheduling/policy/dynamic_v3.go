@@ -2,8 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 )
 
 type DynamicV3Policy struct {
@@ -46,6 +48,16 @@ func (p *DynamicV3Policy) ValidateCapacity(cluster scheduling.Cluster) {
 	if !p.isValidatingCapacity.CompareAndSwap(1, 0) {
 		panic("Failed to swap isValidatingCapacity 1 → 0 after finishing call to DynamicV3Policy::ValidateCapacity")
 	}
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *DynamicV3Policy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
 }
 
 // RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.

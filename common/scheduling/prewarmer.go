@@ -91,6 +91,14 @@ type ContainerPrewarmer interface {
 	// ProvisionContainers will panic if the given scheduling.Host is nil.
 	ProvisionContainers(host Host, n int) int32
 
+	// RequestProvisionContainers attempts to provision n new pre-warm containers on scheduling.Host instances that
+	// are validated by the provided HostCriteriaFunction. If the HostCriteriaFunction is nil, then the scheduling.Host
+	// instances are selected at the discretion of the implementing ContainerPrewarmer.
+	//
+	// RequestProvisionContainers returns a map from host ID to the number of prewarm containers provisioned on that
+	// scheduling.Host, as well as an error, if one occurred.
+	RequestProvisionContainers(n int, criteria HostCriteriaFunction, separateHostsOnly bool) (map[string]int, error)
+
 	// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 	ProvisionContainer(host Host) error
 

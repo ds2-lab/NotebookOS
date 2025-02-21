@@ -9227,6 +9227,21 @@ func (mr *MockPolicyMockRecorder) GetNewPlacer(metricsProvider any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNewPlacer", reflect.TypeOf((*MockPolicy)(nil).GetNewPlacer), metricsProvider)
 }
 
+// HandleFailedAttemptToGetViableHosts mocks base method.
+func (m *MockPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32, hosts []scheduling.Host) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HandleFailedAttemptToGetViableHosts", ctx, kernelSpec, numHosts, hosts)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HandleFailedAttemptToGetViableHosts indicates an expected call of HandleFailedAttemptToGetViableHosts.
+func (mr *MockPolicyMockRecorder) HandleFailedAttemptToGetViableHosts(ctx, kernelSpec, numHosts, hosts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleFailedAttemptToGetViableHosts", reflect.TypeOf((*MockPolicy)(nil).HandleFailedAttemptToGetViableHosts), ctx, kernelSpec, numHosts, hosts)
+}
+
 // IdleSessionReclamationPolicy mocks base method.
 func (m *MockPolicy) IdleSessionReclamationPolicy() scheduling.IdleSessionReclamationPolicy {
 	m.ctrl.T.Helper()
@@ -13152,6 +13167,21 @@ func (m *MockContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 func (mr *MockContainerPrewarmerMockRecorder) RequestPrewarmedContainer(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPrewarmedContainer", reflect.TypeOf((*MockContainerPrewarmer)(nil).RequestPrewarmedContainer), host)
+}
+
+// RequestProvisionContainers mocks base method.
+func (m *MockContainerPrewarmer) RequestProvisionContainers(n int, criteria scheduling.HostCriteriaFunction) (map[string]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestProvisionContainers", n, criteria)
+	ret0, _ := ret[0].(map[string]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RequestProvisionContainers indicates an expected call of RequestProvisionContainers.
+func (mr *MockContainerPrewarmerMockRecorder) RequestProvisionContainers(n, criteria any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestProvisionContainers", reflect.TypeOf((*MockContainerPrewarmer)(nil).RequestProvisionContainers), n, criteria)
 }
 
 // ReturnPrewarmContainer mocks base method.

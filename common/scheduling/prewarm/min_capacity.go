@@ -60,6 +60,11 @@ func (p *MinCapacityPrewarmer) ValidatePoolCapacity() {
 			continue
 		}
 
+		// Skip hosts that are excluded from scheduling (i.e., probably hosts that are being idle-reclaimed).
+		if host.IsExcludedFromScheduling() {
+			continue
+		}
+
 		p.ValidateHostCapacity(host)
 	}
 }

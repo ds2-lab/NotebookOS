@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 	"math"
 )
 
@@ -99,6 +100,66 @@ func (p *MiddleGroundPolicy) ValidateHostForKernel(host scheduling.Host, _ *prot
 	}
 
 	return true, nil
+}
+
+// getContainerPrewarmer performs all the null-checks to retrieve the scheduling.ContainerPrewarmer from the
+// scheduling.Cluster, panicking if at any point, something is nil (including the scheduling.ContainerPrewarmer).
+func (p *MiddleGroundPolicy) getContainerPrewarmer() scheduling.ContainerPrewarmer {
+	cluster := getClusterFromPolicy(p)
+
+	scheduler := cluster.Scheduler()
+	if scheduler == nil {
+		panic("Scheduler is nil.")
+	}
+
+	containerPrewarmer := scheduler.ContainerPrewarmer()
+	if containerPrewarmer == nil {
+		panic("ContainerPrewarmer is nil.")
+	}
+
+	return containerPrewarmer
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *MiddleGroundPolicy) HandleFailedAttemptToGetViableHosts(_ context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	containerPrewarmer := p.getContainerPrewarmer()
+
+	hostMap := make(map[string]scheduling.Host, len(hosts))
+	for _, host := range hosts {
+		hostMap[host.GetID()] = host
+	}
+
+	kernelResourceSpec := kernelSpec.ResourceSpec.ToDecimalSpec()
+
+	criteriaFunc := func(host scheduling.Host) error {
+		if _, ok := hostMap[host.GetID()]; ok {
+			return fmt.Errorf("host \"%s\" is already selected as a candidate host for kernel \"%s\"",
+				host.GetNodeName(), kernelSpec.Id)
+		}
+
+		if !host.CanServeContainer(kernelResourceSpec) {
+			return fmt.Errorf("host \"%s\" does not have sufficient resources to serve kernel \"%s\"",
+				host.GetNodeName(), kernelSpec.Id)
+		}
+
+		if !host.CanCommitResources(kernelResourceSpec) {
+			return fmt.Errorf("host \"%s\" does not have sufficient idle resources to commit to kernel \"%s\"",
+				host.GetNodeName(), kernelSpec.Id)
+		}
+
+		return nil
+	}
+
+	provisioned, err := containerPrewarmer.RequestProvisionContainers(int(numHosts), criteriaFunc, true)
+	if err != nil {
+		p.log.Warn("Error while provisioning prewarm containers on hosts: %v", err)
+		return len(provisioned) > 0, err
+	}
+
+	return len(provisioned) > 0, nil
 }
 
 // ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that

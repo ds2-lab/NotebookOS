@@ -2,8 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 )
 
 // ReservationPolicy represents a very simple reservation-based scheduling policy that uses long-running
@@ -37,6 +39,16 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions, clusterProvider sch
 	}
 
 	return policy, nil
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *ReservationPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
 }
 
 // ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being

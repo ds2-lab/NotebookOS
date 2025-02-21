@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"golang.org/x/net/context"
@@ -243,6 +244,54 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 	limit, load := multiReplicaTryScaleOut(policy, cluster, log)
 
 	defaultTryScaleIn(policy, cluster, log, limit, load)
+}
+
+func getClusterFromPolicy(policy scheduling.Policy) scheduling.Cluster {
+	clusterProvider := policy.GetClusterProviderFunc()
+	if clusterProvider == nil {
+		panic("ClusterProvider is nil.")
+	}
+
+	cluster := clusterProvider()
+	if cluster == nil {
+		panic("Cluster is nil.")
+	}
+
+	return cluster
+}
+
+func handleFailedAttemptToFindCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32,
+	hosts []scheduling.Host, log logger.Logger, policy scheduling.Policy) bool {
+
+	if !policy.ResourceScalingPolicy().ScalingOutEnabled() {
+		log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
+		return true
+	}
+
+	numHostsRequired := numHosts - int32(len(hosts))
+	log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
+		numHostsRequired, kernelSpec.Id)
+
+	prom := getClusterFromPolicy(policy).RequestHosts(ctx, numHostsRequired)
+	err := prom.Error()
+
+	if err != nil {
+		if errors.Is(err, scheduling.ErrScalingActive) {
+			log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
+				kernelSpec.Id)
+		} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+			log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+				numHostsRequired, kernelSpec.Id, err)
+
+			// We're out of hosts. Give up. It can be resubmitted by the client later.
+			return false
+		} else {
+			log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+				numHostsRequired, kernelSpec.Id, err)
+		}
+	}
+
+	return true
 }
 
 // singleReplicaValidateCapacity is used by single-replica policies like Reservation and FCFS to scale up/down.

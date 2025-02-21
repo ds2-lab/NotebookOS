@@ -443,43 +443,6 @@ func (s *BaseScheduler) SearchForCandidateHosts(numToFind int, kernelSpec *proto
 	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, forTraining)
 }
 
-// handleFailedAttemptToFindCandidateHosts is called upon failing to find the requested number of viable, candidate hosts.
-//
-// handleFailedAttemptToFindCandidateHosts returns true if another attempt should be made and false otherwise.
-func (s *BaseScheduler) handleFailedAttemptToFindCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
-	numHosts int32, hosts []scheduling.Host) bool {
-	
-	if !s.isScalingOutEnabled() {
-		s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
-		return true
-	}
-
-	numHostsRequired := numHosts - int32(len(hosts))
-	s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
-		numHostsRequired, kernelSpec.Id)
-
-	p := s.cluster.RequestHosts(ctx, numHostsRequired)
-	err := p.Error()
-
-	if err != nil {
-		if errors.Is(err, scheduling.ErrScalingActive) {
-			s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
-				kernelSpec.Id)
-		} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
-			s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-				numHostsRequired, kernelSpec.Id, err)
-
-			// We're out of hosts. Give up. It can be resubmitted by the client later.
-			return false
-		} else {
-			s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-				numHostsRequired, kernelSpec.Id, err)
-		}
-	}
-
-	return true
-}
-
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -526,7 +489,14 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far (attempt=%d).",
 				len(hosts), numHosts, kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
-			shouldContinue := s.handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts)
+			var shouldContinue bool
+			shouldContinue, err = s.Policy().HandleFailedAttemptToGetViableHosts(ctx, kernelSpec, numHosts, hosts)
+			if err != nil {
+				s.log.Error("Error while handling failed attempt to search for %d candidate host(s) for kernel %s: %v",
+					numHosts, kernelSpec.Id, err)
+				return nil, err
+			}
+
 			if !shouldContinue {
 				break
 			}

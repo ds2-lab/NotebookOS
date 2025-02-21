@@ -2,8 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 )
 
 type DynamicV4Policy struct {
@@ -69,6 +71,16 @@ func (p *DynamicV4Policy) RequirePrewarmContainer() bool {
 // a prewarm container available or not factor that into the placement decision.
 func (p *DynamicV4Policy) PrioritizePrewarmContainers() bool {
 	return false
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *DynamicV4Policy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
 }
 
 func (p *DynamicV4Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {

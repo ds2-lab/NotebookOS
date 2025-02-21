@@ -2,8 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 )
 
 type GandivaPolicy struct {
@@ -48,6 +50,16 @@ func (p *GandivaPolicy) ReuseWarmContainers() bool {
 // RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
 func (p *GandivaPolicy) RequirePrewarmContainer() bool {
 	return false
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *GandivaPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
 }
 
 // PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with

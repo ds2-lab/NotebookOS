@@ -10,6 +10,7 @@
 package mock_scheduler
 
 import (
+	context "context"
 	reflect "reflect"
 
 	proto "github.com/scusemua/distributed-notebook/common/proto"
@@ -237,6 +238,21 @@ func (m *MockSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.MetricsPr
 func (mr *MockSchedulingPolicyMockRecorder) GetNewPlacer(metricsProvider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNewPlacer", reflect.TypeOf((*MockSchedulingPolicy)(nil).GetNewPlacer), metricsProvider)
+}
+
+// HandleFailedAttemptToGetViableHosts mocks base method.
+func (m *MockSchedulingPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32, hosts []scheduling.Host) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HandleFailedAttemptToGetViableHosts", ctx, kernelSpec, numHosts, hosts)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HandleFailedAttemptToGetViableHosts indicates an expected call of HandleFailedAttemptToGetViableHosts.
+func (mr *MockSchedulingPolicyMockRecorder) HandleFailedAttemptToGetViableHosts(ctx, kernelSpec, numHosts, hosts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleFailedAttemptToGetViableHosts", reflect.TypeOf((*MockSchedulingPolicy)(nil).HandleFailedAttemptToGetViableHosts), ctx, kernelSpec, numHosts, hosts)
 }
 
 // IdleSessionReclamationPolicy mocks base method.
