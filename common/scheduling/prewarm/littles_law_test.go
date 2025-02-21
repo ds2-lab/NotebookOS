@@ -148,6 +148,10 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 	}
 
 	Context("Unit Tests", func() {
+		clusterProvider := func() scheduling.Cluster {
+			return mockCluster
+		}
+
 		AfterEach(func() {
 			if prewarmer != nil {
 				_ = prewarmer.Stop()
@@ -164,7 +168,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(clusterGatewayOptions.SchedulerOptions.PrewarmingEnabled).To(BeTrue())
 			Expect(clusterGatewayOptions.SchedulerOptions.PrewarmingPolicy).To(Equal(scheduling.LittleLawCapacity.String()))
 
-			schedulingPolicy, err = policy.NewStaticPolicy(&clusterGatewayOptions.SchedulerOptions)
+			schedulingPolicy, err = policy.NewStaticPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.PolicyKey()).To(Equal(scheduling.Static))
@@ -708,6 +712,10 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			clusterGateway *daemon.ClusterGatewayImpl
 		)
 
+		clusterProvider := func() scheduling.Cluster {
+			return dockerCluster
+		}
+
 		BeforeEach(func() {
 			err := json.Unmarshal([]byte(gatewayStaticConfigJson), &clusterGatewayOptions)
 			GinkgoWriter.Printf("Error: %v\n", err)
@@ -729,7 +737,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			})
 
-			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions)
+			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 

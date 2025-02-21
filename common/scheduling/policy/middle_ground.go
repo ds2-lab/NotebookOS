@@ -152,7 +152,7 @@ func (p *MiddleGroundPolicy) HandleFailedAttemptToGetViableHosts(_ context.Conte
 				host.GetNodeName(), kernelSpec.Id)
 		}
 
-		return nil
+		return nil // Host is viable (as of right now, at least...)
 	}
 
 	provisioned, err := containerPrewarmer.RequestProvisionContainers(int(numHosts), criteriaFunc, true)
