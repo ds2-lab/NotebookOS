@@ -1119,10 +1119,14 @@ func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, ol
 		}
 	}()
 
-	_, err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
+	registered, err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
 	if err != nil {
 		h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica): %v",
 			container.ReplicaId(), container.KernelID(), err)
+
+		if !registered {
+			tx.Abort(err)
+		}
 
 		return err
 	}

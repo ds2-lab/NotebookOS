@@ -27,7 +27,7 @@ type CoordinatedTransaction interface {
 	Succeeded() bool
 	Started() bool
 	Wait() bool
-	Abort()
+	Abort(reason error)
 	RegisterParticipant(id int32, getInitialState GetInitialStateForTransaction, operation TransactionOperation, mu *sync.Mutex) (bool, error)
 	NumExpectedParticipants() int
 	NumRegisteredParticipants() int

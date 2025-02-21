@@ -252,11 +252,20 @@ func (t *CoordinatedTransaction) Wait() bool {
 }
 
 // Abort attempts to abort the transaction.
-func (t *CoordinatedTransaction) Abort() {
+//
+// Abort should only be called if a participant knows that it will not be partaking.
+//
+// TODO: This really doesn't work very well.
+func (t *CoordinatedTransaction) Abort(err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.failureReason == nil {
+		t.failureReason = err
+	}
+
 	t.shouldAbort.Store(true)
+	t.initGroup.Done() // Should only call this if we know the participant won't be registering.
 }
 
 // RegisterParticipant is used to register a "participant" of the CoordinatedTransaction.
@@ -528,6 +537,14 @@ func (t *CoordinatedTransaction) run() error {
 
 	if !t.participantsInitialized.Load() {
 		return ErrParticipantsNotInitialized
+	}
+
+	if t.shouldAbort.Load() {
+		if t.failureReason == nil {
+			t.failureReason = fmt.Errorf("%w: unknown or unspecified reason", ErrTransactionAborted)
+		}
+
+		return t.failureReason
 	}
 
 	//err := t.initializeAndLockParticipants()
