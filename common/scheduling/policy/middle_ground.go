@@ -134,6 +134,8 @@ func (p *MiddleGroundPolicy) HandleFailedAttemptToGetViableHosts(_ context.Conte
 
 	kernelResourceSpec := kernelSpec.ResourceSpec.ToDecimalSpec()
 
+	// Note that a host that passes these criteria could fail to do so later.
+	// This isn't a promise/guarantee. Likewise, a host that fails could later be eligible.
 	criteriaFunc := func(host scheduling.Host) error {
 		if _, ok := hostMap[host.GetID()]; ok {
 			return fmt.Errorf("host \"%s\" is already selected as a candidate host for kernel \"%s\"",

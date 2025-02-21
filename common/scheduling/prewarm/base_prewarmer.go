@@ -13,6 +13,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"golang.org/x/net/context"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -405,13 +406,15 @@ func (p *BaseContainerPrewarmer) RequestProvisionContainers(n int, criteria sche
 
 	var (
 		// Keep track of the hosts on which we've provisioned a pre-warm container in case 'separateHostsOnly' is true.
-		provisionMap        = make(map[string]int)
-		totalNumCreated     = 0
-		startTime           = time.Now()
-		createdContainerMap = make(map[string]int)
+		provisionMap           = make(map[string]int)
+		totalNumCreated        = 0
+		startTime              = time.Now()
+		createdContainerMap    = make(map[string]int)
+		consecutiveFailures    = 0 // Failure means we didn't provision any prewarm containers that iteration
+		maxConsecutiveFailures = 2
 	)
 
-	for totalNumCreated < n {
+	for totalNumCreated < n && consecutiveFailures < maxConsecutiveFailures {
 		// We recreate the heap every iteration.
 		prewarmHostHeap := types.NewHeap(prewarmHostMetadataKey)
 
@@ -494,11 +497,27 @@ func (p *BaseContainerPrewarmer) RequestProvisionContainers(n int, criteria sche
 		// If we didn't create any this iteration, then we'll give up.
 		// Otherwise, we may be stuck here forever (i.e., if none of the hosts are passing the criteria).
 		if numCreatedThisIteration == 0 {
-			break
+			// If we have two consecutive iterations with no new prewarm containers, then we'll give up.
+			consecutiveFailures += 1
+
+			sleepInterval := (time.Millisecond * 250) + (time.Millisecond * time.Duration(rand.Intn(1750)))
+
+			p.log.Warn(
+				utils.YellowStyle.Render(
+					"Prewarmed 0/%d container(s) this iter. Total so far: %d/%d. Consecutive failures: %d. Time elapsed: %v. Sleeping for %v."),
+				numCreatedThisIteration, numToCreate, totalNumCreated, n, consecutiveFailures, time.Since(startTime), sleepInterval)
+
+			// Sleep for a small amount of time, as sometimes things can change if you wait a little.
+			time.Sleep(sleepInterval)
+
+			continue
 		}
 
-		p.log.Debug("Provisioned %d/%d prewarm container(s) this iteration. Total so far: %d. Time elapsed: %v.",
-			numCreatedThisIteration, numToCreate, totalNumCreated, time.Since(startTime))
+		p.log.Debug(
+			utils.LightGreenStyle.Render(
+				"Prewarmed 0/%d container(s) this iter. Total so far: %d/%d. Time elapsed: %v."),
+			numCreatedThisIteration, numToCreate, totalNumCreated, n, time.Since(startTime))
+		consecutiveFailures = 0 // Reset this.
 	}
 
 	return createdContainerMap, nil
