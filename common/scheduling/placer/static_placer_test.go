@@ -115,6 +115,10 @@ var _ = Describe("Static Placer Tests", func() {
 		hostSpec *types.DecimalSpec
 	)
 
+	clusterProvider := func() scheduling.Cluster {
+		return dockerCluster
+	}
+
 	Context("Static Placer Backed By MultiIndex of LeastLoadedIndex Using FCFS-Batch", func() {
 		BeforeEach(func() {
 			err := json.Unmarshal([]byte(staticPlacerSchedulerTestOpts), &opts)
@@ -129,7 +133,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
 
-			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
