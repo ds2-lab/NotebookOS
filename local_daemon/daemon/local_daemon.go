@@ -2895,6 +2895,8 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 				d.log.Error("Error while handling \"execute_request\" message \"%s\": %v", msg.JupyterMessageId(), err)
 			}
 		}()
+
+		return nil
 	}
 
 	// Print a message about forwarding generic shell message.
@@ -2946,8 +2948,12 @@ func (d *LocalScheduler) handleExecuteRequest(msg *messaging.JupyterMessage, ker
 		// Return the result as an error or nil if there was no error.
 		switch res.(type) {
 		case error:
+			d.log.Error("Received error result for \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), res.(error))
 			return res.(error)
 		default:
+			d.log.Debug("Received result for \"%s\" message \"%s\" targeting kernel \"%s\".",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
 			return nil
 		}
 	}
