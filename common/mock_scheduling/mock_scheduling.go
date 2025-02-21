@@ -11105,11 +11105,12 @@ func (mr *MockAllocationManagerMockRecorder) AdjustKernelResourceRequest(updated
 }
 
 // AdjustKernelResourceRequestCoordinated mocks base method.
-func (m *MockAllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) error {
+func (m *MockAllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, schedulingMutex, tx)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // AdjustKernelResourceRequestCoordinated indicates an expected call of AdjustKernelResourceRequestCoordinated.
@@ -12038,15 +12039,17 @@ func (m *MockCoordinatedTransaction) EXPECT() *MockCoordinatedTransactionMockRec
 }
 
 // Abort mocks base method.
-func (m *MockCoordinatedTransaction) Abort() {
+func (m *MockCoordinatedTransaction) Abort(reason error) bool {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Abort")
+	ret := m.ctrl.Call(m, "Abort", reason)
+	ret0, _ := ret[0].(bool)
+	return ret0
 }
 
 // Abort indicates an expected call of Abort.
-func (mr *MockCoordinatedTransactionMockRecorder) Abort() *gomock.Call {
+func (mr *MockCoordinatedTransactionMockRecorder) Abort(reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Abort", reflect.TypeOf((*MockCoordinatedTransaction)(nil).Abort))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Abort", reflect.TypeOf((*MockCoordinatedTransaction)(nil).Abort), reason)
 }
 
 // FailureReason mocks base method.
@@ -12089,6 +12092,20 @@ func (m *MockCoordinatedTransaction) IsComplete() bool {
 func (mr *MockCoordinatedTransactionMockRecorder) IsComplete() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsComplete", reflect.TypeOf((*MockCoordinatedTransaction)(nil).IsComplete))
+}
+
+// LockedWereAcquired mocks base method.
+func (m *MockCoordinatedTransaction) LockedWereAcquired() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockedWereAcquired")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// LockedWereAcquired indicates an expected call of LockedWereAcquired.
+func (mr *MockCoordinatedTransactionMockRecorder) LockedWereAcquired() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockedWereAcquired", reflect.TypeOf((*MockCoordinatedTransaction)(nil).LockedWereAcquired))
 }
 
 // NumExpectedParticipants mocks base method.
@@ -12134,11 +12151,12 @@ func (mr *MockCoordinatedTransactionMockRecorder) ParticipantsInitialized() *gom
 }
 
 // RegisterParticipant mocks base method.
-func (m *MockCoordinatedTransaction) RegisterParticipant(id int32, getInitialState scheduling.GetInitialStateForTransaction, operation scheduling.TransactionOperation, mu *sync.Mutex) error {
+func (m *MockCoordinatedTransaction) RegisterParticipant(id int32, getInitialState scheduling.GetInitialStateForTransaction, operation scheduling.TransactionOperation, mu *sync.Mutex) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RegisterParticipant", id, getInitialState, operation, mu)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // RegisterParticipant indicates an expected call of RegisterParticipant.
@@ -13050,6 +13068,18 @@ func (m *MockContainerPrewarmer) ProvisionInitialPrewarmContainers() (int32, int
 func (mr *MockContainerPrewarmerMockRecorder) ProvisionInitialPrewarmContainers() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProvisionInitialPrewarmContainers", reflect.TypeOf((*MockContainerPrewarmer)(nil).ProvisionInitialPrewarmContainers))
+}
+
+// ProvisionInitialPrewarmContainersOnHost mocks base method.
+func (m *MockContainerPrewarmer) ProvisionInitialPrewarmContainersOnHost(host scheduling.Host, numCreatedChan chan<- int32) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ProvisionInitialPrewarmContainersOnHost", host, numCreatedChan)
+}
+
+// ProvisionInitialPrewarmContainersOnHost indicates an expected call of ProvisionInitialPrewarmContainersOnHost.
+func (mr *MockContainerPrewarmerMockRecorder) ProvisionInitialPrewarmContainersOnHost(host, numCreatedChan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProvisionInitialPrewarmContainersOnHost", reflect.TypeOf((*MockContainerPrewarmer)(nil).ProvisionInitialPrewarmContainersOnHost), host, numCreatedChan)
 }
 
 // RequestPrewarmedContainer mocks base method.

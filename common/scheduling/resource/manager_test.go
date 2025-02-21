@@ -110,10 +110,11 @@ var _ = Describe("Manager Tests", func() {
 			manager1 := resource.NewManager(baseSpec)
 			initialState1, commit1 := manager1.GetTransactionData()
 
-			err := coordinatedTransaction.RegisterParticipant(1, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err := coordinatedTransaction.RegisterParticipant(1, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState1, commit1
 			}, tx, &mu1)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
 			Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
@@ -122,10 +123,11 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(2, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err = coordinatedTransaction.RegisterParticipant(2, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState2, commit2
 			}, tx, &mu2)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
 			Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
@@ -134,10 +136,11 @@ var _ = Describe("Manager Tests", func() {
 
 			manager3 := resource.NewManager(baseSpec)
 			initialState3, commit3 := manager3.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(3, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err = coordinatedTransaction.RegisterParticipant(3, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState3, commit3
 			}, tx, &mu3)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
@@ -183,10 +186,11 @@ var _ = Describe("Manager Tests", func() {
 
 			manager1 := resource.NewManager(baseSpec)
 			initialState1, commit1 := manager1.GetTransactionData()
-			err := coordinatedTransaction.RegisterParticipant(1, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err := coordinatedTransaction.RegisterParticipant(1, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState1, commit1
 			}, tx, &mu1)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
 			Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
@@ -195,10 +199,11 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(2, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err = coordinatedTransaction.RegisterParticipant(2, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState2, commit2
 			}, tx, &mu2)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
 			Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
@@ -207,10 +212,11 @@ var _ = Describe("Manager Tests", func() {
 
 			manager3 := resource.NewManager(baseSpec)
 			initialState3, commit3 := manager3.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(3, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err = coordinatedTransaction.RegisterParticipant(3, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState3, commit3
 			}, tx, &mu3)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
