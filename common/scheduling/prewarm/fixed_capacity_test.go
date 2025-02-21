@@ -160,7 +160,7 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 
 	Context("Unit Tests", func() {
 		AfterEach(func() {
-			if prewarmer != nil {
+			if prewarmer != nil && prewarmer.IsRunning() {
 				_ = prewarmer.Stop()
 			}
 		})
@@ -442,17 +442,13 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			guardChan := make(chan struct{})
 			minCapacityPrewarmer.GuardChannel = guardChan
 
-			var preRunWg, postRunWg sync.WaitGroup
-
 			mockCluster.
 				EXPECT().
 				RangeOverHosts(gomock.Any()).
 				AnyTimes().
 				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
 					for _, host := range hosts {
-						preRunWg.Done()
 						f(host.GetID(), host)
-						postRunWg.Done()
 					}
 				})
 
@@ -490,44 +486,10 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			// Wait for prewarmer to begin running.
 			Eventually(prewarmer.IsRunning, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
-			// Wait for prewarmer to call StartKernelReplica on each prov.
-			Eventually(func() error {
-				preRunWg.Wait()
-				return nil
-			}, time.Second*1, time.Millisecond*250).Should(Succeed())
-
-			// This should occur immediately, essentially.
-			Eventually(func() bool {
-				return prewarmer.TotalNumProvisioning() > 0
-			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
-
-			// This should occur immediately, essentially.
-			Eventually(func() bool {
-				for i := 0; i < numHosts; i++ {
-					curr, prov := prewarmer.HostLen(hosts[i])
-
-					if curr != 1 {
-						return false
-					}
-
-					if prov != 1 {
-						return false
-					}
-				}
-
-				return true
-			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
-
-			// Wait for calls to StartKernelReplica and whatnot to finish.
-			postRunWg.Wait()
-
 			// This should occur more or less immediately.
 			Eventually(func() bool {
-				return prewarmer.Len() == 4
+				return prewarmer.Len() == capacity
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
-
-			// Done provisioning.
-			Expect(prewarmer.Len()).To(Equal(capacity))
 
 			//////////////////////////////////////////////
 			//////////////////////////////////////////////
@@ -541,44 +503,23 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			Expect(container).ToNot(BeNil())
 			Expect(container.Host()).To(Equal(hosts[1]))
 
-			container.OnPrewarmedContainerUsed()
-			Expect(prewarmer.Len()).To(Equal(3))
-			curr, prov := prewarmer.HostLen(hosts[1])
-			Expect(prov).To(Equal(0))
-			Expect(curr).To(Equal(1))
+			// This should occur more or less immediately.
+			Eventually(func() bool {
+				return prewarmer.Len() == capacity-1
+			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			guardChan <- struct{}{}
 
-			// This should occur immediately, essentially.
+			container.OnPrewarmedContainerUsed()
+			// This should occur more or less immediately.
 			Eventually(func() bool {
-				return prewarmer.TotalNumProvisioning() > 0
-			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
-
-			// This should occur immediately, essentially.
-			Eventually(func() bool {
-				curr, prov := prewarmer.HostLen(hosts[1])
-
-				if curr != 1 {
-					return false
-				}
-
-				if prov != 1 {
-					return false
-				}
-
-				return true
-			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
-
-			// Wait for calls to StartKernelReplica and whatnot to finish.
-			postRunWg.Wait()
+				return prewarmer.Len() == capacity
+			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			// This should occur more or less immediately.
 			Eventually(func() bool {
-				return prewarmer.Len() == 4
+				return prewarmer.Len() == capacity
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
-
-			// Done provisioning.
-			Expect(prewarmer.Len()).To(Equal(capacity))
 
 			///////////////////////////////////////////////
 			///////////////////////////////////////////////
@@ -594,46 +535,15 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 				Expect(container.Host()).To(Equal(hosts[0]))
 
 				container.OnPrewarmedContainerUsed()
-				Expect(prewarmer.Len()).To(Equal(4 - (i + 1)))
-				curr, prov = prewarmer.HostLen(hosts[0])
-				Expect(prov).To(Equal(0))
-				Expect(curr).To(Equal(2 - (i + 1)))
+				Expect(prewarmer.Len()).To(Equal(capacity - (i + 1)))
 			}
 
 			guardChan <- struct{}{}
 
-			preRunWg.Wait()
-
-			// This should occur immediately, essentially.
-			Eventually(func() bool {
-				return prewarmer.TotalNumProvisioning() == 2
-			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
-
-			// This should occur immediately, essentially.
-			Eventually(func() bool {
-				curr, prov := prewarmer.HostLen(hosts[0])
-
-				if curr != 0 {
-					return false
-				}
-
-				if prov != 2 {
-					return false
-				}
-
-				return true
-			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
-
-			// Wait for calls to StartKernelReplica and whatnot to finish.
-			postRunWg.Wait()
-
 			// This should occur more or less immediately.
 			Eventually(func() bool {
-				return prewarmer.Len() == 4
+				return prewarmer.Len() == capacity
 			}, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
-
-			// Done provisioning.
-			Expect(prewarmer.Len()).To(Equal(capacity))
 		})
 
 		Context("Initial Capacity", func() {

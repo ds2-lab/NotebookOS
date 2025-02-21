@@ -323,17 +323,21 @@ func (p *BaseContainerPrewarmer) Run() error {
 
 	p.log.Debug("Started running.")
 
+	doStop := func() error {
+		if !p.running.CompareAndSwap(1, 0) {
+			p.log.Warn("Prewarmer failed to stop cleanly")
+			return ErrFailedToStop
+		}
+
+		p.log.Debug("Prewarmer stopped.")
+		return nil
+	}
+
 	for {
 		select {
 		case <-p.stopChan:
 			{
-				if !p.running.CompareAndSwap(1, 0) {
-					p.log.Warn("Prewarmer failed to stop cleanly")
-					return ErrFailedToStop
-				}
-
-				p.log.Debug("Prewarmer stopped.")
-				return nil
+				return doStop()
 			}
 		default:
 		}
@@ -344,7 +348,18 @@ func (p *BaseContainerPrewarmer) Run() error {
 
 		if p.GuardChannel != nil {
 			p.log.Debug("Polling on GuardChannel")
-			<-p.GuardChannel
+
+			select {
+			case <-p.GuardChannel:
+				{
+					// No-op.
+				}
+			case <-p.stopChan:
+				{
+					return doStop()
+				}
+			}
+
 			p.log.Debug("Received value from GuardChannel")
 		} else {
 			time.Sleep(p.Config.Interval)

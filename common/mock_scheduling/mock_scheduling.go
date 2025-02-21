@@ -9297,6 +9297,34 @@ func (mr *MockPolicyMockRecorder) PreExecutionStatePolicy() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreExecutionStatePolicy", reflect.TypeOf((*MockPolicy)(nil).PreExecutionStatePolicy))
 }
 
+// PrioritizePrewarmContainers mocks base method.
+func (m *MockPolicy) PrioritizePrewarmContainers() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PrioritizePrewarmContainers")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// PrioritizePrewarmContainers indicates an expected call of PrioritizePrewarmContainers.
+func (mr *MockPolicyMockRecorder) PrioritizePrewarmContainers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrioritizePrewarmContainers", reflect.TypeOf((*MockPolicy)(nil).PrioritizePrewarmContainers))
+}
+
+// RequirePrewarmContainer mocks base method.
+func (m *MockPolicy) RequirePrewarmContainer() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequirePrewarmContainer")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// RequirePrewarmContainer indicates an expected call of RequirePrewarmContainer.
+func (mr *MockPolicyMockRecorder) RequirePrewarmContainer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequirePrewarmContainer", reflect.TypeOf((*MockPolicy)(nil).RequirePrewarmContainer))
+}
+
 // ResourceBindingMode mocks base method.
 func (m *MockPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	m.ctrl.T.Helper()
