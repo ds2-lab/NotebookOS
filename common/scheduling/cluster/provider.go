@@ -168,11 +168,13 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 		tmpCluster     scheduling.Cluster
 	)
 
+	// Hacky closure to allow us to return the cluster that we've not yet created.
 	clusterProvider := func() scheduling.Cluster {
 		if clusterPointer == nil {
-			return nil
+			panic("ClusterPointer should not be nil...")
 		}
 
+		// Return whatever our interface pointer is pointing to -- should be the cluster that we created down below.
 		return *clusterPointer
 	}
 
@@ -188,21 +190,32 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 	if b.ClusterType == DockerCompose || b.ClusterType == DockerSwarm {
 		b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 
+		// Create a docker cluster.
 		tmpCluster = NewDockerCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider,
 			b.ClusterMetricsProvider, b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options)
 	}
 
 	if b.ClusterType == Kubernetes {
-		b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
+		b.log.Warn("Creating %s cluster now.", b.ClusterType.String()) // Warning bc we don't use k8s anymore...
+
+		// Create a Kubernetes cluster.
 		tmpCluster = NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider,
 			b.ClusterMetricsProvider, b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options)
 	}
 
+	// Verify that we created a cluster of some sort.
 	if tmpCluster == nil {
 		b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())
 		log.Fatalf("Unknown/unsupported cluster type: %v\n", b.ClusterType.String())
 	}
 
+	// Assign a value to the pointer...
 	clusterPointer = &tmpCluster
+
+	// Sanity check.
+	if clusterProvider() == nil {
+		panic("ClusterProvider closure is messed up.")
+	}
+
 	return tmpCluster, nil
 }
