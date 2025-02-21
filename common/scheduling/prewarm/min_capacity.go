@@ -11,6 +11,14 @@ type MinCapacityPrewarmerConfig struct {
 	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
 	// below this quantity, then a new pre-warmed container will be provisioned.
 	MinPrewarmedContainersPerHost int
+
+	// ProactiveReplacementEnabled controls whether new pre-warm containers are immediately provisioned
+	// when an existing prewarm container is used, or if the pool relies on containers being returned
+	// after they are used.
+	//
+	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
+	// also enabled.
+	ProactiveReplacementEnabled bool `yaml:"replacementEnabled" json:"replacementEnabled"`
 }
 
 // MinCapacityPrewarmer attempts to maintain the minimum number of prewarmed containers on each scheduling.Host
@@ -99,6 +107,14 @@ func (p *MinCapacityPrewarmer) MinPrewarmedContainersPerHost() int {
 
 // prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
 // to react (i.e., provision another prewarm container, if it is supposed to do so).
-func (p *MinCapacityPrewarmer) prewarmContainerUsed(_ scheduling.Host, _ scheduling.PrewarmedContainer) {
-	// No-op.
+func (p *MinCapacityPrewarmer) prewarmContainerUsed(host scheduling.Host, prewarmedContainer scheduling.PrewarmedContainer) {
+	if !p.Config.ProactiveReplacementEnabled {
+		return
+	}
+
+	err := p.ProvisionContainer(host)
+	if err != nil {
+		p.log.Error("Failed to provision new pre-warmed container on host %s (ID=%s) after prewarm container \"%s\" was used: %v",
+			host.GetNodeName(), host.GetID(), prewarmedContainer.ID(), err)
+	}
 }

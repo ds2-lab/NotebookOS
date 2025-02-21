@@ -137,9 +137,12 @@ type SchedulerOptions struct {
 	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each host, in megabytes."`
 	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each host, in gigabytes."`
 
-	PrewarmingEnabled           bool    `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
-	MinPrewarmContainersPerHost int     `name:"min_prewarm_containers_per_host" json:"min_prewarm_containers_per_host" yaml:"min_prewarm_containers_per_host"`
-	MaxPrewarmContainersPerHost int     `name:"max_prewarm_containers_per_host" json:"max_prewarm_containers_per_host" yaml:"max_prewarm_containers_per_host"`
+	PrewarmingEnabled                           bool `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
+	ProactivePrewarmContainerReplacementEnabled bool `name:"proactive_prewarm_container_replacement_enabled" json:"proactive_prewarm_container_replacement_enabled" yaml:"proactive_prewarm_container_replacement_enabled"`
+	MinPrewarmContainersPerHost                 int  `name:"min_prewarm_containers_per_host" json:"min_prewarm_containers_per_host" yaml:"min_prewarm_containers_per_host"`
+	MaxPrewarmContainersPerHost                 int  `name:"max_prewarm_containers_per_host" json:"max_prewarm_containers_per_host" yaml:"max_prewarm_containers_per_host"`
+	// FixedCapacitySize is used by the "fixed capacity" policy.
+	FixedCapacitySize           int     `name:"fixed_capacity_size" json:"fixed_capacity_size" yaml:"fixed_capacity_size"`
 	InitialNumContainersPerHost int     `name:"initial_num_containers_per_host" json:"initial_num_containers_per_host" yaml:"initial_num_containers_per_host"`
 	PrewarmRunIntervalSec       float64 `name:"prewarm_run_interval_sec" json:"prewarm_run_interval_sec" yaml:"prewarm_run_interval_sec"`
 

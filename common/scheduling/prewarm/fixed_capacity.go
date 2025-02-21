@@ -17,6 +17,9 @@ type FixedCapacityPrewarmerConfig struct {
 	// ProactiveReplacementEnabled controls whether new pre-warm containers are immediately provisioned
 	// when an existing prewarm container is used, or if the pool relies on containers being returned
 	// after they are used.
+	//
+	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
+	// also enabled.
 	ProactiveReplacementEnabled bool `yaml:"replacementEnabled" json:"replacementEnabled"`
 }
 

@@ -16,6 +16,10 @@ const (
 	// [Little's Law]: https://en.wikipedia.org/wiki/Little%27s_law
 	LittleLawCapacity PrewarmingPolicy = "little_law_capacity"
 
+	// FixedCapacity creates a pool with a fixed size and optionally allows for proactive replacement of used
+	// prewarm containers (which may cause the pool's size to grow unbounded if container re-use is also enabled).
+	FixedCapacity PrewarmingPolicy = "fixed_capacity"
+
 	// NoMaintenance specifies that there should be no maintenance of the warm container pool, and that the only
 	// warm containers should be those that are created initially.
 	//

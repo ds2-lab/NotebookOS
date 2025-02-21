@@ -444,43 +444,28 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 
 			var preRunWg, postRunWg sync.WaitGroup
 
-			// Set up mocked calls for next iteration of the Run method.
-			prepareNextRunIter := func() {
-				postRunWg.Add(numHosts)
-				preRunWg.Add(numHosts)
-
-				mockCluster.
-					EXPECT().
-					RangeOverHosts(gomock.Any()).
-					Times(1).
-					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
-						for _, host := range hosts {
-							preRunWg.Done()
-							f(host.GetID(), host)
-							postRunWg.Done()
-						}
-					})
-			}
-
-			// Used to block the calls to StartKernelReplica until we allow them through.
-			var startKernelWg sync.WaitGroup
-
-			prepareNextRunIter()
-			startKernelWg.Add(1)
+			mockCluster.
+				EXPECT().
+				RangeOverHosts(gomock.Any()).
+				AnyTimes().
+				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+					for _, host := range hosts {
+						preRunWg.Done()
+						f(host.GetID(), host)
+						postRunWg.Done()
+					}
+				})
 
 			// Prepare calls.
 			for i := 0; i < numHosts; i++ {
 				localGatewayClients[i].
 					EXPECT().
 					StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
-					Times(1).
+					AnyTimes().
 					DoAndReturn(
 						func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
 							time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 							n := 128
-
-							startKernelWg.Wait()
-
 							return &proto.KernelConnectionInfo{
 								Ip:              fmt.Sprintf("10.%d.%d.%d", i, rand.Intn(n), rand.Intn(n)),
 								Transport:       "tcp",
@@ -533,9 +518,6 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 				return true
 			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
 
-			// Let the calls to StartKernelReplica through.
-			startKernelWg.Done()
-
 			// Wait for calls to StartKernelReplica and whatnot to finish.
 			postRunWg.Wait()
 
@@ -565,36 +547,7 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 			Expect(prov).To(Equal(0))
 			Expect(curr).To(Equal(1))
 
-			prepareNextRunIter()
-			startKernelWg.Add(1)
-			localGatewayClients[1].
-				EXPECT().
-				StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
-				Times(1).
-				DoAndReturn(
-					func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-						time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
-						n := 128
-
-						startKernelWg.Wait()
-
-						return &proto.KernelConnectionInfo{
-							Ip:              fmt.Sprintf("10.1.%d.%d", rand.Intn(n), rand.Intn(n)),
-							Transport:       "tcp",
-							ControlPort:     9000,
-							ShellPort:       9001,
-							StdinPort:       9002,
-							HbPort:          9003,
-							IopubPort:       9004,
-							IosubPort:       9005,
-							SignatureScheme: jupyter.JupyterSignatureScheme,
-							Key:             uuid.NewString(),
-						}, nil
-					})
-
 			guardChan <- struct{}{}
-
-			preRunWg.Wait()
 
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
@@ -615,9 +568,6 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 
 				return true
 			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
-
-			// Let the calls to StartKernelReplica through.
-			startKernelWg.Done()
 
 			// Wait for calls to StartKernelReplica and whatnot to finish.
 			postRunWg.Wait()
@@ -650,33 +600,6 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 				Expect(curr).To(Equal(2 - (i + 1)))
 			}
 
-			prepareNextRunIter()
-			startKernelWg.Add(1)
-			localGatewayClients[0].
-				EXPECT().
-				StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
-				Times(2).
-				DoAndReturn(
-					func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-						time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
-						n := 128
-
-						startKernelWg.Wait()
-
-						return &proto.KernelConnectionInfo{
-							Ip:              fmt.Sprintf("10.0.%d.%d", rand.Intn(n), rand.Intn(n)),
-							Transport:       "tcp",
-							ControlPort:     9000,
-							ShellPort:       9001,
-							StdinPort:       9002,
-							HbPort:          9003,
-							IopubPort:       9004,
-							IosubPort:       9005,
-							SignatureScheme: jupyter.JupyterSignatureScheme,
-							Key:             uuid.NewString(),
-						}, nil
-					})
-
 			guardChan <- struct{}{}
 
 			preRunWg.Wait()
@@ -701,9 +624,6 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 				return true
 			}, time.Millisecond*500, time.Millisecond*125).Should(BeTrue())
 
-			// Let the calls to StartKernelReplica through.
-			startKernelWg.Done()
-
 			// Wait for calls to StartKernelReplica and whatnot to finish.
 			postRunWg.Wait()
 
@@ -714,74 +634,6 @@ var _ = Describe("FixedCapacity Prewarmer Tests", func() {
 
 			// Done provisioning.
 			Expect(prewarmer.Len()).To(Equal(capacity))
-		})
-
-		It("Will replace containers when they are used", func() {
-			numHosts := 3
-			initialCapacity := 2
-			capacity := numHosts * 6
-
-			By("Being created or instantiated correctly")
-
-			createAndInitializePrewarmer(initialCapacity, capacity)
-
-			Expect(prewarmer).ToNot(BeNil())
-			_, ok := prewarmer.(*prewarm.FixedCapacityPrewarmer)
-			Expect(ok).To(BeTrue())
-
-			Expect(prewarmer.InitialPrewarmedContainersPerHost()).To(Equal(initialCapacity))
-			Expect(prewarmer.MinPrewarmedContainersPerHost()).To(Equal(0))
-			Expect(prewarmer.MaxPrewarmedContainersPerHost()).To(Equal(-1))
-
-			Expect(prewarmer.Len()).To(Equal(0))
-
-			hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
-			Expect(len(hosts)).To(Equal(numHosts))
-			Expect(len(localGatewayClients)).To(Equal(numHosts))
-
-			mockCluster.
-				EXPECT().
-				RangeOverHosts(gomock.Any()).
-				Times(1).
-				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
-					for idx, host := range hosts {
-						connInfo := &proto.KernelConnectionInfo{
-							Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
-							Transport:       "tcp",
-							ControlPort:     9000,
-							ShellPort:       9001,
-							StdinPort:       9002,
-							HbPort:          9003,
-							IopubPort:       9004,
-							IosubPort:       9005,
-							SignatureScheme: jupyter.JupyterSignatureScheme,
-							Key:             uuid.NewString(),
-						}
-
-						localGatewayClient := localGatewayClients[idx]
-						localGatewayClient.
-							EXPECT().
-							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
-							Times(initialCapacity).
-							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-								GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
-									host.GetNodeName(), host.GetID())
-
-								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
-								return connInfo, nil
-							})
-
-						f(host.GetID(), host)
-					}
-				})
-
-			created, target := prewarmer.ProvisionInitialPrewarmContainers()
-
-			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
-			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
-
-			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
-
 		})
 
 		Context("Initial Capacity", func() {

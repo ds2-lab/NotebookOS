@@ -217,9 +217,23 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 				minCapacityPrewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
 					PrewarmerConfig:               prewarmerConfig,
 					MinPrewarmedContainersPerHost: b.options.MinPrewarmContainersPerHost,
+					ProactiveReplacementEnabled:   b.options.ProactivePrewarmContainerReplacementEnabled,
 				}
 
 				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig, b.metricsProvider)
+				clusterScheduler.prewarmer = prewarmer
+			}
+		case scheduling.FixedCapacity.String():
+			{
+				clusterScheduler.log.Warn("Using \"%s\" pre-policy.", b.options.PrewarmingPolicy)
+
+				fixedCapacityConfig := &prewarm.FixedCapacityPrewarmerConfig{
+					PrewarmerConfig:             prewarmerConfig,
+					ProactiveReplacementEnabled: b.options.ProactivePrewarmContainerReplacementEnabled,
+					Capacity:                    int32(b.options.FixedCapacitySize),
+				}
+
+				prewarmer := prewarm.NewFixedCapacityPrewarmer(b.cluster, fixedCapacityConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case scheduling.LittleLawCapacity.String():

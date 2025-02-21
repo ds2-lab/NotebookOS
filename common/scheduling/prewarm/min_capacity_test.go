@@ -143,7 +143,8 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 		}
 
 		prewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
-			PrewarmerConfig:               prewarm.NewPrewarmerConfig(initSize, maxSize, 0 /* Default of 5sec will be used */),
+			PrewarmerConfig: prewarm.NewPrewarmerConfig(
+				initSize, maxSize, 0 /* Default of 5sec will be used */),
 			MinPrewarmedContainersPerHost: minSize,
 		}
 
