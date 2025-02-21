@@ -199,13 +199,21 @@ func NewPrewarmerConfig(initialCapacity, maxCapacity int, intervalSec float64) *
 	}
 }
 
+type containerPrewarmer interface {
+	scheduling.ContainerPrewarmer
+
+	// prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
+	// to react (i.e., provision another prewarm container, if it is supposed to do so).
+	prewarmContainerUsed(scheduling.Host, scheduling.PrewarmedContainer)
+}
+
 // BaseContainerPrewarmer is responsible for provisioning pre-warmed containers and maintaining information about
 // these pre-warmed containers, such as how many are available on each scheduling.Host.
 type BaseContainerPrewarmer struct {
 	// instance is the scheduling.ContainerPrewarmer struct that may be promoting this BaseContainerPrewarmer struct.
 	// Methods with logic specific to each unique implementation of scheduling.ContainerPrewarmer are called on the
 	// instance field rather than executed directly by the BaseContainerPrewarmer struct.
-	instance scheduling.ContainerPrewarmer
+	instance containerPrewarmer
 
 	// AllPrewarmContainers is a map from prewarm/temporary ID to scheduling.KernelContainer consisting
 	// of pre-warmed containers.
@@ -417,6 +425,10 @@ func (p *BaseContainerPrewarmer) RequestPrewarmedContainer(host scheduling.Host)
 	prewarmedContainer.SetUnavailable()
 	delete(p.AllPrewarmContainers, prewarmedContainer.ID())
 
+	if p.instance != nil {
+		p.instance.prewarmContainerUsed(host, prewarmedContainer)
+	}
+
 	return prewarmedContainer, nil
 }
 
@@ -457,7 +469,7 @@ func (p *BaseContainerPrewarmer) ProvisionInitialPrewarmContainers() (created in
 	created = 0
 
 	// Clamp initial number to the maximum.
-	if p.Config.InitialPrewarmedContainersPerHost > p.Config.MaxPrewarmedContainersPerHost {
+	if p.Config.MaxPrewarmedContainersPerHost > 0 && p.Config.InitialPrewarmedContainersPerHost > p.Config.MaxPrewarmedContainersPerHost {
 		p.log.Warn("Configured 'initial prewarmed containers per host' (%d) is greater than configured maximum (%d). Clamping.",
 			p.Config.InitialPrewarmedContainersPerHost, p.Config.MaxPrewarmedContainersPerHost)
 		p.Config.InitialPrewarmedContainersPerHost = p.Config.MaxPrewarmedContainersPerHost
@@ -834,4 +846,10 @@ func (p *BaseContainerPrewarmer) onPrewarmContainerProvisioned(container *Prewar
 	p.unsafeDecrementProvisioning(1, container.host)
 
 	return p.unsafeRegisterPrewarmedContainer(container)
+}
+
+// prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
+// to react (i.e., provision another prewarm container, if it is supposed to do so).
+func (p *BaseContainerPrewarmer) prewarmContainerUsed(_ scheduling.Host, _ scheduling.PrewarmedContainer) {
+	// No-op.
 }

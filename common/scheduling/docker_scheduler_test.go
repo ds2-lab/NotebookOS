@@ -1046,22 +1046,27 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					targetGatewayClient := localGatewayClients[5]
 					Expect(targetGatewayClient).ToNot(BeNil())
-					targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec, gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-						fmt.Printf("StartKernelReplica called on LocalGateway #%d with kernelReplicaSpec:\n%v\n", 5, in)
+					targetGatewayClient.
+						EXPECT().
+						StartKernelReplica(gomock.Any(), returnedSpec, gomock.Any()).
+						AnyTimes().
+						DoAndReturn(
+							func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								fmt.Printf("StartKernelReplica called on LocalGateway #%d with kernelReplicaSpec:\n%v\n", 5, in)
 
-						return &proto.KernelConnectionInfo{
-							Ip:              "10.0.0.1",
-							Transport:       "tcp",
-							ControlPort:     9000,
-							ShellPort:       9001,
-							StdinPort:       9002,
-							HbPort:          9003,
-							IopubPort:       9004,
-							IosubPort:       9005,
-							SignatureScheme: jupyter.JupyterSignatureScheme,
-							Key:             uuid.NewString(),
-						}, nil
-					}).AnyTimes()
+								return &proto.KernelConnectionInfo{
+									Ip:              "10.0.0.1",
+									Transport:       "tcp",
+									ControlPort:     9000,
+									ShellPort:       9001,
+									StdinPort:       9002,
+									HbPort:          9003,
+									IopubPort:       9004,
+									IosubPort:       9005,
+									SignatureScheme: jupyter.JupyterSignatureScheme,
+									Key:             uuid.NewString(),
+								}, nil
+							})
 
 					var wg sync.WaitGroup
 					wg.Add(1)

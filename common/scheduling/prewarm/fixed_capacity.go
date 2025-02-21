@@ -49,8 +49,6 @@ func (p *FixedCapacityPrewarmer) ValidatePoolCapacity() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	numActiveExecutions := p.metricsProvider.NumActiveExecutions()
-
 	prewarmHostHeap := types.NewHeap(prewarmHostMetadataKey)
 
 	numProvisioning := int32(0)
@@ -93,20 +91,16 @@ func (p *FixedCapacityPrewarmer) ValidatePoolCapacity() {
 	})
 
 	poolSize := int32(p.PoolSize())
-	totalSize := numActiveExecutions + poolSize + numProvisioning
+	totalSize := poolSize + numProvisioning
 
 	if totalSize >= p.Config.Capacity {
-		p.log.Debug("ActiveExec: %d, PoolSize: %d, Prov: %d, Target: %d. %s",
-			numActiveExecutions, poolSize, numProvisioning, p.Config.Capacity, utils.GreenStyle.Render("[✓]"))
+		p.log.Debug("PoolSize: %d, Prov: %d, Target: %d. %s",
+			poolSize, numProvisioning, p.Config.Capacity, utils.GreenStyle.Render("[✓]"))
 		return
 	}
 
-	p.log.Debug("ActiveExec: %d, PoolSize: %d, Prov: %d, Target: %d. %s",
-		numActiveExecutions, poolSize, numProvisioning, p.Config.Capacity, utils.RedStyle.Render("[✗]"))
-
-	if !p.Config.ProactiveReplacementEnabled {
-		return
-	}
+	p.log.Debug("PoolSize: %d, Prov: %d, Target: %d. %s",
+		poolSize, numProvisioning, p.Config.Capacity, utils.RedStyle.Render("[✗]"))
 
 	numToCreate := p.Config.Capacity - totalSize
 	p.log.Debug("Need to create %d new prewarmed containers (curr=%d, target=%d).",
@@ -158,4 +152,18 @@ func (p *FixedCapacityPrewarmer) ValidateHostCapacity(_ scheduling.Host) {
 // below this quantity, then a new pre-warmed container will be provisioned.
 func (p *FixedCapacityPrewarmer) MinPrewarmedContainersPerHost() int {
 	return 0
+}
+
+// prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
+// to react (i.e., provision another prewarm container, if it is supposed to do so).
+func (p *FixedCapacityPrewarmer) prewarmContainerUsed(host scheduling.Host, prewarmedContainer scheduling.PrewarmedContainer) {
+	if !p.Config.ProactiveReplacementEnabled {
+		return
+	}
+
+	err := p.ProvisionContainer(host)
+	if err != nil {
+		p.log.Error("Failed to provision new pre-warmed container on host %s (ID=%s) after prewarm container \"%s\" was used: %v",
+			host.GetNodeName(), host.GetID(), prewarmedContainer.ID(), err)
+	}
 }

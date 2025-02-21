@@ -96,3 +96,9 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 func (p *MinCapacityPrewarmer) MinPrewarmedContainersPerHost() int {
 	return p.Config.MinPrewarmedContainersPerHost
 }
+
+// prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
+// to react (i.e., provision another prewarm container, if it is supposed to do so).
+func (p *MinCapacityPrewarmer) prewarmContainerUsed(_ scheduling.Host, _ scheduling.PrewarmedContainer) {
+	// No-op.
+}
