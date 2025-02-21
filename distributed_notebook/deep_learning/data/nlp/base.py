@@ -150,7 +150,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
         if validation_data is None:
             try:
                 validation_data = load_validation_data('test')
-            except KeyError
+            except KeyError:
                 self.log.warning(f'Cannot find tokenized datasets with key "test".')
 
         if validation_data is not None:
