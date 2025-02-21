@@ -907,7 +907,7 @@ class RaftLog(object):
         # That is, we may have been migrated before the Python handler for the "execution complete" notification
         # for the previous election finished. So, we're handling it post-migration. We may even have an
         # "execute_request" message that is blocked, waiting for the old election to complete. Let's see.
-        prior_election: Optional[Election] = self._elections[notification_term]
+        prior_election: Optional[Election] = self._elections.get(notification_term, None)
 
         # If we don't even have an election with this term, then something is seriously wrong.
         # We already know the term number is a mismatch, and that it's not greater than ours.
