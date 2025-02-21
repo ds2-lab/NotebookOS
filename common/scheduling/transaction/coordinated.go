@@ -251,12 +251,12 @@ func (t *CoordinatedTransaction) Wait() bool {
 	return t.succeeded.Load()
 }
 
-// Abort attempts to abort the transaction.
+// Abort attempts to abort the transaction and returns a bool indicating whether locks had been acquired.
 //
 // Abort should only be called if a participant knows that it will not be partaking.
 //
-// TODO: This really doesn't work very well.
-func (t *CoordinatedTransaction) Abort(err error) {
+// TODO: This doesn't work very well...
+func (t *CoordinatedTransaction) Abort(err error) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -274,6 +274,8 @@ func (t *CoordinatedTransaction) Abort(err error) {
 	}()
 
 	t.initGroup.Done() // Should only call this if we know the participant won't be registering.
+
+	return t.locksAcquired.Load()
 }
 
 // RegisterParticipant is used to register a "participant" of the CoordinatedTransaction.

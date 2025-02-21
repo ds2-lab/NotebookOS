@@ -1113,8 +1113,9 @@ func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, ol
 	h.log.Debug("Coordinated Transaction: updating resource reservation for for replica %d of kernel %s from [%v] to [%v]. Current resource counts: %v.",
 		container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), h.GetResourceCountsAsString())
 
+	var locksAcquired bool
 	defer func() {
-		if tx.LockedWereAcquired() {
+		if tx.LockedWereAcquired() || locksAcquired {
 			h.schedulingMutex.Unlock()
 		}
 	}()
@@ -1125,7 +1126,10 @@ func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, ol
 			container.ReplicaId(), container.KernelID(), err)
 
 		if !registered {
-			tx.Abort(err)
+			h.log.Warn("Aborting transaction %s targeting kernel %s.", tx.Id(), container.KernelID())
+			locksAcquired = tx.Abort(err)
+			h.log.Warn("Aborted transaction %s targeting kernel %s. LocksAcquired=%v.",
+				tx.Id(), container.KernelID(), locksAcquired)
 		}
 
 		return err
