@@ -88,6 +88,7 @@ func (p *CoordinatedParticipant) initialize(txId string) error {
 	}
 
 	if err := p.tx.validateInputs(); err != nil {
+		p.log.Error("Failed to register with tx %s because: %v", txId, err)
 		return errors.Join(ErrTransactionRegistrationError, err)
 	}
 
@@ -322,6 +323,7 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState s
 		getInitialState: getInitialState,
 		operation:       operation,
 		mu:              mu,
+		log:             config.GetLogger(fmt.Sprintf("Tx%s-P%d ", t.id, id)),
 	}
 
 	if len(t.participants) == t.expectedNumParticipants {
