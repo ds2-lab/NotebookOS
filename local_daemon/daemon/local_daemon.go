@@ -2916,7 +2916,7 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	// IMPORTANT NOTE: The code below the if-else-statement above is NOT executed for "execute_request"
 	// messages. Those are enqueued and processed separately to avoid resource allocation issues.
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := kernel.RequestWithHandler(ctx, "Forwarding", messaging.ShellMessage, msg, d.kernelResponseForwarder, func() {
+	if err = kernel.RequestWithHandler(ctx, "Forwarding", messaging.ShellMessage, msg, d.kernelResponseForwarder, func() {
 		cancel()
 		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
 			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
@@ -2931,18 +2931,52 @@ func (d *LocalScheduler) handleExecuteRequest(msg *messaging.JupyterMessage, ker
 	d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
 		msg.JupyterMessageId(), kernel.ID())
 
-	resultChan := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
+	resultChan, closeFlag, err := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
+
+	if err != nil {
+		d.log.Error("Failed to enqueue \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*6)
+	defer cancel()
+
+	handleRes := func(res interface{}) error {
+		// Return the result as an error or nil if there was no error.
+		switch res.(type) {
+		case error:
+			return res.(error)
+		default:
+			return nil
+		}
+	}
 
 	// Wait for the result.
 	// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
-	res := <-resultChan
+	select {
+	case res := <-resultChan:
+		{
+			return handleRes(res)
+		}
+	case <-ctx.Done():
+		{
+			err := ctx.Err()
+			d.log.Error("Timed-out waiting for response to \"%s\" message \"%s\" targeting kernel \"%s\": %v.",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), err)
 
-	// Return the result as an error or nil if there was no error.
-	switch res.(type) {
-	case error:
-		return res.(error)
-	default:
-		return nil
+			// Record that we're giving up, so if a result comes later, the execute request forwarder won't get
+			// stuck trying to send it over the channel when we're never going to be around to receive it.
+			if !closeFlag.CompareAndSwap(0, 1) {
+				d.log.Warn("Failed to flip ClosedFlag. There should be a result available now for \"%s\" message \"%s\" targeting kernel \"%s\".",
+					msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
+
+				res := <-resultChan
+				return handleRes(res)
+			}
+
+			return err
+		}
 	}
 }
 
@@ -3128,7 +3162,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// This ensures that we send "execute_request" messages one-at-a-time.
 	// We wait until any pending "execute_request" messages receive an "execute_reply"
 	// response before we can forward this next "execute_request".
-	kernel.WaitForPendingExecuteRequests()
+	kernel.WaitForPendingExecuteRequests(msg.JupyterMessageId(), msg.JupyterMessageType())
 
 	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
 

@@ -4278,21 +4278,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 	}
 
 	if d.SubmitExecuteRequestsOneAtATime {
-		d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
-			jupyterMessages[0].JupyterMessageId(), kernel.ID())
-		resultChan := d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel, jupyterMessages[0].JupyterMessageId())
-
-		// Wait for the result.
-		// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
-		res := <-resultChan
-
-		// Return the result as an error or nil if there was no error.
-		switch res.(type) {
-		case error:
-			return res.(error)
-		case struct{}:
-			return nil
-		}
+		return d.forwardExecuteRequestOneAtATime(jupyterMessages, kernel)
 	}
 
 	// We're not using the request forwarder, apparently. So, we'll call RequestWithHandlerAndReplicas ourselves.
@@ -4304,6 +4290,61 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 	// different replicas ourselves.
 	return kernel.RequestWithHandlerAndReplicas(context.Background(), "Forwarding", messaging.ShellMessage, jupyterMessages,
 		d.kernelReplicaResponseForwarder, nil, replicas...)
+}
+
+func (d *ClusterGatewayImpl) forwardExecuteRequestOneAtATime(jupyterMessages []*messaging.JupyterMessage, kernel scheduling.Kernel) error {
+	jupyterMessageId := jupyterMessages[0].JupyterMessageId()
+
+	d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
+		jupyterMessageId, kernel.ID())
+
+	resultChan, closeFlag, err := d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel, jupyterMessageId)
+
+	if err != nil {
+		d.log.Error("Failed to enqueue \"%s\" message(s) \"%s\" targeting kernel \"%s\": %v",
+			messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID(), err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*6)
+	defer cancel()
+
+	handleRes := func(res interface{}) error {
+		// Return the result as an error or nil if there was no error.
+		switch res.(type) {
+		case error:
+			return res.(error)
+		default:
+			return nil
+		}
+	}
+
+	// Wait for the result.
+	// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
+	select {
+	case res := <-resultChan:
+		{
+			return handleRes(res)
+		}
+	case <-ctx.Done():
+		{
+			err = ctx.Err()
+			d.log.Error("Timed-out waiting for response to \"%s\" message \"%s\" targeting kernel \"%s\": %v.",
+				messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID(), err)
+
+			// Record that we're giving up, so if a result comes later, the execute request forwarder won't get
+			// stuck trying to send it over the channel when we're never going to be around to receive it.
+			if !closeFlag.CompareAndSwap(0, 1) {
+				d.log.Warn("Failed to flip ClosedFlag. There should be a result available now for \"%s\" message \"%s\" targeting kernel \"%s\".",
+					messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID())
+
+				res := <-resultChan
+				return handleRes(res)
+			}
+
+			return err
+		}
+	}
 }
 
 // executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for

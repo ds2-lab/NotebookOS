@@ -408,7 +408,7 @@ type KernelReplica interface {
 	IsTraining() bool
 	WaitForTrainingToStop()
 	KernelStartedTraining(trainingStartedAt time.Time) error
-	WaitForPendingExecuteRequests()
+	WaitForPendingExecuteRequests(nextRequestId string, nextJupyterMsgType string)
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int

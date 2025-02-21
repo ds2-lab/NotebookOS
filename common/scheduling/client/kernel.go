@@ -364,7 +364,7 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx sc
 //
 // If there are no outstanding/pending "execute_request" messages WaitForRepliesToPendingExecuteRequests is called, then
 // WaitForRepliesToPendingExecuteRequests will return immediately.
-func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
+func (c *KernelReplicaClient) WaitForPendingExecuteRequests(nextRequestId string, nextJupyterMsgType string) {
 	gid := goid.Get()
 
 	// The trainingFinishedCond field of the kernel uses the trainingFinishedMu mutex.
@@ -381,7 +381,8 @@ func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
 		c.log.Debug("[gid=%d] Replica %d of kernel %s currently has %d outstanding \"execute_request\" message(s). "+
 			"Waiting for \"execute_reply\" responses to be received.", gid, c.replicaId, c.id, c.pendingExecuteRequestIds.Len())
 		c.pendingExecuteRequestIds.Range(func(s string, message *messaging.JupyterMessage) (contd bool) {
-			c.log.Debug("Waiting on pending \"execute_request\" message \"%s\".", s)
+			c.log.Debug("Waiting on pending \"execute_request\" message \"%s\" before sending next \"%s\" message \"%s\".",
+				s, nextJupyterMsgType, nextRequestId)
 			return true
 		})
 		c.pendingExecuteRequestCond.Wait()
@@ -1169,7 +1170,7 @@ func (c *KernelReplicaClient) RequestWithHandlerAndWaitOptionGetter(parentContex
 		// We wait until any pending "execute_request" messages receive an "execute_reply"
 		// response before we can forward this next "execute_request".
 		if c.submitRequestsOneAtATime {
-			c.WaitForPendingExecuteRequests()
+			c.WaitForPendingExecuteRequests(msg.JupyterMessageId(), msg.JupyterMessageType())
 		}
 
 		c.SendingExecuteRequest(msg)
