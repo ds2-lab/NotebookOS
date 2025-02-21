@@ -382,15 +382,6 @@ func (s *BaseScheduler) setInstance(instance clusterSchedulerInternal) {
 	s.instance = instance
 }
 
-// FindCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
-//
-// FindCandidateHosts is exported so that it can be unit tested.
-//
-// If FindCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	return s.instance.findCandidateHosts(numHosts, kernelSpec)
-}
-
 // isScalingOutEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
 // scaling out.
 func (s *BaseScheduler) isScalingOutEnabled() bool {
@@ -401,44 +392,6 @@ func (s *BaseScheduler) isScalingOutEnabled() bool {
 // scaling in.
 func (s *BaseScheduler) isScalingInEnabled() bool {
 	return s.Policy().ResourceScalingPolicy().ScalingInEnabled()
-}
-
-// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
-// before returning them.
-//
-// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
-// the blacklist.
-func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host,
-	forTraining bool, createNewHostPermitted bool) (scheduling.Host, error) {
-
-	if blacklistedHosts == nil {
-		blacklistedHosts = make([]scheduling.Host, 0)
-	}
-
-	if replica.Host() != nil {
-		currentHost := replica.Host()
-		found := false
-
-		// If the replica's current host isn't already blacklisted, then add it to the blacklist.
-		for _, blacklistedHost := range blacklistedHosts {
-			if blacklistedHost.GetID() == currentHost.GetID() {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			blacklistedHosts = append(blacklistedHosts, currentHost)
-		}
-	}
-
-	candidate, err := s.findViableHostForReplica(replica, blacklistedHosts, forTraining, createNewHostPermitted)
-	if candidate != nil {
-		s.log.Debug("Found viable candidate host for replica %d of kernel %s: host %s",
-			replica.ReplicaID(), replica.ID(), candidate.GetNodeName())
-	}
-
-	return candidate, err
 }
 
 // FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
@@ -457,6 +410,11 @@ func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 	return nil
 }
 
+func (s *BaseScheduler) SearchForCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec, forTraining bool) ([]scheduling.Host, error) {
+	// Identify the hosts onto which we will place replicas of the kernel.
+	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, forTraining)
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -467,8 +425,10 @@ func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 //
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
 //
-// This function is NOT idempotent. This locks the Hosts that are returned.
-func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32) ([]scheduling.Host, error) {
+// This function is NOT idempotent. This reserves resources on the Hosts that are returned (before returning them).
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32,
+	forTraining bool) ([]scheduling.Host, error) {
+
 	var (
 		bestAttempt = 0
 		hosts       []scheduling.Host
@@ -489,7 +449,9 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		numHostsRequired := numHosts - int32(len(hosts))
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
-		hostBatch, err := s.FindCandidateHosts(int(numHostsRequired), kernelSpec) // note: this function executes atomically.
+
+		// note: this function executes atomically.
+		hostBatch, err := s.SearchForCandidateHosts(int(numHostsRequired), kernelSpec, forTraining)
 		if err != nil {
 			s.log.Error("Error while searching for %d candidate host(s) for kernel %s: %v",
 				numHostsRequired, kernelSpec.Id, err)
@@ -952,13 +914,21 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 // findViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
 // as searching for viable hosts before trying to schedule the container).
 //
-// findViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
+// PRECONDITION: If we're finding a viable host for an existing replica, then the blacklisted hosts argument should
+// be non-nil and should contain the replica's current/original host (in order to prevent the replica from being
+// scheduled back onto the same host).
+//
+// This method searches for a viable training host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
 //
 // If we fail to find a host, then we'll try to scale-out (if we're allowed).
 func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host,
 	forTraining bool, createNewHostPermitted bool) (host scheduling.Host, failureReason error) {
 	numTries := 0
+
+	if blacklistedHosts == nil {
+		blacklistedHosts = make([]scheduling.Host, 0)
+	}
 
 	// We'll try a few times if we keep scaling-out successfully but somehow manage to fail again and again.
 	for numTries < 5 {
@@ -1474,7 +1444,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 	getMigrationTarget := func(containerId string, container scheduling.KernelContainer) (scheduling.Host, error) {
 		// Get a candidate host, but do not allow the cluster to provision new hosts/scale out, as that would
 		// defeat the purpose of idle-reclaiming this host.
-		return s.GetCandidateHost(container.GetClient(), nil, false, false)
+		return s.findViableHostForReplica(container.GetClient(), []scheduling.Host{host}, false, false)
 	}
 
 	type MigrationTarget struct {

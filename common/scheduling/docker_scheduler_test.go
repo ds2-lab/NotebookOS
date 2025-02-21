@@ -198,8 +198,10 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.BasicPlacer)
 			Expect(ok).To(BeTrue())
 
-			_, ok = clusterPlacer.GetIndex().(*index.StaticMultiIndex)
-			Expect(ok).To(BeTrue())
+			// Should be one of the two...
+			_, okStaticMultiIndex := clusterPlacer.GetIndex().(*index.StaticMultiIndex)
+			_, okLeastLoadedIndex := clusterPlacer.GetIndex().(*index.LeastLoadedIndex)
+			Expect(okStaticMultiIndex || okLeastLoadedIndex).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
@@ -273,7 +275,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						ResourceSpec:    resourceSpec,
 					}
 
-					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec,
+						int32(dockerScheduler.Policy().NumReplicas()), false)
+
 					Expect(err).To(BeNil())
 					Expect(candidateHosts).ToNot(BeNil())
 					Expect(len(candidateHosts)).To(Equal(dockerScheduler.Policy().NumReplicas()))
@@ -313,7 +317,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						ResourceSpec:    resourceSpec,
 					}
 
-					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec,
+						int32(dockerScheduler.Policy().NumReplicas()), false)
+
 					Expect(err).ToNot(BeNil())
 					Expect(candidateHosts).To(BeNil())
 					Expect(len(candidateHosts)).To(Equal(0))
@@ -427,7 +433,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					By("Correctly returning only 2 candidate hosts due to the other hosts becoming too oversubscribed")
 
-					candidateHosts, err := dockerScheduler.FindCandidateHosts(3, kernelSpec)
+					candidateHosts, err := dockerScheduler.SearchForCandidateHosts(3, kernelSpec, false)
 					Expect(err).To(BeNil())
 					Expect(candidateHosts).ToNot(BeNil())
 					Expect(len(candidateHosts)).To(Equal(2))
@@ -464,7 +470,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					candidateHostChan := make(chan []scheduling.Host, 1)
 
 					go func() {
-						candidateHosts, err = dockerScheduler.GetCandidateHosts(ctx, kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+						candidateHosts, err = dockerScheduler.GetCandidateHosts(ctx, kernelSpec,
+							int32(dockerScheduler.Policy().NumReplicas()), false)
+
 						Expect(err).To(BeNil())
 						Expect(candidateHosts).ToNot(BeNil())
 						Expect(len(candidateHosts)).To(Equal(3))
@@ -712,12 +720,15 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						Expect(err).To(BeNil())
 					}
 
-					candidates, err := dockerScheduler.GetCandidateHosts(context.Background(), nextKernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+					candidates, err := dockerScheduler.GetCandidateHosts(context.Background(), nextKernelSpec,
+						int32(dockerScheduler.Policy().NumReplicas()), true)
 					Expect(err).To(BeNil())
 					Expect(candidates).ToNot(BeNil())
 
 					for _, candidate := range candidates {
-						fmt.Printf("host %s resources: %s\n", candidate.GetID(), candidate.GetResourceCountsAsString())
+						fmt.Printf("Candidate host, Host %s, has the following resources: %s\n",
+							candidate.GetID(), candidate.GetResourceCountsAsString())
+
 						Expect(candidate.IdleResources().GPUs.IsZero()).To(BeTrue())
 					}
 
@@ -752,8 +763,12 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					hostMapper.EXPECT().GetHostsOfKernel(nextKernelId).AnyTimes().Return([]scheduling.Host{}, nil)
 
-					host, err := dockerScheduler.GetCandidateHost(nextKernelReplica, nil, true, true)
+					ctx := context.Background()
+					hosts, err := dockerScheduler.GetCandidateHosts(ctx, nextKernelReplica.KernelSpec(), 1, true)
 					Expect(err).To(BeNil())
+					Expect(hosts).ToNot(BeNil())
+					Expect(len(hosts)).To(Equal(1))
+					host := hosts[0]
 					Expect(host).ToNot(BeNil())
 					Expect(host.IdleResources().IsZero()).To(BeFalse())
 				})
@@ -1063,7 +1078,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				})
 			})
 
-			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
+			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the SearchForCandidateHosts method", func() {
 				hosts = make(map[int]scheduling.UnitTestingHost)
 				localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 				resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
@@ -1093,7 +1108,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(3, kernelSpec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(3, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
@@ -1109,7 +1124,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				hostBatch, err := dockerScheduler.FindCandidateHosts(3-len(candidateHosts), kernelSpec)
+				hostBatch, err := dockerScheduler.SearchForCandidateHosts(3-len(candidateHosts), kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(hostBatch).ToNot(BeNil())
 
@@ -1157,7 +1172,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				Expect(dockerCluster.Len()).To(Equal(3))
 
-				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(3))
@@ -1391,7 +1408,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
@@ -1432,14 +1451,16 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).ToNot(BeNil())
 				Expect(candidateHosts).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(0))
 				fmt.Printf("Error: %v\n", err)
 			})
 
-			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
+			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the SearchForCandidateHosts method", func() {
 				validateVariablesNonNil()
 
 				largerHostSpec := types.NewDecimalSpec(8000, 64000, 64, 32)
@@ -1468,7 +1489,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    bigResourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(3, bigKernelSpec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(3, bigKernelSpec, false)
 				Expect(err).To(BeNil())
 				GinkgoWriter.Printf("Found candidate: host %s (ID=%s)\n",
 					candidateHosts[0].GetNodeName(), candidateHosts[0].GetID())
@@ -1488,7 +1509,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				hostBatch, err := dockerScheduler.FindCandidateHosts(3-len(candidateHosts), bigKernelSpec)
+				hostBatch, err := dockerScheduler.SearchForCandidateHosts(3-len(candidateHosts), bigKernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(hostBatch).ToNot(BeNil())
 				Expect(len(hostBatch)).To(Equal(1))
@@ -1535,7 +1556,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				Expect(dockerCluster.Len()).To(Equal(3))
 
-				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				// Expect(len(candidateHosts)).To(Equal(3))
@@ -1558,19 +1581,25 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    kernel1ResourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
 				// Create a second reservation.
-				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
 				// Create a second reservation.
-				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
@@ -1588,7 +1617,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    kernel2ResourceSpec,
 				}
 
-				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel2Spec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel2Spec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
+
 				Expect(err).ToNot(BeNil())
 				Expect(candidateHosts).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(0))
@@ -1687,7 +1718,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						ResourceSpec:    resourceSpec,
 					}
 
-					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec,
+						int32(dockerScheduler.Policy().NumReplicas()), false)
+
 					Expect(err).To(BeNil())
 					Expect(candidateHosts).ToNot(BeNil())
 					Expect(len(candidateHosts)).To(Equal(1))
@@ -1728,7 +1761,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						ResourceSpec:    resourceSpec,
 					}
 
-					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+					candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec,
+						int32(dockerScheduler.Policy().NumReplicas()), false)
+
 					Expect(err).ToNot(BeNil())
 					Expect(candidateHosts).To(BeNil())
 					Expect(len(candidateHosts)).To(Equal(0))
@@ -1736,7 +1771,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				})
 			})
 
-			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
+			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the SearchForCandidateHosts method", func() {
 				hosts = make(map[int]scheduling.Host)
 				localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 				resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
@@ -1768,7 +1803,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					ResourceSpec:    bigResourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(1, bigKernelSpec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, bigKernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
@@ -1786,7 +1821,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				hostBatch, err := dockerScheduler.FindCandidateHosts(1-len(candidateHosts), bigKernelSpec)
+				hostBatch, err := dockerScheduler.SearchForCandidateHosts(1-len(candidateHosts), bigKernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(hostBatch).ToNot(BeNil())
 
@@ -1847,7 +1882,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 				Expect(dockerCluster.Len()).To(Equal(3))
 
-				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec, int32(dockerScheduler.Policy().NumReplicas()))
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec,
+					int32(dockerScheduler.Policy().NumReplicas()), false)
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
 				// Expect(len(candidateHosts)).To(Equal(3))

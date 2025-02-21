@@ -928,18 +928,18 @@ func (mr *MockSchedulerMockRecorder) GetCandidateHost(replica, blacklistedHosts,
 }
 
 // GetCandidateHosts mocks base method.
-func (m *MockScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32) ([]scheduling.Host, error) {
+func (m *MockScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32, forTraining bool) ([]scheduling.Host, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCandidateHosts", ctx, kernelSpec, numHosts)
+	ret := m.ctrl.Call(m, "GetCandidateHosts", ctx, kernelSpec, numHosts, forTraining)
 	ret0, _ := ret[0].([]scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetCandidateHosts indicates an expected call of GetCandidateHosts.
-func (mr *MockSchedulerMockRecorder) GetCandidateHosts(ctx, kernelSpec, numHosts any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) GetCandidateHosts(ctx, kernelSpec, numHosts, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHosts", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHosts), ctx, kernelSpec, numHosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHosts", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHosts), ctx, kernelSpec, numHosts, forTraining)
 }
 
 // GetOversubscriptionFactor mocks base method.

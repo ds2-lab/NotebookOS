@@ -81,15 +81,6 @@ func (s *KubernetesScheduler) HostRemoved(host scheduling.Host) {
 		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
 }
 
-// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
-// KubernetesScheduler does not do anything special or fancy.
-//
-// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-func (s *KubernetesScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	// Identify the hosts onto which we will place replicas of the kernel.
-	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
-}
-
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
 func (s *KubernetesScheduler) addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation) {
 	s.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())

@@ -8,11 +8,6 @@ import (
 type clusterSchedulerInternal interface {
 	scheduling.Scheduler
 
-	// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
-	//
-	// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-	findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error)
-
 	// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
 	addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation)
 

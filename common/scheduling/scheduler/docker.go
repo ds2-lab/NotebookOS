@@ -168,15 +168,6 @@ func (s *DockerScheduler) HostRemoved(host scheduling.Host) {
 	s.log.Debug("Host %s (ID=%s) has been removed.", host.GetNodeName(), host.GetID())
 }
 
-// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
-// DockerScheduler does not do anything special or fancy.
-//
-// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	// Identify the hosts onto which we will place replicas of the kernel.
-	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
-}
-
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
 func (s *DockerScheduler) addReplicaSetup(_ string, _ *scheduling.AddReplicaOperation) {
 	// no-op
@@ -239,7 +230,9 @@ func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelR
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
 // If targetHost is nil, then a candidate Host is identified automatically by the Scheduler.
-func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) (err error) {
+func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec,
+	targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) (err error) {
+
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
 	if targetHost == nil {
@@ -381,7 +374,7 @@ func (s *DockerScheduler) scheduleKernelReplicaPrewarm(ctx context.Context, repl
 
 // scheduleKernelReplicaOnDemand uses the scheduling.Placer to create a new scheduling.KernelContainer on the specified
 // scheduling.Host for the specified scheduling.KernelReplica.
-func (s *DockerScheduler) scheduleKernelReplicaOnDemand(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host) error {
+func (s *DockerScheduler) scheduleKernelReplicaOnDemand(_ context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host) error {
 	s.log.Debug("Launching replica %d of kernel %s in on-demand container on targetHost %s (ID=%s) now.",
 		replicaSpec.ReplicaId, replicaSpec.Kernel.Id, targetHost.GetNodeName(), targetHost.GetID())
 
@@ -397,14 +390,16 @@ func (s *DockerScheduler) scheduleKernelReplicaOnDemand(ctx context.Context, rep
 	return nil
 }
 
-// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of scheduling.Host.
-// Specifically, scheduleKernelReplicas calls ScheduleKernelReplica for each of the Host instances within the given
-// slice of Hosts in a separate goroutine, thereby scheduling a replica of the given kernel on the Host. That is, the
-// scheduling of a replica of the kernel occurs in a unique goroutine for each of the specified Host instances.
+// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of
+// scheduling.Host. Specifically, this method calls ScheduleKernelReplica for each of the Host instances within the
+// given slice of scheduling.Host instances in a separate goroutine, thereby scheduling a replica of the given kernel
+// on the scheduling.Host. That is, the scheduling of a replica of the kernel occurs in a unique goroutine for each of
+// the specified scheduling.Host instances.
 //
-// scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
-// have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(ctx context.Context, in *proto.KernelSpec, hosts []scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) <-chan *schedulingNotification {
+// This method returns a <-chan interface{} used to notify the caller when the scheduling operations have completed.
+func (s *DockerScheduler) scheduleKernelReplicas(ctx context.Context, in *proto.KernelSpec, hosts []scheduling.Host,
+	blacklistedHosts []scheduling.Host, forTraining bool) <-chan *schedulingNotification {
+
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan *schedulingNotification, 3)
@@ -423,8 +418,8 @@ func (s *DockerScheduler) scheduleKernelReplicas(ctx context.Context, in *proto.
 			s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
 				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
 
-			var schedulingError error
-			if schedulingError = s.ScheduleKernelReplica(ctx, replicaSpec, targetHost, blacklistedHosts, forTraining); schedulingError != nil {
+			schedulingError := s.ScheduleKernelReplica(ctx, replicaSpec, targetHost, blacklistedHosts, forTraining)
+			if schedulingError != nil {
 				// An error occurred. Send it over the channel.
 				resultChan <- &schedulingNotification{
 					SchedulingCompletedAt: time.Now(),
@@ -576,7 +571,9 @@ func (s *DockerScheduler) removeOrphanedReplicas(ctx context.Context, kernel sch
 }
 
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32, blacklistedHosts []scheduling.Host) error {
+func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32,
+	blacklistedHosts []scheduling.Host) error {
+
 	st := time.Now()
 
 	kernelSpec := kernel.KernelSpec()
@@ -591,7 +588,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, kernel sched
 	}
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
-	hosts, candidateError := s.GetCandidateHosts(ctx, kernelSpec, numReplicasToSchedule)
+	hosts, candidateError := s.GetCandidateHosts(ctx, kernelSpec, numReplicasToSchedule, false)
 	if candidateError != nil {
 		return candidateError
 	}
