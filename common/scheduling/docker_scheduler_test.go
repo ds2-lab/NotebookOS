@@ -166,6 +166,10 @@ var _ = Describe("Docker Scheduler Tests", func() {
 		// notificationBroker *mock_scheduler.MockNotificationBroker
 	)
 
+	clusterProvider := func() scheduling.Cluster {
+		return dockerCluster
+	}
+
 	BeforeEach(func() {
 		hostSpec = types.NewDecimalSpec(8000, 64000, 8, 32)
 
@@ -189,7 +193,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			// notificationBroker = mock_scheduler.NewMockNotificationBroker(mockCtrl)
 
 			opts.SchedulingPolicy = string(scheduling.Static) // Should already be set to static, but just to be sure.
-			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
@@ -1365,7 +1369,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
 
 			opts.SchedulingPolicy = string(scheduling.Reservation)
-			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
@@ -1674,7 +1678,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
 
 			opts.SchedulingPolicy = string(scheduling.FcfsBatch)
-			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
