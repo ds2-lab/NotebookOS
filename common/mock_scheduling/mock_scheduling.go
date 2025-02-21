@@ -9212,20 +9212,6 @@ func (mr *MockPolicyMockRecorder) GetGpusPerHost() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpusPerHost", reflect.TypeOf((*MockPolicy)(nil).GetGpusPerHost))
 }
 
-// GetHostCriteriaFunctions mocks base method.
-func (m *MockPolicy) GetHostCriteriaFunctions() []scheduling.HostCriteriaFunction {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetHostCriteriaFunctions")
-	ret0, _ := ret[0].([]scheduling.HostCriteriaFunction)
-	return ret0
-}
-
-// GetHostCriteriaFunctions indicates an expected call of GetHostCriteriaFunctions.
-func (mr *MockPolicyMockRecorder) GetHostCriteriaFunctions() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHostCriteriaFunctions", reflect.TypeOf((*MockPolicy)(nil).GetHostCriteriaFunctions))
-}
-
 // GetNewPlacer mocks base method.
 func (m *MockPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
 	m.ctrl.T.Helper()
@@ -9490,6 +9476,36 @@ func (m *MockPolicy) ValidateCapacity(cluster scheduling.Cluster) {
 func (mr *MockPolicyMockRecorder) ValidateCapacity(cluster any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateCapacity", reflect.TypeOf((*MockPolicy)(nil).ValidateCapacity), cluster)
+}
+
+// ValidateHostForKernel mocks base method.
+func (m *MockPolicy) ValidateHostForKernel(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateHostForKernel", candidateHost, kernelSpec, forTraining)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateHostForKernel indicates an expected call of ValidateHostForKernel.
+func (mr *MockPolicyMockRecorder) ValidateHostForKernel(candidateHost, kernelSpec, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostForKernel", reflect.TypeOf((*MockPolicy)(nil).ValidateHostForKernel), candidateHost, kernelSpec, forTraining)
+}
+
+// ValidateHostForReplica mocks base method.
+func (m *MockPolicy) ValidateHostForReplica(candidateHost scheduling.Host, kernelReplicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateHostForReplica", candidateHost, kernelReplicaSpec, forTraining)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateHostForReplica indicates an expected call of ValidateHostForReplica.
+func (mr *MockPolicyMockRecorder) ValidateHostForReplica(candidateHost, kernelReplicaSpec, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostForReplica", reflect.TypeOf((*MockPolicy)(nil).ValidateHostForReplica), candidateHost, kernelReplicaSpec, forTraining)
 }
 
 // MockStatisticsProvider is a mock of StatisticsProvider interface.
@@ -12983,19 +12999,19 @@ func (m *MockContainerPrewarmer) EXPECT() *MockContainerPrewarmerMockRecorder {
 	return m.recorder
 }
 
-// HostLen mocks base method.
-func (m *MockContainerPrewarmer) HostLen(host scheduling.Host) (int, int) {
+// GetNumPrewarmContainersOnHost mocks base method.
+func (m *MockContainerPrewarmer) GetNumPrewarmContainersOnHost(host scheduling.Host) (int, int) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HostLen", host)
+	ret := m.ctrl.Call(m, "GetNumPrewarmContainersOnHost", host)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(int)
 	return ret0, ret1
 }
 
-// HostLen indicates an expected call of HostLen.
-func (mr *MockContainerPrewarmerMockRecorder) HostLen(host any) *gomock.Call {
+// GetNumPrewarmContainersOnHost indicates an expected call of GetNumPrewarmContainersOnHost.
+func (mr *MockContainerPrewarmerMockRecorder) GetNumPrewarmContainersOnHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostLen", reflect.TypeOf((*MockContainerPrewarmer)(nil).HostLen), host)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNumPrewarmContainersOnHost", reflect.TypeOf((*MockContainerPrewarmer)(nil).GetNumPrewarmContainersOnHost), host)
 }
 
 // InitialPrewarmedContainersPerHost mocks base method.
@@ -13242,19 +13258,19 @@ func (m *MockContainerPool) EXPECT() *MockContainerPoolMockRecorder {
 	return m.recorder
 }
 
-// HostLen mocks base method.
-func (m *MockContainerPool) HostLen(host scheduling.Host) (int, int) {
+// GetNumPrewarmContainersOnHost mocks base method.
+func (m *MockContainerPool) GetNumPrewarmContainersOnHost(host scheduling.Host) (int, int) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HostLen", host)
+	ret := m.ctrl.Call(m, "GetNumPrewarmContainersOnHost", host)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(int)
 	return ret0, ret1
 }
 
-// HostLen indicates an expected call of HostLen.
-func (mr *MockContainerPoolMockRecorder) HostLen(host any) *gomock.Call {
+// GetNumPrewarmContainersOnHost indicates an expected call of GetNumPrewarmContainersOnHost.
+func (mr *MockContainerPoolMockRecorder) GetNumPrewarmContainersOnHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostLen", reflect.TypeOf((*MockContainerPool)(nil).HostLen), host)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNumPrewarmContainersOnHost", reflect.TypeOf((*MockContainerPool)(nil).GetNumPrewarmContainersOnHost), host)
 }
 
 // InitialPrewarmedContainersPerHost mocks base method.

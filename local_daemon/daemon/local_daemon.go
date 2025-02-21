@@ -464,7 +464,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.numResendAttempts = DefaultNumResendAttempts
 	}
 
-	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
+	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions, nil)
 	if err != nil {
 		panic(err)
 	}

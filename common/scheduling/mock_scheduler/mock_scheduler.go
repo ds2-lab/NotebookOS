@@ -12,6 +12,7 @@ package mock_scheduler
 import (
 	reflect "reflect"
 
+	proto "github.com/scusemua/distributed-notebook/common/proto"
 	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -221,20 +222,6 @@ func (m *MockSchedulingPolicy) GetGpusPerHost() int {
 func (mr *MockSchedulingPolicyMockRecorder) GetGpusPerHost() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpusPerHost", reflect.TypeOf((*MockSchedulingPolicy)(nil).GetGpusPerHost))
-}
-
-// GetHostCriteriaFunctions mocks base method.
-func (m *MockSchedulingPolicy) GetHostCriteriaFunctions() []scheduling.HostCriteriaFunction {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetHostCriteriaFunctions")
-	ret0, _ := ret[0].([]scheduling.HostCriteriaFunction)
-	return ret0
-}
-
-// GetHostCriteriaFunctions indicates an expected call of GetHostCriteriaFunctions.
-func (mr *MockSchedulingPolicyMockRecorder) GetHostCriteriaFunctions() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHostCriteriaFunctions", reflect.TypeOf((*MockSchedulingPolicy)(nil).GetHostCriteriaFunctions))
 }
 
 // GetNewPlacer mocks base method.
@@ -501,4 +488,34 @@ func (m *MockSchedulingPolicy) ValidateCapacity(cluster scheduling.Cluster) {
 func (mr *MockSchedulingPolicyMockRecorder) ValidateCapacity(cluster any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateCapacity", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateCapacity), cluster)
+}
+
+// ValidateHostForKernel mocks base method.
+func (m *MockSchedulingPolicy) ValidateHostForKernel(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateHostForKernel", candidateHost, kernelSpec, forTraining)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateHostForKernel indicates an expected call of ValidateHostForKernel.
+func (mr *MockSchedulingPolicyMockRecorder) ValidateHostForKernel(candidateHost, kernelSpec, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostForKernel", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateHostForKernel), candidateHost, kernelSpec, forTraining)
+}
+
+// ValidateHostForReplica mocks base method.
+func (m *MockSchedulingPolicy) ValidateHostForReplica(candidateHost scheduling.Host, kernelReplicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateHostForReplica", candidateHost, kernelReplicaSpec, forTraining)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateHostForReplica indicates an expected call of ValidateHostForReplica.
+func (mr *MockSchedulingPolicyMockRecorder) ValidateHostForReplica(candidateHost, kernelReplicaSpec, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostForReplica", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateHostForReplica), candidateHost, kernelReplicaSpec, forTraining)
 }

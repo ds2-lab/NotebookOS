@@ -148,15 +148,8 @@ func (b *Provider) Validate() error {
 		return fmt.Errorf("%w: ClusterGatewayOptions", ErrMissingRequiredArgument)
 	}
 
-	// If unspecified, then we'll create it ourselves here.
-	if b.SchedulingPolicy == nil {
-		schedulingPolicy, err := scheduler.GetSchedulingPolicy(b.Options)
-		if err != nil {
-			return err
-		}
-
-		b.SchedulingPolicy = schedulingPolicy
-	}
+	// We wait to validate the scheduling policy until BuildCluster is called,
+	// so that we can create a clusterProvider function.
 
 	b.log.Debug("Successfully validated arguments for %s cluster.", b.ClusterType.String())
 	return nil
@@ -170,19 +163,46 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 		return nil, err
 	}
 
+	var (
+		clusterPointer *scheduling.Cluster // Interface pointer.
+		tmpCluster     scheduling.Cluster
+	)
+
+	clusterProvider := func() scheduling.Cluster {
+		if clusterPointer == nil {
+			return nil
+		}
+
+		return *clusterPointer
+	}
+
+	if b.SchedulingPolicy == nil {
+		schedulingPolicy, err := scheduler.GetSchedulingPolicy(b.Options, clusterProvider)
+		if err != nil {
+			return nil, err
+		}
+
+		b.SchedulingPolicy = schedulingPolicy
+	}
+
 	if b.ClusterType == DockerCompose || b.ClusterType == DockerSwarm {
 		b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
-		return NewDockerCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-			b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
+
+		tmpCluster = NewDockerCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider,
+			b.ClusterMetricsProvider, b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options)
 	}
 
 	if b.ClusterType == Kubernetes {
 		b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
-		return NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-			b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
+		tmpCluster = NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider,
+			b.ClusterMetricsProvider, b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options)
 	}
 
-	b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())
-	log.Fatalf("Unknown/unsupported cluster type: %v\n", b.ClusterType.String())
-	return nil, nil // This line won't get executed, as the previous line will panic.
+	if tmpCluster == nil {
+		b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())
+		log.Fatalf("Unknown/unsupported cluster type: %v\n", b.ClusterType.String())
+	}
+
+	clusterPointer = &tmpCluster
+	return tmpCluster, nil
 }
