@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
@@ -27,8 +28,8 @@ type MiddleGroundPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions) (*MiddleGroundPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*MiddleGroundPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +49,68 @@ func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions) (*MiddleGroundPoli
 	}
 
 	return policy, nil
+}
+
+// ValidateHostForKernel allows the Policy to perform any policy-specific validation logic to ensure that
+// the given Host is viable for serving a replica of the specified Kernel.
+func (p *MiddleGroundPolicy) ValidateHostForKernel(host scheduling.Host, _ *proto.KernelSpec, _ bool) (isViable bool, unviabilityReason error) {
+	if p.clusterProvider == nil {
+		panic("MiddleGroundPolicy: Cannot retrieve instance of Cluster. ClusterProvider is nil.")
+	}
+
+	cluster := p.clusterProvider()
+	if cluster == nil {
+		panic("MiddleGroundPolicy: ClusterProvider returned nil.")
+	}
+
+	clusterScheduler := cluster.Scheduler()
+	if clusterScheduler == nil {
+		panic("MiddleGroundPolicy: Scheduler is nil.")
+	}
+
+	containerPrewarmer := clusterScheduler.ContainerPrewarmer()
+	if containerPrewarmer == nil {
+		panic("MiddleGroundPolicy: ContainerPrewarmer is nil.")
+	}
+
+	curr, _ := containerPrewarmer.GetNumPrewarmContainersOnHost(host)
+	if curr == 0 {
+		return false, fmt.Errorf("%w: host \"%s\" does not have any prewarm containers at the moment",
+			scheduling.ErrNoPrewarmContainersAvailable, host.GetNodeName())
+	}
+
+	return true, nil
+}
+
+// ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that
+// the given Host is viable for serving a replica of the specified Kernel.
+func (p *MiddleGroundPolicy) ValidateHostForReplica(host scheduling.Host, _ *proto.KernelReplicaSpec, _ bool) (isViable bool, unviabilityReason error) {
+	if p.clusterProvider == nil {
+		panic("MiddleGroundPolicy: Cannot retrieve instance of Cluster. ClusterProvider is nil.")
+	}
+
+	cluster := p.clusterProvider()
+	if cluster == nil {
+		panic("MiddleGroundPolicy: ClusterProvider returned nil.")
+	}
+
+	clusterScheduler := cluster.Scheduler()
+	if clusterScheduler == nil {
+		panic("MiddleGroundPolicy: Scheduler is nil.")
+	}
+
+	containerPrewarmer := clusterScheduler.ContainerPrewarmer()
+	if containerPrewarmer == nil {
+		panic("MiddleGroundPolicy: ContainerPrewarmer is nil.")
+	}
+
+	curr, _ := containerPrewarmer.GetNumPrewarmContainersOnHost(host)
+	if curr == 0 {
+		return false, fmt.Errorf("%w: host \"%s\" does not have any prewarm containers at the moment",
+			scheduling.ErrNoPrewarmContainersAvailable, host.GetNodeName())
+	}
+
+	return true, nil
 }
 
 // ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being

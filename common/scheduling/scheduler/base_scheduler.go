@@ -73,6 +73,7 @@ type baseSchedulerBuilder struct {
 	hostMapper                  HostMapper
 	hostSpec                    types.Spec
 	kernelProvider              KernelProvider
+	clusterProvider             scheduling.ClusterProvider
 	notificationBroker          NotificationBroker
 	metricsProvider             scheduling.MetricsProvider
 	activeExecutionProvider     scheduling.ActiveExecutionProvider
@@ -130,6 +131,11 @@ func (b *baseSchedulerBuilder) WithOptions(options *scheduling.SchedulerOptions)
 	return b
 }
 
+func (b *baseSchedulerBuilder) WithClusterProvider(clusterProvider scheduling.ClusterProvider) *baseSchedulerBuilder {
+	b.clusterProvider = clusterProvider
+	return b
+}
+
 func (b *baseSchedulerBuilder) WithInitialNumContainersPerHost(initialNumContainersPerHost int) *baseSchedulerBuilder {
 	b.initialNumContainersPerHost = initialNumContainersPerHost
 	return b
@@ -141,8 +147,16 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		panic("Cannot construct BaseScheduler using baseSchedulerBuilder with nil options.")
 	}
 
+	// Automatically create a scheduling.ClusterProvider based on the cluster we were given, if we
+	// do not already have a scheduling.ClusterProvider.
+	if b.clusterProvider == nil {
+		b.clusterProvider = func() scheduling.Cluster {
+			return b.cluster
+		}
+	}
+
 	if b.schedulingPolicy == nil {
-		schedulingPolicy, err := GetSchedulingPolicy(b.options)
+		schedulingPolicy, err := GetSchedulingPolicy(b.options, b.clusterProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -410,7 +424,7 @@ func (s *BaseScheduler) isScalingInEnabled() bool {
 
 // FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
 // to handle a training event.
-func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) scheduling.KernelContainer {
+func (s *BaseScheduler) FindReadyContainer(_ scheduling.UserSession) scheduling.KernelContainer {
 	panic("Not implemented.")
 }
 

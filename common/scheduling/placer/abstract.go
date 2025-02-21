@@ -50,6 +50,14 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 // in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
 // depending upon the scheduling.Policy configured for the AllocationManager.
 func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
+	isViable, reasonForUnviability := placer.schedulingPolicy.ValidateHostForKernel(candidateHost, kernelSpec, forTraining)
+	if !isViable {
+		placer.log.Debug("Host \"%s\" was found by '%s' policy to be unviable for kernel \"%s\" because: %v",
+			candidateHost.GetNodeName(), placer.schedulingPolicy.Name(), kernelSpec.Id, reasonForUnviability)
+
+		return false, reasonForUnviability
+	}
+
 	var usePendingReservation bool
 
 	// If we are migrating a replica that needs to begin training right away,
@@ -105,6 +113,14 @@ func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling
 // in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
 // depending upon the scheduling.Policy configured for the AllocationManager.
 func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+	isViable, reasonForUnviability := placer.schedulingPolicy.ValidateHostForReplica(candidateHost, replicaSpec, forTraining)
+	if !isViable {
+		placer.log.Debug("Host \"%s\" was found by '%s' policy to be unviable for replica %d of kernel \"%s\" because: %v",
+			candidateHost.GetNodeName(), placer.schedulingPolicy.Name(), replicaSpec.ReplicaId, replicaSpec.Kernel.Id, reasonForUnviability)
+
+		return false, reasonForUnviability
+	}
+
 	var usePendingReservation bool
 
 	// If we are migrating a replica that needs to begin training right away,

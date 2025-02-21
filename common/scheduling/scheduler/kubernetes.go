@@ -35,6 +35,13 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 	kernelProvider KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
 
+	clusterProvider := schedulingPolicy.GetClusterProviderFunc()
+	if clusterProvider == nil {
+		clusterProvider = func() scheduling.Cluster {
+			return cluster
+		}
+	}
+
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
 		WithHostMapper(hostMapper).

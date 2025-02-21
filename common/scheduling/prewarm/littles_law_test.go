@@ -305,7 +305,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(0))
 			}
@@ -324,7 +324,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -334,7 +334,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -347,7 +347,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				}
 
 				for _, host := range hosts {
-					curr, provisioning := prewarmer.HostLen(host)
+					curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 					if curr != (numHosts * initialCapacity) {
 						return false
 					}
@@ -514,7 +514,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
 				for i := 0; i < numHosts; i++ {
-					curr, prov := prewarmer.HostLen(hosts[i])
+					curr, prov := prewarmer.GetNumPrewarmContainersOnHost(hosts[i])
 
 					if curr != 1 {
 						return false
@@ -541,7 +541,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 			// Done provisioning.
 			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
 			}
@@ -554,7 +554,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 			container.OnPrewarmedContainerUsed()
 			Expect(prewarmer.Len()).To(Equal(3))
-			currHost1, provHost1 := prewarmer.HostLen(hosts[1])
+			currHost1, provHost1 := prewarmer.GetNumPrewarmContainersOnHost(hosts[1])
 			Expect(provHost1).To(Equal(0))
 			Expect(currHost1).To(Equal(1))
 		})

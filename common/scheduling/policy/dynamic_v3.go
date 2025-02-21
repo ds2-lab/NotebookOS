@@ -10,8 +10,8 @@ type DynamicV3Policy struct {
 	*baseSchedulingPolicy
 }
 
-func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+func NewDynamicV3Policy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*DynamicV3Policy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true, clusterProvider)
 	if err != nil {
 		return nil, err
 	}

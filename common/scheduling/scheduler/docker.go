@@ -52,6 +52,13 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		panic("Cluster cannot be nil")
 	}
 
+	clusterProvider := schedulingPolicy.GetClusterProviderFunc()
+	if clusterProvider == nil {
+		clusterProvider = func() scheduling.Cluster {
+			return cluster
+		}
+	}
+
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
 		WithHostMapper(hostMapper).
@@ -60,6 +67,7 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		WithSchedulingPolicy(schedulingPolicy).
 		WithKernelProvider(kernelProvider).
 		WithNotificationBroker(notificationBroker).
+		WithClusterProvider(clusterProvider).
 		WithInitialNumContainersPerHost(opts.InitialNumContainersPerHost).
 		WithMetricsProvider(cluster.MetricsProvider()).
 		WithOptions(opts).Build()

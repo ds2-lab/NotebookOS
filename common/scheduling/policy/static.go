@@ -14,8 +14,8 @@ type StaticPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+func NewStaticPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*StaticPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true, clusterProvider)
 	if err != nil {
 		return nil, err
 	}

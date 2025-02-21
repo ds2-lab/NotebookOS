@@ -30,6 +30,7 @@ var (
 	ErrInvalidSchedulingPolicy             = errors.New("unknown, unspecified, or invalid scheduling policy")
 	ErrInvalidIdleSessionReclamationPolicy = errors.New("unknown, unspecified, or invalid idle session reclamation policy")
 	ErrAssociatedKernelActiveTraining      = errors.New("cannot migrate replicas from host as at least one container's kernel is actively training")
+	ErrNoPrewarmContainersAvailable        = errors.New("no prewarm containers available")
 	// ErrMigrationFailed indicates that a migration failed for a "valid" reason, such as there simply not being a
 	// viable target Host available. Importantly, it does NOT indicate that the Cluster is in an error state.
 	ErrMigrationFailed = errors.New("failed to migrate kernel replica")

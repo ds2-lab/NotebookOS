@@ -284,9 +284,9 @@ func (p *BaseContainerPrewarmer) Len() int {
 	return p.PoolSize()
 }
 
-// HostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as well
+// GetNumPrewarmContainersOnHost returns the number of pre-warmed containers currently available on the targeted scheduling.Host as well
 // as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
-func (p *BaseContainerPrewarmer) HostLen(host scheduling.Host) (curr int, provisioning int) {
+func (p *BaseContainerPrewarmer) GetNumPrewarmContainersOnHost(host scheduling.Host) (curr int, provisioning int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

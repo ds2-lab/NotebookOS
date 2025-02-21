@@ -18,8 +18,8 @@ type FcfsBatchSchedulingPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*FcfsBatchSchedulingPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}

@@ -16,8 +16,8 @@ type ReservationPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+func NewReservationPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*ReservationPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true, clusterProvider)
 	if err != nil {
 		return nil, err
 	}

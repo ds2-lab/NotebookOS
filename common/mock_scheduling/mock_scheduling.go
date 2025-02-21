@@ -9184,6 +9184,20 @@ func (mr *MockPolicyMockRecorder) FindReadyReplica(kernel, executionId any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockPolicy)(nil).FindReadyReplica), kernel, executionId)
 }
 
+// GetClusterProviderFunc mocks base method.
+func (m *MockPolicy) GetClusterProviderFunc() scheduling.ClusterProvider {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterProviderFunc")
+	ret0, _ := ret[0].(scheduling.ClusterProvider)
+	return ret0
+}
+
+// GetClusterProviderFunc indicates an expected call of GetClusterProviderFunc.
+func (mr *MockPolicyMockRecorder) GetClusterProviderFunc() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterProviderFunc", reflect.TypeOf((*MockPolicy)(nil).GetClusterProviderFunc))
+}
+
 // GetGpusPerHost mocks base method.
 func (m *MockPolicy) GetGpusPerHost() int {
 	m.ctrl.T.Helper()
@@ -9196,6 +9210,20 @@ func (m *MockPolicy) GetGpusPerHost() int {
 func (mr *MockPolicyMockRecorder) GetGpusPerHost() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpusPerHost", reflect.TypeOf((*MockPolicy)(nil).GetGpusPerHost))
+}
+
+// GetHostCriteriaFunctions mocks base method.
+func (m *MockPolicy) GetHostCriteriaFunctions() []scheduling.HostCriteriaFunction {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHostCriteriaFunctions")
+	ret0, _ := ret[0].([]scheduling.HostCriteriaFunction)
+	return ret0
+}
+
+// GetHostCriteriaFunctions indicates an expected call of GetHostCriteriaFunctions.
+func (mr *MockPolicyMockRecorder) GetHostCriteriaFunctions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHostCriteriaFunctions", reflect.TypeOf((*MockPolicy)(nil).GetHostCriteriaFunctions))
 }
 
 // GetNewPlacer mocks base method.

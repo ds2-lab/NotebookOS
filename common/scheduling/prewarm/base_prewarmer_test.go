@@ -302,7 +302,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(0))
 			}
@@ -323,7 +323,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -333,7 +333,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -346,7 +346,7 @@ var _ = Describe("Base Prewarmer Tests", func() {
 				}
 
 				for _, host := range hosts {
-					curr, provisioning := prewarmer.HostLen(host)
+					curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 					if curr != (numHosts * initialCapacity) {
 						return false
 					}

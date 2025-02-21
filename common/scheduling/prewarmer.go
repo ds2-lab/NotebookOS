@@ -44,9 +44,10 @@ type ContainerPool interface {
 	// Len is ultimately just an alias for PoolSize.
 	Len() int
 
-	// HostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as well
-	// as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
-	HostLen(host Host) (curr int, provisioning int)
+	// GetNumPrewarmContainersOnHost returns the number of pre-warmed containers currently available on the targeted
+	// scheduling.Host as well as the number of pre-warmed containers that are currently being provisioned on the
+	// targeted scheduling.Host.
+	GetNumPrewarmContainersOnHost(host Host) (curr int, provisioning int)
 
 	// InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
 	// conclusion of the 'initial connection period'.

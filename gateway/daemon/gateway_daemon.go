@@ -579,7 +579,15 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions)
+	clusterProvider := func() scheduling.Cluster {
+		if clusterGateway == nil {
+			return nil
+		}
+
+		return clusterGateway.cluster
+	}
+
+	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions, clusterProvider)
 	if policyError != nil {
 		panic(policyError)
 	}

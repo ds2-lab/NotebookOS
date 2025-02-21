@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"time"
 )
@@ -102,6 +103,14 @@ type Policy interface {
 	// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
 	RequirePrewarmContainer() bool
 
+	// ValidateHostForKernel allows the Policy to perform any policy-specific validation logic to ensure that
+	// the given Host is viable for serving a replica of the specified Kernel.
+	ValidateHostForKernel(candidateHost Host, kernelSpec *proto.KernelSpec, forTraining bool) (isViable bool, unviabilityReason error)
+
+	// ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that
+	// the given Host is viable for serving a replica of the specified Kernel.
+	ValidateHostForReplica(candidateHost Host, kernelReplicaSpec *proto.KernelReplicaSpec, forTraining bool) (isViable bool, unviabilityReason error)
+
 	// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
 	// a prewarm container available or not factor that into the placement decision.
 	PrioritizePrewarmContainers() bool
@@ -192,6 +201,9 @@ type Policy interface {
 	// the requirements. If the requirements were to change after selection a replica, then
 	// that could invalidate the selection.
 	FindReadyReplica(kernel Kernel, executionId string) (KernelReplica, error)
+
+	// GetClusterProviderFunc returns the ClusterProvider func used by the target Policy.
+	GetClusterProviderFunc() ClusterProvider
 }
 
 // IdleSessionReclamationPolicy defines how the scheduling policy handles idle sessions.

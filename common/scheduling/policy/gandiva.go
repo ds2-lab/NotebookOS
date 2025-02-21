@@ -10,8 +10,8 @@ type GandivaPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewGandivaPolicy(opts *scheduling.SchedulerOptions) (*GandivaPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+func NewGandivaPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*GandivaPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
