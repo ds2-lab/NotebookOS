@@ -262,7 +262,7 @@ func (p *MiddleGroundPolicy) ValidateCapacity(cluster scheduling.Cluster) {
 // SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
 // the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
 func (p *MiddleGroundPolicy) SupportsPredictiveAutoscaling() bool {
-	return true
+	return false
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
