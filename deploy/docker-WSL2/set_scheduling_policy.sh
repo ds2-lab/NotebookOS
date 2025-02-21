@@ -36,6 +36,18 @@ else
   exit 1
 fi
 
+if [[ "$new_value" == "middle-ground" ]]; then
+  sed -i.bak -E "s/^replenish_on_use:.*/replenish_on_use: false/" "$target_file"
+  sed -i.bak -E "s/^dynamically_maintain_capacity:.*/dynamically_maintain_capacity: false/" "$target_file"
+  sed -i.bak -E "s/^prewarming_policy:.*/prewarming_policy: maintain_minimum_capacity/" "$target_file"
+
+  echo "Updated values of 'prewarming_policy', 'replenish_on_use', and 'dynamically_maintain_capacity' configuration parameters in gateway.yml as well."
+else
+  sed -i.bak -E "s/^dynamically_maintain_capacity:.*/dynamically_maintain_capacity: true/" "$target_file"
+
+  echo "Updated values of 'dynamically_maintain_capacity' configuration parameters in gateway.yml as well."
+fi
+
 #####################################
 # Update Local Daemon configuration #
 #####################################
