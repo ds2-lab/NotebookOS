@@ -231,7 +231,8 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 				minCapacityPrewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
 					PrewarmerConfig:               prewarmerConfig,
 					MinPrewarmedContainersPerHost: b.options.MinPrewarmContainersPerHost,
-					ProactiveReplacementEnabled:   b.options.ProactivePrewarmContainerReplacementEnabled,
+					DynamicallyMaintainCapacity:   b.options.DynamicallyMaintainCapacity,
+					ReplenishOnUse:                b.options.ReplenishOnUse,
 				}
 
 				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig, b.metricsProvider)
@@ -242,9 +243,9 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 				clusterScheduler.log.Warn("Using \"%s\" pre-policy.", b.options.PrewarmingPolicy)
 
 				fixedCapacityConfig := &prewarm.FixedCapacityPrewarmerConfig{
-					PrewarmerConfig:             prewarmerConfig,
-					ProactiveReplacementEnabled: b.options.ProactivePrewarmContainerReplacementEnabled,
-					Capacity:                    int32(b.options.FixedCapacitySize),
+					PrewarmerConfig: prewarmerConfig,
+					ReplenishOnUse:  b.options.ReplenishOnUse,
+					Capacity:        int32(b.options.FixedCapacitySize),
 				}
 
 				prewarmer := prewarm.NewFixedCapacityPrewarmer(b.cluster, fixedCapacityConfig, b.metricsProvider)

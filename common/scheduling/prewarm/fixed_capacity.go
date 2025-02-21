@@ -14,13 +14,13 @@ type FixedCapacityPrewarmerConfig struct {
 	// Capacity is the size of the FixedCapacityPrewarmer's container pool.
 	Capacity int32 `yaml:"capacity" json:"capacity"`
 
-	// ProactiveReplacementEnabled controls whether new pre-warm containers are immediately provisioned
+	// ReplenishOnUse controls whether new pre-warm containers are immediately provisioned
 	// when an existing prewarm container is used, or if the pool relies on containers being returned
-	// after they are used.
+	//
 	//
 	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
 	// also enabled.
-	ProactiveReplacementEnabled bool `yaml:"replacementEnabled" json:"replacementEnabled"`
+	ReplenishOnUse bool `yaml:"replenish_on_use" json:"replenish_on_use"`
 }
 
 // FixedCapacityPrewarmer attempts to maintain the minimum number of prewarmed containers on each scheduling.Host
@@ -181,7 +181,7 @@ func (p *FixedCapacityPrewarmer) MinPrewarmedContainersPerHost() int {
 // prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
 // to react (i.e., provision another prewarm container, if it is supposed to do so).
 func (p *FixedCapacityPrewarmer) prewarmContainerUsed(host scheduling.Host, prewarmedContainer scheduling.PrewarmedContainer) {
-	if !p.Config.ProactiveReplacementEnabled {
+	if !p.Config.ReplenishOnUse {
 		return
 	}
 
