@@ -149,6 +149,11 @@ type CoordinatedTransaction struct {
 
 	mu sync.Mutex
 
+	// locksAcquired indicates whether locks were ultimately acquired, or if we never got that far.
+	// If locksAcquired is set to true, then it must be the case that it will be visible to all participants
+	// as soon as they return from their handlers.
+	locksAcquired atomic.Bool
+
 	// complete indicates whether the CoordinatedTransaction has finished (either successfully or not)
 	complete atomic.Bool
 
@@ -196,6 +201,10 @@ func NewCoordinatedTransaction(numParticipants int, kernelId string) *Coordinate
 
 func (t *CoordinatedTransaction) Id() string {
 	return t.id
+}
+
+func (t *CoordinatedTransaction) LockedWereAcquired() bool {
+	return t.locksAcquired.Load()
 }
 
 // ParticipantsInitialized returns true if all the CoordinatedParticipant instances have been initialized.
@@ -260,30 +269,33 @@ func (t *CoordinatedTransaction) Abort() {
 // The expectation is that any necessary mutexes will already be held before the initial state function is called.
 //
 // The given mutex will be locked by the CoordinatedTransaction, but it is the caller's responsibility to unlock it.
+//
+// RegisterParticipant returns a flag indicating whether the participant was registered by this particular call.
 func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState scheduling.GetInitialStateForTransaction,
-	operation scheduling.TransactionOperation, mu *sync.Mutex) error {
+	operation scheduling.TransactionOperation, mu *sync.Mutex) (bool, error) {
 
 	if getInitialState == nil {
-		return errors.Join(ErrTransactionRegistrationError, ErrNilInitialStateFunction)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrNilInitialStateFunction)
 	}
 
 	if mu == nil {
-		return errors.Join(ErrTransactionRegistrationError, ErrNilParticipantMutex)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrNilParticipantMutex)
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	if t.started.Load() {
-		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAlreadyStarted)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrTransactionAlreadyStarted)
 	}
 
 	if t.shouldAbort.Load() {
-		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAborted)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrTransactionAborted)
 	}
 
 	if _, loaded := t.participants[id]; loaded {
-		return fmt.Errorf("%w: participant %d", ErrParticipantAlreadyRegistered, id)
+		// Weird one... I guess we'll return false.
+		return false, fmt.Errorf("%w: participant %d", ErrParticipantAlreadyRegistered, id)
 	}
 
 	t.participants[id] = &CoordinatedParticipant{
@@ -297,13 +309,13 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState s
 		t.log.Debug("Registered participant %d/%d (ID=%d) for tx %s targeting kernel %s. Initializing participants now.",
 			len(t.participants), t.expectedNumParticipants, id, t.id, t.kernelId)
 
-		return t.initializeAndLockParticipants()
+		return true, t.initializeAndLockParticipants()
 	} else {
 		t.log.Debug("Registered participant %d/%d (with ID=%d) for tx %s targeting kernel %s.",
 			len(t.participants), t.expectedNumParticipants, id, t.id, t.kernelId)
 	}
 
-	return nil
+	return true, nil
 }
 
 // Run will run the target CoordinatedTransaction if the target CoordinatedTransaction is ready.
@@ -484,6 +496,8 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		// Sleep for a random interval between 5 - 10 milliseconds before retrying.
 		time.Sleep(time.Millisecond*time.Duration(rand.Int64N(5)) + (time.Millisecond * 5))
 	}
+
+	t.locksAcquired.Store(true)
 
 	// Now that the locks have been acquired, we initialize all the participants.
 	for _, participant := range t.participants {

@@ -949,11 +949,6 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	}
 
 	numProvisioned := c.Len() - int(scaleOp.InitialScale)
-	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
-
-		})
-	}
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {

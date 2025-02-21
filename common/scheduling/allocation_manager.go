@@ -141,8 +141,10 @@ type AllocationManager interface {
 	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	//
 	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+	//
+	// Returns a flag indicating whether the participant was even registered.
 	AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer,
-		schedulingMutex *sync.Mutex, tx CoordinatedTransaction) error
+		schedulingMutex *sync.Mutex, tx CoordinatedTransaction) (bool, error)
 
 	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
 	GetReservation(kernelId string) (Allocation, bool)

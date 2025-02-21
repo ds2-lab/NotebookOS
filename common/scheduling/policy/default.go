@@ -107,7 +107,7 @@ func defaultTryScaleIn(policy scheduling.Policy, cluster scheduling.Cluster, log
 	log.Debug("Preparing to scale-in %d (idle) hosts. Current cluster size: %d.", numToRelease, oldClusterSize)
 	numReleased, err := cluster.Scheduler().ReleaseIdleHosts(numToRelease)
 	if err != nil {
-		if errors.Is(err, scheduling.ErrScalingActive) {
+		if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(err, scheduling.ErrAssociatedKernelActiveTraining) {
 			// If it's just because there's already a scaling operation, then that's not really a problem.
 			log.Debug("Could not release %d idle host(s) because: %v", err)
 		} else {

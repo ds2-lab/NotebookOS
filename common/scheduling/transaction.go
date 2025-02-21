@@ -28,10 +28,11 @@ type CoordinatedTransaction interface {
 	Started() bool
 	Wait() bool
 	Abort()
-	RegisterParticipant(id int32, getInitialState GetInitialStateForTransaction, operation TransactionOperation, mu *sync.Mutex) error
+	RegisterParticipant(id int32, getInitialState GetInitialStateForTransaction, operation TransactionOperation, mu *sync.Mutex) (bool, error)
 	NumExpectedParticipants() int
 	NumRegisteredParticipants() int
 	FailureReason() error
+	LockedWereAcquired() bool
 
 	// WaitForParticipantsToBeInitialized blocks until the target CoordinatedTransaction's
 	// CoordinatedParticipant instances have all registered and been initialized.

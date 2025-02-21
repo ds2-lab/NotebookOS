@@ -370,14 +370,22 @@ func (c *DistributedKernelClient) MigrationConcluded() {
 
 // WaitForMigrationsToComplete waits for any active migrations to complete.
 func (c *DistributedKernelClient) WaitForMigrationsToComplete(ctx context.Context) error {
+	startTime := time.Now()
 	err := c.migrationSemaphore.Acquire(ctx, int64(c.targetNumReplicas))
 	if err != nil {
-		c.log.Warn("Timed-out waiting for migrations to complete: %v", err)
+		c.log.Warn("Timed-out waiting for migrations to complete after %v: %v",
+			time.Since(startTime), err)
 		return err
 	}
 
 	// Make sure to release.
 	c.migrationSemaphore.Release(int64(c.targetNumReplicas))
+
+	timeElapsed := time.Since(startTime)
+	if timeElapsed > time.Second {
+		c.log.Debug("Waited %v for migrations to complete.", timeElapsed)
+	}
+
 	return nil
 }
 
