@@ -879,7 +879,7 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 	s.stRatio.Add(ratio)
 	avg := s.stRatio.Avg()
 	if s.stRatio.N() == s.stRatio.Window() {
-		if !s.canScaleIn {
+		if !s.canScaleIn && s.schedulingPolicy.ResourceScalingPolicy().ScalingInEnabled() {
 			s.log.Debug("We can now scale-in.")
 			s.canScaleIn = true
 		}
