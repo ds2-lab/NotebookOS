@@ -18,10 +18,10 @@ class IOPubNotification(StrEnum):
     # For example, if Replica 2 proposes "LEAD" and Replica 3 proposes "LEAD",
     # and Replica 2's proposal is the first to be committed, then Replica 2 will
     # send an IOPub notification about this.
-    ElectionFirstLeadProposed = "election_first_lead_proposed"
+    ElectionFirstLeadProposalCommitted = "election_first_lead_committed"
     
     # Sent by the first replica to see its vote get committed to the RaftLog.
-    ElectionFirstVoteProposed = "election_first_vote_proposed"
+    ElectionFirstVoteCommitted = "election_first_vote_committed"
     
     # Sent by the primary replica when it begins downloading a model
     # while executing user-submitted code.

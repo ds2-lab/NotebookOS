@@ -13,6 +13,8 @@ import debugpy
 import sys
 import time
 
+from distributed_notebook.kernel.iopub_notifier import IOPubNotification
+
 from .checkpoint import Checkpoint
 from .election import Election, ElectionAlreadyDecidedError, ElectionNotStartedError
 from .errors import (
@@ -92,6 +94,7 @@ class RaftLog(object):
             shell_io_loop: asyncio.AbstractEventLoop = None,
             election_timeout_seconds: float = 10,
             deployment_mode: str = "LOCAL",
+            send_iopub_notification: Callable[[IOPubNotification, Optional[Dict[str, Any]]], None] = None,
     ):
         self._snapshotCallback = None
         self._shouldSnapshotCallback = None
@@ -132,6 +135,7 @@ class RaftLog(object):
         self._leader_term: int = 0
         # The id of the leader.
         self._leader_id: int = 0
+        self._send_iopub_notification: Callable[[IOPubNotification, Optional[Dict[str, Any]]], None] = _send_iopub_notification
         self._shell_io_loop: asyncio.AbstractEventLoop = shell_io_loop
         self._persistent_store_path: str = base_path
         self._node_id: int = node_id
@@ -578,6 +582,18 @@ class RaftLog(object):
             else:
                 self.log.debug("Node %d has won in term %d as proposed by node %d."
                                % (vote.proposed_node_id, vote.election_term, vote.proposer_id))
+            
+            if self._send_iopub_notification is not None:
+                self._send_iopub_notification(
+                    IOPubNotification.ElectionFirstVoteCommitted,
+                    {
+                        "term_number": vote.election_term,
+                        "proposer_id": vote.proposer_id,
+                        "proposed_node_id": vote.proposed_node_id,
+                        "kernel_id": self._kernel_id,
+                        "node_id": self.node_id
+                    }
+                )
 
             with self._election_lock:
                 self._current_election.set_election_vote_completed(vote.proposed_node_id)
@@ -1154,6 +1170,17 @@ class RaftLog(object):
             )
 
         if val is not None:
+            if self._send_iopub_notification is not None:
+                self._send_iopub_notification(
+                    IOPubNotification.ElectionFirstLeadProposalCommitted,
+                    {
+                        "term_number": proposal.election_term,
+                        "proposer_id": proposal.proposer_id,
+                        "kernel_id": self._kernel_id,
+                        "node_id": self.node_id
+                    }
+                )
+            
             # Future to decide the result of the election by a certain time limit.
             _pick_and_propose_winner_future, _discard_after = val
 

@@ -186,7 +186,7 @@ def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str, ba
     return f"""# Create both the model and the dataset.
 print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
-_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}", batch_size = {batch_size}, iopub_notifier = __download_dataset_iopub_notify__)
+_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}", batch_size = {batch_size})
 model = _model
 dataset = _dataset
 print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
@@ -198,7 +198,7 @@ def get_create_dataset_only_code(existing_model_name: str, dataset: str, batch_s
 print(f"Creating dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
 import time 
-_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}", batch_size = {batch_size}, iopub_notifier = __download_dataset_iopub_notify__)
+_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}", batch_size = {batch_size})
 dataset = _dataset
 print(f"Created dataset ('{dataset}') for the first time.", flush = True)
 """
@@ -2827,11 +2827,22 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
+            st: float = time.time()
             self.shell.execution_count = await self.synchronizer.ready(
                 parent_header["msg_id"], current_term_number, False)
 
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
+            
+            self.session.send(
+                self.iopub_socket,
+                IOPubNotification.SmrYieldTask,
+                {
+                    "time_elapsed_sec": time.time() - st,
+                    "replica_id": self.smr_node_id,
+                },
+                ident=self._topic(IOPubNotification.SmrYieldTask),
+            ) 
 
             if self.prometheus_enabled:
                 self.num_yield_proposals.inc()
@@ -3235,7 +3246,7 @@ class DistributedKernel(IPythonKernel):
                                f'Will reuse existing "{deep_learning_model}" model variable.')
 
                 self.shell.user_ns["__existing_model__"] = existing_model
-                self.shell.user_ns["__download_dataset_iopub_notify__"] = self.load_dataset_iopub_notify
+                # self.shell.user_ns["__download_dataset_iopub_notify__"] = self.load_dataset_iopub_notify
                 existing_model_code = "__existing_model__"
 
                 # Case 3a: there was already a "model" variable of the correct type, but no dataset variable.
@@ -5237,6 +5248,14 @@ class DistributedKernel(IPythonKernel):
         self.log.info(f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
                       f"{time.time() - self.created_at} seconds.")
 
+    def send_iopub_notification(self, topic: IOPubNotification, content: Optional[Dict[str, Any]] = None):
+        self.session.send(
+            self.iopub_socket,
+            str(topic),
+            content,
+            ident=self._topic(str(topic)),
+        )  # type: ignore
+
     async def get_synclog(self, store_path) -> SyncLog:
         assert isinstance(self.smr_nodes, list)
         assert isinstance(self.smr_nodes_map, dict)
@@ -5288,6 +5307,7 @@ class DistributedKernel(IPythonKernel):
                     election_timeout_seconds=self.election_timeout_seconds,
                     loaded_serialized_state_callback=self.loaded_serialized_state_callback,
                     shell_io_loop=self.io_loop,
+                    send_iopub_notification=self.send_iopub_notification,
                 )
             except Exception as exc:
                 self.log.error("Error while creating RaftLog: %s" % str(exc))
