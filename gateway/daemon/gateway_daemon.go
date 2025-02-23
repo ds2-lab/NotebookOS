@@ -4168,15 +4168,15 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 		// Convert the "execute_request" message to a "yield_request" message.
 		// The returned message is initially created as a clone of the target message.
-		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage()
+		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage(targetReplica.ReplicaID())
 		if err != nil {
 			d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
 				originalJupyterMessage.JupyterMessageId(), err)
 
 			d.log.Error("Original \"execute_request\" message that we failed to convert: %v", originalJupyterMessage)
 
-			d.notifier.NotifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
-				err.Error())
+			d.notifier.NotifyDashboard("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
+				err.Error(), messaging.ErrorNotification)
 
 			originalJupyterMessage.IsFailedExecuteRequest = true
 

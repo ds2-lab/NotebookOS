@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/logger"
-	"github.com/scusemua/distributed-notebook/common/jupyter"
-	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/scusemua/distributed-notebook/common/utils"
@@ -1069,7 +1070,7 @@ func (m *JupyterMessage) StringFormatted() string {
 //
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
-func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
+func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int32) (*JupyterMessage, error) {
 	// If the message is already a yield request, then just return a copy of it,
 	// as the expectation is that the returned message from this method will be a clone/copy.
 	if m.JupyterMessageType() == ShellYieldRequest {
@@ -1091,6 +1092,24 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, 
 	if err := jMsg.Validate(); err != nil {
 		// m.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 		return nil, err
+	}
+
+	// Node IDs start at 1.
+	if targetReplicaId >= 1 {
+		metadataDict, err := m.DecodeMetadata()
+		if err != nil {
+			fmt.Printf("[WARNING] Failed to decode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\"). "+
+				"Cannot copy RequestTrace to metadata.\n", m.JupyterMessageType(), m.RequestId, m.JupyterMessageId())
+			metadataDict = make(map[string]interface{}) // Create a new metadata frame, I guess...
+		}
+
+		metadataDict["target_replica_id"] = targetReplicaId
+		err = m.EncodeMetadata(metadataDict)
+		if err != nil {
+			fmt.Printf("[ERROR] Failed to encode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\") after embedding RequestTrace in it: %v\n",
+				m.JupyterMessageType(), m.RequestId, m.JupyterMessageId(), err)
+			return nil, err
+		}
 	}
 
 	// Replace the header with the new header (that has the 'yield_request' MsgType).

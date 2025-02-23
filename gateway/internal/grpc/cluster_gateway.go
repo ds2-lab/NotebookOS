@@ -45,8 +45,8 @@ type ClusterGatewayServer struct {
 
 // ID returns the cluster gateway id and can be used to test connectivity.
 func (srv *ClusterGatewayServer) ID(_ context.Context, _ *proto.Void) (*proto.ProvisionerId, error) {
-	srv.log.Debug("Returning ID for RPC. ID=%s", d.id)
-	return &proto.ProvisionerId{Id: d.id}, nil
+	srv.log.Debug("Returning ID for RPC. ID=%s", srv.id)
+	return &proto.ProvisionerId{Id: srv.id}, nil
 }
 
 // SetID sets the local gateway id and return old id for failure tolerance.
