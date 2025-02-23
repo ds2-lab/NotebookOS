@@ -7,15 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-viper/mapstructure/v2"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/scusemua/distributed-notebook/common/metrics"
-	"github.com/scusemua/distributed-notebook/common/scheduling/client"
-	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
-	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/shopspring/decimal"
 	"log"
 	"math"
 	"math/rand"
@@ -28,6 +19,16 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/shopspring/decimal"
 
 	"github.com/scusemua/distributed-notebook/common/proto"
 
@@ -365,6 +366,8 @@ type ClusterGatewayImpl struct {
 
 	started atomic.Bool
 
+	notifier *Notifier
+
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
 
@@ -427,6 +430,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	if clusterGateway.IdleSessionReclamationInterval == 0 {
 		clusterGateway.IdleSessionReclamationEnabled = false
 	}
+
+	clusterGateway.notifier = NewNotifier(nil) // We'll reassign this if and when the dashboard connects.
 
 	for _, configFunc := range configs {
 		configFunc(clusterGateway)
@@ -746,12 +751,12 @@ func (d *ClusterGatewayImpl) SetClusterOptions(options *scheduling.SchedulerOpti
 
 // SendErrorNotification sends an 'error' notification to the Cluster Dashboard.
 func (d *ClusterGatewayImpl) SendErrorNotification(errorName string, errorMessage string) {
-	go d.notifyDashboardOfError(errorName, errorMessage)
+	go d.notifier.NotifyDashboardOfError(errorName, errorMessage)
 }
 
 // SendInfoNotification sends an 'info' notification to the Cluster Dashboard.
 func (d *ClusterGatewayImpl) SendInfoNotification(title string, message string) {
-	go d.notifyDashboardOfInfo(title, message)
+	go d.notifier.NotifyDashboardOfInfo(title, message)
 }
 
 // NumReplicas is a helper function that returns the number of replicas as specified by the configured scheduling policy.
@@ -1008,6 +1013,11 @@ func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
 	}()
 }
 
+func (d *ClusterGatewayImpl) assignClusterDashboardClient(clusterDashboard proto.ClusterDashboardClient) {
+	d.clusterDashboard = clusterDashboard
+	d.notifier = NewNotifier(clusterDashboard)
+}
+
 // GetHostsOfKernel returns the Host instances on which replicas of the specified kernel are scheduled.
 func (d *ClusterGatewayImpl) GetHostsOfKernel(kernelId string) ([]scheduling.Host, error) {
 	kernel, ok := d.kernels.Load(kernelId)
@@ -1099,7 +1109,7 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 	// Sanity check.
 	if host == nil {
 		errorMessage := "We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"
-		d.notifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
+		d.notifier.NotifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
 		log.Fatalf(utils.RedStyle.Render(errorMessage))
 	}
 
@@ -1115,7 +1125,7 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 		}
 
 		d.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).", registered.GetNodeName(), registered.GetID())
-		go d.notifyDashboardOfInfo(
+		go d.notifier.NotifyDashboardOfInfo(
 			fmt.Sprintf("Local Daemon %s Reconnected", registered.GetNodeName()),
 			fmt.Sprintf("Local Daemon %s on node %s has reconnected to the Cluster Gateway.",
 				registered.GetID(),
@@ -1149,7 +1159,7 @@ func (d *ClusterGatewayImpl) RegisterNewHost(host scheduling.Host) error {
 		return err
 	}
 
-	go d.notifyDashboardOfInfo("Local Scheduler Connected", fmt.Sprintf("Local Scheduler %s (ID=%s) has connected to the Cluster Gateway.", host.GetNodeName(), host.GetID()))
+	go d.notifier.NotifyDashboardOfInfo("Local Scheduler Connected", fmt.Sprintf("Local Scheduler %s (ID=%s) has connected to the Cluster Gateway.", host.GetNodeName(), host.GetID()))
 
 	return nil
 }
@@ -1350,7 +1360,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel scheduling.KernelRe
 		kernel.ReplicaID(), kernel.ID(), messageType, reconnectionError)
 	d.log.Error(errorMessage)
 
-	go d.notifyDashboardOfError("Connection to kernel Lost & Reconnection Failed", errorMessage)
+	go d.notifier.NotifyDashboardOfError("Connection to kernel Lost & Reconnection Failed", errorMessage)
 }
 
 // When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
@@ -1370,7 +1380,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 		messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
 	d.log.Error(errorMessage)
 
-	d.notifyDashboardOfError("Connection to kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
+	d.notifier.NotifyDashboardOfError("Connection to kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 }
 
 // ExecutionFailedCallback is a callback to be executed if all replicas propose "YIELD".
@@ -1434,7 +1444,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 		targetReplica, kernel.ID())
 
 	// Notify the cluster dashboard that we're performing a migration.
-	go d.notifyDashboardOfInfo(fmt.Sprintf("All Replicas of kernel \"%s\" Have Proposed 'YIELD'", kernel.ID()),
+	go d.notifier.NotifyDashboardOfInfo(fmt.Sprintf("All Replicas of kernel \"%s\" Have Proposed 'YIELD'", kernel.ID()),
 		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", kernel.ID()))
 
 	req := &proto.MigrationRequest{
@@ -1534,7 +1544,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	case err := <-errorChan:
 		{
 			// If there was an error during execution, then we'll return that error rather than proceed.
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Migrate Replica of kernel \"%s\"",
+			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Migrate Replica of kernel \"%s\"",
 				kernel.ID()), err.Error())
 
 			return err
@@ -1561,7 +1571,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
-		go d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
+		go d.notifier.NotifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
 		return err
 	}
 
@@ -1596,31 +1606,7 @@ func (d *ClusterGatewayImpl) gandivaV4FailureHandler(_ scheduling.Kernel, _ *mes
 }
 
 func (d *ClusterGatewayImpl) NotificationCallback(notificationName string, notificationMessage string, typ messaging.NotificationType) {
-	d.notifyDashboard(notificationName, notificationMessage, typ)
-}
-
-func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
-	if d.clusterDashboard != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
-		defer cancel()
-
-		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            notificationName,
-			Message:          notificationMessage,
-			NotificationType: int32(typ),
-		})
-
-		if err != nil {
-			d.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
-			d.log.Error("Notification name: %s", notificationName)
-			d.log.Error("Notification message: %s", notificationMessage)
-			d.log.Error("Notification type: %s", typ.String())
-		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=%s (%d)) notification to internalCluster Dashboard.",
-				notificationName, typ.String(), typ.Int32())
-		}
-	}
+	d.notifier.NotifyDashboard(notificationName, notificationMessage, typ)
 }
 
 func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
@@ -1634,74 +1620,9 @@ func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeN
 		d.log.Error("Error while removing local daemon %s (node: %s): %v", localDaemonId, nodeName, err)
 	}
 
-	go d.notifyDashboard(errorName, errorMessage, messaging.WarningNotification)
+	go d.notifier.NotifyDashboard(errorName, errorMessage, messaging.WarningNotification)
 
 	return err
-}
-
-// Used to issue an "info" notification to the internalCluster Dashboard.
-func (d *ClusterGatewayImpl) notifyDashboardOfInfo(notificationName string, message string) {
-	if d.clusterDashboard != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
-		defer cancel()
-
-		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            notificationName,
-			Message:          message,
-			NotificationType: int32(messaging.InfoNotification),
-		})
-
-		if err != nil {
-			d.log.Error("Failed to send \"%s\" notification to internalCluster Dashboard because: %s", notificationName, err.Error())
-		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=INFO) notification to internalCluster Dashboard.", notificationName)
-		}
-	}
-}
-
-// Used to issue an "error" notification to the internalCluster Dashboard.
-func (d *ClusterGatewayImpl) notifyDashboardOfError(errorName string, errorMessage string) {
-	sendStart := time.Now()
-	if d.clusterDashboard != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
-		defer cancel()
-
-		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            errorName,
-			Message:          errorMessage,
-			NotificationType: int32(messaging.ErrorNotification),
-		})
-
-		if err != nil {
-			d.log.Error("Failed to send \"%s\" error notification to internalCluster Dashboard because: %s", errorName, err.Error())
-		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=ERROR) notification to internalCluster Dashboard in %v.", errorName, time.Since(sendStart))
-		}
-	}
-}
-
-// Used to issue an "error" notification to the internalCluster Dashboard.
-func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warningMessage string) {
-	sendStart := time.Now()
-	if d.clusterDashboard != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
-		defer cancel()
-
-		_, err := d.clusterDashboard.SendNotification(ctx, &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            warningName,
-			Message:          warningMessage,
-			NotificationType: int32(messaging.WarningNotification),
-		})
-
-		if err != nil {
-			d.log.Error("Failed to send \"%s\" warning notification to internalCluster Dashboard because: %s", warningName, err.Error())
-		} else {
-			d.log.Debug("Successfully sent \"%s\" (typ=WARNING) notification to internalCluster Dashboard in %v.", warningName, time.Since(sendStart))
-		}
-	}
 }
 
 // DockerComposeMode returns true if we're running in Docker via "docker compose".
@@ -1916,7 +1837,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 		// Only notify if there's an "actual" error.
 		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &scheduling.InsufficientResourcesError{}) {
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create kernel \"%s\"", in.Id), err.Error())
+			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Create kernel \"%s\"", in.Id), err.Error())
 		}
 
 		// Record that the container creation attempt has completed with an error (i.e., it failed).
@@ -2394,13 +2315,13 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		p := session.SessionStarted()
 		err = p.Error()
 		if err != nil {
-			d.notifyDashboardOfError(fmt.Sprintf("Error Starting Session \"%s\"", kernel.ID()), err.Error())
+			d.notifier.NotifyDashboardOfError(fmt.Sprintf("Error Starting Session \"%s\"", kernel.ID()), err.Error())
 			panic(err)
 		}
 	} else {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session associated with kernel \"%s\", even though that kernel just started running successfully...", kernel.ID())
 		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Session Not Found", errorMessage)
+		d.notifier.NotifyDashboardOfError("Session Not Found", errorMessage)
 		panic(errorMessage)
 	}
 
@@ -2434,7 +2355,7 @@ func (d *ClusterGatewayImpl) registerKernelWithExecReqForwarder(kernel schedulin
 // newKernelCreated pushes some metrics to Kubernetes and sends a notification to the Dashboard.
 func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId string) {
 	// Tell the Dashboard that the kernel has successfully started running.
-	go d.notifyDashboard("kernel Started", fmt.Sprintf("kernel %s has started running. Launch took approximately %v from when the Cluster Gateway began processing the 'create kernel' request.",
+	go d.notifier.NotifyDashboard("kernel Started", fmt.Sprintf("kernel %s has started running. Launch took approximately %v from when the Cluster Gateway began processing the 'create kernel' request.",
 		kernelId, time.Since(startTime)), messaging.SuccessNotification)
 
 	numActiveKernels := d.numActiveKernels.Add(1)
@@ -2488,7 +2409,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	if !ok {
 		errorMessage := fmt.Errorf("could not find AddReplicaOperation struct under key \"%s\"", key)
 		d.log.Error(errorMessage.Error())
-		d.notifyDashboardOfError("kernel Registration Error", errorMessage.Error())
+		d.notifier.NotifyDashboardOfError("kernel Registration Error", errorMessage.Error())
 
 		return nil, errorMessage
 	}
@@ -2497,7 +2418,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 		dockerContainerId := in.DockerContainerId
 		if dockerContainerId == "" {
 			d.log.Error("kernel registration notification did not contain docker container ID: %v", in)
-			go d.notifyDashboardOfError("Missing Docker Container ID in kernel Registration Notification",
+			go d.notifier.NotifyDashboardOfError("Missing Docker Container ID in kernel Registration Notification",
 				fmt.Sprintf("kernel registration notification for replica %d of kernel \"%s\" did not contain a valid Docker container ID",
 					in.ReplicaId, in.KernelId))
 		}
@@ -2543,7 +2464,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
 		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		d.notifier.NotifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
 		panic(errorMessage)
 	}
 
@@ -2558,7 +2479,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 		replicaSpec.ReplicaId, addReplicaOp.KernelId(), host.GetID())
 	if err = host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
-		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		d.notifier.NotifyDashboardOfError("Failed to Place Container onto Host", err.Error())
 		panic(err)
 	}
 
@@ -2574,7 +2495,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 			d.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v", container, session, err)
 		}
 
-		go d.notifyDashboardOfError("Failed to Register Container with Session During Migration", err.Error())
+		go d.notifier.NotifyDashboardOfError("Failed to Register Container with Session During Migration", err.Error())
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -2613,7 +2534,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 		errorMessage := fmt.Sprintf("We're using the WRONG AddReplicaOperation... AddReplicaOperation \"%s\" has already recorded that its replica has registered: %v",
 			addReplicaOp.OperationID(), addReplicaOp.String())
 		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Using Incorrect AddReplicaOperation", errorMessage)
+		d.notifier.NotifyDashboardOfError("Using Incorrect AddReplicaOperation", errorMessage)
 		panic(err)
 	}
 
@@ -2700,7 +2621,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	if loaded {
 		d.log.Warn("Received duplicate \"kernel Registered\" notification with ID=%s", in.NotificationId)
 
-		go d.notifyDashboardOfWarning("Received Duplicate \"Kernel Registered\" Notification",
+		go d.d.notifier.NotifyDashboardOfWarning("Received Duplicate \"Kernel Registered\" Notification",
 			fmt.Sprintf("NotificationID=\"%s\", KernelID=\"%s\"", in.NotificationId, in.KernelId))
 
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
@@ -2713,7 +2634,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
 
 		title := fmt.Sprintf("Unknown Kernel \"%s\" Specified by 'Kernel Registered' Notification", kernelId)
-		go d.notifyDashboardOfError(title, "The Cluster Gateway has no record of the referenced kernel.")
+		go d.notifier.NotifyDashboardOfError(title, "The Cluster Gateway has no record of the referenced kernel.")
 
 		// d.mu.Unlock()
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
@@ -2782,7 +2703,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 
 		errorTitle := fmt.Sprintf("Received Registration from Replica %d of Kernel \"%s\" On DISABLED Host %s (ID=%s)",
 			replicaId, kernelId, host.GetNodeName(), hostId)
-		d.notifyDashboardOfError(errorTitle, "")
+		d.notifier.NotifyDashboardOfError(errorTitle, "")
 
 		return nil, status.Error(codes.Internal, fmt.Errorf("%w: cannot register kernel replica", scheduling.ErrHostDisabled).Error())
 	}
@@ -2829,7 +2750,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)
 		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		d.notifier.NotifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
 		panic(errorMessage)
 	}
 
@@ -2842,7 +2763,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	// Register the Container with the Session.
 	if err := session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
-		go d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
+		go d.notifier.NotifyDashboardOfError("Failed to Register Container with Session", err.Error())
 
 		// TODO: Handle this more gracefully.
 		return nil, err
@@ -2853,7 +2774,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 	// AddHost the Container to the Host.
 	if err := host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
-		go d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		go d.notifier.NotifyDashboardOfError("Failed to Place Container onto Host", err.Error())
 
 		// TODO: Handle this more gracefully.
 		return nil, err
@@ -2864,7 +2785,7 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 		err := replica.Validate()
 		if err != nil {
 			d.log.Error("kernel::Validate call failed: %v", err)
-			go d.notifyDashboardOfError(fmt.Sprintf("kernel::Validate call failed for replica %d of kernel %s",
+			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("kernel::Validate call failed for replica %d of kernel %s",
 				replica.ReplicaID(), in.KernelId), err.Error())
 
 			// TODO: Handle this more gracefully.
@@ -3259,7 +3180,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.Kerne
 	}
 
 	if err == nil {
-		go d.notifyDashboard(
+		go d.notifier.NotifyDashboard(
 			"kernel Stopped", fmt.Sprintf("kernel %s has been terminated successfully.",
 				kernel.ID()), messaging.SuccessNotification)
 
@@ -3269,7 +3190,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.Kerne
 				Sub(1)
 		}
 	} else {
-		go d.notifyDashboardOfError("Failed to Terminate kernel",
+		go d.notifier.NotifyDashboardOfError("Failed to Terminate kernel",
 			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
 	}
 
@@ -3351,22 +3272,22 @@ func (d *ClusterGatewayImpl) Notify(_ context.Context, in *proto.Notification) (
 
 	logFunc(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"),
 		NotificationTypeNames[in.NotificationType], in.Title, in.Message)
-	go d.notifyDashboard(in.Title, in.Message, messaging.NotificationType(in.NotificationType))
+	go d.notifier.NotifyDashboard(in.Title, in.Message, messaging.NotificationType(in.NotificationType))
 	return proto.VOID, nil
 }
 
 func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	go func() {
-		d.notifyDashboard("Spoofed Error",
+		d.notifier.NotifyDashboard("Spoofed Error",
 			"This is a made-up error message sent by the internalCluster Gateway.",
 			messaging.ErrorNotification)
-		d.notifyDashboard("Spoofed Warning",
+		d.notifier.NotifyDashboard("Spoofed Warning",
 			"This is a made-up warning message sent by the internalCluster Gateway.",
 			messaging.WarningNotification)
-		d.notifyDashboard("Spoofed Info Notification",
+		d.notifier.NotifyDashboard("Spoofed Info Notification",
 			"This is a made-up 'info' message sent by the internalCluster Gateway.",
 			messaging.InfoNotification)
-		d.notifyDashboard("Spoofed Success Notification",
+		d.notifier.NotifyDashboard("Spoofed Success Notification",
 			"This is a made-up 'success' message sent by the internalCluster Gateway.",
 			messaging.SuccessNotification)
 	}()
@@ -3511,7 +3432,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 	kernel, loaded := d.kernels.Load(replicaInfo.KernelId)
 	if !loaded {
 		d.log.Error("Could not find target of migration, kernel \"%s\"", replicaInfo.KernelId)
-		go d.notifyDashboardOfError("Cannot Migrate kernel.",
+		go d.notifier.NotifyDashboardOfError("Cannot Migrate kernel.",
 			fmt.Sprintf("Cannot find kernel with ID=%s.", replicaInfo.KernelId))
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, replicaInfo.KernelId)
 	}
@@ -3520,7 +3441,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 	if err != nil {
 		d.log.Error("kernel %s does not have a replica with SMR node ID of %d. Cannot migrate.",
 			replicaInfo.KernelId, replicaInfo.ReplicaId)
-		go d.notifyDashboardOfError("Cannot Migrate kernel.",
+		go d.notifier.NotifyDashboardOfError("Cannot Migrate kernel.",
 			fmt.Sprintf("kernel %s does not have a replica with ID=%d.",
 				replicaInfo.KernelId, replicaInfo.ReplicaId))
 		return nil, err
@@ -3685,7 +3606,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 		// For short-lived containers, it's not a big deal.
 		if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
 			// Spawn a separate goroutine to send an error notification to the dashboard.
-			go d.notifyDashboardOfWarning(errorMessage, errorMessage)
+			go d.d.notifier.NotifyDashboardOfWarning(errorMessage, errorMessage)
 		}
 
 		return types.ErrKernelNotFound
@@ -3702,7 +3623,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 		d.log.Error("Failed to (cleanly) terminate session \"%s\", kernel \"%s\" because: %v", sessionId, kernel.ID(), err)
 
 		// Spawn a separate goroutine to send an error notification to the dashboard.
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Terminate kernel %s, Session %s", kernel.ID(), sessionId), err.Error())
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Terminate kernel %s, Session %s", kernel.ID(), sessionId), err.Error())
 		return err
 	}
 
@@ -3710,13 +3631,13 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 	if !ok || session == nil {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", kernel.ID(), kernel.ID())
 		d.log.Error(errorMessage)
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
 	} else {
 		p := session.SessionStopped()
 		err := p.Error()
 		if err != nil {
 			d.log.Error("Error while de-scheduling kernel \"%s\" associated with session \"%s\"", kernel.ID(), sessionId)
-			go d.notifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", kernel.ID()), err.Error())
+			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", kernel.ID()), err.Error())
 			return err
 		}
 	}
@@ -3949,7 +3870,7 @@ func (d *ClusterGatewayImpl) waitForDeschedulingToEnd(kernel scheduling.Kernel, 
 					kernel.ID(), err)
 
 				errorTitle := fmt.Sprintf("Failed to RemoveHost Replicas of Kernel \"%s\"", kernel.ID())
-				go d.notifyDashboardOfError(errorTitle, err.Error())
+				go d.notifier.NotifyDashboardOfError(errorTitle, err.Error())
 
 				return err
 			}
@@ -4189,7 +4110,7 @@ func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *mes
 	err = jMsg.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
-		d.notifyDashboardOfError("Failed to Encode Metadata Frame", err.Error())
+		d.notifier.NotifyDashboardOfError("Failed to Encode Metadata Frame", err.Error())
 		panic(err)
 	}
 
@@ -4198,7 +4119,7 @@ func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *mes
 	if err != nil {
 		message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v",
 			jMsg.JupyterMessageType(), err)
-		d.notifyDashboardOfError("Failed to Sign JupyterFrames", message)
+		d.notifier.NotifyDashboardOfError("Failed to Sign JupyterFrames", message)
 		panic(err)
 	}
 
@@ -4254,7 +4175,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 			d.log.Error("Original \"execute_request\" message that we failed to convert: %v", originalJupyterMessage)
 
-			d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
+			d.notifier.NotifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
 				err.Error())
 
 			originalJupyterMessage.IsFailedExecuteRequest = true
@@ -4423,14 +4344,14 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	if err != nil {
 		d.log.Error("Failed to extract header from shell \"%s\" message \"%s\": %v",
 			request.JupyterMessageType(), request.JupyterMessageId(), err)
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Extract Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Extract Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
 			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
 
 	err = request.JupyterFrames.EncodeParentHeader(&header)
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Encode Parent Header for Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Encode Parent Header for Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
 			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
@@ -4444,14 +4365,14 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	// Re-encode the header.
 	header, err = request.GetHeader()
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Get Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Get Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
 			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
 
 	err = request.EncodeMessageHeader(header)
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Re-Encode Header of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Re-Encode Header of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
 			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
@@ -4464,7 +4385,7 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	}
 	err = request.JupyterFrames.EncodeContent(&errorContent)
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Encode Error Content of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Encode Error Content of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
 			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
@@ -4473,7 +4394,7 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	if kernel.ConnectionInfo().SignatureScheme != "" && kernel.ConnectionInfo().Key != "" {
 		_, err = request.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 		if err != nil {
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
 				request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 			return err
 		}
@@ -4536,7 +4457,7 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 		errorMessage := fmt.Sprintf("Unknown or unexpected type of target replica ID found in metadata of \"%s\" request \"%s\": %v",
 			msg.JupyterMessageId(), kernel.ID(), reflect.TypeOf(val).Name())
 		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Failed to Extract Target Replica ID", errorMessage)
+		d.notifier.NotifyDashboardOfError("Failed to Extract Target Replica ID", errorMessage)
 		panic(errorMessage)
 	}
 
@@ -4607,7 +4528,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	// Transition the session to the "expecting to start training soon" state.
 	err := session.SetExpectingTraining().Error()
 	if err != nil {
-		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
+		d.notifier.NotifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
 		msg.IsFailedExecuteRequest = true
 		return nil, err
 	}
@@ -4854,7 +4775,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		if !ok {
 			d.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...",
 				hostId, replica.ReplicaID(), in.Id)
-			go d.notifyDashboardOfError("'FailNextExecution' Request Failed",
+			go d.notifier.NotifyDashboardOfError("'FailNextExecution' Request Failed",
 				fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...",
 					hostId, replica.ReplicaID(), in.Id))
 			return proto.VOID, scheduling.ErrHostNotFound
@@ -4866,7 +4787,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		if err != nil {
 			d.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s",
 				hostId, host.GetAddress(), err.Error())
-			go d.notifyDashboardOfError("'FailNextExecution' Request Failed",
+			go d.notifier.NotifyDashboardOfError("'FailNextExecution' Request Failed",
 				fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s",
 					hostId, host.GetAddress(), err.Error()))
 		} else {
@@ -5602,7 +5523,7 @@ func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel,
 	// This will be nil if de-schedule was successful,
 	// or if the caller specified that we should use a separate goroutine for the replica removal.
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to RemoveHost One or More Replicas of kernel \"%s\"",
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to RemoveHost One or More Replicas of kernel \"%s\"",
 			kernel.ID()), err.Error())
 
 		return err

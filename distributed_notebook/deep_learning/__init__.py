@@ -1,6 +1,6 @@
 import time
 import random
-from typing import Optional, Tuple, Any, Type, List, Dict
+from typing import Optional, Tuple, Any, Type, List, Dict, Callable
 
 from distributed_notebook.deep_learning.configuration import ComputerVision, NaturalLanguageProcessing, Testing, Speech
 
@@ -53,6 +53,7 @@ def get_model_and_dataset(
         dataset_name: Optional[str] = None,
         batch_size: Optional[int] = None,
         dataset_kwargs: Dict[str, Any] = None,
+        iopub_notifier: Callable = None,
 ) -> Tuple[DeepLearningModel, CustomDataset]:
     """
     Assign a deep learning model to this kernel.

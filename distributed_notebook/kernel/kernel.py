@@ -34,6 +34,7 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
+from distributed_notebook.iopub_notifier import IOPubNotification
 from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
@@ -185,7 +186,7 @@ def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str, ba
     return f"""# Create both the model and the dataset.
 print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
-_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}", batch_size = {batch_size})
+_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}", batch_size = {batch_size}, iopub_notifier = __download_dataset_iopub_notify__)
 model = _model
 dataset = _dataset
 print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
@@ -196,7 +197,8 @@ def get_create_dataset_only_code(existing_model_name: str, dataset: str, batch_s
     return f"""# Create just the dataset.
 print(f"Creating dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
-_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}", batch_size = {batch_size})
+import time 
+_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}", batch_size = {batch_size}, iopub_notifier = __download_dataset_iopub_notify__)
 dataset = _dataset
 print(f"Created dataset ('{dataset}') for the first time.", flush = True)
 """
@@ -3233,6 +3235,7 @@ class DistributedKernel(IPythonKernel):
                                f'Will reuse existing "{deep_learning_model}" model variable.')
 
                 self.shell.user_ns["__existing_model__"] = existing_model
+                self.shell.user_ns["__download_dataset_iopub_notify__"] = self.load_dataset_iopub_notify
                 existing_model_code = "__existing_model__"
 
                 # Case 3a: there was already a "model" variable of the correct type, but no dataset variable.
@@ -3265,6 +3268,27 @@ class DistributedKernel(IPythonKernel):
                 download_code: str = get_download_code(existing_model_code, deep_learning_model)
 
         return get_training_code(download_code, creation_code, gpu_device_ids, target_training_duration_millis)
+
+    def load_dataset_iopub_notify(self, downloading: bool = True, dataset_name:str = "N/A", time_elapsed_sec: float = 0.0):
+        if downloading:
+            topic = IOPubNotification.DownloadingDataset
+        else:
+            topic = IOPubNotification.DownloadedDataset
+        
+        content: Dict[str, Any] = {
+            "replica_id": self.smr_node_id,
+            "dataset_name": dataset_name,
+        }
+        
+        if time_elapsed_sec > 0:
+            content["time_elapsed_sec"] = time_elapsed_sec
+        
+        self.session.send(
+            self.iopub_socket,
+            topic,
+            content,
+            ident=self._topic(topic),
+        ) 
 
     async def primary_replica_protocol(
             self,
@@ -4969,11 +4993,25 @@ class DistributedKernel(IPythonKernel):
             self,
             pointer: ModelPointer,
             existing_model: Optional[DeepLearningModel] = None,
+            send_iopub_notification: bool = False,
     ) -> Optional[DeepLearningModel]:
         """
         Callback to be executed when a pointer to a DeepLearningModel object is committed to the RaftLog.
         :param pointer: the pointer to the DeepLearningModel object.
         """
+        if send_iopub_notification:
+            self.session.send(
+                self.iopub_socket,
+                IOPubNotification.DownloadingModel,
+                {
+                    "replica_id": self.smr_node_id,
+                    "model_name": pointer.model_name,
+                },
+                ident=self._topic(IOPubNotification.DownloadingModel),
+            ) 
+        
+        st: float = time.time() 
+        
         try:
             read_st: float = time.time()
             model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_state = (
@@ -5025,6 +5063,18 @@ class DistributedKernel(IPythonKernel):
             self.log.error(traceback.format_exc())
             self.report_error(f'Failed to Load Committed Model "{pointer.model_name}"', str(exc))
             return None
+
+        if send_iopub_notification:
+            self.session.send(
+                self.iopub_socket,
+                IOPubNotification.DownloadedModel,
+                {
+                    "time_elapsed_sec": time.time() - st,
+                    "replica_id": self.smr_node_id,
+                    "model_name": pointer.model_name,
+                },
+                ident=self._topic(IOPubNotification.DownloadedModel),
+            ) 
 
         return model
 

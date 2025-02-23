@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+
 	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -22,9 +26,6 @@ import (
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"math/rand"
-	"sync"
-	"time"
 )
 
 var _ = Describe("Base Prewarmer Tests", func() {
@@ -408,6 +409,62 @@ var _ = Describe("Base Prewarmer Tests", func() {
 		})
 
 		It("Will correctly return pre-warm containers when they are available", func() {
+			numHosts := 3
+			initialCapacity := 3
+			maxCapacity := 5
+
+			By("Being created or instantiated correctly")
+
+			createAndInitializePrewarmer(initialCapacity, maxCapacity)
+
+			hosts, localGatewayClients := createHosts(numHosts, 0, hostSpec, mockCluster, mockCtrl)
+
+			mockCluster.
+				EXPECT().
+				RangeOverHosts(gomock.Any()).
+				Times(1).
+				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
+					for idx, host := range hosts {
+						connInfo := &proto.KernelConnectionInfo{
+							Ip:              fmt.Sprintf("10.0.0.%d", idx+1),
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             uuid.NewString(),
+						}
+
+						localGatewayClient := localGatewayClients[idx]
+						localGatewayClient.
+							EXPECT().
+							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+							Times(initialCapacity).
+							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
+								globalLogger.Info("Creating prewarm container on host %s (ID=%s).\n",
+									host.GetNodeName(), host.GetID())
+								return connInfo, nil
+							})
+
+						f(host.GetID(), host)
+					}
+				})
+
+			created, target := prewarmer.ProvisionInitialPrewarmContainers()
+
+			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
+			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
+
+			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
+
+			
+		})
+
+		It("Will allow for the dynamic request of additional prewarm containers", func() {
 			numHosts := 3
 			initialCapacity := 3
 			maxCapacity := 4

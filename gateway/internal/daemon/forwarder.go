@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"time"
+
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
@@ -12,7 +14,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"golang.org/x/net/context"
-	"time"
 )
 
 const (
@@ -24,15 +25,15 @@ var (
 	ErrSocketUnavailable       = errors.New("socket is nil or otherwise unavailable")
 )
 
-// The Gateway is responsible for forwarding messages received from the Jupyter Server to the appropriate
+// The Forwarder is responsible for forwarding messages received from the Jupyter Server to the appropriate
 // scheduling.Kernel (and subsequently any scheduling.KernelReplica instances associated with the scheduling.Kernel).
-type Gateway struct {
-	// GatewayId is the unique identifier of the Gateway.
+type Forwarder struct {
+	// GatewayId is the unique identifier of the Forwarder.
 	GatewayId string
 
 	// Router is the underlying router.Router that listens for messages from the Jupyter Server.
 	//
-	// The Router uses the ControlHandler, ShellHandler, StdinHandler, and HBHandler methods of the Gateway
+	// The Router uses the ControlHandler, ShellHandler, StdinHandler, and HBHandler methods of the Forwarder
 	// to forward the messages that it receives to the appropriate/target scheduling.Kernel.
 	Router *router.Router
 
@@ -58,33 +59,33 @@ type Gateway struct {
 	log logger.Logger
 }
 
-// NewGateway creates a new Gateway struct and returns a pointer to it.
-func NewGateway(connectionOptions *jupyter.ConnectionInfo, manager *KernelManager, opts *domain.ClusterGatewayOptions) *Gateway {
-	gateway := &Gateway{
+// NewGateway creates a new Forwarder struct and returns a pointer to it.
+func NewForwarder(connectionOptions *jupyter.ConnectionInfo, manager *KernelManager, opts *domain.ClusterGatewayOptions) *Forwarder {
+	forwarder := &Forwarder{
 		GatewayId:         uuid.NewString(),
 		connectionOptions: connectionOptions,
 		KernelManager:     manager,
 	}
 
-	config.InitLogger(&gateway.log, gateway)
+	config.InitLogger(&forwarder.log, forwarder)
 
 	if opts.DebugMode {
-		gateway.log.Debug("Running in DebugMode.")
-		gateway.RequestLog = metrics.NewRequestLog()
+		forwarder.log.Debug("Running in DebugMode.")
+		forwarder.RequestLog = metrics.NewRequestLog()
 	} else {
-		gateway.log.Debug("Not running in DebugMode.")
+		forwarder.log.Debug("Not running in DebugMode.")
 	}
 
-	gateway.Router = router.New(context.Background(), "ClusterGateway", connectionOptions, gateway,
+	forwarder.Router = router.New(context.Background(), "ClusterGateway", connectionOptions, forwarder,
 		opts.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
-		metrics.ClusterGateway, gateway.DebugMode, gateway.MetricsProvider.GetGatewayPrometheusManager())
+		metrics.ClusterGateway, forwarder.DebugMode, forwarder.MetricsProvider.GetGatewayPrometheusManager())
 
-	return gateway
+	return forwarder
 }
 
 // ControlHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Gateway) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (g *Forwarder) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	g.log.Debug("Forwarding CONTROL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
@@ -93,7 +94,7 @@ func (g *Gateway) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) e
 
 // ShellHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Gateway) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (g *Forwarder) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	g.log.Debug("Forwarding SHELL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
@@ -102,18 +103,18 @@ func (g *Gateway) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) err
 
 // StdinHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Gateway) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (g *Forwarder) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	return g.ForwardRequest(messaging.HBMessage, msg)
 }
 
 // HBHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Gateway) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (g *Forwarder) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	return g.ForwardRequest(messaging.HBMessage, msg)
 }
 
 // ForwardRequest forwards the given message of the given type to the appropriate scheduling.Kernel.
-func (g *Gateway) ForwardRequest(socketType messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (g *Forwarder) ForwardRequest(socketType messaging.MessageType, msg *messaging.JupyterMessage) error {
 	kernelId, msgType, err := g.extractRequestMetadata(msg)
 	if err != nil {
 		g.log.Error("Metadata Extraction Error: %v", err)
@@ -127,7 +128,7 @@ func (g *Gateway) ForwardRequest(socketType messaging.MessageType, msg *messagin
 }
 
 // ForwardResponse forwards a response from a scheduling.Kernel / scheduling.KernelReplica back to the Jupyter client.
-func (g *Gateway) ForwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (g *Forwarder) ForwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	// Validate argument.
 	if msg == nil {
 		panic("Message cannot be nil")
@@ -169,7 +170,7 @@ func (g *Gateway) ForwardResponse(from router.Info, typ messaging.MessageType, m
 }
 
 // sendZmqMessage sends the specified *messaging.JupyterMessage on/using the specified *messaging.Socket.
-func (g *Gateway) sendZmqMessage(msg *messaging.JupyterMessage, socket *messaging.Socket, senderId string) error {
+func (g *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messaging.Socket, senderId string) error {
 	zmqMsg := *msg.GetZmqMsg()
 	sendStart := time.Now()
 	err := socket.Send(zmqMsg)
@@ -221,8 +222,8 @@ func (g *Gateway) sendZmqMessage(msg *messaging.JupyterMessage, socket *messagin
 
 // updateRequestLog updates the RequestLog contained within the given messaging.JupyterMessage's buffers/metadata.
 //
-// If the Gateway is not configured to run in DebugMode, then updateRequestLog is a no-op and returns immediately.
-func (g *Gateway) updateRequestLog(msg *messaging.JupyterMessage, typ messaging.MessageType) error {
+// If the Forwarder is not configured to run in DebugMode, then updateRequestLog is a no-op and returns immediately.
+func (g *Forwarder) updateRequestLog(msg *messaging.JupyterMessage, typ messaging.MessageType) error {
 	if !g.DebugMode {
 		return nil
 	}
@@ -250,7 +251,7 @@ func (g *Gateway) updateRequestLog(msg *messaging.JupyterMessage, typ messaging.
 }
 
 // extractRequestMetadata extracts the kernel (or Jupyter session) ID and the message type from the given ZMQ message.
-func (g *Gateway) extractRequestMetadata(msg *messaging.JupyterMessage) (string, string, error) {
+func (g *Forwarder) extractRequestMetadata(msg *messaging.JupyterMessage) (string, string, error) {
 	// This is initially the kernel's ID, which is the DestID field of the message.
 	// But we may not have set a destination ID field within the message yet.
 	// In this case, we'll fall back to the session ID within the message's Jupyter header.
