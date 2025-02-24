@@ -2369,6 +2369,13 @@ func (c *DistributedKernelClient) YieldedNextExecutionRequest() {
 	c.yieldNextExecutionRequest.Store(false)
 }
 
+// YieldNextExecutionRequest takes note that we should yield the next execution request.
+func (c *DistributedKernelClient) YieldNextExecutionRequest() {
+	c.yieldNextExecutionRequest.Store(true)
+}
+
+// SupposedToYieldNextExecutionRequest returns true if the target DistributedKernelClient is supposed to yield its next
+// execution request.
 func (c *DistributedKernelClient) SupposedToYieldNextExecutionRequest() bool {
 	return c.yieldNextExecutionRequest.Load()
 }

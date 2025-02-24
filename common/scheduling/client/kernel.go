@@ -825,6 +825,8 @@ func (c *KernelReplicaClient) YieldedNextExecutionRequest() {
 	c.yieldNextExecutionRequest.Store(false)
 }
 
+// SupposedToYieldNextExecutionRequest returns true if the target KernelReplicaClient is supposed to yield its next
+// execution request.
 func (c *KernelReplicaClient) SupposedToYieldNextExecutionRequest() bool {
 	return c.yieldNextExecutionRequest.Load()
 }

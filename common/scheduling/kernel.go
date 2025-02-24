@@ -390,7 +390,12 @@ type Kernel interface {
 	// This flips the KernelReplicaClient::yieldNextExecutionRequest
 	// flag to false so that the kernel replica isn't forced to yield future requests.
 	YieldedNextExecutionRequest()
+
+	// SupposedToYieldNextExecutionRequest returns true if the target Kernel is supposed to yield its next
+	// execution request.
 	SupposedToYieldNextExecutionRequest() bool
+
+	// YieldNextExecutionRequest takes note that we should yield the next execution request.
 	YieldNextExecutionRequest()
 }
 
