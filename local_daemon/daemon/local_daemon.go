@@ -1109,6 +1109,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		RedisDatabase:                        d.RedisDatabase,
 		RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 		DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
+		LocalSchedulerNodeName:               d.nodeName,
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -2349,6 +2350,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 			RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
+			LocalSchedulerNodeName:               d.nodeName,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)

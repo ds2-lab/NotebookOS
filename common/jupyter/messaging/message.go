@@ -496,7 +496,7 @@ type ExecuteRequestMetadata struct {
 	// TargetReplicaId is the SMR node ID of the replica of the kernel associated with this message (or more accurately,
 	// the kernel associated with the message in which this ExecuteRequestMetadata is contained) that should lead
 	// the execution of the code included in the "execute_request".
-	TargetReplicaId *int32 `json:"target_replica" mapstructure:"target_replica,omitempty"`
+	TargetReplicaId *int32 `json:"target_replica_id" mapstructure:"target_replica_id,omitempty"`
 
 	// WorkloadId is the identifier of the workload in which this code execution is taking place.
 	// Workloads are a construct of the workload orchestrator/cluster dashboard.

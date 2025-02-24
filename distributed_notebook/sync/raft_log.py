@@ -135,7 +135,7 @@ class RaftLog(object):
         self._leader_term: int = 0
         # The id of the leader.
         self._leader_id: int = 0
-        self._send_iopub_notification: Callable[[IOPubNotification, Optional[Dict[str, Any]]], None] = _send_iopub_notification
+        self._send_iopub_notification: Callable[[IOPubNotification, Optional[Dict[str, Any]]], None] = send_iopub_notification
         self._shell_io_loop: asyncio.AbstractEventLoop = shell_io_loop
         self._persistent_store_path: str = base_path
         self._node_id: int = node_id
@@ -1942,28 +1942,25 @@ class RaftLog(object):
 
         This updates the `self._proposed_values` field.
 
-        The attempt number for the new proposal is "calculated" based on whether there already exists a previous proposal for this election term.
+        The attempt number for the new proposal is "calculated" based on whether there
+        already exists a previous proposal for this election term.
         """
-        
-        attempt_number: int = 1
+        attempt_num: int = 1
 
         # Get the existing proposals for the specified term.
         existing_proposals: OrderedDict[int, LeaderElectionProposal] = (
             self._proposed_values.get(term_number, OrderedDict())
         )
 
-        # If there is at least one existing proposal for the specified term, then we'll get the most-recent proposal's attempt number.
+        # If there is at least one existing proposal for the specified term,
+        # then we'll get the most-recent proposal's attempt number.
         if len(existing_proposals) > 0:
-            last_attempt_number: int = next(
-                reversed(existing_proposals)
-            )  # This is O(1), as OrderedDict uses a doubly-linked list internally.
-            attempt_number = (
-                    last_attempt_number + 1
-            )  # Could be on one line, but this is more readable in my opinion.
+            # This is O(1), as OrderedDict uses a doubly-linked list internally.
+            last_attempt_num: int = next(reversed(existing_proposals))
+            attempt_num = last_attempt_num + 1
 
-            self.log.debug(
-                f"Found previous proposal for term {term_number}. Setting attempt number to last attempt number ({last_attempt_number}) + 1 = {attempt_number}"
-            )
+            self.log.debug(f"Found previous proposal for term {term_number}. "
+                           f"Setting attempt number to last attempt number ({last_attempt_num}) + 1 = {attempt_num}")
         else:
             self.log.debug(f"Found no previous proposal for term {term_number}.")
 
@@ -1975,7 +1972,7 @@ class RaftLog(object):
                         jupyter_message_id=jupyter_message_id,
                         proposer_id=self._node_id,
                         election_term=term_number,
-                        attempt_number=attempt_number,
+                        attempt_number=attempt_num,
                     )
             return vote 
 
@@ -1984,12 +1981,12 @@ class RaftLog(object):
             key=str(key),
             proposer_id=self._node_id,
             election_term=term_number,
-            attempt_number=attempt_number,
+            attempt_number=attempt_num,
             jupyter_message_id=jupyter_message_id,
         )
 
         # Add the new proposal to the mapping of proposals for the specified term.
-        existing_proposals[attempt_number] = proposal
+        existing_proposals[attempt_num] = proposal
 
         # Update the mapping (of proposals for the specified term) in the `self._proposed_values` field.
         self._proposed_values[term_number] = existing_proposals
@@ -2389,7 +2386,7 @@ class RaftLog(object):
     ):
         self.log.debug(f"Preparing to propose our own value for election {election_term} "
                     f"after processing {num_buffered_proposals_processed} buffered proposal(s) "
-                    f"and {num_buffered_votes_processed} buffered votes.")
+                    f"and {num_buffered_votes_processed} buffered votes: {proposal}")
 
         await self._append_election_proposal(proposal)
 
@@ -2443,7 +2440,6 @@ class RaftLog(object):
             self,
             buffered_proposals: list[BufferedLeaderElectionProposal],
             election_term: int,
-            target_term_number: int,
             num_buffered_votes_processed: int,
             proposalOrVote: LeaderElectionProposal | LeaderElectionVote,
             _election_decision_future: asyncio.Future[Any],
@@ -2453,7 +2449,6 @@ class RaftLog(object):
         """
         :param buffered_proposals:
         :param election_term:
-        :param target_term_number:
         :param num_buffered_votes_processed:
         :param proposalOrVote:
         :param _election_decision_future:
@@ -2562,7 +2557,6 @@ class RaftLog(object):
             proposalOrVote: LeaderElectionProposal | LeaderElectionVote,
             target_term_number: int = -1,
             jupyter_message_id: str = "",
-            target_replica_int: int = -1,
     ) -> bool:
         """
         Orchestrate an election. Return a boolean indicating whether we are now the "leader".
@@ -2679,7 +2673,6 @@ class RaftLog(object):
             done, is_leading = await self._process_proposals(
                 buffered_proposals,
                 election_term,
-                target_term_number,
                 num_buffered_votes_processed,
                 proposalOrVote,
                 _election_decision_future,
@@ -3269,7 +3262,7 @@ class RaftLog(object):
                              f"but we're still proposing 'LEAD' as node {self._node_id}.")
             
         self.log.debug(f"RaftLog {self._node_id} is proposing to lead term {term_number}"
-                       f"[target_replica_int = {target_replica_id}].")
+                       f"[target_replica_id = {target_replica_id}].")
 
         proposalOrVote: LeaderElectionProposal | LeaderElectionVote = await self._create_election_proposal_or_vote(
             ElectionProposalKey.LEAD, term_number, jupyter_message_id, target_replica_id = target_replica_id
@@ -3284,20 +3277,24 @@ class RaftLog(object):
 
         return is_leading
 
-    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """
         Request to explicitly yield the current term update (and therefore the execution of user-submitted code) to another replica.
         """
-        self.log.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
+        if target_replica_id >= 1 and target_replica_id == self._node_id:
+            raise ValueError(f"Target replica ID specified as our node ID {target_replica_id} "
+                             f"but we're proposing 'YIELD'...")
 
-        # Create a 'YIELD' proposal.
-        proposal: LeaderElectionProposal = await self._create_election_proposal_or_vote(
-            ElectionProposalKey.YIELD, term_number, jupyter_message_id
+        self.log.debug(f"RaftLog {self._node_id} is proposing to yield term {term_number}"
+                       f"[target_replica_id = {target_replica_id}].")
+
+        proposalOrVote: LeaderElectionProposal | LeaderElectionVote = await self._create_election_proposal_or_vote(
+            ElectionProposalKey.YIELD, term_number, jupyter_message_id, target_replica_id = target_replica_id
         )
 
         # Orchestrate/carry out the election.
         is_leading: bool = await self._handle_election(
-            proposal,
+            proposalOrVote,
             target_term_number=term_number,
             jupyter_message_id=jupyter_message_id,
         )

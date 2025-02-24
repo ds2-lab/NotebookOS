@@ -885,23 +885,23 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"Deployment mode: {self.deployment_mode}")
 
         if self.deployment_mode == DeployModeKubernetes:
-            self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
+            self.docker_container_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
-            self.docker_container_id: str = self.pod_name
+            self.docker_container_id: str = self.docker_container_name
         elif DeployModeDocker in self.deployment_mode: # compose or swarm
             self.docker_container_id: str = socket.gethostname()
-            self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
+            self.docker_container_name = os.environ.get("CONTAINER_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
         else:
-            self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
+            self.docker_container_name = os.environ.get("CONTAINER_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
-            self.docker_container_id: str = self.pod_name
+            self.docker_container_id: str = self.docker_container_name
 
         self.log.info('Connection file path: "%s"' % connection_file_path)
         self.log.info('IPython config file path: "%s"' % config_file_path)
         self.log.info('Session ID: "%s"' % session_id)
         self.log.info('Kernel ID: "%s"' % self.kernel_id)
-        self.log.info('Pod name: "%s"' % self.pod_name)
+        self.log.info('Pod name: "%s"' % self.docker_container_name)
         self.log.info("SMR port: '%d'" % self.smr_port)
         self.log.info('RemoteStorage hostname: "%s"' % self.remote_storage_hostname)
 
@@ -1039,6 +1039,16 @@ class DistributedKernel(IPythonKernel):
 
             # config_info:dict,
 
+    def init_metadata(self, parent):
+        """Initialize metadata.
+
+        Run at the beginning of each execution request.
+        """
+        md = super().init_metadata(parent)
+        md.update(parent)
+
+        return md
+
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
 
@@ -1080,7 +1090,7 @@ class DistributedKernel(IPythonKernel):
             "replicaId": self.smr_node_id,
             "numReplicas": len(self.smr_nodes_map),
             "join": self.smr_join,
-            "podName": self.pod_name,
+            "podName": self.docker_container_name,
             "nodeName": self.node_name,
             "connection-info": connection_info,
             "workload_id": self.workload_id,
@@ -2212,20 +2222,20 @@ class DistributedKernel(IPythonKernel):
             # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
             # or Redis, depending on the system's configuration.
             await self.synchronize_updated_state(term_number)
+
+            # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+            #
+            # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
+            # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
+            #
+            # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
+            # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
+            # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
+            # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
+            # runtime state.
+            await self.schedule_notify_execution_complete(term_number)
         else:
             self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronizion step.")
-
-        # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
-        #
-        # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
-        # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
-        #
-        # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
-        # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
-        # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
-        # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
-        # runtime state.
-        await self.schedule_notify_execution_complete(term_number)
 
         # Record synchronization and checkpointing overhead.
         # For replica-based approaches, this won't be included in what is sent back to the client.
@@ -2797,7 +2807,7 @@ class DistributedKernel(IPythonKernel):
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
-        
+
         target_replica_id: int = metadata.get("target_replica_id", -1)
 
         await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
@@ -3359,7 +3369,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
-            :param target_replica_id: smr node ID of target, pre-selected primary replica, or -1 if none pre-selected  
+            :param target_replica_id: smr node ID of target, pre-selected primary replica, or -1 if none pre-selected
             :param parent_header: header of execute_request message.
             :param execute_request_metadata: the metadata of the execute request.
             :param dataset: the dataset to be used for deep learning training
@@ -4046,9 +4056,7 @@ class DistributedKernel(IPythonKernel):
         # Add task to the set. This creates a strong reference.
         # We don't await this here so that we can go ahead and send the shell response back.
         # We'll notify our peer replicas in time.
-        task: asyncio.Task = asyncio.create_task(
-            self.synchronizer.notify_execution_complete(term_number)
-        )
+        task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
 
         # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
         # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task

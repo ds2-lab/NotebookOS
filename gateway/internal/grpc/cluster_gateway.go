@@ -1,4 +1,4 @@
-package daemon
+package grpc
 
 import (
 	"context"
@@ -21,13 +21,13 @@ var (
 type Notifier interface {
 	NotifyDashboard(name string, content string, typ messaging.NotificationType)
 
-	// Used to issue an "info" notification to the internalCluster Dashboard.
+	// NotifyDashboardOfInfo is used to issue an "info" notification to the internalCluster Dashboard.
 	NotifyDashboardOfInfo(name string, content string)
 
-	// Used to issue a "warning" notification to the internalCluster Dashboard.
+	// NotifyDashboardOfWarning is used to issue a "warning" notification to the internalCluster Dashboard.
 	NotifyDashboardOfWarning(name string, content string)
 
-	// Used to issue an "error" notification to the internalCluster Dashboard.
+	// NotifyDashboardOfError is used to issue an "error" notification to the internalCluster Dashboard.
 	NotifyDashboardOfError(name string, content string)
 }
 
@@ -90,7 +90,7 @@ func (srv *ClusterGatewayServer) MigrateKernelReplica(_ context.Context, _ *prot
 	panic("not implemented") // TODO: Implement
 }
 
-// Notify the Gateway that a distributed kernel replica has started somewhere.
+// NotifyKernelRegistered notifies the Gateway that a distributed kernel replica has started somewhere.
 func (srv *ClusterGatewayServer) NotifyKernelRegistered(_ context.Context, _ *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
 	panic("not implemented") // TODO: Implement
 }
@@ -103,7 +103,7 @@ func (srv *ClusterGatewayServer) SmrNodeAdded(_ context.Context, _ *proto.Replic
 	panic("not implemented") // TODO: Implement
 }
 
-// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+// Notify is used to report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
 func (srv *ClusterGatewayServer) Notify(_ context.Context, in *proto.Notification) (*proto.Void, error) {
 	var logFunc func(format string, args ...interface{})
 	if in.NotificationType == int32(messaging.ErrorNotification) {
@@ -116,7 +116,7 @@ func (srv *ClusterGatewayServer) Notify(_ context.Context, in *proto.Notificatio
 
 	logFunc(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"),
 		NotificationTypeNames[in.NotificationType], in.Title, in.Message)
-	go srv.notifier.NotifyDashboard(in.Title, in.Message, messaging.NotificationType(in.NotificationType))
+	go srv.daemon.NotifyDashboard(in.Title, in.Message, messaging.NotificationType(in.NotificationType))
 	return proto.VOID, nil
 }
 
@@ -126,7 +126,7 @@ func (srv *ClusterGatewayServer) PingGateway(_ context.Context, _ *proto.Void) (
 }
 
 // GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
-func (srv *ClusterGatewayServer) GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) {
+func (srv *ClusterGatewayServer) GetClusterActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.ClusterActualGpuInfo, error) {
 	panic("not implemented") // TODO: Implement
 }
 
@@ -166,7 +166,7 @@ func (srv *ClusterGatewayServer) StopKernel(ctx context.Context, in *proto.Kerne
 	return srv.daemon.StopKernel(ctx, in)
 }
 
-// Return the current GPU resource metrics on the node.
+// GetActualGpuInfo return the current GPU resource metrics on the node.
 // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 func (srv *ClusterGatewayServer) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
 	return nil, ErrNotImplemented

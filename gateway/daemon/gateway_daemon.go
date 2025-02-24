@@ -56,23 +56,13 @@ import (
 )
 
 const (
-	KubernetesKernelName = "kernel-%s"
-	ConnectionFileFormat = "connection-%s-*.json" // "*" is a placeholder for random string
-	ConfigFileFormat     = "config-%s-*.json"     // "*" is a placeholder for random string
-
-	ErrorHostname = "ERROR" // We return this from certain gRPC calls when there's an error.
-
 	// TargetReplicaArg is passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
-	TargetReplicaArg  = "target_replica"
+	TargetReplicaArg  = "target_replica_id"
 	ForceReprocessArg = "force_reprocess"
 
 	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
 	SkipValidationKey contextKey = "SkipValidationKey"
-
-	// maxSemaphoreWeight is the max weight used when creating semaphores for the kernelDescheduleAttempt
-	// and kernelCreateContainers structs.
-	maxSemaphoreWeight int64 = 999999999
 )
 
 type contextKey string

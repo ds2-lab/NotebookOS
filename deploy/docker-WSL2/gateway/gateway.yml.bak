@@ -33,7 +33,7 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-scheduling-policy: middle-ground
+scheduling-policy: static
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.10
 scaling-interval: 15

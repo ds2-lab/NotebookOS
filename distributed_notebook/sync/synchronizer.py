@@ -444,19 +444,19 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self.log.debug("Synchronizer is proposing to yield term %d" % term_number)
+        self.log.debug(f"Synchronizer::propose_yield[term={term_number},target_replica_id={target_replica_id}]")
         try:
             if await self._synclog.try_yield_execution(jupyter_message_id, term_number, target_replica_id = target_replica_id):
                 self.log.error("synclog.yield_execution returned true despite the fact that we're yielding...")
                 raise ValueError("synclog.yield_execution returned true despite the fact that we're yielding")
         except SyncError as se:
-            self.log.warning("SyncError: {}".format(se))
+            self.log.warning(f"SyncError: {se}")
             # print_trace(limit = 10)
             stack: list[str] = traceback.format_exception(se)
             for frame in stack:
                 self.log.error(frame)
         except Exception as e:
-            self.log.error("Exception encountered while proposing YIELD: %s" % str(e))
+            self.log.error(f"Exception encountered while proposing YIELD: {e}")
             # print_trace(limit = 10)
             stack: list[str] = traceback.format_exception(e)
             for frame in stack:

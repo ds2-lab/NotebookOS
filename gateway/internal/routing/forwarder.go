@@ -1,4 +1,4 @@
-package daemon
+package routing
 
 import (
 	"time"
@@ -25,6 +25,13 @@ var (
 	ErrSocketUnavailable       = errors.New("socket is nil or otherwise unavailable")
 )
 
+// KernelForwarder receives a message from a Forwarder and forwards it to the specific, target kernel.
+type KernelForwarder interface {
+	// ForwardRequestToKernel forwards the given *messaging.JupyterMessage to the specified scheduling.Kernel using the
+	// specified socket type (i.e., messaging.MessageType).
+	ForwardRequestToKernel(id string, msg *messaging.JupyterMessage, socketTyp messaging.MessageType) error
+}
+
 // The Forwarder is responsible for forwarding messages received from the Jupyter Server to the appropriate
 // scheduling.Kernel (and subsequently any scheduling.KernelReplica instances associated with the scheduling.Kernel).
 type Forwarder struct {
@@ -39,7 +46,7 @@ type Forwarder struct {
 
 	// KernelManager is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
 	// scheduling.KernelReplica instances running within the cluster.
-	KernelManager *KernelManager
+	KernelManager KernelForwarder
 
 	// DebugMode indicates that the cluster is running in "debug" mode and extra time may be spent
 	// recording metrics and embedding additional metadata in messages.
@@ -59,12 +66,12 @@ type Forwarder struct {
 	log logger.Logger
 }
 
-// NewGateway creates a new Forwarder struct and returns a pointer to it.
-func NewForwarder(connectionOptions *jupyter.ConnectionInfo, manager *KernelManager, opts *domain.ClusterGatewayOptions) *Forwarder {
+// NewForwarder creates a new Forwarder struct and returns a pointer to it.
+func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder KernelForwarder, opts *domain.ClusterGatewayOptions) *Forwarder {
 	forwarder := &Forwarder{
 		GatewayId:         uuid.NewString(),
 		connectionOptions: connectionOptions,
-		KernelManager:     manager,
+		KernelManager:     kernelForwarder,
 	}
 
 	config.InitLogger(&forwarder.log, forwarder)
