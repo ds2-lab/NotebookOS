@@ -4,25 +4,14 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
 	"golang.org/x/net/context"
 	"sync"
 )
-
-type Notifier interface {
-	NotifyDashboard(name string, content string, typ messaging.NotificationType)
-
-	// NotifyDashboardOfInfo is used to issue an "info" notification to the internalCluster Dashboard.
-	NotifyDashboardOfInfo(name string, content string)
-
-	// NotifyDashboardOfWarning is used to issue a "warning" notification to the internalCluster Dashboard.
-	NotifyDashboardOfWarning(name string, content string)
-
-	// NotifyDashboardOfError is used to issue an "error" notification to the internalCluster Dashboard.
-	NotifyDashboardOfError(name string, content string)
-}
 
 type MessageForwarder interface {
 }
@@ -43,20 +32,21 @@ type KernelManager interface {
 }
 
 type GatewayDaemonBuilder struct {
-	notifier      Notifier
+	notifier      domain.Notifier
 	forwarder     MessageForwarder
 	kernelManager KernelManager
+	router        *router.Router
 	cluster       scheduling.Cluster
-	options       *ClusterGatewayOptions
+	options       *domain.ClusterGatewayOptions
 }
 
-func NewGatewayDaemonBuilder(options *ClusterGatewayOptions) *GatewayDaemonBuilder {
+func NewGatewayDaemonBuilder(options *domain.ClusterGatewayOptions) *GatewayDaemonBuilder {
 	return &GatewayDaemonBuilder{
 		options: options,
 	}
 }
 
-func (b *GatewayDaemonBuilder) WithNotifier(notifier Notifier) *GatewayDaemonBuilder {
+func (b *GatewayDaemonBuilder) WithNotifier(notifier domain.Notifier) *GatewayDaemonBuilder {
 	b.notifier = notifier
 	return b
 }
@@ -92,12 +82,12 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 type GatewayDaemon struct {
 	DeploymentMode types.DeploymentMode
 
-	notifier      Notifier
+	notifier      domain.Notifier
 	forwarder     MessageForwarder
 	kernelManager KernelManager
 	cluster       scheduling.Cluster
 
-	options         *ClusterGatewayOptions
+	options         *domain.ClusterGatewayOptions
 	dockerNodeMutex sync.Mutex
 	log             logger.Logger
 }

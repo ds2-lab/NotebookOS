@@ -1080,14 +1080,14 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 
 	execRequestIndex := -1
 	for i, msg := range messages {
-		if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+		if msg.JupyterMessageType() != messaging.ShellExecuteRequest {
 			continue
 		}
 
 		// If the execution index is already set, then we've found two messages of type "execute_request".
 		if execRequestIndex != -1 {
 			m.log.Debug("Messages %d and %d are both of type \"%s\". No single target replica identified for execution \"%s\" (index=%d).",
-				execRequestIndex, i, messaging.ShellExecuteReply, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+				execRequestIndex, i, messaging.ShellExecuteRequest, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
 			return nil
 		}
 

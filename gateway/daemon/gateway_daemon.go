@@ -56,9 +56,6 @@ import (
 )
 
 const (
-	// TargetReplicaArg is passed within the metadata dict of an 'execute_request' ZMQ message.
-	// This indicates that a specific replica should execute the code.
-	TargetReplicaArg  = "target_replica_id"
 	GpuDeviceIdsArg   = "gpu_device_ids"
 	ForceReprocessArg = "force_reprocess"
 
@@ -1430,9 +1427,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	// Dynamically migrate one of the existing replicas to another node.
 	//
 	// Randomly select a replica to migrate.
-	targetReplica := rand.Intn(kernel.Size()) + 1
+	targetReplicaId := rand.Intn(kernel.Size()) + 1
 	d.log.Debug(utils.LightBlueStyle.Render("Static Failure Handler: migrating replica %d of kernel %s now."),
-		targetReplica, kernel.ID())
+		targetReplicaId, kernel.ID())
 
 	// Notify the cluster dashboard that we're performing a migration.
 	go d.notifier.NotifyDashboardOfInfo(fmt.Sprintf("All Replicas of kernel \"%s\" Have Proposed 'YIELD'", kernel.ID()),
@@ -1441,7 +1438,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	req := &proto.MigrationRequest{
 		TargetReplica: &proto.ReplicaInfo{
 			KernelId:     kernel.ID(),
-			ReplicaId:    int32(targetReplica),
+			ReplicaId:    int32(targetReplicaId),
 			PersistentId: kernel.PersistentID(),
 		},
 		ForTraining:  true,
@@ -1459,7 +1456,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 
 		if err != nil {
 			d.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
-				targetReplica, kernel.ID(), err.Error())
+				targetReplicaId, kernel.ID(), err.Error())
 
 			var migrationError error
 
@@ -1472,7 +1469,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 			errorChan <- migrationError
 		} else {
 			d.log.Debug(utils.GreenStyle.Render("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s."),
-				targetReplica, kernel.ID(), resp.Hostname)
+				targetReplicaId, kernel.ID(), resp.Hostname)
 		}
 
 		waitGroup.Done()
@@ -1488,7 +1485,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	}
 
 	// Specify the target replica.
-	metadataDict[TargetReplicaArg] = targetReplica
+	metadataDict[messaging.TargetReplicaArg] = targetReplicaId
 	metadataDict[ForceReprocessArg] = true
 	err = executeRequestMsg.EncodeMetadata(metadataDict)
 	if err != nil {
@@ -4095,7 +4092,7 @@ func (d *ClusterGatewayImpl) updateTargetedExecuteRequestMetadata(jMsg *messagin
 
 	// Embed the GPU device IDs in the metadata dictionary, which we'll re-encode into the message's metadata frame.
 	metadataDict[GpuDeviceIdsArg] = gpuDeviceIds
-	metadataDict[TargetReplicaArg] = targetReplica.ReplicaID()
+	metadataDict[messaging.TargetReplicaArg] = targetReplica.ReplicaID()
 
 	// Re-encode the metadata frame. It will have the number of idle GPUs available,
 	// as well as the reason that the request was yielded (if it was yielded).
@@ -4143,15 +4140,10 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 	jupyterMessages := make([]*messaging.JupyterMessage, kernel.Size())
 	for _, replica := range replicas {
-		var (
-			jupyterMessage *messaging.JupyterMessage
-			err            error
-		)
-
 		if replica.ReplicaID() == targetReplicaId {
-			jupyterMessage = originalJupyterMessage.Clone()
+			jupyterMessage := originalJupyterMessage.Clone()
 
-			err = d.updateTargetedExecuteRequestMetadata(jupyterMessage, replica)
+			err := d.updateTargetedExecuteRequestMetadata(jupyterMessage, replica)
 			if err != nil {
 				d.log.Error("Failed to embed GPU device IDs in \"%s\" message \"%s\" targeting replica %d of kernel \"%s\": %v",
 					jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), replica.ReplicaID(), kernel.ID(), err)
@@ -4164,7 +4156,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 		// Convert the "execute_request" message to a "yield_request" message.
 		// The returned message is initially created as a clone of the target message.
-		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage(targetReplicaId)
+		jupyterMessage, err := originalJupyterMessage.CreateAndReturnYieldRequestMessage(targetReplicaId)
 		if err != nil {
 			d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
 				originalJupyterMessage.JupyterMessageId(), err)
@@ -4182,8 +4174,8 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 			return err
 		}
 
-		d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\"",
-			originalJupyterMessage.JupyterMessageId(), replica.ReplicaID(), replica.ID())
+		d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\" [targetReplicaId=%d]: %v",
+			originalJupyterMessage.JupyterMessageId(), replica.ReplicaID(), replica.ID(), targetReplicaId, jupyterMessage.JupyterFrames.StringFormatted())
 
 		// We subtract 1 because replica IDs start at 1.
 		jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
@@ -4420,7 +4412,7 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	}
 
 	// Check if a specific replica was explicitly specified.
-	val, loaded := metadata[TargetReplicaArg]
+	val, loaded := metadata[messaging.TargetReplicaArg]
 	if !loaded {
 		d.log.Debug("Target replica unspecified for execution \"%s\" targeting kernel \"%s\".",
 			msg.JupyterMessageId(), kernel.ID())

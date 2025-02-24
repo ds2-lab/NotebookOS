@@ -40,6 +40,10 @@ const (
 	InfoNotification    NotificationType = 2
 	SuccessNotification NotificationType = 3
 
+	// TargetReplicaArg is passed within the metadata dict of an 'execute_request' ZMQ message.
+	// This indicates that a specific replica should execute the code.
+	TargetReplicaArg = "target_replica_id"
+
 	JavascriptISOString = "2006-01-02T15:04:05.999Z07:00"
 
 	MessageTypeACK = "ACK"
@@ -1071,9 +1075,10 @@ func (m *JupyterMessage) StringFormatted() string {
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
 func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int32) (*JupyterMessage, error) {
-	// If the message is already a yield request, then just return a copy of it,
-	// as the expectation is that the returned message from this method will be a clone/copy.
-	if m.JupyterMessageType() == ShellYieldRequest {
+	// If the message is already a yield request, and we don't have a target replica ID to embed in the request's
+	// metadata, then just return a copy of it, as the expectation is that the returned message from this method
+	// will be a clone/copy.
+	if m.JupyterMessageType() == ShellYieldRequest && targetReplicaId <= 0 {
 		return m.Clone(), nil
 	}
 
@@ -1082,7 +1087,7 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int3
 	}
 
 	// Clone the original message.
-	var newMessage = m.GetZmqMsg().Clone()
+	newMessage := m.GetZmqMsg().Clone()
 	jMsg := NewJupyterMessage(&newMessage)
 
 	// Change the message header.
@@ -1103,11 +1108,11 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int3
 			metadataDict = make(map[string]interface{}) // Create a new metadata frame, I guess...
 		}
 
-		metadataDict["target_replica_id"] = targetReplicaId
-		err = m.EncodeMetadata(metadataDict)
+		metadataDict[TargetReplicaArg] = targetReplicaId
+		err = jMsg.JupyterFrames.EncodeMetadata(metadataDict)
 		if err != nil {
 			fmt.Printf("[ERROR] Failed to encode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\") after embedding RequestTrace in it: %v\n",
-				m.JupyterMessageType(), m.RequestId, m.JupyterMessageId(), err)
+				jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), err)
 			return nil, err
 		}
 	}

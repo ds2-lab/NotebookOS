@@ -1,4 +1,4 @@
-package daemon
+package domain
 
 import (
 	"encoding/json"

@@ -2409,9 +2409,10 @@ class RaftLog(object):
                                         return_when=asyncio.FIRST_COMPLETED)
 
         if _received_vote_future in done or _received_vote_future.done():
+            voteReceived: LeaderElectionVote = _received_vote_future.result()
             self.log.debug(f"The voting phase for election {election_term} has already completed, "
                         f"before we had a chance to propose our own vote. "
-                        f"Received vote: {_received_vote_future.result()}")
+                        f"Received vote: {voteReceived}")
 
             if self._current_election.term_number != election_term:
                 self.log.error(f"Current election has term {self._current_election.term_number} "
@@ -2427,8 +2428,11 @@ class RaftLog(object):
                 return True, is_leading, None
 
             assert self._current_election.voting_phase_completed_successfully
+
             self._received_vote_future = None
             self._election_decision_future = None
+
+            return True, voteReceived.proposed_node_id == self.node_id, None
 
         assert _election_decision_future.done()
         voteProposal: LeaderElectionVote = _election_decision_future.result()
@@ -2510,12 +2514,12 @@ class RaftLog(object):
             # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
             return True, False
 
-        self.log.debug(f"RaftLog {self._node_id}: Appending decision proposal "
+        self.log.debug(f"RaftLog {self._node_id}: Appending vote proposal "
                        f"for term {voteProposal.election_term} now.")
 
         await self._append_election_vote(voteProposal)
 
-        self.log.debug(f"RaftLog {self._node_id}: Successfully appended decision "
+        self.log.debug(f"RaftLog {self._node_id}: Successfully appended vote "
                        f"proposal for term {voteProposal.election_term} now.")
 
         return False, False
