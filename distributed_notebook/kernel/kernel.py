@@ -2699,14 +2699,14 @@ class DistributedKernel(IPythonKernel):
         if existing_election is None:
             return -1
 
-        if self.synclog.is_election_voting_complete(msg_id):
+        if not existing_election.is_in_failed_state and existing_election.voting_phase_completed_successfully:
             self.log.warning(f'At a minimum, the voting phase for existing election associated with Jupyter '
                              f'message "{msg_id}" has already completed. No need for us to participate.')
             raise ElectionAbortedException(f'election associated with Jupyter message "{msg_id}" '
                                            f'is already voting-complete')
 
-        self.log.debug(f'Found existing, in-progress election with term number {existing_election.term_number} '
-                       f'associated with Jupyter message "{msg_id}"')
+        self.log.debug(f'Found existing election in state {existing_election.state.get_name()} with term number '
+                       f'{existing_election.term_number} associated with Jupyter message "{msg_id}"')
 
         return existing_election.term_number
 
