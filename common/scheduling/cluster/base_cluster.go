@@ -445,29 +445,30 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 
 // UpdateIndex updates the ClusterIndex that contains the specified host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
-	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
-	if categoryMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
-	}
+	//categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
+	//if categoryMetadata == nil {
+	//	return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
+	//		host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
+	//}
+	//
+	//keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	//if keyMetadata == nil {
+	//	return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
+	//		host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+	//}
+	//
+	//key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
+	//clusterIndex, loaded := c.indexes.Load(key)
+	//
+	//if !loaded || clusterIndex == nil {
+	//	return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
+	//		categoryMetadata, keyMetadata.(string))
+	//}
+	//
+	//c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
+	//clusterIndex.Update(host)
 
-	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
-	if keyMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
-	}
-
-	key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
-	clusterIndex, loaded := c.indexes.Load(key)
-
-	if !loaded || clusterIndex == nil {
-		return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
-			categoryMetadata, keyMetadata.(string))
-	}
-
-	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
-	clusterIndex.Update(host)
-	return nil
+	return c.scheduler.UpdateIndex(host)
 }
 
 // unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,

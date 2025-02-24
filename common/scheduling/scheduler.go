@@ -154,6 +154,10 @@ type HostScheduler interface {
 
 	// CanScaleIn returns true if scaling-in is possible now.
 	CanScaleIn() bool
+
+	// UpdateIndex is used to update a Host's position in its index.
+	// It also updates the "idle hosts" heap.
+	UpdateIndex(host Host) error
 }
 
 type SchedulerMetricsManager interface {
