@@ -2532,9 +2532,6 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	//	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 	//}
 
-	// TODO: Eventually, this may be true (as in a warm container may be used).
-	// TODO: We may also have to move this call, as we may not be able to determine whether a warm container was
-	//		 used or not, unless that information is included in the registration payload (which it could be).
 	kernel.RecordContainerCreated(in.WasPrewarmContainer)
 
 	d.log.Debug("SetDone handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)

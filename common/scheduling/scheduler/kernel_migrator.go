@@ -284,8 +284,7 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	//
 	// Step 8: Tell new replica to start its Sync Log / Raft Log.
 	//
-
-	err = km.issueStartSyncLogRequest(newlyAddedReplica)
+	err = km.issueStartSyncLogRequest(newlyAddedReplica, kernel.PersistentID())
 	if err != nil {
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
@@ -333,9 +332,11 @@ func (km *kernelMigrator) performContainerAndKernelReplicaSwap(kernel scheduling
 	err := session.AddReplica(container)
 	if err != nil {
 		if errors.Is(err, entity.ErrInvalidContainer) {
-			km.log.Error("Error while registering container %v with session %v during migration:\n%v", container, session, err)
+			km.log.Error("Error while registering container %v with session %v during migration:\n%v",
+				container, session, err)
 		} else {
-			km.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v", container, session, err)
+			km.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v",
+				container, session, err)
 		}
 
 		title := "Failed to Register Container with Session During Migration"
@@ -356,16 +357,20 @@ func (km *kernelMigrator) performContainerAndKernelReplicaSwap(kernel scheduling
 }
 
 // issueStartSyncLogRequest instruct the newly-created scheduling.KernelReplica to start its SyncLog/RaftLog.
-func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.KernelReplica) error {
+func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.KernelReplica, persistentId string) error {
 	km.log.Debug("issueStartSyncLogRequest: instructing new replica %d of kernel \"%s\" to start its SyncLog.",
 		targetReplica.ReplicaID(), targetReplica.ID())
 
 	host := targetReplica.Host()
 
+	if persistentId == "" {
+		persistentId = targetReplica.PersistentID()
+	}
+
 	_, err := host.StartSyncLog(context.Background(), &proto.ReplicaInfo{
 		ReplicaId:    targetReplica.ReplicaID(),
 		KernelId:     targetReplica.ID(),
-		PersistentId: targetReplica.PersistentID(),
+		PersistentId: persistentId,
 	})
 
 	if err != nil {

@@ -1806,9 +1806,8 @@ func (d *LocalScheduler) StartSyncLog(_ context.Context, req *proto.ReplicaInfo)
 	}
 
 	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
-	if err := frames.EncodeContent(&messaging.MessageSMRAddOrUpdateReplicaRequest{
-		NodeID:  replicaId,
-		Address: kernel.Address(),
+	if err := frames.EncodeContent(&messaging.MessageSMRReady{
+		PersistentID: req.PersistentId,
 	}); err != nil {
 		d.log.Error("↩ LocalScheduler::StartSyncLog: error encoding message: %v", err)
 		return nil, status.Error(codes.Internal, err.Error())

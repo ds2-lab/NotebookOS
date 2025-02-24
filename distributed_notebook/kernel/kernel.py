@@ -16,7 +16,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Tuple, Iterable, Awaitable
+from typing import Union, Optional, Dict, Any, Tuple, Awaitable
 
 import debugpy
 import faulthandler
@@ -34,13 +34,13 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from distributed_notebook.kernel.iopub_notifier import IOPubNotification
 from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
 from distributed_notebook.gateway.gateway_pb2_grpc import KernelErrorReporterStub
+from distributed_notebook.kernel.iopub_notifier import IOPubNotification
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
@@ -58,9 +58,9 @@ from .stats import ExecutionStats
 from .util import extract_header, ElectionAbortedException
 from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
 from ..sync.log import SyncLog
-from ..sync.remote_storage_log import RemoteStorageLog
 from ..sync.remote_storage.redis_provider import RedisProvider
 from ..sync.remote_storage.s3_provider import S3Provider
+from ..sync.remote_storage_log import RemoteStorageLog
 
 import_torch_start: float = time.time()
 try:
@@ -116,11 +116,11 @@ signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
 
-DeployModeKubernetes: str = "kubernetes" # Running via Kubernetes rather than Docker.
-DeployModeDockerSwarm: str = "docker-swarm" # Running via Docker Swarm on one or more machines.
-DeployModeDockerCompose: str = "docker-compose" # Running via Docker Compose on a single system.
-DeployModeDocker: str = "docker" # Used to match against either docker modes.
-DeployModeLocal: str = "local" # Old, used to be used for debugging, no longer used.
+DeployModeKubernetes: str = "kubernetes"  # Running via Kubernetes rather than Docker.
+DeployModeDockerSwarm: str = "docker-swarm"  # Running via Docker Swarm on one or more machines.
+DeployModeDockerCompose: str = "docker-compose"  # Running via Docker Compose on a single system.
+DeployModeDocker: str = "docker"  # Used to match against either docker modes.
+DeployModeLocal: str = "local"  # Old, used to be used for debugging, no longer used.
 
 # The average time to initialize CUDA on an AWS P3 instance (with a V100 GPU), based on our empirical benchmark.
 AverageCudaInitTimeSec: float = 0.17389775
@@ -391,11 +391,11 @@ class DistributedKernel(IPythonKernel):
     ).tag(config=True, default_value="distributed-notebook-storage")
 
     prewarm_container: Bool = Bool(False,
-                                    help="Indicates whether this Kernel was created to serve as a pre-warm container, "
-                                         "or if it was created as an actual kernel container.").tag(config=True)
+                                   help="Indicates whether this Kernel was created to serve as a pre-warm container, "
+                                        "or if it was created as an actual kernel container.").tag(config=True)
 
-    created_for_migration: Bool = Bool(False, help = "If we're created for a migration, "
-                                                     "then we do not start our SyncLog right away.").tag(config=True)
+    created_for_migration: Bool = Bool(False, help="If we're created for a migration, "
+                                                   "then we do not start our SyncLog right away.").tag(config=True)
 
     # Indicates whether we should embed Election metadata in "execute_reply" messages.
     include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
@@ -487,7 +487,7 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
         self.synclog: Optional[SyncLog] = None
-        
+
         # Normally, we start the SyncLog in DistributedKernel::start.
         #
         # However, if this kernel replica was created during a migration, then we must wait to start
@@ -902,7 +902,7 @@ class DistributedKernel(IPythonKernel):
             self.docker_container_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id: str = self.docker_container_name
-        elif DeployModeDocker in self.deployment_mode: # compose or swarm
+        elif DeployModeDocker in self.deployment_mode:  # compose or swarm
             self.docker_container_id: str = socket.gethostname()
             self.docker_container_name = os.environ.get("CONTAINER_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
@@ -926,8 +926,8 @@ class DistributedKernel(IPythonKernel):
             raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
 
         self.log.info("CPU: %.2f, Memory: %f, GPUs: %d, VRAM: %.6f."
-            % (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb)
-        )
+                      % (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb)
+                      )
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv: asyncio.Condition = asyncio.Condition()
@@ -993,7 +993,8 @@ class DistributedKernel(IPythonKernel):
             return
 
         self.local_tcp_server_queue: Queue = Queue()
-        self.local_tcp_server_process: Process = Process(target=self.server_process, args=(self.local_tcp_server_queue,))
+        self.local_tcp_server_process: Process = Process(target=self.server_process,
+                                                         args=(self.local_tcp_server_queue,))
         self.local_tcp_server_process.daemon = True
         self.local_tcp_server_process.start()
         self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
@@ -1166,7 +1167,7 @@ class DistributedKernel(IPythonKernel):
         # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
         if "persistent_id" in response_dict:
-            self.log.info('Received persistent ID from registration: "%s"'% response_dict["persistent_id"])
+            self.log.info('Received persistent ID from registration: "%s"' % response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
         # We'll also use this as an indicator of whether we should simulate additional checkpointing overhead.
@@ -1198,7 +1199,7 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.warning('No "message_acknowledgements_enabled" entry in response from local daemon.')
 
-        self.log.info("Received SMR Node ID after registering with local daemon: %d"% self.smr_node_id)
+        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
         assert self.smr_nodes_map[self.smr_node_id] == (self.hostname + ":" + str(self.smr_port))
@@ -1252,7 +1253,9 @@ class DistributedKernel(IPythonKernel):
 
         self.init_debugpy()
 
-        if self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None:
+        persistent_id_defined: bool = self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None
+
+        if persistent_id_defined and self.start_synclog_immediately:
             assert isinstance(self.persistent_id, str)
             self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. "
                            f"Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
@@ -1282,7 +1285,7 @@ class DistributedKernel(IPythonKernel):
             self.log.error(traceback.format_exc())
 
             return False
-        #finally:
+        # finally:
         #    faulthandler.dump_traceback(file=sys.stderr)
 
     async def kernel_info_request(self, stream, ident, parent):
@@ -1454,7 +1457,7 @@ class DistributedKernel(IPythonKernel):
                     await result
             except Exception as ex:
                 self.log.error(f'Exception in shell message handler for "{msg_type}" message "{msg_id}": {ex}',
-                               exc_info=True,)  # noqa: G201
+                               exc_info=True, )  # noqa: G201
                 self.report_error(
                     error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
                                 f'While Executing Handler for Shell Request "{msg_id}" of type "{msg_type}"',
@@ -1734,7 +1737,7 @@ class DistributedKernel(IPythonKernel):
 
         self.init_synchronizer_event.set()
 
-        self.synchronizer.start(start_synclog = self.start_synclog_immediately)
+        self.synchronizer.start()
 
         self.start_synchronizer_event.set()
 
@@ -2352,7 +2355,7 @@ class DistributedKernel(IPythonKernel):
             "kernel_id": self.kernel_id,
         }, True
 
-    def __get_prewarm_container_id(self, prewarm_container_id: Optional[str])->str:
+    def __get_prewarm_container_id(self, prewarm_container_id: Optional[str]) -> str:
         """
         Returns the previous prewarm container ID used by this kernel, or generates a new one if there is no valid
         previous prewarm container ID.
@@ -2433,19 +2436,26 @@ class DistributedKernel(IPythonKernel):
             "prewarm_container": True,
         }, True
 
-    async def __handle_start_synclog_request(self)->Dict[str, str]:
-        if self.synclog is None:
-            self.log.error("start_synclog_request: SyncLog is null. Cannot start.")
+    async def __handle_start_synclog_request(self) -> Dict[str, str]:
+        if self.persistent_id is None or self.persistent_id == "":
+            content = parent.get("content", {})
+            self.persistent_id = content.get("persistent_id", "")
+
+        if self.persistent_id is None or self.persistent_id == "":
+            self.log.error("start_synclog_request: persistent ID is invalid. Cannot start.")
             reply_content: Dict[str, str] = {
                 "status": "error",
                 "ename": "SyncLogNull",
-                "evalue": "SyncLog is null. Cannot start."
+                "evalue": "cannot create and start SyncLog because persistent ID is invalid"
             }
 
             return reply_content
 
-        self.synchronizer.start_synclog()
-        reply_content: Dict[str, str] = { "status": "ok" }
+        self.log.debug(f'Starting SyncLog. PersistentID="{self.persistent_id}"')
+
+        await self.init_persistent_store_with_persistent_id(self.persistent_id)
+
+        reply_content: Dict[str, str] = {"status": "ok"}
         return reply_content
 
     async def start_synclog_request(self, stream, ident, parent):
@@ -2461,6 +2471,8 @@ class DistributedKernel(IPythonKernel):
         be updated to our address.
         """
         self.log.debug("start_synclog_request: Starting SyncLog now.")
+
+
 
         reply_content: Dict[str, str] = await self.__handle_start_synclog_request()
 
@@ -2492,7 +2504,7 @@ class DistributedKernel(IPythonKernel):
         # If we're supposed to revert to prewarm, then do that.
         # Otherwise, we'll just reset the user namespace.
         if revert_to_prewarm:
-            reply_content, ok = await self.__revert_to_prewarm(prewarm_container_id= kernel_id)
+            reply_content, ok = await self.__revert_to_prewarm(prewarm_container_id=kernel_id)
 
             # Make sure this entry is present.
             if ok:
@@ -2694,13 +2706,13 @@ class DistributedKernel(IPythonKernel):
             )
         except Exception as ex:
             self.log.error(f"Error encountered while checking status of previous election: {ex}")
-            title:str = (f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected "
-                         f"{type(ex).__name__} While Checking Status of Election {term_number}")
-            content:str = (f"Error: {ex}. Kernel knows only about the following election terms: "
+            title: str = (f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected "
+                          f"{type(ex).__name__} While Checking Status of Election {term_number}")
+            content: str = (f"Error: {ex}. Kernel knows only about the following election terms: "
                             f"{self.synchronizer.get_known_election_terms()}")
             self.report_error(error_title=title, error_message=content)
 
-    def __check_for_existing_election(self, msg_id: str)->int:
+    def __check_for_existing_election(self, msg_id: str) -> int:
         """
         Check if there already exists an election associated with the Jupyter message ID from the parent header.
 
@@ -2814,11 +2826,11 @@ class DistributedKernel(IPythonKernel):
             # type: ignore
             st: float = time.time()
             self.shell.execution_count = await self.synchronizer.ready(
-                parent_header["msg_id"], current_term_number, lead = False, target_replica_id = target_replica_id)
+                parent_header["msg_id"], current_term_number, lead=False, target_replica_id=target_replica_id)
 
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
-            
+
             self.session.send(
                 self.iopub_socket,
                 IOPubNotification.SmrYieldTask,
@@ -2827,7 +2839,7 @@ class DistributedKernel(IPythonKernel):
                     "replica_id": self.smr_node_id,
                 },
                 ident=self._topic(IOPubNotification.SmrYieldTask),
-            ) 
+            )
 
             if self.prometheus_enabled:
                 self.num_yield_proposals.inc()
@@ -2875,7 +2887,7 @@ class DistributedKernel(IPythonKernel):
         # If there was a reason for why we were explicitly told to YIELD included in the metadata of the
         # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
         request_metadata: dict[str, Any] = parent.get("metadata", {})
-        
+
         if "yield-reason" in request_metadata:
             yield_reason: str = request_metadata["yield-reason"]
             reply_content["yield-reason"] = yield_reason
@@ -2919,7 +2931,7 @@ class DistributedKernel(IPythonKernel):
         term_number: int = current_election.term_number
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from yield_request function.")
-        
+
         await self.synchronizer.wait_for_election_to_end(term_number)
         self.log.debug(f"Done with yield_request for term {term_number}.")
 
@@ -2991,7 +3003,9 @@ class DistributedKernel(IPythonKernel):
 
         self.cuda_initialized = True
 
-    async def simulate_download_model_and_training_data(self, force: bool = False, remote_storage_name: Optional[str] = None) -> tuple[float, float]:
+    async def simulate_download_model_and_training_data(self, force: bool = False,
+                                                        remote_storage_name: Optional[str] = None) -> tuple[
+        float, float]:
         self.log.debug("Simulating the downloading of model and training data...")
 
         # If the model and training data are already downloaded, then just return (unless force is True).
@@ -3253,26 +3267,27 @@ class DistributedKernel(IPythonKernel):
 
         return get_training_code(download_code, creation_code, gpu_device_ids, target_training_duration_millis)
 
-    def load_dataset_iopub_notify(self, downloading: bool = True, dataset_name:str = "N/A", time_elapsed_sec: float = 0.0):
+    def load_dataset_iopub_notify(self, downloading: bool = True, dataset_name: str = "N/A",
+                                  time_elapsed_sec: float = 0.0):
         if downloading:
             topic = IOPubNotification.DownloadingDataset
         else:
             topic = IOPubNotification.DownloadedDataset
-        
+
         content: Dict[str, Any] = {
             "replica_id": self.smr_node_id,
             "dataset_name": dataset_name,
         }
-        
+
         if time_elapsed_sec > 0:
             content["time_elapsed_sec"] = time_elapsed_sec
-        
+
         self.session.send(
             self.iopub_socket,
             topic,
             content,
             ident=self._topic(topic),
-        ) 
+        )
 
     async def primary_replica_protocol(
             self,
@@ -3294,7 +3309,7 @@ class DistributedKernel(IPythonKernel):
         # In either case, the execution will wait until states are synchronized.
         # type: ignore
         self.shell.execution_count = await self.synchronizer.ready(
-            jupyter_message_id, term_number, lead = True, target_replica_id = target_replica_id
+            jupyter_message_id, term_number, lead=True, target_replica_id=target_replica_id
         )
 
         self.current_execution_stats.leader_election_microseconds = int(
@@ -3334,7 +3349,7 @@ class DistributedKernel(IPythonKernel):
             *,
             cell_meta=None,
             cell_id=None,
-    )->Dict[str, Any]:
+    ) -> Dict[str, Any]:
         """
         Execute user code. This is part of the official Jupyter kernel API.
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
@@ -3372,7 +3387,9 @@ class DistributedKernel(IPythonKernel):
 
         # Make sure we have some GPU device IDs if we're using real GPUs and our current resource
         # request indicates that we have 1 or more GPUs assigned to us.
-        if not self.simulate_training_using_sleep and cuda_available and (gpu_device_ids is None or len(gpu_device_ids) == 0) and self.current_resource_request.get("gpus", 0) > 0:
+        if not self.simulate_training_using_sleep and cuda_available and (
+                gpu_device_ids is None or len(gpu_device_ids) == 0) and self.current_resource_request.get("gpus",
+                                                                                                          0) > 0:
             self.log.error("We're using real GPUs, but we've not been assigned any GPU device IDs...")
 
             self.report_error(
@@ -3521,7 +3538,7 @@ class DistributedKernel(IPythonKernel):
         if execute_request_metadata is not None and "resource_request" in execute_request_metadata:
             # If the latest/current resource request is embedded in the metadata, then we can
             # check that to verify that we do not in fact require any GPU device IDs.
-            resource_request: Dict[str, int|float] = execute_request_metadata["resource_request"]
+            resource_request: Dict[str, int | float] = execute_request_metadata["resource_request"]
             if "gpus" in resource_request and resource_request["gpus"] == 0:
                 return
 
@@ -3536,8 +3553,8 @@ class DistributedKernel(IPythonKernel):
                 return
 
         # Something is wrong. We should have received GPU device IDs.
-        error_title:str = (f'Kernel "{self.kernel_id}" Received 0 GPU device IDs for '
-                           f'"execute_request" "{self.next_execute_request_msg_id}"')
+        error_title: str = (f'Kernel "{self.kernel_id}" Received 0 GPU device IDs for '
+                            f'"execute_request" "{self.next_execute_request_msg_id}"')
 
         self.report_error(error_title, 'No GPU device IDs received.')
 
@@ -3567,8 +3584,8 @@ class DistributedKernel(IPythonKernel):
         """
         if not self.simulate_training_using_sleep:
             self.__validate_gpu_id_args(
-                gpu_device_ids = gpu_device_ids,
-                execute_request_metadata = execute_request_metadata
+                gpu_device_ids=gpu_device_ids,
+                execute_request_metadata=execute_request_metadata
             )
 
         performed_dl_training: bool = False
@@ -4188,7 +4205,7 @@ class DistributedKernel(IPythonKernel):
         # Verify that the SyncLog is not None before we continue.
         if self.synclog is None:
             self.log.warning("SyncLog is None. Cannot write data directory to remote storage.")
-            return { "status": "ok", "id": self.smr_node_id, "kernel_id": self.kernel_id }, True
+            return {"status": "ok", "id": self.smr_node_id, "kernel_id": self.kernel_id}, True
 
         try:
             write_start: float = time.time()
@@ -4991,10 +5008,10 @@ class DistributedKernel(IPythonKernel):
                     "model_name": pointer.model_name,
                 },
                 ident=self._topic(IOPubNotification.DownloadingModel),
-            ) 
-        
-        st: float = time.time() 
-        
+            )
+
+        st: float = time.time()
+
         try:
             read_st: float = time.time()
             model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_state = (
@@ -5057,7 +5074,7 @@ class DistributedKernel(IPythonKernel):
                     "model_name": pointer.model_name,
                 },
                 ident=self._topic(IOPubNotification.DownloadedModel),
-            ) 
+            )
 
         return model
 
@@ -5109,8 +5126,8 @@ class DistributedKernel(IPythonKernel):
         Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
         :param pointer: the pointer to the Dataset object.
         """
-        self.log.debug( f'The "{pointer.large_object_name}" dataset (stored in variable '
-                        f"'{pointer.user_namespace_variable_name}') was committed.")
+        self.log.debug(f'The "{pointer.large_object_name}" dataset (stored in variable '
+                       f"'{pointer.user_namespace_variable_name}') was committed.")
 
         # If we're catching up, then we'll save a reference to this to be processed later, once
         # we're done catching up so that we have the most up-to-date version of the variable.
@@ -5168,7 +5185,8 @@ class DistributedKernel(IPythonKernel):
             existing_model = None  # So that we pass None for the existing_model argument below.
 
         st: float = time.time()
-        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer, existing_model=existing_model)
+        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer,
+                                                                                   existing_model=existing_model)
         et: float = time.time()
 
         self.log.debug(f'Successfully loaded committed model "{pointer.large_object_name}" in {et - st} seconds.')

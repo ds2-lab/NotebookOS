@@ -151,7 +151,7 @@ class Synchronizer:
         self._sync_time_sec = 0.0
         self._sync_times.clear()
 
-    def start(self, start_synclog: bool = True):
+    def start(self):
         self.log.debug("Starting Synchronizer")
 
         try:
@@ -161,12 +161,6 @@ class Synchronizer:
             self.log.warning("No asyncio Event Loop running...")
             self._async_loop: Optional[asyncio.AbstractEventLoop] = None
 
-        if start_synclog:
-            self.start_synclog()
-        else:
-            self.log.debug("Synchronizer::start: delaying start of SyncLog...")
-
-    def start_synclog(self):
         self._synclog.start(self.change_handler)
 
     def close(self):
