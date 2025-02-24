@@ -1137,17 +1137,17 @@ func (mr *MockSchedulerMockRecorder) ReserveResourcesForReplica(kernel, replica,
 }
 
 // ScheduleKernelReplica mocks base method.
-func (m *MockScheduler) ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) error {
+func (m *MockScheduler) ScheduleKernelReplica(ctx context.Context, args *scheduling.ScheduleReplicaArgs) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ScheduleKernelReplica", ctx, replicaSpec, targetHost, blacklistedHosts, forTraining)
+	ret := m.ctrl.Call(m, "ScheduleKernelReplica", ctx, args)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ScheduleKernelReplica indicates an expected call of ScheduleKernelReplica.
-func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(ctx, replicaSpec, targetHost, blacklistedHosts, forTraining any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(ctx, args any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), ctx, replicaSpec, targetHost, blacklistedHosts, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), ctx, args)
 }
 
 // SelectReplicaForMigration mocks base method.
@@ -1189,6 +1189,20 @@ func (m *MockScheduler) SubscriptionRatio() float64 {
 func (mr *MockSchedulerMockRecorder) SubscriptionRatio() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscriptionRatio", reflect.TypeOf((*MockScheduler)(nil).SubscriptionRatio))
+}
+
+// UpdateIndex mocks base method.
+func (m *MockScheduler) UpdateIndex(host scheduling.Host) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateIndex", host)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateIndex indicates an expected call of UpdateIndex.
+func (mr *MockSchedulerMockRecorder) UpdateIndex(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateIndex", reflect.TypeOf((*MockScheduler)(nil).UpdateIndex), host)
 }
 
 // UpdateRatio mocks base method.
@@ -7626,6 +7640,18 @@ func (m *MockKernel) WaitForMigrationsToComplete(ctx context.Context) error {
 func (mr *MockKernelMockRecorder) WaitForMigrationsToComplete(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForMigrationsToComplete", reflect.TypeOf((*MockKernel)(nil).WaitForMigrationsToComplete), ctx)
+}
+
+// YieldNextExecutionRequest mocks base method.
+func (m *MockKernel) YieldNextExecutionRequest() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "YieldNextExecutionRequest")
+}
+
+// YieldNextExecutionRequest indicates an expected call of YieldNextExecutionRequest.
+func (mr *MockKernelMockRecorder) YieldNextExecutionRequest() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "YieldNextExecutionRequest", reflect.TypeOf((*MockKernel)(nil).YieldNextExecutionRequest))
 }
 
 // YieldedNextExecutionRequest mocks base method.

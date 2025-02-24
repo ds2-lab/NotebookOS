@@ -1110,7 +1110,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 		DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
 		LocalSchedulerNodeName:               d.nodeName,
-		ForMigration:                         in.GetForMigration(),
+		ForMigration:                         kernelReplicaSpec.GetForMigration(),
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
