@@ -5,6 +5,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -74,6 +75,13 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 		options:       b.options,
 	}
 
+	metricsProvider := metrics.NewClusterMetricsProvider(
+		b.options.PrometheusPort, gatewayDaemon, clusterGateway.UpdateClusterStatistics,
+		clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+		&clusterGateway.numActiveTrainings)
+
+	gatewayDaemon.metricsProvider = metricsProvider
+
 	config.InitLogger(&gatewayDaemon.log, gatewayDaemon)
 
 	return gatewayDaemon
@@ -82,14 +90,20 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 type GatewayDaemon struct {
 	DeploymentMode types.DeploymentMode
 
-	notifier      domain.Notifier
-	forwarder     MessageForwarder
-	kernelManager KernelManager
-	cluster       scheduling.Cluster
+	notifier        domain.Notifier
+	forwarder       MessageForwarder
+	kernelManager   KernelManager
+	metricsProvider *metrics.ClusterMetricsProvider
+	cluster         scheduling.Cluster
+	id              string
 
 	options         *domain.ClusterGatewayOptions
 	dockerNodeMutex sync.Mutex
 	log             logger.Logger
+}
+
+func (g *GatewayDaemon) GetId() string {
+	return g.id
 }
 
 func (g *GatewayDaemon) NotifyDashboard(name string, content string, typ messaging.NotificationType) {

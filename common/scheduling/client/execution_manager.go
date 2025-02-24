@@ -661,7 +661,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// As a sort of sanity check, validate that the target replica matches the primary replica, assuming that a
 	// target replica was explicitly set for this execution.
 	targetReplicaId := activeExecution.GetTargetReplicaId()
-	if targetReplicaId != -1 && targetReplicaId != m.activeExecutionIndex {
+	if targetReplicaId != -1 && targetReplicaId != replica.ReplicaID() {
 		m.log.Error("Target replica of execution \"%s\" was replica %d; however, replica %d was the primary.",
 			activeExecution.GetExecuteRequestMessageId(), targetReplicaId, replica.ReplicaID())
 
