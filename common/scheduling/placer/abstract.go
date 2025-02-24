@@ -112,7 +112,9 @@ func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling
 // will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
 // in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
 // depending upon the scheduling.Policy configured for the AllocationManager.
-func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host,
+	replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+
 	isViable, reasonForUnviability := placer.schedulingPolicy.ValidateHostForReplica(candidateHost, replicaSpec, forTraining)
 	if !isViable {
 		placer.log.Debug("Host \"%s\" was found by '%s' policy to be unviable for replica %d of kernel \"%s\" because: %v",

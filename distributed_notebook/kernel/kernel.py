@@ -989,18 +989,14 @@ class DistributedKernel(IPythonKernel):
 
     def __init_tcp_server(self):
         if self.local_tcp_server_port < 0:
-            self.log.warning(
-                f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately."
-            )
+            self.log.warning(f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately.")
             return
 
         self.local_tcp_server_queue: Queue = Queue()
-        self.local_tcp_server_process: Process = Process(target=self.server_process, args=(self.local_tcp_server_queue))
+        self.local_tcp_server_process: Process = Process(target=self.server_process, args=(self.local_tcp_server_queue,))
         self.local_tcp_server_process.daemon = True
         self.local_tcp_server_process.start()
-        self.log.info(
-            f"Local TCP server process has PID={self.local_tcp_server_process.pid}"
-        )
+        self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
 
     # TODO(Ben): Is the existence of this process slowing down the termination process?
     # TODO(Ben): Is this actually being used right now?

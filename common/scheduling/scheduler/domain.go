@@ -34,5 +34,6 @@ type clusterSchedulerInternal interface {
 	// Otherwise, an error is returned.
 	//
 	// If we fail to find a host, then we'll try to scale-out (if we're allowed).
-	findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool, createNewHostPermitted bool) (host scheduling.Host, failureReason error)
+	findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool,
+		createNewHostPermitted bool) (host scheduling.Host, failureReason error)
 }

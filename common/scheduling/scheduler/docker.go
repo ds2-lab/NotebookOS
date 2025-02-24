@@ -114,7 +114,9 @@ func (s *DockerScheduler) setInstance(instance clusterSchedulerInternal) {
 //
 // selectViableHostForReplica searches for a viable host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
-func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec,
+	blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+
 	kernelId := replicaSpec.ID()
 
 	blacklist := make([]interface{}, 0)

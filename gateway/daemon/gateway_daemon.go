@@ -2472,27 +2472,27 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	}
 
 	// Register the Container with the Session.
-	d.log.Debug("Registering/adding Container for replica %d of kernel %s with the associated Session during migration",
-		replicaSpec.ReplicaId, addReplicaOp.KernelId())
+	//d.log.Debug("Registering/adding Container for replica %d of kernel %s with the associated Session during migration",
+	//	replicaSpec.ReplicaId, addReplicaOp.KernelId())
 
-	err = session.AddReplica(container)
-	if err != nil {
-		if errors.Is(err, entity.ErrInvalidContainer) {
-			d.log.Error("Error while registering container %v with session %v during migration:\n%v", container, session, err)
-		} else {
-			d.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v", container, session, err)
-		}
-
-		go d.notifier.NotifyDashboardOfError("Failed to Register Container with Session During Migration", err.Error())
-
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	d.log.Debug("Adding replica for kernel %s, replica %d on host %s during migration. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.GetID(), replicaSpec.Kernel.ResourceSpec)
-	err = kernel.AddReplica(replica, host)
-	if err != nil {
-		panic(fmt.Sprintf("kernel::AddReplica call failed during migration: %v", err)) // TODO(Ben): Handle gracefully.
-	}
+	//err = session.AddReplica(container)
+	//if err != nil {
+	//	if errors.Is(err, entity.ErrInvalidContainer) {
+	//		d.log.Error("Error while registering container %v with session %v during migration:\n%v", container, session, err)
+	//	} else {
+	//		d.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v", container, session, err)
+	//	}
+	//
+	//	go d.notifier.NotifyDashboardOfError("Failed to Register Container with Session During Migration", err.Error())
+	//
+	//	return nil, status.Error(codes.Internal, err.Error())
+	//}
+	//
+	//d.log.Debug("Adding replica for kernel %s, replica %d on host %s during migration. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.GetID(), replicaSpec.Kernel.ResourceSpec)
+	//err = kernel.AddReplica(replica, host)
+	//if err != nil {
+	//	panic(fmt.Sprintf("kernel::AddReplica call failed during migration: %v", err)) // TODO(Ben): Handle gracefully.
+	//}
 
 	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaID, in.kernelId, waitGroup.NumReplicas())
 
@@ -2517,7 +2517,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during migration \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
 
-	err = addReplicaOp.SetReplicaRegistered() // This just sets a flag to true in the migration operation object.
+	err = addReplicaOp.SetReplicaRegistered(replica)
 	if err != nil {
 		errorMessage := fmt.Sprintf("We're using the WRONG AddReplicaOperation... AddReplicaOperation \"%s\" has already recorded that its replica has registered: %v",
 			addReplicaOp.OperationID(), addReplicaOp.String())

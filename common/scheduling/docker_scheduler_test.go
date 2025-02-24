@@ -1108,7 +1108,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					addReplicaOp.SetContainerName("UnitTestDockerContainer")
 
-					err = addReplicaOp.SetReplicaRegistered()
+					err = addReplicaOp.SetReplicaRegistered(kernelReplica1)
 					Expect(err).To(BeNil())
 
 					addReplicaOp.SetReplicaJoinedSMR()

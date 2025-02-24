@@ -8,6 +8,7 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -72,8 +73,8 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
 	}
 
-	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s.",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
+	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s. ForTraining=%v.",
+		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId, forTraining)
 
 	kernelContainer := kernelReplica.Container()
 	if kernelContainer == nil {
@@ -92,7 +93,8 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	if !loaded {
 		km.log.Error("Could not find kernel \"%s\" associated with replica %d being migrated...",
 			kernelReplica.ID(), kernelReplica.ReplicaID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, types.ErrKernelNotFound
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId},
+			nil, types.ErrKernelNotFound
 	}
 
 	//
@@ -145,8 +147,8 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 
 	var addReplicaOp *scheduling.AddReplicaOperation
-	addReplicaOp, err = km.addReplicaDuringMigration(ctx, replicaSpec, targetHost, opts, args.kernelReplica.PersistentID(),
-		[]scheduling.Host{originalHost}, forTraining)
+	addReplicaOp, err = km.addReplicaDuringMigration(ctx, replicaSpec, targetHost, opts,
+		args.kernelReplica.PersistentID(), []scheduling.Host{originalHost}, forTraining)
 
 	// If there's an error here, it's presumably a "real" error, as we already picked out a viable host up above.
 	if err != nil {
@@ -177,9 +179,11 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 		}, nil, err
 	}
 
-	var newlyAddedReplica scheduling.KernelReplica
-	newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
-	if err != nil {
+	//var newlyAddedReplica scheduling.KernelReplica
+	//newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
+	//if err != nil {
+	newlyAddedReplica := addReplicaOp.NewlyAddedReplica
+	if newlyAddedReplica == nil {
 		km.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v",
 			addReplicaOp.ReplicaId(), kernelReplica.ID(), err)
 
@@ -262,7 +266,23 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	}
 
 	//
-	// Step 7: Tell new replica to start its Sync Log / Raft Log.
+	// Step 7: Swap the new replica's container with the old replica's container in the session struct and
+	//		   likewise swap the old and new replica in the kernel.
+	//
+
+	err = km.performContainerAndKernelReplicaSwap(kernel, newlyAddedReplica, addReplicaOp)
+	if err != nil {
+		return &proto.MigrateKernelResponse{
+			Id:          -1,
+			Hostname:    ErrorHostname,
+			NewNodeId:   targetHost.GetID(),
+			NewNodeName: targetHost.GetNodeName(),
+			Success:     false,
+		}, nil, err
+	}
+
+	//
+	// Step 8: Tell new replica to start its Sync Log / Raft Log.
 	//
 
 	err = km.issueStartSyncLogRequest(newlyAddedReplica)
@@ -277,7 +297,7 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	}
 
 	//
-	// Step 8: Wait for new replica to join its SMR cluster
+	// Step 9: Wait for new replica to join its SMR cluster
 	//
 
 	km.waitForNewReplicaToJoinSmrCluster(kernel, addReplicaOp, opts)
@@ -296,6 +316,43 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 		Success:     true,
 	}
 	return resp, nil, err
+}
+
+// performContainerAndKernelReplicaSwap swaps the new replica's container with the old replica's container in the
+// session struct and likewise swap the old and new replica in the kernel.
+func (km *kernelMigrator) performContainerAndKernelReplicaSwap(kernel scheduling.Kernel,
+	newKernelReplica scheduling.KernelReplica, addReplicaOp *scheduling.AddReplicaOperation) error {
+
+	km.log.Debug("Registering/adding Container for replica %d of kernel %s with the associated Session during migration",
+		newKernelReplica.ReplicaID(), addReplicaOp.KernelId())
+
+	session := kernel.GetSession()
+	container := newKernelReplica.Container()
+	host := newKernelReplica.Host()
+
+	err := session.AddReplica(container)
+	if err != nil {
+		if errors.Is(err, entity.ErrInvalidContainer) {
+			km.log.Error("Error while registering container %v with session %v during migration:\n%v", container, session, err)
+		} else {
+			km.log.Error("Unexpected error while registering container %v with session %v during migration:\n%v", container, session, err)
+		}
+
+		title := "Failed to Register Container with Session During Migration"
+		go km.notificationBroker.SendErrorNotification(title, err.Error())
+
+		return err
+	}
+
+	km.log.Debug("Adding replica for kernel %s, replica %d on host %s during migration. Resource spec: %v",
+		addReplicaOp.KernelId(), newKernelReplica.ReplicaID(), host.GetID(), newKernelReplica.ResourceSpec())
+
+	err = kernel.AddReplica(newKernelReplica, host)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // issueStartSyncLogRequest instruct the newly-created scheduling.KernelReplica to start its SyncLog/RaftLog.
@@ -559,8 +616,8 @@ func (km *kernelMigrator) validateAndGetTargetHost(args *MigrationArgs, original
 	// If we weren't already given a target host to migrate the kernel replica to, then let's try to find one now.
 	if targetHost == nil {
 		// Search for a viable replica, but do not allow the cluster to create a new host/scale out.
-		targetHost, reason = km.scheduler.findViableHostForReplica(args.kernelReplica, []scheduling.Host{originalHost}, args.forTraining,
-			args.createNewHostPermitted)
+		targetHost, reason = km.scheduler.findViableHostForReplica(args.kernelReplica, []scheduling.Host{originalHost},
+			args.forTraining, args.createNewHostPermitted)
 
 		if reason != nil || targetHost == nil {
 			km.log.Warn("Failed to find a viable host for replica %d of kernel %s: %v",
@@ -981,7 +1038,7 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 			readyReplica.ReplicaID(), readyReplica.ID()))
 	}
 
-	km.log.Debug("Issuing UpdateReplicaAddr RPC for replica %s of kernel %s to replica %d. Sending request to Local Daemon of replica %s.",
+	km.log.Debug("Issuing UpdateReplicaAddr RPC for replica %s of kernel %s to replica %km. Sending request to Local Daemon of replica %s.",
 		targetReplicaId, readyReplica.ID(), readyReplica.ReplicaID())
 	replicaInfo := &proto.ReplicaInfoWithAddr{
 		Id:       targetReplicaId,
