@@ -275,6 +275,11 @@ type DockerInvokerOptions struct {
 
 	// LocalSchedulerNodeName is the name of the container in which the local scheduler is running.
 	LocalSchedulerNodeName string
+
+	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
+	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
+	// existing KernelReplica.
+	ForMigration bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
@@ -316,6 +321,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
 			RetrieveDatasetsFromS3:               opts.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:                     opts.DatasetsS3Bucket,
+			ForMigration:                         opts.ForMigration,
 		},
 		opts:                         opts,
 		localSchedulerNodeName:       opts.LocalSchedulerNodeName,
@@ -875,6 +881,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			PrewarmContainer:             spec.PrewarmContainer,
 			RetrieveDatasetsFromS3:       ivk.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:             ivk.DatasetsS3Bucket,
+			ForMigration:                 ivk.ForMigration,
 		},
 	}
 	if spec.PersistentId != nil {

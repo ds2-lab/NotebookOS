@@ -648,12 +648,12 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in RemoteStorage.
-func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, targetHost scheduling.Host,
+func (s *BaseScheduler) addReplicaDuringMigration(ctx context.Context, in *proto.ReplicaInfo, targetHost scheduling.Host,
 	opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host,
 	forTraining bool) (*scheduling.AddReplicaOperation, error) {
 
-	var kernelId = in.KernelId
-	var persistentId = in.PersistentId
+	kernelId := in.KernelId
+	persistentId := in.PersistentId
 
 	kernel, ok := s.kernelProvider.GetKernel(kernelId)
 	if !ok {
@@ -663,7 +663,7 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 
 	kernel.AddOperationStarted()
 
-	var smrNodeId int32 = -1
+	smrNodeId := int32(-1)
 
 	// Reuse the same SMR node ID if we've been told to do so.
 	if opts.ReuseSameNodeId() {
@@ -1161,7 +1161,7 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 
 	var addReplicaOp *scheduling.AddReplicaOperation
-	addReplicaOp, err = s.addReplica(ctx, replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
+	addReplicaOp, err = s.addReplicaDuringMigration(ctx, replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
 
 	// If there's an error here, it's presumably a "real" error, as we already picked out a viable host up above.
 	if err != nil {

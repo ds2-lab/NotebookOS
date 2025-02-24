@@ -1110,6 +1110,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 		DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
 		LocalSchedulerNodeName:               d.nodeName,
+		ForMigration:                         in.GetForMigration(),
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -2197,6 +2198,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		SmrEnabled:                   d.schedulingPolicy.SmrEnabled(),
 		SimulateTrainingUsingSleep:   d.simulateTrainingUsingSleep,
 		PrewarmContainer:             false,
+		ForMigration:                 in.GetForMigration(),
 	}
 
 	// Pass in any information that the kernel would've normally received
@@ -2351,6 +2353,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
 			LocalSchedulerNodeName:               d.nodeName,
+			ForMigration:                         in.GetForMigration(),
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
