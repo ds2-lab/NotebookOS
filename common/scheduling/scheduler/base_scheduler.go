@@ -671,7 +671,7 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 	}
 
 	// The spec to be used for the new replica that is created during the migration.
-	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
+	newReplicaSpec := kernel.PrepareNewReplica(persistentId, smrNodeId)
 
 	addReplicaOp := scheduling.NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
 	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
@@ -708,8 +708,14 @@ func (s *BaseScheduler) addReplica(ctx context.Context, in *proto.ReplicaInfo, t
 	go func() {
 		defer sem.Release(1)
 
-		err := s.cluster.Scheduler().ScheduleKernelReplica(ctx, newReplicaSpec, targetHost,
-			blacklistedHosts, forTraining)
+		args := &scheduling.ScheduleReplicaArgs{
+			ReplicaSpec:      newReplicaSpec,
+			TargetHost:       targetHost,
+			BlacklistedHosts: blacklistedHosts,
+			ForTraining:      forTraining,
+			ForMigration:     true,
+		}
+		err := s.cluster.Scheduler().ScheduleKernelReplica(ctx, args)
 
 		if err != nil {
 			notifyChan <- err

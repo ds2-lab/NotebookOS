@@ -41,6 +41,28 @@ func (e *ErrorDuringScheduling) String() string {
 	return e.Error()
 }
 
+// ScheduleReplicaArgs encapsulates the arguments to be passed to the KernelScheduler.ScheduleKernelReplica method.
+type ScheduleReplicaArgs struct {
+	// ReplicaSpec is the proto.KernelReplicaSpec of the target KernelReplica.
+	ReplicaSpec *proto.KernelReplicaSpec
+
+	// TargetHost allows for the optional specification of a particular Host that should serve the target KernelReplica.
+	TargetHost Host
+
+	// BlacklistedHosts is a slice of Host instances on which the target KernelReplica cannot be scheduled onto.
+	BlacklistedHosts []Host
+
+	// ForTraining indicates that the KernelReplica being scheduled will need to begin training immediately and thus
+	// requires that resources be pre-committed to it so that they're definitely available when it is up and running
+	// on a new Host.
+	ForTraining bool
+
+	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
+	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
+	// existing KernelReplica.
+	ForMigration bool
+}
+
 type KernelScheduler interface {
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	//
@@ -57,7 +79,7 @@ type KernelScheduler interface {
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(ctx context.Context, replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
+	ScheduleKernelReplica(ctx context.Context, args *ScheduleReplicaArgs) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error

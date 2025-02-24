@@ -693,6 +693,7 @@ message LocalDaemonInfo {
 message PrewarmedKernelReplicaSpec {
   KernelReplicaSpec kernelReplicaSpec = 1;
   string prewarmedContainerId = 2;
+  bool forMigration = 3;
 }
 
 // ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.
@@ -807,6 +808,7 @@ message KernelReplicaSpec {
   int32 dockerModeKernelDebugPort = 7;
   string workloadId = 8;
   bool prewarmContainer = 9;
+  optional bool forMigration = 10;
 }
 
 message ResourceSpec {
