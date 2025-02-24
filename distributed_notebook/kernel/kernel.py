@@ -1045,7 +1045,7 @@ class DistributedKernel(IPythonKernel):
         Run at the beginning of each execution request.
         """
         md = super().init_metadata(parent)
-        md.update(parent)
+        md.update(parent['metadata'])
 
         return md
 

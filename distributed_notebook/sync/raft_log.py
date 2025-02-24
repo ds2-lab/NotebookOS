@@ -2383,7 +2383,7 @@ class RaftLog(object):
         num_buffered_votes_processed: int = 0,
         _election_decision_future: Optional[asyncio.Future] = None,
         _received_vote_future: Optional[asyncio.Future] = None,
-    ):
+    )-> tuple[bool, bool, Optional[LeaderElectionVote]]:
         self.log.debug(f"Preparing to propose our own value for election {election_term} "
                     f"after processing {num_buffered_proposals_processed} buffered proposal(s) "
                     f"and {num_buffered_votes_processed} buffered votes: {proposal}")
@@ -2403,7 +2403,7 @@ class RaftLog(object):
         if len(futures) == 0:
             self.log.warning(f"Both 'election decision' future and 'received vote' futures are None "
                             f"while processing buffered votes for election {election_term}...")
-            return True, False
+            return True, False, None
 
         done, pending = await asyncio.wait([_election_decision_future, _received_vote_future],
                                         return_when=asyncio.FIRST_COMPLETED)
@@ -2424,17 +2424,16 @@ class RaftLog(object):
                 wait, is_leading = self._is_leading(election_term)
                 assert wait == False
 
-                return True, is_leading
+                return True, is_leading, None
 
             assert self._current_election.voting_phase_completed_successfully
             self._received_vote_future = None
             self._election_decision_future = None
-            return False, False
 
         assert _election_decision_future.done()
         voteProposal: LeaderElectionVote = _election_decision_future.result()
         
-        return voteProposal 
+        return False, False, voteProposal
 
     async def _process_proposals(
             self,
@@ -2477,12 +2476,15 @@ class RaftLog(object):
                 num_buffered_proposals_processed += 1
 
         if isinstance(proposalOrVote, LeaderElectionProposal):
-            voteProposal: LeaderElectionVote = await self._propose_election_proposal(
+            isDone, isLeading, voteProposal = await self._propose_election_proposal(
                 proposalOrVote, election_term,
                 num_buffered_proposals_processed = num_buffered_proposals_processed,
                 num_buffered_votes_processed = num_buffered_votes_processed,
                 _election_decision_future = _election_decision_future,
                 _received_vote_future = _received_vote_future)
+
+            if voteProposal is None:
+                return isDone, isLeading
         else:
             assert isinstance(proposalOrVote, LeaderElectionVote)
             voteProposal: LeaderElectionVote = proposalOrVote

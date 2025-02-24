@@ -59,6 +59,7 @@ const (
 	// TargetReplicaArg is passed within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
 	TargetReplicaArg  = "target_replica_id"
+	GpuDeviceIdsArg   = "gpu_device_ids"
 	ForceReprocessArg = "force_reprocess"
 
 	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
@@ -4064,11 +4065,11 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	return nil
 }
 
-// embedGpuDeviceIdsInExecuteRequestMetadata is used to embed the GPU device IDs in the metadata frame of the given
+// updateTargetedExecuteRequestMetadata is used to embed the GPU device IDs in the metadata frame of the given
 // "execute_request" message targeting the specified scheduling.KernelReplica.
 //
 // Warning: this modifies the given messaging.JupyterMessage.
-func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *messaging.JupyterMessage, targetReplica scheduling.KernelReplica) error {
+func (d *ClusterGatewayImpl) updateTargetedExecuteRequestMetadata(jMsg *messaging.JupyterMessage, targetReplica scheduling.KernelReplica) error {
 	// Validate that the message is of the proper type.
 	if jMsg.JupyterMessageType() != messaging.ShellExecuteRequest {
 		return fmt.Errorf("%w: expected message of type \"%s\"; however, message \"%s\" targeting kernel \"%s\" is of type \"%s\"",
@@ -4093,7 +4094,8 @@ func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *mes
 	}
 
 	// Embed the GPU device IDs in the metadata dictionary, which we'll re-encode into the message's metadata frame.
-	metadataDict["gpu_device_ids"] = gpuDeviceIds
+	metadataDict[GpuDeviceIdsArg] = gpuDeviceIds
+	metadataDict[TargetReplicaArg] = targetReplica.ReplicaID()
 
 	// Re-encode the metadata frame. It will have the number of idle GPUs available,
 	// as well as the reason that the request was yielded (if it was yielded).
@@ -4130,6 +4132,11 @@ func (d *ClusterGatewayImpl) embedGpuDeviceIdsInExecuteRequestMetadata(jMsg *mes
 func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messaging.JupyterMessage, kernel scheduling.Kernel,
 	targetReplica scheduling.KernelReplica) error {
 
+	targetReplicaId := int32(-1)
+	if targetReplica != nil {
+		targetReplicaId = targetReplica.ReplicaID()
+	}
+
 	replicas := kernel.Replicas()
 
 	originalJupyterMessage.AddDestFrameIfNecessary(kernel.ID())
@@ -4141,14 +4148,13 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 			err            error
 		)
 
-		if replica.ReplicaID() == targetReplica.ReplicaID() {
+		if replica.ReplicaID() == targetReplicaId {
 			jupyterMessage = originalJupyterMessage.Clone()
 
-			err := d.embedGpuDeviceIdsInExecuteRequestMetadata(jupyterMessage, replica)
+			err = d.updateTargetedExecuteRequestMetadata(jupyterMessage, replica)
 			if err != nil {
 				d.log.Error("Failed to embed GPU device IDs in \"%s\" message \"%s\" targeting replica %d of kernel \"%s\": %v",
 					jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), replica.ReplicaID(), kernel.ID(), err)
-
 				return err
 			}
 
@@ -4158,7 +4164,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 		// Convert the "execute_request" message to a "yield_request" message.
 		// The returned message is initially created as a clone of the target message.
-		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage(targetReplica.ReplicaID())
+		jupyterMessage, err = originalJupyterMessage.CreateAndReturnYieldRequestMessage(targetReplicaId)
 		if err != nil {
 			d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
 				originalJupyterMessage.JupyterMessageId(), err)
