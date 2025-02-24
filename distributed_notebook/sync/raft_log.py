@@ -3013,15 +3013,16 @@ class RaftLog(object):
         Register the change handler, restore internal states, and start monitoring for changes committed to the Raft log.
         """
         # faulthandler.dump_traceback_later(timeout = 30, repeat = True, file = sys.stderr, exit = False)
+        self.log.debug("Starting RaftLog")
+        
         self._change_handler = handler
 
         config = NewConfig()
         config.ElectionTick = self._heartbeat_tick
         config.HeartbeatTick = self._election_tick
 
-        config = config.WithChangeCallback(
-            self._valueCommittedCallback
-        ).WithRestoreCallback(self._valueRestoredCallback)
+        config = config.WithChangeCallback(self._valueCommittedCallback)
+        config = config.WithRestoreCallback(self._valueRestoredCallback)
 
         if self._shouldSnapshotCallback is not None:
             config = config.WithShouldSnapshotCallback(self._shouldSnapshotCallback)
@@ -3031,21 +3032,21 @@ class RaftLog(object):
         self.log.info(f"Starting LogNode {self._node_id} now.")
 
         try:
-            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
-                asyncio.get_running_loop()
-            )
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
             self._async_loop.set_debug(True)
-            self._start_loop: Optional[asyncio.AbstractEventLoop] = self._async_loop
         except RuntimeError:
             self.log.warning("No asyncio Event Loop running...")
             self._async_loop: Optional[asyncio.AbstractEventLoop] = None
-            self._start_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        self._start_loop: Optional[asyncio.AbstractEventLoop] = self._async_loop
 
         # self.logger.info(">> CALLING INTO GO CODE (_log_node.Start)")
         sys.stderr.flush()
         sys.stdout.flush()
 
+        self.log.debug("RaftLog::start: starting LogNode now.")
         startSuccessful: bool = self._log_node.Start(config)
+
         # self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
         sys.stderr.flush()
         sys.stdout.flush()

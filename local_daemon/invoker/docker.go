@@ -321,7 +321,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
 			RetrieveDatasetsFromS3:               opts.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:                     opts.DatasetsS3Bucket,
-			ForMigration:                         opts.ForMigration,
+			CreatedForMigration:                  opts.ForMigration,
 		},
 		opts:                         opts,
 		localSchedulerNodeName:       opts.LocalSchedulerNodeName,
@@ -881,7 +881,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			PrewarmContainer:             spec.PrewarmContainer,
 			RetrieveDatasetsFromS3:       ivk.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:             ivk.DatasetsS3Bucket,
-			ForMigration:                 ivk.ForMigration,
+			CreatedForMigration:          ivk.CreatedForMigration,
 		},
 	}
 	if spec.PersistentId != nil {

@@ -106,10 +106,10 @@ type LocalInvoker struct {
 	RetrieveDatasetsFromS3               bool    // RetrieveDatasetsFromS3 is a bool flag that, when true, instructs the KernelInvoker to configure the kernels to retrieve datasets from an S3 bucket.
 	DatasetsS3Bucket                     string  // DatasetsS3Bucket is the S3 bucket from which the kernels retrieve the datasets when RetrieveDatasetsFromS3 is set to true.
 
-	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
+	// CreatedForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
 	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
 	// existing KernelReplica.
-	ForMigration bool
+	CreatedForMigration bool
 
 	status jupyter.KernelStatus
 

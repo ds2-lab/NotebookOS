@@ -2198,7 +2198,7 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		SmrEnabled:                   d.schedulingPolicy.SmrEnabled(),
 		SimulateTrainingUsingSleep:   d.simulateTrainingUsingSleep,
 		PrewarmContainer:             false,
-		ForMigration:                 in.GetForMigration(),
+		CreatedForMigration:          in.GetForMigration(),
 	}
 
 	// Pass in any information that the kernel would've normally received

@@ -390,10 +390,12 @@ class DistributedKernel(IPythonKernel):
         default_value="distributed-notebook-storage"
     ).tag(config=True, default_value="distributed-notebook-storage")
 
-    prewarm_container: Bool = (Bool(False,
+    prewarm_container: Bool = Bool(False,
                                     help="Indicates whether this Kernel was created to serve as a pre-warm container, "
-                                         "or if it was created as an actual kernel container.").
-                               tag(config=True))
+                                         "or if it was created as an actual kernel container.").tag(config=True)
+
+    created_for_migration: Bool = Bool(False, help = "If we're created for a migration, "
+                                                     "then we do not start our SyncLog right away.").tag(config=True)
 
     # Indicates whether we should embed Election metadata in "execute_reply" messages.
     include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
@@ -442,6 +444,7 @@ class DistributedKernel(IPythonKernel):
             "ping_kernel_ctrl_request",
             "promote_prewarm_request",
             "reset_kernel_request",
+            "start_synclog_request",
         ]
 
         self.msg_types = [
@@ -484,6 +487,19 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
         self.synclog: Optional[SyncLog] = None
+        
+        # Normally, we start the SyncLog in DistributedKernel::start.
+        #
+        # However, if this kernel replica was created during a migration, then we must wait to start
+        # the SyncLog until we're explicitly directed to do so. This is because we must wait for the
+        # old replica to finish checkpointing its state, and for the old replica's peer address to
+        # be updated to our address.
+        self.start_synclog_immediately: bool = not self.created_for_migration
+
+        if self.start_synclog_immediately:
+            self.log.debug("Will start SyncLog immediately when initializing the persistent store.")
+        else:
+            self.log.debug("Will wait to start SyncLog until we're explicitly instructed to do so.")
 
         if "prewarm_container" in kwargs:
             self.prewarm_container = kwargs["prewarm_container"]
@@ -876,9 +892,7 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
 
-        self.deployment_mode: str = os.environ.get(
-            "DEPLOYMENT_MODE", DeployModeDocker
-        )
+        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", DeployModeDocker)
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:
@@ -909,12 +923,9 @@ class DistributedKernel(IPythonKernel):
             self.remote_storage_hostname = kwargs.get("remote_storage_hostname", "")
 
         if self.remote_storage_hostname == "":
-            raise ValueError(
-                "The RemoteStorage hostname is empty. Was it specified in the configuration file?"
-            )
+            raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
 
-        self.log.info(
-            "CPU: %.2f, Memory: %f, GPUs: %d, VRAM: %.6f."
+        self.log.info("CPU: %.2f, Memory: %f, GPUs: %d, VRAM: %.6f."
             % (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb)
         )
 
@@ -937,22 +948,18 @@ class DistributedKernel(IPythonKernel):
         self.should_read_data_from_remote_storage: bool = False
 
         self.connection_info: dict[str, Any] = {}
-        try:
-            if len(connection_file_path) > 0:
+
+        if len(connection_file_path) > 0:
+            try:
                 with open(connection_file_path, "r") as connection_file:
                     self.connection_info = json.load(connection_file)
-        except Exception as ex:
-            self.log.error(
-                'Failed to obtain connection info from file "%s" because: %s'
-                % (connection_file_path, str(ex))
-            )
+            except Exception as ex:
+                self.log.error(f'Failed to obtain connection info from file "{connection_file_path}" because: {ex}')
 
         self.log.info("Connection info: %s" % str(self.connection_info))
 
         # Allow setting env variable to prevent registration altogether.
-        skip_registration_override: bool = (
-                os.environ.get("SKIP_REGISTRATION", "false").lower() == "true"
-        )
+        skip_registration_override: bool = (os.environ.get("SKIP_REGISTRATION", "false").lower() == "true")
 
         if self.should_register_with_local_daemon and not skip_registration_override:
             registration_start: float = time.time()
@@ -988,9 +995,7 @@ class DistributedKernel(IPythonKernel):
             return
 
         self.local_tcp_server_queue: Queue = Queue()
-        self.local_tcp_server_process: Process = Process(
-            target=self.server_process, args=(self.local_tcp_server_queue,)
-        )
+        self.local_tcp_server_process: Process = Process(target=self.server_process, args=(self.local_tcp_server_queue))
         self.local_tcp_server_process.daemon = True
         self.local_tcp_server_process.start()
         self.log.info(
@@ -1245,19 +1250,13 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
 
     def start(self):
-        self.log.info(
-            'DistributedKernel is starting. Persistent ID = "%s"' % self.persistent_id
-        )
+        self.log.info('DistributedKernel is starting. Persistent ID = "%s"' % self.persistent_id)
 
         super().start()
 
         self.init_debugpy()
 
-        if (
-                self.persistent_id != Undefined
-                and self.persistent_id != ""
-                and self.persistent_id is not None
-        ):
+        if self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None:
             assert isinstance(self.persistent_id, str)
             self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. "
                            f"Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
@@ -1267,9 +1266,7 @@ class DistributedKernel(IPythonKernel):
                     self.control_thread.io_loop.asyncio_loop,
                 )
             )
-            self.init_persistent_store_on_start_future.add_done_callback(
-                self.persistent_store_initialized_callback
-            )
+            self.init_persistent_store_on_start_future.add_done_callback(self.persistent_store_initialized_callback)
         else:
             self.log.warning("Will NOT be initializing Persistent Store on start, "
                              "as persistent ID is not yet available.")
@@ -1687,9 +1684,7 @@ class DistributedKernel(IPythonKernel):
         assert isinstance(self.storage_base, str)
         self.store_path: str = os.path.join(self.storage_base, "store", persistent_id)
 
-        self.log.info(
-            'Initializing the Persistent Store with Persistent ID: "%s"' % persistent_id
-        )
+        self.log.info(f'Initializing the Persistent Store with Persistent ID: "{persistent_id}"')
         self.log.debug('Full path of Persistent Store: "%s"' % self.store_path)
         self.log.debug("Disabling `outstream` now.")
 
@@ -1743,7 +1738,7 @@ class DistributedKernel(IPythonKernel):
 
         self.init_synchronizer_event.set()
 
-        self.synchronizer.start()
+        self.synchronizer.start(start_synclog = self.start_synclog_immediately)
 
         self.start_synchronizer_event.set()
 
@@ -2442,6 +2437,50 @@ class DistributedKernel(IPythonKernel):
             "prewarm_container": True,
         }, True
 
+    async def __handle_start_synclog_request(self)->Dict[str, str]:
+        if self.synclog is None:
+            self.log.error("start_synclog_request: SyncLog is null. Cannot start.")
+            reply_content: Dict[str, str] = {
+                "status": "error",
+                "ename": "SyncLogNull",
+                "evalue": "SyncLog is null. Cannot start."
+            }
+
+            return reply_content
+
+        self.synchronizer.start_synclog()
+        reply_content: Dict[str, str] = { "status": "ok" }
+        return reply_content
+
+    async def start_synclog_request(self, stream, ident, parent):
+        """
+        Our Local Scheduler will send us a "start_synclog_request" message when it is time for us to start our
+        SyncLog. This occurs during migration operations.
+
+        Normally, we start the SyncLog in DistributedKernel::start.
+
+        However, if this kernel replica was created during a migration, then we must wait to start
+        the SyncLog until we're explicitly directed to do so. This is because we must wait for the
+        old replica to finish checkpointing its state, and for the old replica's peer address to
+        be updated to our address.
+        """
+        self.log.debug("start_synclog_request: Starting SyncLog now.")
+
+        reply_content: Dict[str, str] = await self.__handle_start_synclog_request()
+
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            stream,
+            "start_synclog_reply",
+            reply_content,
+            parent,
+            metadata={},
+            buffers=buffers,
+            ident=ident,
+        )
+
+        self.log.debug(f'Sent "start_synclog_reply" message: {reply_msg}')
+
     async def reset_kernel_request(self, stream, ident, parent):
         """
         reset_request is used to reset the user namespace/state of the DistributedKernel.
@@ -2622,65 +2661,48 @@ class DistributedKernel(IPythonKernel):
             first_election: Election = self.synchronizer.get_election(1)
 
             if first_election is None:
-                self.log.error(
-                    "We've supposedly created the first election, "
-                    "but cannot find election with term number equal to 1."
-                )
-                self.report_error(
-                    "Cannot Find First Election",
-                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it created the first "
-                    "election, but it cannot find any record of that election...",
-                )
-                raise ValueError(
-                    "We've supposedly created the first election, "
-                    "but cannot find election with term number equal to 1."
-                )
+                self.log.error("We've supposedly created the first election, "
+                               "but cannot find election with term number equal to 1.")
+                self.report_error("Cannot Find First Election",
+                                  f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it "
+                                  "created the first election, but it cannot find any record of that election...")
+                raise ValueError("We've supposedly created the first election, "
+                                 "but cannot find election with term number equal to 1.")
 
             if not first_election.is_in_failed_state:
-                self.log.error(
-                    f"Current term number is 0, and we've created the first election, "
-                    f"but the election is not in failed state. Instead, it is in state "
-                    f"{first_election.election_state.get_name()}."
-                )
-                self.report_error(
-                    "Election State Error",
-                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of 0, "
-                    f"and it has created the first election, but the election is not in failed state. "
-                    f"Instead, it is in state {first_election.election_state.get_name()}.",
-                )
-                raise ValueError(
-                    f"Current term number is 0, and we've created the first election, "
-                    f"but the election is not in failed state. Instead, it is in state "
-                    f"{first_election.election_state.get_name()}."
-                )
+                self.log.error(f"Current term number is 0, and we've created the first election, "
+                               f"but the election is not in failed state. Instead, it is in state "
+                               f"{first_election.election_state.get_name()}.")
+                self.report_error("Election State Error",
+                                  f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of "
+                                  f"0, and it has created the first election, but the election is not in failed "
+                                  f"state. Instead, it is in state {first_election.election_state.get_name()}.")
+                raise ValueError(f"Current term number is 0, and we've created the first election, "
+                                 f"but the election is not in failed state. Instead, it is in state "
+                                 f"{first_election.election_state.get_name()}.")
 
             term_number = 1
 
         try:
             if not self.synchronizer.is_election_finished(term_number):
-                self.log.warning(
-                    f"Previous election (term {term_number}) has not finished yet. "
-                    f"Waiting for that election to finish before proceeding."
-                )
+                self.log.warning(f"Previous election (term {term_number}) has not finished yet. "
+                                 f"Waiting for that election to finish before proceeding.")
 
                 # Wait for the last election to end.
                 await self.synchronizer.wait_for_election_to_end(term_number)
         except ValueError as ex:
-            self.log.warning(
-                f"Encountered ValueError while checking status of previous election: {ex}"
-            )
+            self.log.warning(f"Encountered ValueError while checking status of previous election: {ex}")
             self.report_error(
                 error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered a ValueError While Checking Status of Election {term_number}",
                 error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}",
             )
         except Exception as ex:
-            self.log.error(
-                f"Error encountered while checking status of previous election: {ex}"
-            )
-            self.report_error(
-                error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
-                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}",
-            )
+            self.log.error(f"Error encountered while checking status of previous election: {ex}")
+            title:str = (f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected "
+                         f"{type(ex).__name__} While Checking Status of Election {term_number}")
+            content:str = (f"Error: {ex}. Kernel knows only about the following election terms: "
+                            f"{self.synchronizer.get_known_election_terms()}")
+            self.report_error(error_title=title, error_message=content)
 
     def __check_for_existing_election(self, msg_id: str)->int:
         """
@@ -4325,9 +4347,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         sent_message = self.session.send(
             stream,
             "prepare_to_migrate_reply",
@@ -4337,9 +4357,7 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debug(
-            "Sent 'prepare_to_migrate_reply' message: %s" % str(sent_message)
-        )
+        self.log.debugf("Sent 'prepare_to_migrate_reply' message: {sent_message}")
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""

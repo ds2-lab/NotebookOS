@@ -1078,7 +1078,7 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int3
 	// If the message is already a yield request, and we don't have a target replica ID to embed in the request's
 	// metadata, then just return a copy of it, as the expectation is that the returned message from this method
 	// will be a clone/copy.
-	if m.JupyterMessageType() == ShellYieldRequest && targetReplicaId <= 0 {
+	if m.JupyterMessageType() == ShellYieldRequest {
 		return m.Clone(), nil
 	}
 

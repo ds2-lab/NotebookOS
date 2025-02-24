@@ -172,10 +172,10 @@ type DistributedKernelConfig struct {
 	// PrewarmContainer indicates that the registering Kernel was created to be a pre-warmed container,
 	// and not directly for use when a specific Kernel that has already been created by a user.
 	PrewarmContainer bool `json:"prewarm_container"`
-	// ForMigration indicates whether the kernel replica was created specifically during a migration operation,
+	// CreatedForMigration indicates whether the kernel replica was created specifically during a migration operation,
 	// which changes how the start-up procedure is orchestrated, as the old replica needs to be shutdown before
 	// the new replica joins the SMR cluster.
-	ForMigration bool `json:"for_migration"`
+	CreatedForMigration bool `json:"created_for_migration"`
 }
 
 func (c DistributedKernelConfig) String() string {
