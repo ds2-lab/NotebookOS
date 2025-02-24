@@ -2110,6 +2110,7 @@ class DistributedKernel(IPythonKernel):
         target_model: Optional[str] = metadata.get("model", ResNet18.model_name())
         target_dataset: Optional[str] = metadata.get("dataset", CIFAR10.dataset_name())
         batch_size: Optional[int] = metadata.get("batch_size", 1)
+        target_replica_id: int = metadata.get("target_replica_id", -1)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -2134,6 +2135,7 @@ class DistributedKernel(IPythonKernel):
             dataset=target_dataset,
             batch_size=batch_size,
             parent_header=parent_header,
+            target_replica_id=target_replica_id,
         )
 
         if inspect.isawaitable(reply_content):
@@ -2795,6 +2797,8 @@ class DistributedKernel(IPythonKernel):
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
+        
+        target_replica_id: int = metadata.get("target_replica_id", -1)
 
         await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
 
@@ -2829,7 +2833,7 @@ class DistributedKernel(IPythonKernel):
             # type: ignore
             st: float = time.time()
             self.shell.execution_count = await self.synchronizer.ready(
-                parent_header["msg_id"], current_term_number, False)
+                parent_header["msg_id"], current_term_number, lead = False, target_replica_id = target_replica_id)
 
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
@@ -2849,9 +2853,7 @@ class DistributedKernel(IPythonKernel):
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
-                reply_content: dict[str, Any] = gen_error_response(
-                    err_failed_to_lead_execution
-                )
+                reply_content: dict[str, Any] = gen_error_response(err_failed_to_lead_execution)
                 # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
             else:
                 self.log.error(f"I've been selected to lead this execution ({self.shell.execution_count}), "
@@ -2892,6 +2894,7 @@ class DistributedKernel(IPythonKernel):
         # If there was a reason for why we were explicitly told to YIELD included in the metadata of the
         # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
         request_metadata: dict[str, Any] = parent.get("metadata", {})
+        
         if "yield-reason" in request_metadata:
             yield_reason: str = request_metadata["yield-reason"]
             reply_content["yield-reason"] = yield_reason
@@ -2907,9 +2910,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -2922,9 +2923,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Sent the following reply after yield_request: %s" % reply_msg)
 
-        if (
-                not silent and error_occurred and stop_on_error
-        ):  # reply_msg["content"]["status"] == "error"
+        if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
         # Commented-out:
@@ -2937,16 +2936,13 @@ class DistributedKernel(IPythonKernel):
         # in which case we can just return, as the code will presumably be resubmitted shortly.
         current_election: Election = self.synchronizer.current_election
         term_number: int = current_election.term_number
-        self.log.debug(
-            f"Waiting for election {term_number} "
-            "to be totally finished before returning from yield_request function."
-        )
+        self.log.debug(f"Waiting for election {term_number} "
+                       "to be totally finished before returning from yield_request function.")
+        
         await self.synchronizer.wait_for_election_to_end(term_number)
         self.log.debug(f"Done with yield_request for term {term_number}.")
 
-    def copy_data_from_gpu_to_cpu(
-            self, size_gb: float = 0, force: bool = False
-    ) -> None:
+    def copy_data_from_gpu_to_cpu(self, size_gb: float = 0, force: bool = False) -> None:
         if size_gb == 0:
             return
 
@@ -2973,9 +2969,7 @@ class DistributedKernel(IPythonKernel):
 
         self.data_on_gpu = False
 
-    def copy_data_from_cpu_to_gpu(
-            self, size_gb: float = 0, force: bool = False
-    ) -> None:
+    def copy_data_from_cpu_to_gpu(self, size_gb: float = 0, force: bool = False) -> None:
         if size_gb == 0:
             return
 
@@ -3016,9 +3010,7 @@ class DistributedKernel(IPythonKernel):
 
         self.cuda_initialized = True
 
-    async def simulate_download_model_and_training_data(
-            self, force: bool = False, remote_storage_name: Optional[str] = None,
-    ) -> tuple[float, float]:
+    async def simulate_download_model_and_training_data(self, force: bool = False, remote_storage_name: Optional[str] = None) -> tuple[float, float]:
         self.log.debug("Simulating the downloading of model and training data...")
 
         # If the model and training data are already downloaded, then just return (unless force is True).
@@ -3320,7 +3312,7 @@ class DistributedKernel(IPythonKernel):
         # In either case, the execution will wait until states are synchronized.
         # type: ignore
         self.shell.execution_count = await self.synchronizer.ready(
-            jupyter_message_id, term_number, True
+            jupyter_message_id, term_number, lead = True, target_replica_id = target_replica_id
         )
 
         self.current_execution_stats.leader_election_microseconds = int(
@@ -3356,6 +3348,7 @@ class DistributedKernel(IPythonKernel):
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
             parent_header: Dict[str, Any] = None,
+            target_replica_id: int = -1,
             *,
             cell_meta=None,
             cell_id=None,

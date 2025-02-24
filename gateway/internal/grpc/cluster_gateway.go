@@ -20,23 +20,38 @@ var (
 
 type Notifier interface {
 	NotifyDashboard(name string, content string, typ messaging.NotificationType)
+
+	// Used to issue an "info" notification to the internalCluster Dashboard.
+	NotifyDashboardOfInfo(name string, content string)
+
+	// Used to issue a "warning" notification to the internalCluster Dashboard.
+	NotifyDashboardOfWarning(name string, content string)
+
+	// Used to issue an "error" notification to the internalCluster Dashboard.
+	NotifyDashboardOfError(name string, content string)
 }
 
 type GatewayDaemon interface {
+	Notifier
+
 	AddHost()
 
 	RemoveHost(id string)
 
+	StopKernel(ctx context.Context, in *proto.KernelId) (*proto.Void, error)
+
+	KillKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error)
+
 	DeploymentMode() types.DeploymentMode
+
+	HandlePing(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error)
 }
 
 type ClusterGatewayServer struct {
 	proto.UnimplementedClusterGatewayServer
 	proto.UnimplementedLocalGatewayServer
 
-	notifier Notifier
-
-	gatewayDaemon Cluster
+	daemon GatewayDaemon
 
 	id string
 
@@ -57,12 +72,12 @@ func (srv *ClusterGatewayServer) SetID(_ context.Context, _ *proto.HostId) (*pro
 
 // RemoveHost removes a local gateway from the cluster.
 func (srv *ClusterGatewayServer) RemoveHost(_ context.Context, in *proto.HostId) (*proto.Void, error) {
-	srv.gatewayDaemon.RemoveHost(in.Id)
+	srv.daemon.RemoveHost(in.Id)
 	return proto.VOID, nil
 }
 
 func (srv *ClusterGatewayServer) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
-	panic("not implemented") // TODO: Implement
+	return srv.daemon.HandlePing(ctx, in)
 }
 
 // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
@@ -142,91 +157,19 @@ func (srv *ClusterGatewayServer) GetKernelStatus(_ context.Context, _ *proto.Ker
 }
 
 // KillKernel kills a kernel.
-func (srv *ClusterGatewayServer) KillKernel(_ context.Context, _ *proto.KernelId) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
+func (srv *ClusterGatewayServer) KillKernel(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
+	return srv.daemon.KillKernel(ctx, in)
 }
 
 // StopKernel stops a kernel gracefully and return immediately.
-func (srv *ClusterGatewayServer) StopKernel(_ context.Context, _ *proto.KernelId) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// WaitKernel waits for a kernel to stop and return status.
-func (srv *ClusterGatewayServer) WaitKernel(_ context.Context, _ *proto.KernelId) (*proto.KernelStatus, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// SetClose request the gateway to close all kernels and stop.
-func (srv *ClusterGatewayServer) SetClose(_ context.Context, _ *proto.Void) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
-func (srv *ClusterGatewayServer) AddReplica(_ context.Context, _ *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Used to instruct a set of kernel replicas to update the peer address of a particular node.
-// This is primarily used during migrations.
-func (srv *ClusterGatewayServer) UpdateReplicaAddr(_ context.Context, _ *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-// This involves writing the contents of the etcd-raft data directory to remote storage so that
-// it can be read back from make build-linux-amd64 by the new replica.
-func (srv *ClusterGatewayServer) PrepareToMigrate(_ context.Context, _ *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
-// the current resource quantities on the node.
-func (srv *ClusterGatewayServer) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshotWithContainers, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
-// its ID, etc.
-func (srv *ClusterGatewayServer) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*proto.LocalDaemonInfo, error) {
-	panic("not implemented") // TODO: Implement
+func (srv *ClusterGatewayServer) StopKernel(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
+	return srv.daemon.StopKernel(ctx, in)
 }
 
 // Return the current GPU resource metrics on the node.
 // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 func (srv *ClusterGatewayServer) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Return the current vGPU (or "deflated GPU") resource metrics on the node.
-// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
-func (srv *ClusterGatewayServer) GetVirtualGpuInfo(_ context.Context, _ *proto.Void) (*proto.VirtualGpuInfo, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Set the maximum number of vGPU resources available on the node.
-// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
-func (srv *ClusterGatewayServer) SetTotalVirtualGPUs(_ context.Context, _ *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Return the current vGPU allocations on this node.
-// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
-func (srv *ClusterGatewayServer) GetVirtualGpuAllocations(_ context.Context, _ *proto.Void) (*proto.VirtualGpuAllocations, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// Ensure that the next 'execute_request' for the specified kernel fails.
-// This is to be used exclusively for testing/debugging purposes.
-func (srv *ClusterGatewayServer) YieldNextExecution(_ context.Context, _ *proto.KernelId) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
-//
-// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
-// to avoid causing the ReconnectToGateway to encounter an error.
-func (srv *ClusterGatewayServer) ReconnectToGateway(_ context.Context, _ *proto.ReconnectToGatewayRequest) (*proto.Void, error) {
-	panic("not implemented") // TODO: Implement
+	return nil, ErrNotImplemented
 }
 
 func (srv *ClusterGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {
