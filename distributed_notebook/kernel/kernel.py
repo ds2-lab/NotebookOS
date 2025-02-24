@@ -1052,9 +1052,7 @@ class DistributedKernel(IPythonKernel):
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
 
-        local_daemon_service_name = os.environ.get(
-            "LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr
-        )
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
         try:
             server_port = int(server_port)
@@ -1066,20 +1064,13 @@ class DistributedKernel(IPythonKernel):
             % (local_daemon_service_name, server_port)
         )
 
-        self.daemon_registration_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_STREAM
-        )
+        self.daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         start_time: float = time.time()
         try:
-            self.daemon_registration_socket.connect(
-                (local_daemon_service_name, server_port)
-            )
+            self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
         except Exception as ex:
-            self.log.error(
-                "Failed to connect to LocalDaemon at %s:%d"
-                % (local_daemon_service_name, server_port)
-            )
+            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
             self.log.error("Reason: %s" % str(ex))
             raise ex
 
@@ -1117,17 +1108,11 @@ class DistributedKernel(IPythonKernel):
         response: bytes = self.daemon_registration_socket.recv(1024)
 
         if len(response) == 0:
-            self.log.error(
-                "Received empty (i.e., 0 bytes in length) response from local daemon during registration..."
-            )
-            raise ValueError(
-                "received empty response from local daemon during registration procedure"
-            )
+            self.log.error("Received empty response from local daemon during registration...")
+            raise ValueError("received empty response from local daemon during registration procedure")
 
-        self.log.info(
-            f"Received {len(response)} byte(s) in response from LocalDaemon after "
-            f"{time.time() - start_time} seconds. Response payload: {str(response)}"
-        )
+        self.log.info(f"Received {len(response)} byte(s) in response from LocalDaemon after "
+                      f"{time.time() - start_time} seconds. Response payload: {str(response)}")
 
         response_dict = json.loads(response)
 
@@ -1135,18 +1120,14 @@ class DistributedKernel(IPythonKernel):
         # except for the "message ACKs" configuration.
         if self.prewarm_container:
             if "message_acknowledgements_enabled" in response_dict:
-                self.message_acknowledgements_enabled = bool(
-                    response_dict["message_acknowledgements_enabled"]
-                )
+                self.message_acknowledgements_enabled = bool(response_dict["message_acknowledgements_enabled"])
 
                 if self.message_acknowledgements_enabled:
                     self.log.debug("Message acknowledgements are enabled.")
                 else:
                     self.log.debug("Message acknowledgements are disabled.")
             else:
-                self.log.warning(
-                    'No "message_acknowledgements_enabled" entry in response from local daemon.'
-                )
+                self.log.warning('No "message_acknowledgements_enabled" entry in response from local daemon.')
 
             return
 
@@ -1156,15 +1137,11 @@ class DistributedKernel(IPythonKernel):
         # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
 
         if "replicas" not in response_dict:
-            self.log.error(
-                "No replicas contained in registration response from local daemon."
-            )
+            self.log.error("No replicas contained in registration response from local daemon.")
             self.log.error("Registration response:")
             for k, v in response_dict.items():
                 self.log.error(f"\t{k}: {v}")
-            raise ValueError(
-                'registration response from local daemon did not contained a "replicas" entry'
-            )
+            raise ValueError('registration response from local daemon did not contained a "replicas" entry')
 
         # Note: we expect the keys to be integers; however, they will have been converted to strings.
         # See https://stackoverflow.com/a/1451857 for details.
@@ -1173,15 +1150,11 @@ class DistributedKernel(IPythonKernel):
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
         replicas: Optional[dict[int, str]] = response_dict["replicas"]
         if replicas is None or len(replicas) == 0:
-            self.log.error(
-                "No replicas contained in registration response from local daemon."
-            )
+            self.log.error("No replicas contained in registration response from local daemon.")
             self.log.error("Registration response:")
             for k, v in response_dict.items():
                 self.log.error(f"\t{k}: {v}")
-            raise ValueError(
-                'registration response from local daemon did not contained a "replicas" entry'
-            )
+            raise ValueError('registration response from local daemon did not contained a "replicas" entry')
 
         self.num_replicas: int = len(replicas)
         self.smr_nodes_map = {
@@ -1192,16 +1165,11 @@ class DistributedKernel(IPythonKernel):
         # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
         if "persistent_id" in response_dict:
-            self.log.info(
-                'Received persistent ID from registration: "%s"'
-                % response_dict["persistent_id"]
-            )
+            self.log.info('Received persistent ID from registration: "%s"'% response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
         # We'll also use this as an indicator of whether we should simulate additional checkpointing overhead.
-        self.should_read_data_from_remote_storage = response_dict.get(
-            "should_read_data_from_remote_storage", False
-        )
+        self.should_read_data_from_remote_storage = response_dict.get("should_read_data_from_remote_storage", False)
 
         if self.should_read_data_from_remote_storage:
             self.log.debug("We SHOULD read data from RemoteStorage.")
@@ -1220,28 +1188,19 @@ class DistributedKernel(IPythonKernel):
             self.debugpy_port: int = -1
 
         if "message_acknowledgements_enabled" in response_dict:
-            self.message_acknowledgements_enabled = bool(
-                response_dict["message_acknowledgements_enabled"]
-            )
+            self.message_acknowledgements_enabled = bool(response_dict["message_acknowledgements_enabled"])
 
             if self.message_acknowledgements_enabled:
                 self.log.debug("Message acknowledgements are enabled.")
             else:
                 self.log.debug("Message acknowledgements are disabled.")
         else:
-            self.log.warning(
-                'No "message_acknowledgements_enabled" entry in response from local daemon.'
-            )
+            self.log.warning('No "message_acknowledgements_enabled" entry in response from local daemon.')
 
-        self.log.info(
-            "Received SMR Node ID after registering with local daemon: %d"
-            % self.smr_node_id
-        )
+        self.log.info("Received SMR Node ID after registering with local daemon: %d"% self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
-        assert self.smr_nodes_map[self.smr_node_id] == (
-                self.hostname + ":" + str(self.smr_port)
-        )
+        assert self.smr_nodes_map[self.smr_node_id] == (self.hostname + ":" + str(self.smr_port))
 
         grpc_port: int = response_dict.get("grpc_port", -1)
         if grpc_port == -1:
@@ -1249,20 +1208,14 @@ class DistributedKernel(IPythonKernel):
             exit(1)
 
         # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
-        self.kernel_notification_service_channel = grpc.insecure_channel(
-            f"{local_daemon_service_name}:{grpc_port}"
-        )
-        self.kernel_notification_service_stub = KernelErrorReporterStub(
-            self.kernel_notification_service_channel
-        )
+        self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
+        self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
 
         self.daemon_registration_socket.close()
 
     def init_debugpy(self):
         if not self.debugpy_enabled or self.debug_port < 0:
-            self.log.debug(
-                "debugpy server is disabled or server port is set to a negative number."
-            )
+            self.log.debug("debugpy server is disabled or server port is set to a negative number.")
             return
 
         self.log.debug(f"Starting debugpy server on 0.0.0.0:{self.debugpy_port}")
