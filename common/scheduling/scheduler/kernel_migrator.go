@@ -246,10 +246,10 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	if km.scheduler.Policy().NumReplicas() > 1 {
 		readyReplica := kernel.GetReadyReplica()
 		if readyReplica == nil {
-			panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
+			panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernel.ID()))
 		}
 
-		err = km.issueUpdateReplicaRequest(readyReplica, args.kernelReplica.ReplicaID())
+		err = km.issueUpdateReplicaRequest(readyReplica, args.kernelReplica.ReplicaID(), newlyAddedReplica.Address())
 		if err != nil {
 			return &proto.MigrateKernelResponse{
 				Id:          -1,
@@ -264,6 +264,17 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	//
 	// Step 7: Tell new replica to start its Sync Log / Raft Log.
 	//
+
+	err = km.issueStartSyncLogRequest(newlyAddedReplica)
+	if err != nil {
+		return &proto.MigrateKernelResponse{
+			Id:          -1,
+			Hostname:    ErrorHostname,
+			NewNodeId:   targetHost.GetID(),
+			NewNodeName: targetHost.GetNodeName(),
+			Success:     false,
+		}, nil, err
+	}
 
 	//
 	// Step 8: Wait for new replica to join its SMR cluster
@@ -287,7 +298,28 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	return resp, nil, err
 }
 
-// MigrateKernelReplica tries to migrate the given kernel to another Host.
+// issueStartSyncLogRequest instruct the newly-created scheduling.KernelReplica to start its SyncLog/RaftLog.
+func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.KernelReplica) error {
+	km.log.Debug("issueStartSyncLogRequest: instructing new replica %d of kernel \"%s\" to start its SyncLog.",
+		targetReplica.ReplicaID(), targetReplica.ID())
+
+	host := targetReplica.Host()
+
+	_, err := host.StartSyncLog(context.Background(), &proto.ReplicaInfo{
+		ReplicaId:    targetReplica.ReplicaID(),
+		KernelId:     targetReplica.ID(),
+		PersistentId: targetReplica.PersistentID(),
+	})
+
+	if err != nil {
+		km.log.Error("issueStartSyncLogRequest: error response from StartSyncLog: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// MigrateKernelReplicaOld tries to migrate the given kernel to another Host.
 //
 // The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
 // It simply provides an explanation for why the migration failed.
@@ -764,6 +796,7 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 	// our state needs to be set up BEFORE that call occurs.
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	notifyChan := make(chan interface{}, 1)
+	sem := semaphore.NewWeighted(1)
 	go func() {
 		defer sem.Release(1)
 
@@ -783,7 +816,7 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 		}
 	}()
 
-	err := km.waitForNewReplicaToRegister(ctx, in, opts, addReplicaOp, notifyChan)
+	err := km.waitForNewReplicaToRegister(ctx, in, sem, opts, addReplicaOp, notifyChan)
 
 	if err != nil {
 		return nil, err
@@ -797,10 +830,9 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 
 // waitForNewReplicaToRegister waits for the newly-created scheduling.KernelReplica to register with its
 // Local Scheduler and subsequently the Cluster Gateway/Cluster Scheduler.
-func (km *kernelMigrator) waitForNewReplicaToRegister(ctx context.Context, in *proto.ReplicaInfo,
+func (km *kernelMigrator) waitForNewReplicaToRegister(ctx context.Context, in *proto.ReplicaInfo, sem *semaphore.Weighted,
 	opts scheduling.AddReplicaWaitOptions, addReplicaOp *scheduling.AddReplicaOperation, notifyChan chan interface{}) error {
 
-	sem := semaphore.NewWeighted(1)
 	if !sem.TryAcquire(1) {
 		panic("Failed to acquire on Semaphore")
 	}
@@ -954,7 +986,7 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 	replicaInfo := &proto.ReplicaInfoWithAddr{
 		Id:       targetReplicaId,
 		KernelId: readyReplica.ID(),
-		Hostname: fmt.Sprintf("%s:%s", newAddress, km.smrPort),
+		Hostname: fmt.Sprintf("%s:%d", newAddress, km.smrPort),
 	}
 
 	// Issue the 'update-replica' request. We panic if there was an error.
@@ -964,5 +996,6 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 	}
 
 	km.log.Debug("Successfully updated peer address of replica %s of kernel %s to %s.", targetReplicaId, readyReplica.ID(), newAddress)
-	// time.Sleep(time.Second * 5)
+
+	return nil
 }
