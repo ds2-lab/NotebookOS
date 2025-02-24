@@ -2686,7 +2686,7 @@ class DistributedKernel(IPythonKernel):
         """
         Check if there already exists an election associated with the Jupyter message ID from the parent header.
 
-        If so, then return its term number if it is still in progress.
+        If so, then return its term number if it is still in progress or if it is in a failed state.
 
         If it is voting-complete (or further along then that), then raise an ElectionAbortedException.
 
