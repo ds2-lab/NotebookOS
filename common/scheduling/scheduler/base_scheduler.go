@@ -884,8 +884,16 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 			s.log.Debug("We can now scale-in.")
 			s.canScaleIn = true
 		}
+		previousSubscriptionRatio := s.subscriptionRatio
 		s.subscriptionRatio = decimal.NewFromFloat(avg)
-		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
+
+		if !previousSubscriptionRatio.Equal(s.subscriptionRatio) {
+			s.log.Debug("Subscription Ratio updated: %s → %s",
+				previousSubscriptionRatio.StringFixed(3), s.subscriptionRatio.StringFixed(3))
+		} else {
+			s.log.Debug("Subscription Ratio unchanged: %s", s.subscriptionRatio.StringFixed(3))
+		}
+
 		s.rebalance(avg)
 
 		scalingInterval := s.schedulingPolicy.ScalingConfiguration().ScalingInterval
@@ -897,10 +905,10 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 			s.schedulingPolicy.ValidateCapacity(s.cluster)
 
 			s.numCapacityValidations.Add(1)
-		}
 
-		s.log.Debug("Time until next capacity validation: %v (interval=%v).",
-			scalingInterval-time.Since(s.lastCapacityValidation), scalingInterval)
+			s.log.Debug("Time until next capacity validation: %v (interval=%v).",
+				scalingInterval-time.Since(s.lastCapacityValidation), scalingInterval)
+		}
 
 		return true
 	}

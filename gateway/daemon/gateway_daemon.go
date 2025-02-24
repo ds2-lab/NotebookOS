@@ -446,7 +446,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 
 	clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](
-		clusterGateway.notifyDashboard, nil)
+		clusterGateway.notifier.NotifyDashboard, nil)
 
 	clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(
 		clusterDaemonOptions.PrometheusPort, clusterGateway, clusterGateway.UpdateClusterStatistics,
@@ -2621,7 +2621,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	if loaded {
 		d.log.Warn("Received duplicate \"kernel Registered\" notification with ID=%s", in.NotificationId)
 
-		go d.d.notifier.NotifyDashboardOfWarning("Received Duplicate \"Kernel Registered\" Notification",
+		go d.notifier.NotifyDashboardOfWarning("Received Duplicate \"Kernel Registered\" Notification",
 			fmt.Sprintf("NotificationID=\"%s\", KernelID=\"%s\"", in.NotificationId, in.KernelId))
 
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
@@ -3606,7 +3606,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 		// For short-lived containers, it's not a big deal.
 		if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
 			// Spawn a separate goroutine to send an error notification to the dashboard.
-			go d.d.notifier.NotifyDashboardOfWarning(errorMessage, errorMessage)
+			go d.notifier.NotifyDashboardOfWarning(errorMessage, errorMessage)
 		}
 
 		return types.ErrKernelNotFound

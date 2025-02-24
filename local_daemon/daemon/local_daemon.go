@@ -3245,7 +3245,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica
 		// in place of the original 'execute_request' message.
-		msg, err = msg.CreateAndReturnYieldRequestMessage()
+		msg, err = msg.CreateAndReturnYieldRequestMessage(targetReplicaId)
 		if err != nil {
 			d.notifyClusterGatewayAndPanic("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
 				err.Error(), err)

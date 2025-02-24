@@ -2419,13 +2419,14 @@ class RaftLog(object):
             if self._current_election.term_number != election_term:
                 self.log.error(f"Current election has term {self._current_election.term_number} "
                             f"while handling election {election_term}...")
-                self._send_notification_func(
-                    f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
-                    f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
-                    1,
-                )
-                wait, is_leading = self._is_leading(target_term_number)
+
+                msg: str = (f"Current election has term {self._current_election.term_number} "
+                              f"while handling election {election_term}...")
+
+                self._send_notification_func(msg, msg, 1)
+                wait, is_leading = self._is_leading(election_term)
                 assert wait == False
+
                 return True, is_leading
 
             assert self._current_election.voting_phase_completed_successfully
@@ -3267,7 +3268,8 @@ class RaftLog(object):
             raise ValueError(f"Target replica ID specified as {target_replica_id} "
                              f"but we're still proposing 'LEAD' as node {self._node_id}.")
             
-        self.log.debug("RaftLog %d is proposing to lead term %d [target_replica_int = %d]." % (self._node_id, term_number, target_replica_int))
+        self.log.debug(f"RaftLog {self._node_id} is proposing to lead term {term_number}"
+                       f"[target_replica_int = {target_replica_id}].")
 
         proposalOrVote: LeaderElectionProposal | LeaderElectionVote = await self._create_election_proposal_or_vote(
             ElectionProposalKey.LEAD, term_number, jupyter_message_id, target_replica_id = target_replica_id

@@ -34,7 +34,7 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from distributed_notebook.iopub_notifier import IOPubNotification
+from distributed_notebook.kernel.iopub_notifier import IOPubNotification
 from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
@@ -3298,6 +3298,7 @@ class DistributedKernel(IPythonKernel):
             term_number: int = -1,
             election_start: float = time.time(),
             jupyter_message_id: str = "",
+            target_replica_id: int = -1,
     ):
         assert term_number >= 0
 
@@ -3358,6 +3359,8 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param target_replica_id: smr node ID of target, pre-selected primary replica, or -1 if none pre-selected  
+            :param parent_header: header of execute_request message.
             :param execute_request_metadata: the metadata of the execute request.
             :param dataset: the dataset to be used for deep learning training
             :param deep_learning_model_name: the model to be used for deep learning training
@@ -3435,6 +3438,7 @@ class DistributedKernel(IPythonKernel):
                 term_number=current_term_number,
                 election_start=election_start,
                 jupyter_message_id=self.next_execute_request_msg_id,
+                target_replica_id=target_replica_id,
             )
 
             if not is_primary_replica:

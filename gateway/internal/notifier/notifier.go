@@ -55,17 +55,17 @@ func (n *DashboardNotifier) NotifyDashboard(name string, content string, typ mes
 	}
 }
 
-// Used to issue an "info" notification to the internalCluster Dashboard.
+// NotifyDashboardOfInfo is used to issue an "info" notification to the internalCluster Dashboard.
 func (n *DashboardNotifier) NotifyDashboardOfInfo(name string, content string) {
 	n.NotifyDashboard(name, content, messaging.InfoNotification)
 }
 
-// Used to issue a "warning" notification to the internalCluster Dashboard.
+// NotifyDashboardOfWarning is used to issue a "warning" notification to the internalCluster Dashboard.
 func (n *DashboardNotifier) NotifyDashboardOfWarning(name string, content string) {
 	n.NotifyDashboard(name, content, messaging.WarningNotification)
 }
 
-// Used to issue an "error" notification to the internalCluster Dashboard.
+// NotifyDashboardOfError is used to issue an "error" notification to the internalCluster Dashboard.
 func (n *DashboardNotifier) NotifyDashboardOfError(name string, content string) {
 	n.NotifyDashboard(name, content, messaging.ErrorNotification)
 }
