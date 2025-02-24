@@ -4140,6 +4140,12 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 
 	jupyterMessages := make([]*messaging.JupyterMessage, kernel.Size())
 	for _, replica := range replicas {
+		// TODO: If we make it so we can toggle on/off the gateway-assisted replica selection,
+		// 		 then we need to update the logic here to only convert a message to a yield request
+		//		 if gateway-assisted replica selection is enabled and the target replica is nil.
+		// 		 This is because if gateway-assisted replica selection is disabled, then target replica
+		//		 will be nil, but that'll be okay -- with gateway-assisted replica selection disabled,
+		//		 the target replica is supposed to be nil.
 		if replica.ReplicaID() == targetReplicaId {
 			jupyterMessage := originalJupyterMessage.Clone()
 
@@ -4181,9 +4187,29 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(originalJupyterMessage *messa
 		jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
 	}
 
+	var numExecRequests, numYieldRequests int
 	for idx, msg := range jupyterMessages {
 		d.log.Debug("Execution request \"%s\" targeting replica %d of kernel \"%s\" is a(n) \"%s\" message.",
 			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
+
+		if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
+			numExecRequests += 1
+		} else {
+			numYieldRequests += 1
+		}
+	}
+
+	if kernel.SupposedToYieldNextExecutionRequest() {
+		// Sanity check.
+		if numExecRequests > 0 {
+			d.log.Error("Kernel \"%s\" is supposed to yield/fail its next execution, but only %d/%d replica-specific messages have type \"%s\"...",
+				kernel.ID(), numYieldRequests, numExecRequests+numYieldRequests, messaging.ShellYieldRequest)
+
+			return fmt.Errorf("ClusterGatewayImpl::forwardExecuteRequest: kernel \"%s\" should be yielding next execution, but it's not")
+		}
+
+		// Record that we yielded the request.
+		kernel.YieldedNextExecutionRequest()
 	}
 
 	if d.SubmitExecuteRequestsOneAtATime {
@@ -4529,6 +4555,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		return nil, err
 	}
 
+	if kernel.SupposedToYieldNextExecutionRequest() {
+		return nil, nil
+	}
+
 	// Find a "ready" replica to handle this execution request.
 	targetReplica, err := d.selectTargetReplicaForExecuteRequest(msg, kernel)
 	if err != nil {
@@ -4783,6 +4813,8 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 				hostId, host.GetAddress(), in.Id)
 		}
 	}
+
+	kernel.YieldNextExecutionRequest()
 
 	return &proto.Void{}, nil
 }

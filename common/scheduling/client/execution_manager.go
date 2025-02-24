@@ -653,6 +653,9 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	//
 	// In particular, if we're configured to send "execute_request" messages one-at-a-time, then this definitely
 	// should not happen.
+	//
+	// TODO: Couldn't it just be the case that we receive the reply before the "smr lead task"?
+	//		 This isn't a bad thing; in fact, it happens pretty regularly.
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
 		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)

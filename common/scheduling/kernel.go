@@ -385,6 +385,13 @@ type Kernel interface {
 	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 	// of the target Kernel.
 	RecordContainerPlacementStarted()
+
+	// YieldedNextExecutionRequest is called after successfully yielding the next execution request.
+	// This flips the KernelReplicaClient::yieldNextExecutionRequest
+	// flag to false so that the kernel replica isn't forced to yield future requests.
+	YieldedNextExecutionRequest()
+	SupposedToYieldNextExecutionRequest() bool
+	YieldNextExecutionRequest()
 }
 
 type KernelReplica interface {

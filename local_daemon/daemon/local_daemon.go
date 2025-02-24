@@ -3172,7 +3172,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// response before we can forward this next "execute_request".
 	kernel.WaitForPendingExecuteRequests(msg.JupyterMessageId(), msg.JupyterMessageType())
 
-	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
+	d.log.Debug("[gid=%d] Processing `%s` for idle kernel %s now.", gid, msg.JupyterMessageType(), kernel.ID())
 
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_request" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
@@ -3180,8 +3180,8 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	targetReplicaId, requestMetadata, metadataDict, err := d.processExecuteRequestMetadata(msg, kernel)
 	if err != nil {
-		d.log.Error("Failed to process metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
-			msg.JupyterMessageId(), kernel.ID(), err)
+		d.log.Error("Failed to process metadata of \"%s\" \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), err)
 		return nil
 	}
 
@@ -3203,12 +3203,12 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 
 	gpuDeviceIds := requestMetadata.GpuDeviceIds
 	if gpuDeviceIds == nil {
-		d.log.Warn("No GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\"",
-			msg.JupyterMessageId(), kernel.ID())
+		d.log.Warn("No GPU device IDs in metadata of \"%s\" \"%s\" targeting kernel \"%s\"",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
 		gpuDeviceIds = make([]int, 0)
 	} else {
-		d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
-			msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
+		d.log.Debug("Found GPU device IDs in metadata of \"%s\" \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
 	}
 
 	metadataDict["gpu_device_ids"] = gpuDeviceIds

@@ -7532,6 +7532,20 @@ func (mr *MockKernelMockRecorder) String() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "String", reflect.TypeOf((*MockKernel)(nil).String))
 }
 
+// SupposedToYieldNextExecutionRequest mocks base method.
+func (m *MockKernel) SupposedToYieldNextExecutionRequest() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SupposedToYieldNextExecutionRequest")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// SupposedToYieldNextExecutionRequest indicates an expected call of SupposedToYieldNextExecutionRequest.
+func (mr *MockKernelMockRecorder) SupposedToYieldNextExecutionRequest() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupposedToYieldNextExecutionRequest", reflect.TypeOf((*MockKernel)(nil).SupposedToYieldNextExecutionRequest))
+}
+
 // TemporaryKernelReplicaClient mocks base method.
 func (m *MockKernel) TemporaryKernelReplicaClient() scheduling.KernelReplicaInfo {
 	m.ctrl.T.Helper()
@@ -7612,6 +7626,18 @@ func (m *MockKernel) WaitForMigrationsToComplete(ctx context.Context) error {
 func (mr *MockKernelMockRecorder) WaitForMigrationsToComplete(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForMigrationsToComplete", reflect.TypeOf((*MockKernel)(nil).WaitForMigrationsToComplete), ctx)
+}
+
+// YieldedNextExecutionRequest mocks base method.
+func (m *MockKernel) YieldedNextExecutionRequest() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "YieldedNextExecutionRequest")
+}
+
+// YieldedNextExecutionRequest indicates an expected call of YieldedNextExecutionRequest.
+func (mr *MockKernelMockRecorder) YieldedNextExecutionRequest() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "YieldedNextExecutionRequest", reflect.TypeOf((*MockKernel)(nil).YieldedNextExecutionRequest))
 }
 
 // MockKernelReplica is a mock of KernelReplica interface.
@@ -8578,15 +8604,15 @@ func (mr *MockKernelReplicaMockRecorder) Validate() *gomock.Call {
 }
 
 // WaitForPendingExecuteRequests mocks base method.
-func (m *MockKernelReplica) WaitForPendingExecuteRequests() {
+func (m *MockKernelReplica) WaitForPendingExecuteRequests(nextRequestId, nextJupyterMsgType string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "WaitForPendingExecuteRequests")
+	m.ctrl.Call(m, "WaitForPendingExecuteRequests", nextRequestId, nextJupyterMsgType)
 }
 
 // WaitForPendingExecuteRequests indicates an expected call of WaitForPendingExecuteRequests.
-func (mr *MockKernelReplicaMockRecorder) WaitForPendingExecuteRequests() *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) WaitForPendingExecuteRequests(nextRequestId, nextJupyterMsgType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForPendingExecuteRequests", reflect.TypeOf((*MockKernelReplica)(nil).WaitForPendingExecuteRequests))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForPendingExecuteRequests", reflect.TypeOf((*MockKernelReplica)(nil).WaitForPendingExecuteRequests), nextRequestId, nextJupyterMsgType)
 }
 
 // WaitForTrainingToStop mocks base method.
@@ -13170,18 +13196,18 @@ func (mr *MockContainerPrewarmerMockRecorder) RequestPrewarmedContainer(host any
 }
 
 // RequestProvisionContainers mocks base method.
-func (m *MockContainerPrewarmer) RequestProvisionContainers(n int, criteria scheduling.HostCriteriaFunction) (map[string]int, error) {
+func (m *MockContainerPrewarmer) RequestProvisionContainers(n int, criteria scheduling.HostCriteriaFunction, separateHostsOnly bool) (map[string]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RequestProvisionContainers", n, criteria)
+	ret := m.ctrl.Call(m, "RequestProvisionContainers", n, criteria, separateHostsOnly)
 	ret0, _ := ret[0].(map[string]int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RequestProvisionContainers indicates an expected call of RequestProvisionContainers.
-func (mr *MockContainerPrewarmerMockRecorder) RequestProvisionContainers(n, criteria any) *gomock.Call {
+func (mr *MockContainerPrewarmerMockRecorder) RequestProvisionContainers(n, criteria, separateHostsOnly any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestProvisionContainers", reflect.TypeOf((*MockContainerPrewarmer)(nil).RequestProvisionContainers), n, criteria)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestProvisionContainers", reflect.TypeOf((*MockContainerPrewarmer)(nil).RequestProvisionContainers), n, criteria, separateHostsOnly)
 }
 
 // ReturnPrewarmContainer mocks base method.

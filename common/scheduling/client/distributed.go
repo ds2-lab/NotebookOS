@@ -94,6 +94,8 @@ type DistributedKernelClient struct {
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
 
+	yieldNextExecutionRequest atomic.Bool
+
 	cleaned chan struct{}
 
 	id string
@@ -2358,4 +2360,15 @@ func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, st
 // Having an active training prevents a DistributedKernelClient from being idle-reclaimed.
 func (c *DistributedKernelClient) HasActiveTraining() bool {
 	return c.ExecutionManager.HasActiveTraining()
+}
+
+// YieldedNextExecutionRequest is called after successfully yielding the next execution request.
+// This flips the KernelReplicaClient::yieldNextExecutionRequest
+// flag to false so that the kernel replica isn't forced to yield future requests.
+func (c *DistributedKernelClient) YieldedNextExecutionRequest() {
+	c.yieldNextExecutionRequest.Store(false)
+}
+
+func (c *DistributedKernelClient) SupposedToYieldNextExecutionRequest() bool {
+	return c.yieldNextExecutionRequest.Load()
 }

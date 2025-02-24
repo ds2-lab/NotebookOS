@@ -123,10 +123,10 @@ type KernelReplicaClient struct {
 	mu                            sync.Mutex
 	replicaId                     int32
 	status                        jupyter.KernelStatus
-	ready                         bool // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
-	yieldNextExecutionRequest     bool // If true, then we will yield the next 'execute_request'.
-	workloadIdSet                 bool // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
-	isTraining                    bool // isTraining indicates whether the kernel replica associated with this client is actively training.
+	ready                         bool        // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
+	yieldNextExecutionRequest     atomic.Bool // If true, then we will yield the next 'execute_request'.
+	workloadIdSet                 bool        // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
+	isTraining                    bool        // isTraining indicates whether the kernel replica associated with this client is actively training.
 	submitRequestsOneAtATime      bool
 
 	// If true, then this client exists on the internalCluster Gateway.
@@ -175,7 +175,6 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
 		smrNodeAddedCallback:                 smrNodeAddedCallback,
 		numResendAttempts:                    numResendAttempts,
-		yieldNextExecutionRequest:            false,
 		host:                                 host,
 		hostId:                               hostId,
 		pendingExecuteRequestIds:             hashmap.NewCornelkMap[string, *messaging.JupyterMessage](64),
@@ -816,18 +815,18 @@ func (c *KernelReplicaClient) IOPubListenPort() int {
 
 // YieldNextExecutionRequest takes note that we should yield the next execution request.
 func (c *KernelReplicaClient) YieldNextExecutionRequest() {
-	c.yieldNextExecutionRequest = true
+	c.yieldNextExecutionRequest.Store(true)
 }
 
 // YieldedNextExecutionRequest is called after successfully yielding the next execution request.
 // This flips the KernelReplicaClient::yieldNextExecutionRequest
 // flag to false so that the kernel replica isn't forced to yield future requests.
 func (c *KernelReplicaClient) YieldedNextExecutionRequest() {
-	c.yieldNextExecutionRequest = false
+	c.yieldNextExecutionRequest.Store(false)
 }
 
 func (c *KernelReplicaClient) SupposedToYieldNextExecutionRequest() bool {
-	return c.yieldNextExecutionRequest
+	return c.yieldNextExecutionRequest.Load()
 }
 
 // ID returns the kernel ID.
