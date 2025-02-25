@@ -1,5 +1,5 @@
 import os.path
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, Callable, Any
 
 from distributed_notebook.deep_learning.data.nlp.base import NLPDataset
 from distributed_notebook.deep_learning.data.nlp.util import get_username
@@ -30,10 +30,11 @@ class CoLA(NLPDataset):
             model_name: Optional[str] = None,
             max_token_length: int = 128,
             batch_size: int = 1,
-            hugging_face_dataset_name = hugging_face_dataset_name,
-            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
-            text_feature_column_name = text_feature_column_name,
-            postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
+            hugging_face_dataset_name: str = hugging_face_dataset_name,
+            hugging_face_dataset_config_name: str = hugging_face_dataset_config_name,
+            text_feature_column_name: str = text_feature_column_name,
+            simulate_tokenization_overhead: float = 0.0,
+            postprocess_tokenized_dataset: Callable[[Any, str], Any] = cola_postprocess_tokenized_dataset,
             **kwargs
     ):
         super().__init__(
@@ -48,6 +49,8 @@ class CoLA(NLPDataset):
             max_token_length = max_token_length,
             tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
             batch_size = batch_size,
+            force_s3_download=False,
+            simulate_tokenization_overhead=simulate_tokenization_overhead,
             **kwargs
         )
 

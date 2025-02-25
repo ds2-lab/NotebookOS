@@ -1,5 +1,6 @@
 import os
 import tarfile
+import numpy as np
 
 import boto3
 from abc import ABC, abstractmethod
@@ -23,7 +24,6 @@ class TextDataset(Dataset):
 
     def __len__(self):
         return len(self.encodings)
-
 
 class NLPDataset(HuggingFaceDataset, ABC):
     """
@@ -49,7 +49,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
             batch_size=16,
             aws_region: str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
-            force_s3_download:bool = True,
+            force_s3_download:bool = False,
+            simulate_tokenization_overhead: float = 0.0,
             **kwargs
     ):
         assert model_name is not None and model_name != ""
@@ -89,6 +90,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             aws_region=aws_region,
             s3_bucket_name=s3_bucket_name,
             force_s3_download=force_s3_download,
+            simulate_tokenization_overhead=simulate_tokenization_overhead,
         )
 
         # Create the DataLoader for our training set
@@ -150,6 +152,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             aws_region:str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
             force_s3_download:bool = False,
+            simulate_tokenization_overhead: float = 0.0,
     ):
         if self._dataset_already_tokenized:
             self.__load_tokenized_dataset_from_disk()
@@ -157,7 +160,42 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
         if force_s3_download:
             self.__retrieve_tokenized_dataset_from_s3(aws_region=aws_region, s3_bucket_name=s3_bucket_name)
-            self.__load_tokenized_dataset_from_disk()
+            should_flip_recorded_overhead_flag: bool = True
+
+            if simulate_tokenization_overhead > 0.0:
+                scale: float = simulate_tokenization_overhead * 0.10
+
+                interval: float = np.random.normal(
+                    loc = simulate_tokenization_overhead,
+                    scale = scale
+                )
+
+                self.log.debug(f'Simulating tokenization overhead for "{self.dataset_name()}" dataset with '
+                               f'interval={interval} (loc={simulate_tokenization_overhead}, scale={scale}')
+
+                num_increments: int = 10
+                interval_increment: float = interval / num_increments
+
+                self._tokenize_start: float = time.time()
+                for i in range(num_increments):
+                    time.sleep(interval_increment)
+
+                    timeElapsed: float = time.time() - self._tokenize_start
+                    percentDone: float = timeElapsed / interval
+
+                    if percentDone >= 1.0:
+                        percentDone = 1.0
+
+                    self.log.debug('Tokenization of {} dataset: {:.2f}% complete.'.format(
+                        self.dataset_shortname(), percentDone*100))
+
+                self._tokenize_end: float = time.time()
+                self._tokenize_duration = self._tokenize_end - self._tokenize_start
+                should_flip_recorded_overhead_flag = False
+
+                self.log.debug(f'Tokenization of the {self.name} dataset completed in {self._tokenize_duration} sec.')
+
+            self.__load_tokenized_dataset_from_disk(should_flip_recorded_overhead_flag)
             return
 
         self.__tokenize_dataset(
@@ -169,8 +207,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_padding=token_padding,
         )
 
-    def __load_tokenized_dataset_from_disk(self):
-        self._recorded_tokenization_overhead = True
+    def __load_tokenized_dataset_from_disk(self, should_flip_recorded_overhead_flag: bool = True):
         self.log.debug(f'The {self.name} dataset was already tokenized. Loading cached, tokenized {self.name} '
                        f'dataset from directory "{self._dataset_dict_path}" now...')
 
@@ -179,6 +216,9 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
         self.log.debug(f'Read cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" '
                        f'in {time.time() - _read_start} seconds.')
+
+        if should_flip_recorded_overhead_flag:
+            self._recorded_tokenization_overhead = True
 
     def __tokenize_dataset(
             self,

@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, Callable, Any
 
 from distributed_notebook.deep_learning.data.nlp.base import NLPDataset
 from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
@@ -29,10 +29,11 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             batch_size: int = 1,
-            hugging_face_dataset_name = hugging_face_dataset_name,
-            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
-            text_feature_column_name = text_feature_column_name,
-            postprocess_tokenized_dataset = imdb_truncated_postprocess_tokenized_dataset,
+            hugging_face_dataset_name: str = hugging_face_dataset_name,
+            hugging_face_dataset_config_name: str = hugging_face_dataset_config_name,
+            text_feature_column_name: str = text_feature_column_name,
+            simulate_tokenization_overhead: float = 60.0,
+            postprocess_tokenized_dataset: Callable[[Any, str], Any] = imdb_truncated_postprocess_tokenized_dataset,
             **kwargs
     ):
         super().__init__(
@@ -47,6 +48,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             max_token_length=max_token_length,
             tokenized_dataset_directory=IMDbLargeMovieReviewTruncated.get_tokenized_dataset_directory(model_name),
             batch_size=batch_size,
+            force_s3_download=False,
             **kwargs,
         )
 
