@@ -70,8 +70,8 @@ num_resource_ports: 4096
 use_real_gpus: false
 assign_kernel_debug_ports: false
 submit_execute_requests_one_at_a_time: true
-idle_session_reclamation_enabled: false
-idle_session_reclamation_interval_sec: 60
+idle_session_reclamation_enabled: true
+idle_session_reclamation_interval_sec: 10
 pretty_print_options: true
 prewarming_enabled: true
 initial_num_containers_per_host: 1
