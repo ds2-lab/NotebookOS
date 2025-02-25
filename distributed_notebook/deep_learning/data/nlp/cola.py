@@ -57,7 +57,7 @@ class CoLA(NLPDataset):
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str)->str:
-        return f'/home/{get_username()}/.cache/distributed_notebook/tokenized_datasets/glue/{model_name}'
+        return f'/home/{get_username()}/.cache/distributed_notebook/tokenized_datasets/glue/cola/{model_name}'
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:
