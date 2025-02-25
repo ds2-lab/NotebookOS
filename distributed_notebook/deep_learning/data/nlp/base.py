@@ -49,7 +49,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             batch_size=16,
             aws_region: str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
-            force_s3_download:bool = True,
+            force_s3_download:bool = False,
             **kwargs
     ):
         assert model_name is not None and model_name != ""

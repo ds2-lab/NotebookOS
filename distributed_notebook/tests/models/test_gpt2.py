@@ -63,7 +63,7 @@ def test_train_gpt2_on_cola():
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
 
-def test_train_gpt2_on_imdb():
+def test_train_gpt2_on_truncated_imdb():
     """
     Train the GPT-2 model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
@@ -89,9 +89,9 @@ def test_train_gpt2_on_imdb():
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
 
-def test_train_bert_on_imdb():
+def test_train_gpt2_on_imdb():
     """
-    Train the BERT model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
+    Train the GPT2 model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
     dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "gpt2")
     model: GPT2 = GPT2(out_features = 2)
@@ -101,7 +101,7 @@ def test_train_bert_on_imdb():
         training_duration_ms = 3250
 
     # Access the classification head (last layer)
-    classifier = model.model.classifier
+    classifier = model.model.score
 
     # Extract weights and biases
     prev_weights = classifier.weight.detach().cpu()
