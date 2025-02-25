@@ -151,20 +151,23 @@ class NLPDataset(HuggingFaceDataset, ABC):
             s3_bucket_name:str = "distributed-notebook-public",
             force_s3_download:bool = False,
     ):
-        if not self._dataset_already_tokenized:
-            self.__tokenize_dataset(
-                model_name=model_name,
-                text_feature_column_name=text_feature_column_name,
-                postprocess_tokenized_dataset=postprocess_tokenized_dataset,
-                max_token_length=max_token_length,
-                token_truncation=token_truncation,
-                token_padding=token_padding,
-                aws_region=aws_region,
-                s3_bucket_name=s3_bucket_name,
-                force_s3_download=force_s3_download,
-            )
-        else:
+        if self._dataset_already_tokenized:
             self.__load_tokenized_dataset_from_disk()
+            return
+
+        if force_s3_download:
+            self.__retrieve_tokenized_dataset_from_s3(aws_region=aws_region, s3_bucket_name=s3_bucket_name)
+            self.__load_tokenized_dataset_from_disk()
+            return
+
+        self.__tokenize_dataset(
+            model_name=model_name,
+            text_feature_column_name=text_feature_column_name,
+            postprocess_tokenized_dataset=postprocess_tokenized_dataset,
+            max_token_length=max_token_length,
+            token_truncation=token_truncation,
+            token_padding=token_padding,
+        )
 
     def __load_tokenized_dataset_from_disk(self):
         self._recorded_tokenization_overhead = True
@@ -185,17 +188,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             max_token_length: int = 128,
             token_truncation: bool = True,
             token_padding: str = "max_length",
-            aws_region:str = "us-east-1",
-            s3_bucket_name:str = "distributed-notebook-public",
-            force_s3_download:bool = False,
     ):
-        if force_s3_download or not torch.cuda.is_available():
-            self.__retrieve_tokenized_dataset_from_s3(
-                aws_region=aws_region,
-                s3_bucket_name=s3_bucket_name,
-            )
-            return
-
         self.log.debug(f'Tokenizing the {self.name} dataset now. '
                        f'Will cache tokenized data in directory "{self._dataset_dict_path}"')
 
