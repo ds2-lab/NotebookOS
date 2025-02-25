@@ -115,6 +115,10 @@ var _ = Describe("MultiPlacer Tests", func() {
 		hostSpec *types.DecimalSpec
 	)
 
+	clusterProvider := func() scheduling.Cluster {
+		return dockerCluster
+	}
+
 	Context("First-Come, First-Serve Batch Scheduling", func() {
 		Context("MultiPlacer Backed By MultiIndex of LeastLoadedIndex", func() {
 			BeforeEach(func() {
@@ -129,7 +133,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
 
-				schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
+				schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions, clusterProvider)
 				Expect(err).To(BeNil())
 				Expect(schedulingPolicy).ToNot(BeNil())
 				Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
@@ -206,13 +210,13 @@ var _ = Describe("MultiPlacer Tests", func() {
 				kernel1Spec := createKernelSpec(kernelResourceSpec)
 				kernel2Spec := createKernelSpec(kernelResourceSpec)
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernel1Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 				//Expect(candidateHosts[0]).To(Equal(host1))
 
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel2Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -233,7 +237,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(0))
 			})
@@ -255,7 +259,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				By("Returning the only available host when finding a candidate")
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernel1Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(host1))
@@ -284,7 +288,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 				kernel2ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
 				kernel2Spec := createKernelSpec(kernel2ResourceSpec)
 
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel2Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(host1))
@@ -342,7 +346,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				By("Returning an available host when finding a candidate")
 
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernel1Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -387,7 +391,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel2Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -430,7 +434,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel3Spec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -500,7 +504,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex := 0
 				kernelSpec := kernelSpecs[sessionIndex]
-				candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -524,7 +528,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 1
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -549,7 +553,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 2
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -574,7 +578,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 3
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -600,7 +604,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 4
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -625,7 +629,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 5
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -650,7 +654,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 6
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -675,7 +679,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 7
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -701,7 +705,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 8
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -727,7 +731,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 9
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 
@@ -756,7 +760,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 				sessionIndex = 10
 				kernelSpec = kernelSpecs[sessionIndex]
-				candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+				candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 				Expect(err).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 

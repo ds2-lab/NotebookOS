@@ -1,0 +1,13 @@
+set confirm off
+set pagination off
+
+handle SIGPIPE nostop
+
+# Setup some auto-load stuff.
+add-auto-load-safe-path /home/jovyan/Python-3.12.6/debug/python-gdb.py
+add-auto-load-safe-path /usr/local/go/src/runtime/runtime-gdb.py
+source ~/Python-3.12.6/debug/python-gdb.py
+add-symbol-file /home/jovyan/Python-3.12.6/debug/python
+add-symbol-file ~/Python-3.12.6/debug/libpython3.12d.so
+add-symbol-file ~/Python-3.12.6/debug/libpython3.12d.so.1.0
+add-symbol-file /usr/local/lib/python3.12/site-packages/distributed_notebook/smr/_smr.cpython-312-x86_64-linux-gnu.so

@@ -44,6 +44,8 @@ type ActiveExecutionProvider interface {
 	NumActiveExecutions() int32
 }
 
+type ClusterProvider func() Cluster
+
 type MetricsProvider interface {
 	PrometheusMetricsProvider
 	server.MessagingMetricsProvider

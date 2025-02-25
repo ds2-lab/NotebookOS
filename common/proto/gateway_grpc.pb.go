@@ -1793,6 +1793,7 @@ const (
 	LocalGateway_SetClose_FullMethodName                  = "/gateway.LocalGateway/SetClose"
 	LocalGateway_AddReplica_FullMethodName                = "/gateway.LocalGateway/AddReplica"
 	LocalGateway_UpdateReplicaAddr_FullMethodName         = "/gateway.LocalGateway/UpdateReplicaAddr"
+	LocalGateway_StartSyncLog_FullMethodName              = "/gateway.LocalGateway/StartSyncLog"
 	LocalGateway_PrepareToMigrate_FullMethodName          = "/gateway.LocalGateway/PrepareToMigrate"
 	LocalGateway_ResourcesSnapshot_FullMethodName         = "/gateway.LocalGateway/ResourcesSnapshot"
 	LocalGateway_GetLocalDaemonInfo_FullMethodName        = "/gateway.LocalGateway/GetLocalDaemonInfo"
@@ -1832,11 +1833,13 @@ type LocalGatewayClient interface {
 	WaitKernel(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*KernelStatus, error)
 	// SetClose request the gateway to close all kernels and stop.
 	SetClose(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
-	// Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+	// AddReplica instructs a set of kernel replicas to add a new node to their SMR cluster.
 	AddReplica(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
-	// Used to instruct a set of kernel replicas to update the peer address of a particular node.
+	// UpdateReplicaAddr instructs a set of kernel replicas to update the peer address of a particular node.
 	// This is primarily used during migrations.
 	UpdateReplicaAddr(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
+	// StartSyncLog instructs the LocalGateway to send a "start_synclog_request" message to the specified kernel replica.
+	StartSyncLog(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
 	// This involves writing the contents of the etcd-raft data directory to remote storage so that
 	// it can be read back from make build-linux-amd64 by the new replica.
@@ -1997,6 +2000,16 @@ func (c *localGatewayClient) UpdateReplicaAddr(ctx context.Context, in *ReplicaI
 	return out, nil
 }
 
+func (c *localGatewayClient) StartSyncLog(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, LocalGateway_StartSyncLog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*PrepareToMigrateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PrepareToMigrateResponse)
@@ -2115,11 +2128,13 @@ type LocalGatewayServer interface {
 	WaitKernel(context.Context, *KernelId) (*KernelStatus, error)
 	// SetClose request the gateway to close all kernels and stop.
 	SetClose(context.Context, *Void) (*Void, error)
-	// Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+	// AddReplica instructs a set of kernel replicas to add a new node to their SMR cluster.
 	AddReplica(context.Context, *ReplicaInfoWithAddr) (*Void, error)
-	// Used to instruct a set of kernel replicas to update the peer address of a particular node.
+	// UpdateReplicaAddr instructs a set of kernel replicas to update the peer address of a particular node.
 	// This is primarily used during migrations.
 	UpdateReplicaAddr(context.Context, *ReplicaInfoWithAddr) (*Void, error)
+	// StartSyncLog instructs the LocalGateway to send a "start_synclog_request" message to the specified kernel replica.
+	StartSyncLog(context.Context, *ReplicaInfo) (*Void, error)
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
 	// This involves writing the contents of the etcd-raft data directory to remote storage so that
 	// it can be read back from make build-linux-amd64 by the new replica.
@@ -2195,6 +2210,9 @@ func (UnimplementedLocalGatewayServer) AddReplica(context.Context, *ReplicaInfoW
 }
 func (UnimplementedLocalGatewayServer) UpdateReplicaAddr(context.Context, *ReplicaInfoWithAddr) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateReplicaAddr not implemented")
+}
+func (UnimplementedLocalGatewayServer) StartSyncLog(context.Context, *ReplicaInfo) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartSyncLog not implemented")
 }
 func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareToMigrate not implemented")
@@ -2460,6 +2478,24 @@ func _LocalGateway_UpdateReplicaAddr_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_StartSyncLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplicaInfo)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).StartSyncLog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_StartSyncLog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).StartSyncLog(ctx, req.(*ReplicaInfo))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LocalGateway_PrepareToMigrate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReplicaInfo)
 	if err := dec(in); err != nil {
@@ -2676,6 +2712,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateReplicaAddr",
 			Handler:    _LocalGateway_UpdateReplicaAddr_Handler,
+		},
+		{
+			MethodName: "StartSyncLog",
+			Handler:    _LocalGateway_StartSyncLog_Handler,
 		},
 		{
 			MethodName: "PrepareToMigrate",

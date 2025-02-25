@@ -88,6 +88,7 @@ func (p *CoordinatedParticipant) initialize(txId string) error {
 	}
 
 	if err := p.tx.validateInputs(); err != nil {
+		p.log.Error("Failed to register with tx %s because: %v", txId, err)
 		return errors.Join(ErrTransactionRegistrationError, err)
 	}
 
@@ -149,6 +150,11 @@ type CoordinatedTransaction struct {
 
 	mu sync.Mutex
 
+	// locksAcquired indicates whether locks were ultimately acquired, or if we never got that far.
+	// If locksAcquired is set to true, then it must be the case that it will be visible to all participants
+	// as soon as they return from their handlers.
+	locksAcquired atomic.Bool
+
 	// complete indicates whether the CoordinatedTransaction has finished (either successfully or not)
 	complete atomic.Bool
 
@@ -198,6 +204,10 @@ func (t *CoordinatedTransaction) Id() string {
 	return t.id
 }
 
+func (t *CoordinatedTransaction) LockedWereAcquired() bool {
+	return t.locksAcquired.Load()
+}
+
 // ParticipantsInitialized returns true if all the CoordinatedParticipant instances have been initialized.
 func (t *CoordinatedTransaction) ParticipantsInitialized() bool {
 	return t.participantsInitialized.Load()
@@ -242,12 +252,31 @@ func (t *CoordinatedTransaction) Wait() bool {
 	return t.succeeded.Load()
 }
 
-// Abort attempts to abort the transaction.
-func (t *CoordinatedTransaction) Abort() {
+// Abort attempts to abort the transaction and returns a bool indicating whether locks had been acquired.
+//
+// Abort should only be called if a participant knows that it will not be partaking.
+//
+// TODO: This doesn't work very well...
+func (t *CoordinatedTransaction) Abort(err error) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.failureReason == nil {
+		t.failureReason = err
+	}
+
 	t.shouldAbort.Store(true)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.log.Error("We panicked upon decrementing the initGroup... (txId=%s)", t.id)
+			t.log.Error("Perhaps transaction %s did not abort cleanly...", t.id)
+		}
+	}()
+
+	t.initGroup.Done() // Should only call this if we know the participant won't be registering.
+
+	return t.locksAcquired.Load()
 }
 
 // RegisterParticipant is used to register a "participant" of the CoordinatedTransaction.
@@ -260,30 +289,33 @@ func (t *CoordinatedTransaction) Abort() {
 // The expectation is that any necessary mutexes will already be held before the initial state function is called.
 //
 // The given mutex will be locked by the CoordinatedTransaction, but it is the caller's responsibility to unlock it.
+//
+// RegisterParticipant returns a flag indicating whether the participant was registered by this particular call.
 func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState scheduling.GetInitialStateForTransaction,
-	operation scheduling.TransactionOperation, mu *sync.Mutex) error {
+	operation scheduling.TransactionOperation, mu *sync.Mutex) (bool, error) {
 
 	if getInitialState == nil {
-		return errors.Join(ErrTransactionRegistrationError, ErrNilInitialStateFunction)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrNilInitialStateFunction)
 	}
 
 	if mu == nil {
-		return errors.Join(ErrTransactionRegistrationError, ErrNilParticipantMutex)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrNilParticipantMutex)
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	if t.started.Load() {
-		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAlreadyStarted)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrTransactionAlreadyStarted)
 	}
 
 	if t.shouldAbort.Load() {
-		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAborted)
+		return false, errors.Join(ErrTransactionRegistrationError, ErrTransactionAborted)
 	}
 
 	if _, loaded := t.participants[id]; loaded {
-		return fmt.Errorf("%w: participant %d", ErrParticipantAlreadyRegistered, id)
+		// Weird one... I guess we'll return false.
+		return false, fmt.Errorf("%w: participant %d", ErrParticipantAlreadyRegistered, id)
 	}
 
 	t.participants[id] = &CoordinatedParticipant{
@@ -291,19 +323,20 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState s
 		getInitialState: getInitialState,
 		operation:       operation,
 		mu:              mu,
+		log:             config.GetLogger(fmt.Sprintf("Tx%s-P%d ", t.id, id)),
 	}
 
 	if len(t.participants) == t.expectedNumParticipants {
 		t.log.Debug("Registered participant %d/%d (ID=%d) for tx %s targeting kernel %s. Initializing participants now.",
 			len(t.participants), t.expectedNumParticipants, id, t.id, t.kernelId)
 
-		return t.initializeAndLockParticipants()
+		return true, t.initializeAndLockParticipants()
 	} else {
 		t.log.Debug("Registered participant %d/%d (with ID=%d) for tx %s targeting kernel %s.",
 			len(t.participants), t.expectedNumParticipants, id, t.id, t.kernelId)
 	}
 
-	return nil
+	return true, nil
 }
 
 // Run will run the target CoordinatedTransaction if the target CoordinatedTransaction is ready.
@@ -412,6 +445,14 @@ func (t *CoordinatedTransaction) recordFinished(succeeded bool, failureReason er
 //
 // IMPORTANT: initializeAndLockParticipants is called with the CoordinatedTransaction's mu already locked.
 func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
+	if t.shouldAbort.Load() {
+		if t.failureReason == nil {
+			t.failureReason = fmt.Errorf("%w: unknown or unspecified reason", ErrTransactionAborted)
+		}
+
+		return t.failureReason
+	}
+
 	defer t.initGroup.Done()
 
 	if len(t.participants) != t.expectedNumParticipants {
@@ -485,6 +526,8 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		time.Sleep(time.Millisecond*time.Duration(rand.Int64N(5)) + (time.Millisecond * 5))
 	}
 
+	t.locksAcquired.Store(true)
+
 	// Now that the locks have been acquired, we initialize all the participants.
 	for _, participant := range t.participants {
 		err := participant.initialize(t.id)
@@ -514,6 +557,14 @@ func (t *CoordinatedTransaction) run() error {
 
 	if !t.participantsInitialized.Load() {
 		return ErrParticipantsNotInitialized
+	}
+
+	if t.shouldAbort.Load() {
+		if t.failureReason == nil {
+			t.failureReason = fmt.Errorf("%w: unknown or unspecified reason", ErrTransactionAborted)
+		}
+
+		return t.failureReason
 	}
 
 	//err := t.initializeAndLockParticipants()

@@ -133,15 +133,33 @@ class NLPDataset(HuggingFaceDataset, ABC):
         self._train_loader = WrappedLoader(train_data, sampler=train_sampler,
                                            batch_size=batch_size, dataset_name=self.dataset_name())
 
+        def load_validation_data(key:str = 'validation'):
+            return TensorDataset(
+                self._tokenized_datasets[key]['input_ids'],
+                self._tokenized_datasets[key]['attention_mask'],
+                self._tokenized_datasets[key]['labels']
+            )
+
         # Create the DataLoader for our validation set
-        validation_data = TensorDataset(
-            self._tokenized_datasets['validation']['input_ids'],
-            self._tokenized_datasets['validation']['attention_mask'],
-            self._tokenized_datasets['validation']['labels']
-        )
-        validation_sampler = SequentialSampler(validation_data)
-        self._test_loader = WrappedLoader(validation_data, sampler=validation_sampler,
-                                          batch_size=batch_size, dataset_name=self.dataset_name())
+        try:
+            validation_data = load_validation_data('validation')
+        except KeyError:
+            self.log.warning(f'Cannot find tokenized datasets with key "validation".')
+            validation_data = None
+
+        if validation_data is None:
+            try:
+                validation_data = load_validation_data('test')
+            except KeyError:
+                self.log.warning(f'Cannot find tokenized datasets with key "test".')
+
+        if validation_data is not None:
+            validation_sampler = SequentialSampler(validation_data)
+            self._test_loader = WrappedLoader(validation_data, sampler=validation_sampler,
+                                              batch_size=batch_size, dataset_name=self.dataset_name())
+        else:
+            self.log.warning(f"Failed to create test loader for dataset '{self.name}'.")
+            self._test_loader = None
 
     @property
     def recorded_tokenization_overhead(self)->bool:

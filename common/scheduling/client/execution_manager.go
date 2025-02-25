@@ -240,23 +240,23 @@ func (m *ExecutionManager) SendingExecuteRequest(messages []*messaging.JupyterMe
 			ErrUnknownActiveExecution, requestId)
 	}
 
-	execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
-	if execution == nil { // Sanity check.
-		m.log.Error(
-			utils.RedStyle.Render(
-				"ExecutionManager::SendingExecuteRequest: Expected to find Execution with last-submitted index %d."),
-			m.submittedExecutionIndex)
-
-		err := fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
-			ErrInvalidState, requestId, executionIndex, m.submittedExecutionIndex)
-
-		m.sendNotification("Execution Manager in Invalid TransactionState",
-			err.Error(), messaging.ErrorNotification, true)
-
-		return err
-	}
-
 	if executionIndex < m.submittedExecutionIndex {
+		execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
+		if execution == nil { // Sanity check.
+			m.log.Error(
+				utils.RedStyle.Render(
+					"ExecutionManager::SendingExecuteRequest: Expected to find Execution with last-submitted index %d."),
+				m.submittedExecutionIndex)
+
+			err := fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
+				ErrInvalidState, requestId, executionIndex, m.submittedExecutionIndex)
+
+			m.sendNotification("Execution Manager in Invalid TransactionState",
+				err.Error(), messaging.ErrorNotification, true)
+
+			return err
+		}
+
 		m.log.Error(
 			"ExecutionManager::SendingExecuteRequest: Submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s.",
 			requestId, executionIndex, m.submittedExecutionIndex, execution.ExecuteRequestMessageId)
@@ -277,10 +277,15 @@ func (m *ExecutionManager) SendingExecuteRequest(messages []*messaging.JupyterMe
 		m.callbackProvider.IncrementNumActiveExecutions()
 	}
 
-	err := m.checkAndSetTargetReplica(messages, execution)
+	activeExecution := m.activeExecutions[requestId]
+	if activeExecution == nil {
+		return fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, requestId)
+	}
+
+	err := m.checkAndSetTargetReplica(messages, activeExecution)
 	if err != nil {
 		m.log.Error("ExecutionManager::SendingExecuteRequest: error while checking & setting target replica for execution \"%s\" (index=%d): %v",
-			messages[0].JupyterMessageId(), execution.GetExecutionIndex(), err)
+			messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex(), err)
 		return err
 	}
 
@@ -648,6 +653,9 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	//
 	// In particular, if we're configured to send "execute_request" messages one-at-a-time, then this definitely
 	// should not happen.
+	//
+	// TODO: Couldn't it just be the case that we receive the reply before the "smr lead task"?
+	//		 This isn't a bad thing; in fact, it happens pretty regularly.
 	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
 		m.log.Warn("\"execute_reply\" with index %d does not match last-known active index %d...",
 			activeExecution.ExecutionIndex, m.activeExecutionIndex)
@@ -656,7 +664,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// As a sort of sanity check, validate that the target replica matches the primary replica, assuming that a
 	// target replica was explicitly set for this execution.
 	targetReplicaId := activeExecution.GetTargetReplicaId()
-	if targetReplicaId != -1 && targetReplicaId != m.activeExecutionIndex {
+	if targetReplicaId != -1 && targetReplicaId != replica.ReplicaID() {
 		m.log.Error("Target replica of execution \"%s\" was replica %d; however, replica %d was the primary.",
 			activeExecution.GetExecuteRequestMessageId(), targetReplicaId, replica.ReplicaID())
 
@@ -1075,14 +1083,14 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 
 	execRequestIndex := -1
 	for i, msg := range messages {
-		if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+		if msg.JupyterMessageType() != messaging.ShellExecuteRequest {
 			continue
 		}
 
 		// If the execution index is already set, then we've found two messages of type "execute_request".
 		if execRequestIndex != -1 {
 			m.log.Debug("Messages %d and %d are both of type \"%s\". No single target replica identified for execution \"%s\" (index=%d).",
-				execRequestIndex, i, messaging.ShellExecuteReply, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+				execRequestIndex, i, messaging.ShellExecuteRequest, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
 			return nil
 		}
 

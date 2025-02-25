@@ -50,6 +50,14 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 // in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
 // depending upon the scheduling.Policy configured for the AllocationManager.
 func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
+	isViable, reasonForUnviability := placer.schedulingPolicy.ValidateHostForKernel(candidateHost, kernelSpec, forTraining)
+	if !isViable {
+		placer.log.Debug("Host \"%s\" was found by '%s' policy to be unviable for kernel \"%s\" because: %v",
+			candidateHost.GetNodeName(), placer.schedulingPolicy.Name(), kernelSpec.Id, reasonForUnviability)
+
+		return false, reasonForUnviability
+	}
+
 	var usePendingReservation bool
 
 	// If we are migrating a replica that needs to begin training right away,
@@ -104,7 +112,17 @@ func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling
 // will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
 // in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
 // depending upon the scheduling.Policy configured for the AllocationManager.
-func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host,
+	replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+
+	isViable, reasonForUnviability := placer.schedulingPolicy.ValidateHostForReplica(candidateHost, replicaSpec, forTraining)
+	if !isViable {
+		placer.log.Debug("Host \"%s\" was found by '%s' policy to be unviable for replica %d of kernel \"%s\" because: %v",
+			candidateHost.GetNodeName(), placer.schedulingPolicy.Name(), replicaSpec.ReplicaId, replicaSpec.Kernel.Id, reasonForUnviability)
+
+		return false, reasonForUnviability
+	}
+
 	var usePendingReservation bool
 
 	// If we are migrating a replica that needs to begin training right away,
@@ -163,13 +181,17 @@ func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
 //
 // If FindHosts returns nil (rather than an empty slice), then an error occurred.
-func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) ([]scheduling.Host, error) {
+func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int,
+	forTraining bool) ([]scheduling.Host, error) {
+
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 	st := time.Now()
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numHosts, kernelSpec.ResourceSpec.String(), placer.instance.GetIndex().Len())
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.",
+		numHosts, kernelSpec.ResourceSpec.String(), placer.instance.GetIndex().Len())
+
 	if placer.instance.GetIndex().Len() < numHosts {
 		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d. "+
 			"We won't find enough hosts on this pass, but we can try to scale-out afterwards.",
@@ -219,7 +241,9 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 //
 // PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
 // on which the resources are to be reserved.
-func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica,
+	commitResources bool) error {
+
 	host := replica.Host()
 
 	decimalSpec := kernel.ResourceSpec()

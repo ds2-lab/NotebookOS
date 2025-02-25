@@ -15,6 +15,7 @@ const (
 	MessageTypeAddReplicaRequest       = "add_replica_request"
 	MessageTypeUpdateReplicaRequest    = "update_replica_request"
 	MessageTypePrepareToMigrateRequest = "prepare_to_migrate_request"
+	MessageTypeStartSyncLogRequest     = "start_synclog_request"
 )
 
 type MessageSMRReady struct {

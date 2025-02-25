@@ -85,39 +85,42 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
 			return state, commit
 		}, tx, &mu3)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
@@ -129,6 +132,7 @@ var _ = Describe("Coordinated", func() {
 
 		err = coordinatedTransaction.Run()
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
@@ -164,26 +168,28 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
@@ -193,13 +199,14 @@ var _ = Describe("Coordinated", func() {
 		mu3.Lock()
 
 		go func() {
-			err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				state := container3.getStateForTransaction()
 				commit := container3.getCommit()
 
 				return state, commit
 			}, tx, &mu3)
 			Expect(err).To(BeNil())
+			Expect(registered).To(BeTrue())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 		}()
@@ -220,6 +227,7 @@ var _ = Describe("Coordinated", func() {
 
 		err = coordinatedTransaction.Run()
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
@@ -245,39 +253,42 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
 			return state, commit
 		}, tx, &mu3)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
@@ -316,15 +327,16 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -346,29 +358,32 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
 			return state, commit
 		}, tx, &mu3)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
@@ -380,17 +395,19 @@ var _ = Describe("Coordinated", func() {
 
 		err = coordinatedTransaction.Run()
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 		Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
 			return state, commit
 		}, tx, &mu3)
 		Expect(err).ToNot(BeNil())
+		Expect(registered).To(BeFalse())
 		Expect(errors.Is(err, transaction.ErrTransactionAlreadyStarted)).To(BeTrue())
 	})
 
@@ -407,23 +424,25 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			commit := container3.getCommit()
 
 			return nil, commit
@@ -446,23 +465,25 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -486,23 +507,25 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -524,23 +547,25 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
 			return state, commit
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+		registered, err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
 			return state, commit
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
+		Expect(registered).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, nil, tx, &mu3)
+		registered, err = coordinatedTransaction.RegisterParticipant(container3.Id, nil, tx, &mu3)
 		Expect(errors.Is(err, transaction.ErrNilInitialStateFunction)).To(BeTrue())
 	})
 })

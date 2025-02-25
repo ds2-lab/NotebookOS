@@ -2,8 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 )
 
 // FcfsBatchSchedulingPolicy is a scheduling.Policy modeled after Slurm-like first-come, first-serve batch schedulers.
@@ -18,8 +20,8 @@ type FcfsBatchSchedulingPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*FcfsBatchSchedulingPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +52,27 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 //
 // But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
 func (p *FcfsBatchSchedulingPolicy) ReuseWarmContainers() bool {
+	return false
+}
+
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *FcfsBatchSchedulingPolicy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *FcfsBatchSchedulingPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *FcfsBatchSchedulingPolicy) PrioritizePrewarmContainers() bool {
 	return false
 }
 

@@ -1109,24 +1109,36 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
 	container scheduling.KernelContainer, tx scheduling.CoordinatedTransaction) error {
 
-	// The CoordinatedTransaction will lock this mutex.
-	// We just need to unlock it.
-	defer h.schedulingMutex.Unlock()
-
 	oldSubscribedRatio := h.subscribedRatio
 	h.log.Debug("Coordinated Transaction: updating resource reservation for for replica %d of kernel %s from [%v] to [%v]. Current resource counts: %v.",
 		container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), h.GetResourceCountsAsString())
 
-	err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
+	var locksAcquired bool
+	defer func() {
+		if tx.LockedWereAcquired() || locksAcquired {
+			h.schedulingMutex.Unlock()
+		}
+	}()
+
+	registered, err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
 	if err != nil {
-		h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica).",
-			container.ReplicaId(), container.KernelID())
+		h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica): %v",
+			container.ReplicaId(), container.KernelID(), err)
+
+		if !registered {
+			h.log.Warn("Aborting transaction %s targeting kernel %s.", tx.Id(), container.KernelID())
+			locksAcquired = tx.Abort(err)
+			h.log.Warn("Aborted transaction %s targeting kernel %s. LocksAcquired=%v.",
+				tx.Id(), container.KernelID(), locksAcquired)
+		}
+
 		return err
 	}
 
 	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Subscription ratio: %s → %s. Updated resource counts: %v.",
 		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3),
 		h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
+
 	return nil
 }
 

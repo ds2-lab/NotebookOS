@@ -242,11 +242,11 @@ class RemoteStorageLog(object):
           callback will be in the form callback(Checkpointer)."""
         pass
 
-    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """Request yield the update of a term to another replica."""
         return False
 
-    async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_lead_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
         return True

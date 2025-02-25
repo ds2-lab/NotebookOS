@@ -2,16 +2,18 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
 )
 
 type DynamicV3Policy struct {
 	*baseSchedulingPolicy
 }
 
-func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+func NewDynamicV3Policy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*DynamicV3Policy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -46,6 +48,27 @@ func (p *DynamicV3Policy) ValidateCapacity(cluster scheduling.Cluster) {
 	if !p.isValidatingCapacity.CompareAndSwap(1, 0) {
 		panic("Failed to swap isValidatingCapacity 1 → 0 after finishing call to DynamicV3Policy::ValidateCapacity")
 	}
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *DynamicV3Policy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
+}
+
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *DynamicV3Policy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *DynamicV3Policy) PrioritizePrewarmContainers() bool {
+	return false
 }
 
 // ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being

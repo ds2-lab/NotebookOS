@@ -17,9 +17,10 @@ type Notifier struct {
 	log logger.Logger
 }
 
-func NewNotifier() *Notifier {
+func NewNotifier(clusterDashboard proto.ClusterDashboardClient) *Notifier {
 	return &Notifier{
-		log: config.GetLogger("Notifier "),
+		clusterDashboard: clusterDashboard,
+		log:              config.GetLogger("Notifier "),
 	}
 }
 
@@ -45,4 +46,19 @@ func (n *Notifier) NotifyDashboard(notificationName string, notificationMessage 
 				notificationName, typ.String(), typ.Int32())
 		}
 	}
+}
+
+// NotifyDashboardOfInfo is used to issue an "info" notification to the internalCluster Dashboard.
+func (n *Notifier) NotifyDashboardOfInfo(name string, content string) {
+	n.NotifyDashboard(name, content, messaging.InfoNotification)
+}
+
+// NotifyDashboardOfWarning is used to issue a "warning" notification to the internalCluster Dashboard.
+func (n *Notifier) NotifyDashboardOfWarning(name string, content string) {
+	n.NotifyDashboard(name, content, messaging.WarningNotification)
+}
+
+// NotifyDashboardOfError is used to issue an "error" notification to the internalCluster Dashboard.
+func (n *Notifier) NotifyDashboardOfError(name string, content string) {
+	n.NotifyDashboard(name, content, messaging.ErrorNotification)
 }

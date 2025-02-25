@@ -11,6 +11,7 @@ import (
 	"golang.org/x/net/context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,6 +31,7 @@ type enqueuedRequest[MessageType any] struct {
 	Msg           MessageType
 	Kernel        MessageRecipient
 	ResultChannel chan interface{}
+	CloseFlag     *atomic.Int32
 	MsgId         string
 }
 
@@ -90,7 +92,14 @@ func NewExecuteRequestForwarder[MessageType any](notifyCallback scheduling.Notif
 	return submitter
 }
 
-func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, kernel MessageRecipient, msgId string) <-chan interface{} {
+// EnqueueRequest enqueues a request for submission to a kernel replica.
+//
+// EnqueueRequest returns the channel over which a result will be sent and a pointer to an atomic.Int32, which
+// allows a goroutine to claim ownership over closing the channel.
+//
+// Specifically, the sender will claim ownership before sending. If ownership claim fails, then send will be aborted.
+// If receiver times-out and wants to give up waiting, then they claim ownership and close channel.
+func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, kernel MessageRecipient, msgId string) (<-chan interface{}, *atomic.Int32, error) {
 	mutex, loaded := s.outgoingExecuteRequestQueueMutexes.Load(kernel.ID())
 	if !loaded {
 		errorMessage := fmt.Sprintf("Could not find \"execute_request\" queue mutex for kernel \"%s\"", kernel.ID())
@@ -102,14 +111,15 @@ func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, k
 
 		s.log.Error(errorMessage)
 
-		return nil
+		return nil, nil, fmt.Errorf(errorMessage)
 	}
 
 	// Begin transaction on the outgoing "execute_request" queue for the target kernel.
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	queue, loaded := s.outgoingExecuteRequestQueue.Load(kernel.ID())
+	var queue chan *enqueuedRequest[MessageType]
+	queue, loaded = s.outgoingExecuteRequestQueue.Load(kernel.ID())
 	if !loaded {
 		// Should already have been made when kernel replica was first created.
 		s.log.Warn("No \"execute_request\" queue found for replica of kernel %s. Creating one now.", kernel.ID())
@@ -119,17 +129,22 @@ func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, k
 
 	resultChan := make(chan interface{})
 
+	s.log.Debug("Enqueuing \"execute_request\" message \"%s\" with kernel \"%s\"", msgId, kernel.ID())
+
+	var closeFlag atomic.Int32
+
 	// This could conceivably block, which would be fine.
 	queue <- &enqueuedRequest[MessageType]{
 		Msg:           msg,
 		MsgId:         msgId,
 		ResultChannel: resultChan,
+		CloseFlag:     &closeFlag,
 		Kernel:        kernel,
 	}
 
-	s.log.Debug("Enqueued \"execute_request\" message(s) with kernel \"%s\"", kernel.ID())
+	s.log.Debug("Enqueued \"execute_request\" message \"%s\" with kernel \"%s\"", msgId, kernel.ID())
 
-	return resultChan
+	return resultChan, &closeFlag, nil
 }
 
 // UnregisterKernel is used to stop the goroutine that is forwarding messages to a particular kernel.
@@ -219,17 +234,21 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 		return // We'll panic before this line is executed in the local daemon.
 	}
 
-	s.log.Debug("Dequeued message %s targeting kernel %s.",
-		message.MsgId, message.Kernel.ID())
-
 	// Process the message.
 	processedMessage := message.Msg
+	startProcessingTime := time.Now()
 	if s.processCallback != nil {
-		processedMessage = s.processCallback(processedMessage, message.Kernel)
-	}
+		s.log.Debug("Dequeued message %s targeting kernel %s. Calling 'process message' callback now.",
+			message.MsgId, message.Kernel.ID())
 
-	s.log.Debug("Forwarding \"execute_request\" message \"%s\" to kernel %s: %s",
-		message.MsgId, message.Kernel.ID(), processedMessage)
+		processedMessage = s.processCallback(processedMessage, message.Kernel)
+
+		s.log.Debug("Finished 'process message' callback in %v for \"execute_request\" message \"%s\" targeting kernel \"%s\". Forwarding message now: %v",
+			time.Since(startProcessingTime), message.MsgId, message.Kernel.ID(), processedMessage)
+	} else {
+		s.log.Debug("Dequeued message \"%s\" targeting kernel \"%s\". Forwarding message now: %v.",
+			message.MsgId, message.Kernel.ID(), processedMessage)
+	}
 
 	// Sanity check.
 	if message.Kernel.IsTraining() {
@@ -248,6 +267,14 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 			cancel()
 		})
 
+	// Attempt to "claim" ownership over the channel. If this fails, then the receiver has given up, in which
+	// case we'll just discard the result.
+	if !message.CloseFlag.CompareAndSwap(0, 1) {
+		s.log.Warn("CloseFlag is already set for \"execute_request\" message \"%s\" targeting kernel \"%s\". Discarding response.",
+			message.MsgId, message.Kernel.ID())
+		return
+	}
+
 	if err != nil {
 		// Send the error back to the caller.
 		message.ResultChannel <- err
@@ -256,6 +283,9 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 
 	// General notification that we're done, and there was no error.
 	message.ResultChannel <- struct{}{}
+
+	// Close the channel for this message.
+	close(message.ResultChannel)
 
 	s.log.Debug("Finished forwarding \"execute_request\" message \"%s\" to kernel \"%s\".",
 		message.MsgId, message.Kernel.ID())

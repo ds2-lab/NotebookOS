@@ -11,6 +11,23 @@ type MinCapacityPrewarmerConfig struct {
 	// given scheduling.Host. If the number of pre-warmed containers available on a particular scheduling.Host falls
 	// below this quantity, then a new pre-warmed container will be provisioned.
 	MinPrewarmedContainersPerHost int
+
+	// ReplenishOnUse controls whether new pre-warm containers are immediately provisioned
+	// when an existing prewarm container is used, or if the pool relies on containers being returned
+	//
+	//
+	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
+	// also enabled.
+	ReplenishOnUse bool `yaml:"replenish_on_use" json:"replenish_on_use"`
+
+	// DynamicallyMaintainCapacity controls whether the MinCapacityPrewarmer should dynamically maintain capacity
+	// by monitoring the number of pre-warm containers available on each host, or if it should simply provision the
+	// initial batch of containers and rely on the reuse of prewarm containers (when they're returned after serving
+	// an execute request / kernel) to maintain the pool's capacity.
+	//
+	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
+	// also enabled.
+	DynamicallyMaintainCapacity bool `yaml:"dynamically_maintain_capacity" json:"dynamically_maintain_capacity"`
 }
 
 // MinCapacityPrewarmer attempts to maintain the minimum number of prewarmed containers on each scheduling.Host
@@ -40,6 +57,10 @@ func NewMinCapacityPrewarmer(cluster scheduling.Cluster, configuration *MinCapac
 
 // ValidatePoolCapacity ensures that there are enough pre-warmed containers available throughout the entire cluster.
 func (p *MinCapacityPrewarmer) ValidatePoolCapacity() {
+	if !p.Config.DynamicallyMaintainCapacity {
+		return
+	}
+
 	hosts := make([]scheduling.Host, 0, p.Cluster.Len())
 	p.Cluster.RangeOverHosts(func(hostId string, host scheduling.Host) bool {
 		hosts = append(hosts, host)
@@ -49,6 +70,11 @@ func (p *MinCapacityPrewarmer) ValidatePoolCapacity() {
 	for _, host := range hosts {
 		// Skip disabled hosts.
 		if !host.Enabled() {
+			continue
+		}
+
+		// Skip hosts that are excluded from scheduling (i.e., probably hosts that are being idle-reclaimed).
+		if host.IsExcludedFromScheduling() {
 			continue
 		}
 
@@ -95,4 +121,18 @@ func (p *MinCapacityPrewarmer) ValidateHostCapacity(host scheduling.Host) {
 // below this quantity, then a new pre-warmed container will be provisioned.
 func (p *MinCapacityPrewarmer) MinPrewarmedContainersPerHost() int {
 	return p.Config.MinPrewarmedContainersPerHost
+}
+
+// prewarmContainerUsed is called when a pre-warm container is used, to give the container prewarmer a chance
+// to react (i.e., provision another prewarm container, if it is supposed to do so).
+func (p *MinCapacityPrewarmer) prewarmContainerUsed(host scheduling.Host, prewarmedContainer scheduling.PrewarmedContainer) {
+	if !p.Config.ReplenishOnUse {
+		return
+	}
+
+	err := p.ProvisionContainer(host)
+	if err != nil {
+		p.log.Error("Failed to provision new pre-warmed container on host %s (ID=%s) after prewarm container \"%s\" was used: %v",
+			host.GetNodeName(), host.GetID(), prewarmedContainer.ID(), err)
+	}
 }

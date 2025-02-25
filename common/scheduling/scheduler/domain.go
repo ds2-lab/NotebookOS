@@ -8,10 +8,7 @@ import (
 type clusterSchedulerInternal interface {
 	scheduling.Scheduler
 
-	// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
-	//
-	// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-	findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error)
+	getHost(hostId string) (scheduling.Host, bool)
 
 	// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
 	addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation)
@@ -25,4 +22,18 @@ type clusterSchedulerInternal interface {
 	//
 	// Important: selectViableHostForReplica will reserve resources on the Host.
 	selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error)
+
+	// findViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
+	// as searching for viable hosts before trying to schedule the container).
+	//
+	// PRECONDITION: If we're finding a viable host for an existing replica, then the blacklisted hosts argument should
+	// be non-nil and should contain the replica's current/original host (in order to prevent the replica from being
+	// scheduled back onto the same host).
+	//
+	// This method searches for a viable training host and, if one is found, then that host is returned.
+	// Otherwise, an error is returned.
+	//
+	// If we fail to find a host, then we'll try to scale-out (if we're allowed).
+	findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool,
+		createNewHostPermitted bool) (host scheduling.Host, failureReason error)
 }

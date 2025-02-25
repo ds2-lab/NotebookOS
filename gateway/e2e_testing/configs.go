@@ -32,7 +32,7 @@ const (
         "docker_network_name": "distributed_cluster_default",
         "scheduling-policy": "static",
         "idle-session-reclamation-policy": "none",
-        "remote-storage-endpoint": "bcarver2-distributed-notebook-storage",
+        "remote-storage-endpoint": "bcarver-distributed-notebook-storage-testing",
         "remote-storage": "s3",
         "gpus-per-host": 8,
         "prometheus_interval": 15,

@@ -211,6 +211,18 @@ type Kernel interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 
+	// MigrationInProgress returns true if one or more of the target Kernel's replicas are being migrated.
+	MigrationInProgress() bool
+
+	// MigrationStarted records that a replica of the target Kernel is being migrated.
+	MigrationStarted() error
+
+	// WaitForMigrationsToComplete waits for any active migrations to complete.
+	WaitForMigrationsToComplete(ctx context.Context) error
+
+	// MigrationConcluded records that a replica of the target Kernel is done being migrated.
+	MigrationConcluded()
+
 	// NumContainersCreated returns the total number of KernelContainer instances that have been created or provisioned
 	// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
 	// KernelContainer instance(s) as well as any KernelContainer instance(s) created during migrations or as on-demand.
@@ -261,6 +273,8 @@ type Kernel interface {
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
+	// MissingReplicaIds returns the replica IDs of the replicas that the kernel is missing.
+	MissingReplicaIds() []int32
 	NumActiveMigrationOperations() int
 	AddOperationStarted()
 	AddOperationCompleted()
@@ -371,6 +385,18 @@ type Kernel interface {
 	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 	// of the target Kernel.
 	RecordContainerPlacementStarted()
+
+	// YieldedNextExecutionRequest is called after successfully yielding the next execution request.
+	// This flips the KernelReplicaClient::yieldNextExecutionRequest
+	// flag to false so that the kernel replica isn't forced to yield future requests.
+	YieldedNextExecutionRequest()
+
+	// SupposedToYieldNextExecutionRequest returns true if the target Kernel is supposed to yield its next
+	// execution request.
+	SupposedToYieldNextExecutionRequest() bool
+
+	// YieldNextExecutionRequest takes note that we should yield the next execution request.
+	YieldNextExecutionRequest()
 }
 
 type KernelReplica interface {
@@ -394,7 +420,7 @@ type KernelReplica interface {
 	IsTraining() bool
 	WaitForTrainingToStop()
 	KernelStartedTraining(trainingStartedAt time.Time) error
-	WaitForPendingExecuteRequests()
+	WaitForPendingExecuteRequests(nextRequestId string, nextJupyterMsgType string)
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int

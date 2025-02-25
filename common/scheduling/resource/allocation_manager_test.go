@@ -35,7 +35,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := yaml.Unmarshal([]byte(samples.GatewayStaticYaml), &opts)
 			Expect(err).To(BeNil())
 
-			schedulingPolicy, err = policy.NewStaticPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err = policy.NewStaticPolicy(&opts.SchedulerOptions, nil)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
@@ -212,7 +212,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := yaml.Unmarshal([]byte(samples.GatewayStaticYaml), &opts)
 			Expect(err).To(BeNil())
 
-			schedulingPolicy, err = policy.NewStaticPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err = policy.NewStaticPolicy(&opts.SchedulerOptions, nil)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
@@ -1224,7 +1224,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := yaml.Unmarshal([]byte(samples.GatewayFcfsYaml), &opts)
 			Expect(err).To(BeNil())
 
-			schedulingPolicy, err = policy.NewFcfsBatchSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err = policy.NewFcfsBatchSchedulingPolicy(&opts.SchedulerOptions, nil)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
@@ -2053,7 +2053,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := yaml.Unmarshal([]byte(samples.GatewayReservationYaml), &opts)
 			Expect(err).To(BeNil())
 
-			schedulingPolicy, err = policy.NewReservationPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err = policy.NewReservationPolicy(&opts.SchedulerOptions, nil)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 

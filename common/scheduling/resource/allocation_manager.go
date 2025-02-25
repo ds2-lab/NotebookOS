@@ -837,12 +837,14 @@ func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldS
 // this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+//
+// Returns a flag indicating whether the participant was even registered.
 func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types.Spec, oldSpec types.Spec,
-	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) error {
+	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) (bool, error) {
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
-		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
+		return false, fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
 	}
 
 	kernelId := container.KernelID()
@@ -854,24 +856,28 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 	// Verify that the container is in fact scheduled on this Host.
 	if !targetReplicaIsScheduled {
 		m.mu.Unlock()
-		return fmt.Errorf("%w: replica %d of kernel %s",
-			ErrContainerNotPresent, replicaId, kernelId)
+		m.log.Warn("Target replica %d of coordinated tx %s is not even scheduled on this host (%s)...",
+			container.ReplicaId(), tx.Id(), m.NodeName)
+		return false, fmt.Errorf("%w: replica %d of kernel %s", ErrContainerNotPresent, replicaId, kernelId)
 	}
 
 	// Retrieve the allocation, as we'll have to update it.
 	key := getKey(replicaId, kernelId)
 	allocation, loaded := m.allocationKernelReplicaMap.Load(key)
 	if !loaded {
-		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s because no allocation exists...",
-			replicaId, kernelId)
+		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s (as part of tx %s) "+
+			"because no allocation exists...", replicaId, kernelId, tx.Id())
 		m.mu.Unlock()
-		return fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
+		return false, fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
 	}
 	m.mu.Unlock()
 
 	// Verify that the allocation is not committed.
 	if allocation.IsCommitted() {
-		return fmt.Errorf("%w: allocation for replica %d of kernel %s is committed; cannot dynamically adjust",
+		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s (as part of coordinated tx %s) "+
+			"because resources are committed to that replica...", replicaId, kernelId, tx.Id())
+
+		return false, fmt.Errorf("%w: allocation for replica %d of kernel %s is committed; cannot dynamically adjust",
 			ErrInvalidAllocationType, replicaId, kernelId)
 	}
 
@@ -885,11 +891,11 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 
 	// Register ourselves as a participant.
 	// If we're the last participant to do so, then this will also initialize all the participants.
-	err := tx.RegisterParticipant(replicaId, m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
+	registered, err := tx.RegisterParticipant(replicaId, m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
 	if err != nil {
 		m.log.Error("Received error upon registering for coordination transaction %s when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
 			tx.Id(), replicaId, kernelId, oldSpec.String(), newSpec.String(), err)
-		return err
+		return registered, err
 	}
 
 	// Ensure that we're all initialized. We may not have been the last to register.
@@ -920,7 +926,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 			m.updateSubscriptionRatio()
 		}
 
-		return nil
+		return registered, nil
 	}
 
 	err = tx.FailureReason()
@@ -939,7 +945,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 	m.log.Debug("Transaction %s targeting replica %d of kernel %s has failed because: %v",
 		tx.Id(), replicaId, kernelId, err)
 
-	return err
+	return registered, err
 }
 
 // AssertAllocationIsPending returns true if the given scheduling.Allocation IS pending.

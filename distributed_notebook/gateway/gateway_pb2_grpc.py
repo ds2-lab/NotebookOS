@@ -1824,6 +1824,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.StartSyncLog = channel.unary_unary(
+                '/gateway.LocalGateway/StartSyncLog',
+                request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
         self.PrepareToMigrate = channel.unary_unary(
                 '/gateway.LocalGateway/PrepareToMigrate',
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
@@ -1948,15 +1953,22 @@ class LocalGatewayServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def AddReplica(self, request, context):
-        """Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+        """AddReplica instructs a set of kernel replicas to add a new node to their SMR cluster.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def UpdateReplicaAddr(self, request, context):
-        """Used to instruct a set of kernel replicas to update the peer address of a particular node.
+        """UpdateReplicaAddr instructs a set of kernel replicas to update the peer address of a particular node.
         This is primarily used during migrations.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StartSyncLog(self, request, context):
+        """StartSyncLog instructs the LocalGateway to send a "start_synclog_request" message to the specified kernel replica.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -2098,6 +2110,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'UpdateReplicaAddr': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateReplicaAddr,
                     request_deserializer=gateway__pb2.ReplicaInfoWithAddr.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'StartSyncLog': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartSyncLog,
+                    request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
             'PrepareToMigrate': grpc.unary_unary_rpc_method_handler(
@@ -2470,6 +2487,33 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/UpdateReplicaAddr',
             gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StartSyncLog(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/StartSyncLog',
+            gateway__pb2.ReplicaInfo.SerializeToString,
             gateway__pb2.Void.FromString,
             options,
             channel_credentials,

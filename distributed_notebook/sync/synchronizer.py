@@ -155,9 +155,7 @@ class Synchronizer:
         self.log.debug("Starting Synchronizer")
 
         try:
-            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
-                asyncio.get_running_loop()
-            )
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
             self._async_loop.set_debug(True)
         except RuntimeError:
             self.log.warning("No asyncio Event Loop running...")
@@ -334,7 +332,7 @@ class Synchronizer:
             )
             raise ex  # Re-raise.
 
-    async def propose_lead(self, jupyter_message_id: str, term_number: int) -> int:
+    async def propose_lead(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> int:
         """Propose to lead the next execution.
 
         Wait the ready of the synchronization and propose to lead a execution.
@@ -342,12 +340,19 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self.log.debug("Synchronizer is proposing to lead term %d" % term_number)
+        # If the target replica ID is specified, then it should match our node ID.
+        # If it doesn't, then we should've been sent a "yield_request", and we shouldn't
+        # be proposing 'LEAD'. 
+        if target_replica_id >= 1 and target_replica_id != self._node_id:
+            raise ValueError(f"Target replica ID specified as {target_replica_id} "
+                             f"but we're still proposing 'LEAD' as node {self._node_id}.")
+        
+        self.log.debug(f"Synchronizer is proposing to lead term {term_number}")
         we_won: bool = False
         try:
             # Propose to lead specified term.
             # Term 0 tries to lead the next term whatever and will always success.
-            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number)
+            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number, target_replica_id = target_replica_id)
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -429,7 +434,7 @@ class Synchronizer:
         code_executed: bool = election.code_execution_completed_successfully
         return (voting_done and code_executed) or election.is_in_failed_state
 
-    async def propose_yield(self, jupyter_message_id: str, term_number: int) -> int:
+    async def propose_yield(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> int:
         """Propose to yield the next execution to another replica.
 
         Wait the ready of the synchronization and propose to lead a execution.
@@ -437,19 +442,19 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self.log.debug("Synchronizer is proposing to yield term %d" % term_number)
+        self.log.debug(f"Synchronizer::propose_yield[term={term_number},target_replica_id={target_replica_id}]")
         try:
-            if await self._synclog.try_yield_execution(jupyter_message_id, term_number):
+            if await self._synclog.try_yield_execution(jupyter_message_id, term_number, target_replica_id = target_replica_id):
                 self.log.error("synclog.yield_execution returned true despite the fact that we're yielding...")
                 raise ValueError("synclog.yield_execution returned true despite the fact that we're yielding")
         except SyncError as se:
-            self.log.warning("SyncError: {}".format(se))
+            self.log.warning(f"SyncError: {se}")
             # print_trace(limit = 10)
             stack: list[str] = traceback.format_exception(se)
             for frame in stack:
                 self.log.error(frame)
         except Exception as e:
-            self.log.error("Exception encountered while proposing YIELD: %s" % str(e))
+            self.log.error(f"Exception encountered while proposing YIELD: {e}")
             # print_trace(limit = 10)
             stack: list[str] = traceback.format_exception(e)
             for frame in stack:
@@ -486,7 +491,7 @@ class Synchronizer:
 
         await self._synclog.notify_execution_complete(term_number)
 
-    async def ready(self, jupyter_message_id: str, term_number: int, lead: bool) -> int:
+    async def ready(self, jupyter_message_id: str, term_number: int, lead: bool = False, target_replica_id: int = -1) -> int:
         """
         Wait for the replicas to synchronize and propose a leader for an election.
         Returns the execution count that granted to lead or 0 if denied.
@@ -501,19 +506,13 @@ class Synchronizer:
 
         if lead:
             self.log.debug("Synchronizer::Ready(LEAD): Proposing to lead now.")
-            res = await self.propose_lead(jupyter_message_id, term_number)
-            self.log.debug(
-                "Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: %d"
-                % res
-            )
+            res = await self.propose_lead(jupyter_message_id, term_number, target_replica_id = target_replica_id)
+            self.log.debug(f"Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: {res}")
             return res
         else:
             self.log.debug("Synchronizer::Ready(YIELD): Proposing to yield now.")
-            res = await self.propose_yield(jupyter_message_id, term_number)
-            self.log.debug(
-                "Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d"
-                % res
-            )
+            res = await self.propose_yield(jupyter_message_id, term_number, target_replica_id = target_replica_id)
+            self.log.debug(f"Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: {res}")
             return res
 
     async def sync(
