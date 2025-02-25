@@ -4,7 +4,7 @@ services:
       - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
       - "NUM_CLUSTER_GATEWAYS=1"
-      - "GATEWAY_STARTING_PORT=8080"
+      - "GATEWAY_GRPC_PORT=8080"
       - "_BASE_ADDRESS=gateway"
     image: scusemua/jupyter-cpu-dev:latest
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG

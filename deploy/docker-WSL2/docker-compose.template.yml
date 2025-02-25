@@ -27,7 +27,7 @@ services:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
       - NUM_CLUSTER_GATEWAYS=1
-      - GATEWAY_STARTING_PORT=8080
+      - GATEWAY_GRPC_PORT=8080
       - _BASE_ADDRESS=gateway
     image: scusemua/jupyter-gpu:latest
     labels:

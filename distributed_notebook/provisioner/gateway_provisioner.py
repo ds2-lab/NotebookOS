@@ -16,7 +16,7 @@ from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import LocalGatewayStub
 
 DefaultGatewayBaseAddress: str = "gateway"
-DefaultGatewayStartingPort: int = 8080
+DefaultGatewayGrpcPort: int = 8080
 
 
 class GatewayProvisioner(KernelProvisionerBase):
@@ -32,9 +32,9 @@ class GatewayProvisioner(KernelProvisionerBase):
     autoclose = True
 
     num_gateways: int = 1
-    gateway_starting_port: int = DefaultGatewayStartingPort
+    gateway_grpc_port: int = DefaultGatewayGrpcPort
     gateway_base_address: str = DefaultGatewayBaseAddress
-    gateway_nodes: list[str] = [f"{DefaultGatewayBaseAddress}:{DefaultGatewayStartingPort}"]
+    gateway_nodes: list[str] = [f"{DefaultGatewayBaseAddress}:{DefaultGatewayGrpcPort}"]
     gateway_hash_ring: Optional[HashRing] = None
 
     # Our version of kernel_id
@@ -379,12 +379,12 @@ class GatewayProvisioner(KernelProvisionerBase):
         assert self.num_gateways > 0
         self.log.debug(f"Number of Cluster Gateways: {self.num_gateways}")
 
-        if "GATEWAY_STARTING_PORT" in os.environ:
-            self.gateway_starting_port = int(os.environ["GATEWAY_STARTING_PORT"])
+        if "GATEWAY_GRPC_PORT" in os.environ:
+            self.gateway_grpc_port = int(os.environ["GATEWAY_GRPC_PORT"])
         else:
-            self.gateway_starting_port = DefaultGatewayStartingPort
+            self.gateway_grpc_port = DefaultGatewayGrpcPort
 
-        self.log.debug(f"Gateway starting port: {self.gateway_starting_port}")
+        self.log.debug(f"Gateway starting port: {self.gateway_grpc_port}")
 
         if "GATEWAY_BASE_ADDRESS" in os.environ:
             self.gateway_base_address = os.environ["_BASE_ADDRESS"]
@@ -393,11 +393,13 @@ class GatewayProvisioner(KernelProvisionerBase):
 
         self.log.debug(f'Gateway base address: "{self.gateway_base_address}"')
 
-        self.gateway_nodes: list[str] = [f"{self.gateway_base_address}:{port}" for port in
-                                         range(self.gateway_starting_port,
-                                               self.gateway_starting_port + self.num_gateways)]
-
-        self.gateway_hash_ring = HashRing(nodes = self.gateway_nodes)
+        if self.num_gateways > 1:
+            self.gateway_nodes: list[str] = [f"{self.gateway_base_address}-{idx}:{self.gateway_grpc_port}" for idx in
+                                             range(1, self.num_gateways + 1)]
+            self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
+        else:
+            self.gateway_nodes: list[str] = [f"{self.gateway_base_address}:{self.gateway_grpc_port}"]
+            self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
 
     def get_shutdown_wait_time(self, recommended: Optional[float] = 5.0) -> float:
         """
