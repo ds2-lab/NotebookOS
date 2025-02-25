@@ -73,3 +73,15 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
     @property
     def name(self) -> str:
         return IMDbLargeMovieReviewTruncated.dataset_name()
+
+    @staticmethod
+    def dataset_shortname()->str:
+        return "imdb-truncated"
+
+    @staticmethod
+    def tokenized_dataset_root_directory()->str:
+        return "shawhin___imdb-truncated"
+
+    @staticmethod
+    def huggingface_directory_name()->str:
+        return "shawhin___imdb-truncated"

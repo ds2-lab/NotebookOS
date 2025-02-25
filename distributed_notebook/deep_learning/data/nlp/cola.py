@@ -73,3 +73,15 @@ class CoLA(NLPDataset):
     @property
     def name(self)->str:
         return CoLA.dataset_name()
+
+    @staticmethod
+    def dataset_shortname()->str:
+        return "cola"
+
+    @staticmethod
+    def tokenized_dataset_root_directory()->str:
+        return "glue/cola"
+
+    @staticmethod
+    def huggingface_directory_name()->str:
+        return "glue/cola"

@@ -158,6 +158,14 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
         desc["image_size"] = self._image_size
         return desc
 
+    @staticmethod
+    def dataset_shortname()->str:
+        return "tiny-imagenet"
+
+    @staticmethod
+    def huggingface_directory_name()->str:
+        return "zh-plus___tiny-imagenet"
+
     @property
     def train_loader(self)->Optional[DataLoader]:
         return self._train_loader

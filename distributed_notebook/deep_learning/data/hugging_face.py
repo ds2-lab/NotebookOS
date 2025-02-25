@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 import os
 from typing import Dict, Union, Optional
 
@@ -59,6 +59,11 @@ class HuggingFaceDataset(CustomDataset, ABC):
                   f"{self._download_duration_sec} seconds.")
         else:
             self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
+
+    @staticmethod
+    @abstractmethod
+    def huggingface_directory_name()->str:
+        pass
 
     def remove_local_files(self):
         """

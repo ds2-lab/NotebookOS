@@ -69,6 +69,18 @@ class IMDbLargeMovieReview(NLPDataset):
     def dataset_name() -> str:
         return "IMDb Large Movie Review Dataset (IMDb)"
 
+    @staticmethod
+    def dataset_shortname()->str:
+        return "imdb"
+
+    @staticmethod
+    def tokenized_dataset_root_directory()->str:
+        return "stanfordnlp___imdb"
+
     @property
     def name(self) -> str:
         return IMDbLargeMovieReview.dataset_name()
+
+    @staticmethod
+    def huggingface_directory_name()->str:
+        return "stanfordnlp___imdb"
