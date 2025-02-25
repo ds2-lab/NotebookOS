@@ -279,7 +279,8 @@ class LibriSpeech(CustomDataset):
         self._download_end = time.time()
         self._download_duration_sec = self._download_end - self._download_start
 
-        self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+        self.log.debug(f"The {self.name} dataset was downloaded to root directory "
+                       f"\"{root_dir}\" in {self._download_duration_sec} seconds.")
 
 
     def __init_dataset(self, train_split:str, test_split: str, root_dir: str, folder_in_archive: str):
@@ -308,6 +309,8 @@ class LibriSpeech(CustomDataset):
                         root_dir=root_dir,
                         folder_in_archive=folder_in_archive,
                     )
+
+                    self.log.debug(f'Successfully downloaded the "{self.dataset_name()}" dataset.')
 
                     # If we got through the above with no exceptions, then we're good to go.
                     return

@@ -3486,6 +3486,9 @@ class DistributedKernel(IPythonKernel):
                 ident=self._topic(SMR_LEAD_TASK),
             )  # type: ignore
 
+            self.log.debug(f'Sent "smr_lead_task" message for "execute_request" '
+                           f'message "{self.next_execute_request_msg_id}".')
+
             reply_content, performed_dl_training, code = await self.execute_user_code(
                 target_training_duration_millis=training_duration_millis,
                 code=code,
@@ -3667,10 +3670,8 @@ class DistributedKernel(IPythonKernel):
             self.current_execution_stats.execution_end_unix_millis
         )
 
-        self.log.info(
-            f"Finished executing user-submitted code in {exec_duration_millis} ms. "
-            f"Returning the following content: {reply_content}"
-        )
+        self.log.info(f"Finished executing user-submitted code in {exec_duration_millis:,} ms. "
+                      f"Returning the following content: {reply_content}")
 
         return reply_content, performed_dl_training, code
 
@@ -4061,6 +4062,9 @@ class DistributedKernel(IPythonKernel):
         Specifically, we'll read the list of keys, and then we'll read the data for each key in the list. Doing
         so will restore our runtime state.
         """
+        if not hasattr(self, "synchronizer") or self.synchronizer is None:
+            self.log.warning("No Sychronizer. Cannot notify that execution is complete.")
+            return
 
         # Add task to the set. This creates a strong reference.
         # We don't await this here so that we can go ahead and send the shell response back.

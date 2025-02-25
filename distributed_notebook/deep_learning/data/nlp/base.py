@@ -73,7 +73,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
 
         if not self._dataset_already_tokenized:
-            print(f'Tokenizing the {self.name} dataset now. Will cache tokenized data in directory "{self._dataset_dict_path}"')
+            self.log.debug(f'Tokenizing the {self.name} dataset now. '
+                           f'Will cache tokenized data in directory "{self._dataset_dict_path}"')
 
             # When the kernel retrieves the tokenization time to record the overhead, we flip this flag to true,
             # That way, we don't double-count it in the future.
@@ -99,8 +100,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
             os.makedirs(self._dataset_dict_path, 0o750, exist_ok=True)
 
-            print(f'Finished tokenizing the {self.name} dataset in {time.time() - self._tokenize_start} seconds. '
-                  f'Writing tokenized dataset to directory "{self._dataset_dict_path}".')
+            self.log.debug(f'Finished tokenizing the {self.name} dataset in {time.time() - self._tokenize_start} '
+                           f'seconds. Writing tokenized dataset to directory "{self._dataset_dict_path}".')
 
             write_start: float = time.time()
 
@@ -109,19 +110,18 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenize_end: float = time.time()
             self._tokenize_duration = self._tokenize_end - self._tokenize_start
 
-            print(f'Wrote the tokenized {self.name} dataset to directory "{self._dataset_dict_path}" in '
-                  f'{time.time() - write_start} seconds. '
-                  f'Total time elapsed: {self._tokenize_duration} seconds.')
+            self.log.debug(f'Wrote the tokenized {self.name} dataset to directory "{self._dataset_dict_path}" in '
+                  f'{time.time() - write_start} seconds. Total time elapsed: {self._tokenize_duration} seconds.')
         else:
             self._recorded_tokenization_overhead: bool = True
-            print(f'The {self.name} dataset was already tokenized. '
-                  f'Loading cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" now...')
+            self.log.debug(f'The {self.name} dataset was already tokenized. Loading cached, tokenized {self.name} '
+                           f'dataset from directory "{self._dataset_dict_path}" now...')
 
             _read_start: float = time.time()
             self._tokenized_datasets = datasets.load_from_disk(self._dataset_dict_path)
 
-            print(f'Read cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" '
-                  f'in {time.time() - _read_start} seconds.')
+            self.log.debug(f'Read cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" '
+                           f'in {time.time() - _read_start} seconds.')
 
         # Create the DataLoader for our training set
         train_data = TensorDataset(

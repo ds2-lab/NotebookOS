@@ -485,10 +485,7 @@ class Synchronizer:
         :param term_number: the term of the election for which we served as leader and executed
         the user-submitted code.
         """
-        self.log.debug(
-            f"Notifying peers that execution of code during election term {term_number} has finished."
-        )
-
+        self.log.debug(f"Notifying peers that execution of code during election term {term_number} has finished.")
         await self._synclog.notify_execution_complete(term_number)
 
     async def ready(self, jupyter_message_id: str, term_number: int, lead: bool = False, target_replica_id: int = -1) -> int:
