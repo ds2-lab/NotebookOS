@@ -4884,6 +4884,7 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *messaging.JupyterMessage)
 	return kernel, messageType, nil
 }
 
+// IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (d *ClusterGatewayImpl) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	kernel, loaded := d.kernels.Load(in.Id)
 

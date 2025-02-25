@@ -306,6 +306,7 @@ func (dc *DistributedCluster) ClearClusterStatistics(_ context.Context, _ *proto
 	return dc.gatewayDaemon.ClearClusterStatistics()
 }
 
+// IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (dc *DistributedCluster) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	return dc.gatewayDaemon.IsKernelActivelyTraining(ctx, in)
 }

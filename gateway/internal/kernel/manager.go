@@ -531,6 +531,7 @@ func (km *Manager) SmrReady(_ context.Context, in *proto.SmrReadyNotification) (
 	return proto.VOID, nil
 }
 
+// IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (km *Manager) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	kernel, loaded := km.kernels.Load(in.Id)
 

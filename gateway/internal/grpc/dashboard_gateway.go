@@ -228,6 +228,7 @@ func (dg *DashboardGateway) SetTotalVirtualGPUs(ctx context.Context, in *proto.S
 	return dg.handler.setTotalVirtualGPUs(ctx, in)
 }
 
+// IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (dg *DashboardGateway) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	return dg.handler.IsKernelActivelyTraining(ctx, in)
 }

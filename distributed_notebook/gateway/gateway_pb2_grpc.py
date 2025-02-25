@@ -451,8 +451,8 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.PingInstruction.SerializeToString,
                 response_deserializer=gateway__pb2.Pong.FromString,
                 _registered_method=True)
-        self.IsKernelTraining = channel.unary_unary(
-                '/gateway.DistributedCluster/IsKernelTraining',
+        self.IsKernelActivelyTraining = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelActivelyTraining',
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.IsKernelTrainingReply.FromString,
                 _registered_method=True)
@@ -598,8 +598,9 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def IsKernelTraining(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def IsKernelActivelyTraining(self, request, context):
+        """IsKernelTraining is used to query whether or not a particular kernel is actively training.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -807,8 +808,8 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.PingInstruction.FromString,
                     response_serializer=gateway__pb2.Pong.SerializeToString,
             ),
-            'IsKernelTraining': grpc.unary_unary_rpc_method_handler(
-                    servicer.IsKernelTraining,
+            'IsKernelActivelyTraining': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelActivelyTraining,
                     request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.IsKernelTrainingReply.SerializeToString,
             ),
@@ -1061,7 +1062,7 @@ class DistributedCluster(object):
             _registered_method=True)
 
     @staticmethod
-    def IsKernelTraining(request,
+    def IsKernelActivelyTraining(request,
             target,
             options=(),
             channel_credentials=None,
@@ -1074,7 +1075,7 @@ class DistributedCluster(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/gateway.DistributedCluster/IsKernelTraining',
+            '/gateway.DistributedCluster/IsKernelActivelyTraining',
             gateway__pb2.KernelId.SerializeToString,
             gateway__pb2.IsKernelTrainingReply.FromString,
             options,

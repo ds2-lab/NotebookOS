@@ -133,6 +133,7 @@ func (srv *ClusterGatewayGrpcServer) GetKernelStatus(ctx context.Context, in *pr
 	return srv.daemon.GetKernelStatus(ctx, in)
 }
 
+// IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (srv *ClusterGatewayGrpcServer) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	return srv.daemon.IsKernelActivelyTraining(ctx, in)
 }

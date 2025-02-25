@@ -420,7 +420,7 @@ const (
 	DistributedCluster_SpoofNotifications_FullMethodName          = "/gateway.DistributedCluster/SpoofNotifications"
 	DistributedCluster_Ping_FullMethodName                        = "/gateway.DistributedCluster/Ping"
 	DistributedCluster_PingKernel_FullMethodName                  = "/gateway.DistributedCluster/PingKernel"
-	DistributedCluster_IsKernelTraining_FullMethodName            = "/gateway.DistributedCluster/IsKernelTraining"
+	DistributedCluster_IsKernelActivelyTraining_FullMethodName    = "/gateway.DistributedCluster/IsKernelActivelyTraining"
 	DistributedCluster_ListKernels_FullMethodName                 = "/gateway.DistributedCluster/ListKernels"
 	DistributedCluster_SetTotalVirtualGPUs_FullMethodName         = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
 	DistributedCluster_GetClusterActualGpuInfo_FullMethodName     = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
@@ -460,7 +460,8 @@ type DistributedClusterClient interface {
 	Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Pong, error)
 	// Used to test connectivity with kernels.
 	PingKernel(ctx context.Context, in *PingInstruction, opts ...grpc.CallOption) (*Pong, error)
-	IsKernelTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error)
+	// IsKernelTraining is used to query whether or not a particular kernel is actively training.
+	IsKernelActivelyTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
 	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
@@ -596,10 +597,10 @@ func (c *distributedClusterClient) PingKernel(ctx context.Context, in *PingInstr
 	return out, nil
 }
 
-func (c *distributedClusterClient) IsKernelTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error) {
+func (c *distributedClusterClient) IsKernelActivelyTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(IsKernelTrainingReply)
-	err := c.cc.Invoke(ctx, DistributedCluster_IsKernelTraining_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, DistributedCluster_IsKernelActivelyTraining_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -823,7 +824,8 @@ type DistributedClusterServer interface {
 	Ping(context.Context, *Void) (*Pong, error)
 	// Used to test connectivity with kernels.
 	PingKernel(context.Context, *PingInstruction) (*Pong, error)
-	IsKernelTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error)
+	// IsKernelTraining is used to query whether or not a particular kernel is actively training.
+	IsKernelActivelyTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
 	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
@@ -924,8 +926,8 @@ func (UnimplementedDistributedClusterServer) Ping(context.Context, *Void) (*Pong
 func (UnimplementedDistributedClusterServer) PingKernel(context.Context, *PingInstruction) (*Pong, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PingKernel not implemented")
 }
-func (UnimplementedDistributedClusterServer) IsKernelTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method IsKernelTraining not implemented")
+func (UnimplementedDistributedClusterServer) IsKernelActivelyTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IsKernelActivelyTraining not implemented")
 }
 func (UnimplementedDistributedClusterServer) ListKernels(context.Context, *Void) (*ListKernelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListKernels not implemented")
@@ -1098,20 +1100,20 @@ func _DistributedCluster_PingKernel_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DistributedCluster_IsKernelTraining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _DistributedCluster_IsKernelActivelyTraining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(KernelId)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DistributedClusterServer).IsKernelTraining(ctx, in)
+		return srv.(DistributedClusterServer).IsKernelActivelyTraining(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DistributedCluster_IsKernelTraining_FullMethodName,
+		FullMethod: DistributedCluster_IsKernelActivelyTraining_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DistributedClusterServer).IsKernelTraining(ctx, req.(*KernelId))
+		return srv.(DistributedClusterServer).IsKernelActivelyTraining(ctx, req.(*KernelId))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1504,8 +1506,8 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DistributedCluster_PingKernel_Handler,
 		},
 		{
-			MethodName: "IsKernelTraining",
-			Handler:    _DistributedCluster_IsKernelTraining_Handler,
+			MethodName: "IsKernelActivelyTraining",
+			Handler:    _DistributedCluster_IsKernelActivelyTraining_Handler,
 		},
 		{
 			MethodName: "ListKernels",
