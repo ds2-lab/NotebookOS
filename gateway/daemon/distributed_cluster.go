@@ -305,3 +305,7 @@ func (dc *DistributedCluster) ClusterStatistics(_ context.Context, req *proto.Cl
 func (dc *DistributedCluster) ClearClusterStatistics(_ context.Context, _ *proto.Void) (*proto.ClusterStatisticsResponse, error) {
 	return dc.gatewayDaemon.ClearClusterStatistics()
 }
+
+func (dc *DistributedCluster) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
+	return dc.gatewayDaemon.IsKernelActivelyTraining(ctx, in)
+}

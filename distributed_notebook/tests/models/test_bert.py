@@ -93,7 +93,7 @@ def test_train_bert_on_imdb():
     """
     Train the BERT model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
-    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "bert")
+    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "bert", simulate_tokenization_overhead=15)
     model: Bert = Bert(out_features = 2)
 
     training_duration_ms: int = 2000
@@ -114,3 +114,5 @@ def test_train_bert_on_imdb():
 
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
+
+    assert dataset.tokenization_duration_sec > 0

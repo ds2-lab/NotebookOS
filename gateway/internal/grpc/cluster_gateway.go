@@ -32,6 +32,7 @@ type GatewayDaemon interface {
 	MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error)
 	NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error)
 	PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error)
+	IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error)
 
 	PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error)
 
@@ -130,6 +131,10 @@ func (srv *ClusterGatewayGrpcServer) PromotePrewarmedContainer(ctx context.Conte
 // GetKernelStatus returns the status of a kernel.
 func (srv *ClusterGatewayGrpcServer) GetKernelStatus(ctx context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	return srv.daemon.GetKernelStatus(ctx, in)
+}
+
+func (srv *ClusterGatewayGrpcServer) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
+	return srv.daemon.IsKernelActivelyTraining(ctx, in)
 }
 
 // KillKernel kills a kernel.

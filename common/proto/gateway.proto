@@ -58,6 +58,9 @@ service DistributedCluster {
   // Used to test connectivity with kernels.
   rpc PingKernel(PingInstruction) returns (Pong) {}
 
+  // IsKernelTraining is used to query whether or not a particular kernel is actively training.
+  rpc IsKernelTraining(KernelId) returns (IsKernelTrainingReply) {}
+
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
@@ -152,6 +155,11 @@ service DistributedCluster {
   //
   // ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
   rpc ClearClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+}
+
+message IsKernelTrainingReply {
+  string kernelId = 1;
+  bool isTraining = 2;
 }
 
 message ClusterStatisticsRequest {

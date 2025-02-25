@@ -420,6 +420,7 @@ const (
 	DistributedCluster_SpoofNotifications_FullMethodName          = "/gateway.DistributedCluster/SpoofNotifications"
 	DistributedCluster_Ping_FullMethodName                        = "/gateway.DistributedCluster/Ping"
 	DistributedCluster_PingKernel_FullMethodName                  = "/gateway.DistributedCluster/PingKernel"
+	DistributedCluster_IsKernelTraining_FullMethodName            = "/gateway.DistributedCluster/IsKernelTraining"
 	DistributedCluster_ListKernels_FullMethodName                 = "/gateway.DistributedCluster/ListKernels"
 	DistributedCluster_SetTotalVirtualGPUs_FullMethodName         = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
 	DistributedCluster_GetClusterActualGpuInfo_FullMethodName     = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
@@ -459,6 +460,7 @@ type DistributedClusterClient interface {
 	Ping(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Pong, error)
 	// Used to test connectivity with kernels.
 	PingKernel(ctx context.Context, in *PingInstruction, opts ...grpc.CallOption) (*Pong, error)
+	IsKernelTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
 	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
@@ -588,6 +590,16 @@ func (c *distributedClusterClient) PingKernel(ctx context.Context, in *PingInstr
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Pong)
 	err := c.cc.Invoke(ctx, DistributedCluster_PingKernel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) IsKernelTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsKernelTrainingReply)
+	err := c.cc.Invoke(ctx, DistributedCluster_IsKernelTraining_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -811,6 +823,7 @@ type DistributedClusterServer interface {
 	Ping(context.Context, *Void) (*Pong, error)
 	// Used to test connectivity with kernels.
 	PingKernel(context.Context, *PingInstruction) (*Pong, error)
+	IsKernelTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
 	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
@@ -910,6 +923,9 @@ func (UnimplementedDistributedClusterServer) Ping(context.Context, *Void) (*Pong
 }
 func (UnimplementedDistributedClusterServer) PingKernel(context.Context, *PingInstruction) (*Pong, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PingKernel not implemented")
+}
+func (UnimplementedDistributedClusterServer) IsKernelTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IsKernelTraining not implemented")
 }
 func (UnimplementedDistributedClusterServer) ListKernels(context.Context, *Void) (*ListKernelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListKernels not implemented")
@@ -1078,6 +1094,24 @@ func _DistributedCluster_PingKernel_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DistributedClusterServer).PingKernel(ctx, req.(*PingInstruction))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_IsKernelTraining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).IsKernelTraining(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_IsKernelTraining_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).IsKernelTraining(ctx, req.(*KernelId))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1468,6 +1502,10 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PingKernel",
 			Handler:    _DistributedCluster_PingKernel_Handler,
+		},
+		{
+			MethodName: "IsKernelTraining",
+			Handler:    _DistributedCluster_IsKernelTraining_Handler,
 		},
 		{
 			MethodName: "ListKernels",

@@ -4884,6 +4884,23 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *messaging.JupyterMessage)
 	return kernel, messageType, nil
 }
 
+func (d *ClusterGatewayImpl) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
+	kernel, loaded := d.kernels.Load(in.Id)
+
+	if !loaded {
+		d.log.Warn("Queried training status of unknown kernel \"%s\"", in.Id)
+
+		return nil, d.errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.Id))
+	}
+
+	resp := &proto.IsKernelTrainingReply{
+		KernelId:   in.Id,
+		IsTraining: kernel.IsTraining(),
+	}
+
+	return resp, nil
+}
+
 // shouldReplicasBeRunning returns a flag indicating whether the containers of kernels should be running already.
 //
 // For scheduling policies in which the ContainerLifetime is scheduling.LongRunning, this is true.

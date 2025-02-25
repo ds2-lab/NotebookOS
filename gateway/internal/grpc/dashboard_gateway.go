@@ -50,6 +50,7 @@ type DashboardGatewayHandler interface {
 	ClusterStatistics(_ context.Context, req *proto.ClusterStatisticsRequest) (*proto.ClusterStatisticsResponse, error)
 	ClearClusterStatistics(_ context.Context) ([]byte, error)
 	SetClusterDashboardClient(clusterDashboardClient proto.ClusterDashboardClient)
+	IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error)
 }
 
 // DashboardGateway fulfills a different gRPC interface required by the Admin/Workload Dashboard.
@@ -225,6 +226,10 @@ func (dg *DashboardGateway) GetClusterVirtualGpuInfo(ctx context.Context, in *pr
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
 func (dg *DashboardGateway) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	return dg.handler.setTotalVirtualGPUs(ctx, in)
+}
+
+func (dg *DashboardGateway) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
+	return dg.handler.IsKernelActivelyTraining(ctx, in)
 }
 
 func (dg *DashboardGateway) ListKernels(ctx context.Context) (*proto.ListKernelsResponse, error) {

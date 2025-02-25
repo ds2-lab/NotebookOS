@@ -451,6 +451,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.PingInstruction.SerializeToString,
                 response_deserializer=gateway__pb2.Pong.FromString,
                 _registered_method=True)
+        self.IsKernelTraining = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelTraining',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.IsKernelTrainingReply.FromString,
+                _registered_method=True)
         self.ListKernels = channel.unary_unary(
                 '/gateway.DistributedCluster/ListKernels',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -589,6 +594,12 @@ class DistributedClusterServicer(object):
     def PingKernel(self, request, context):
         """Used to test connectivity with kernels.
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IsKernelTraining(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -795,6 +806,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.PingKernel,
                     request_deserializer=gateway__pb2.PingInstruction.FromString,
                     response_serializer=gateway__pb2.Pong.SerializeToString,
+            ),
+            'IsKernelTraining': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelTraining,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.IsKernelTrainingReply.SerializeToString,
             ),
             'ListKernels': grpc.unary_unary_rpc_method_handler(
                     servicer.ListKernels,
@@ -1034,6 +1050,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/PingKernel',
             gateway__pb2.PingInstruction.SerializeToString,
             gateway__pb2.Pong.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IsKernelTraining(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/IsKernelTraining',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.IsKernelTrainingReply.FromString,
             options,
             channel_credentials,
             insecure,

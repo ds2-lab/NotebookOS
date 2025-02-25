@@ -27,7 +27,8 @@ type KernelManager interface {
 	MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error)
 	NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error)
 	PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error)
-
+	IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error)
+	
 	PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error)
 
 	SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error)

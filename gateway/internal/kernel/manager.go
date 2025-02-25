@@ -531,6 +531,23 @@ func (km *Manager) SmrReady(_ context.Context, in *proto.SmrReadyNotification) (
 	return proto.VOID, nil
 }
 
+func (km *Manager) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
+	kernel, loaded := km.kernels.Load(in.Id)
+
+	if !loaded {
+		km.log.Warn("IsKernelActivelyTraining: queried training status of unknown kernel \"%s\"", in.Id)
+
+		return nil, errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.Id))
+	}
+
+	resp := &proto.IsKernelTrainingReply{
+		KernelId:   in.Id,
+		IsTraining: kernel.IsTraining(),
+	}
+
+	return resp, nil
+}
+
 // SmrNodeAdded is an RPC function called by the Local Daemon to the Cluster Gateway when the Local Daemon
 // receives a "smr_node_added" IOPub message.
 //

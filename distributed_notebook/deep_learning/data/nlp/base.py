@@ -163,37 +163,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
             should_flip_recorded_overhead_flag: bool = True
 
             if simulate_tokenization_overhead > 0.0:
-                scale: float = simulate_tokenization_overhead * 0.10
-
-                interval: float = np.random.normal(
-                    loc = simulate_tokenization_overhead,
-                    scale = scale
-                )
-
-                self.log.debug(f'Simulating tokenization overhead for "{self.dataset_name()}" dataset with '
-                               f'interval={interval} (loc={simulate_tokenization_overhead}, scale={scale}')
-
-                num_increments: int = 10
-                interval_increment: float = interval / num_increments
-
-                self._tokenize_start: float = time.time()
-                for i in range(num_increments):
-                    time.sleep(interval_increment)
-
-                    timeElapsed: float = time.time() - self._tokenize_start
-                    percentDone: float = timeElapsed / interval
-
-                    if percentDone >= 1.0:
-                        percentDone = 1.0
-
-                    self.log.debug('Tokenization of {} dataset: {:.2f}% complete.'.format(
-                        self.dataset_shortname(), percentDone*100))
-
-                self._tokenize_end: float = time.time()
-                self._tokenize_duration = self._tokenize_end - self._tokenize_start
+                self.__simulate_tokenization_overhead(simulate_tokenization_overhead = simulate_tokenization_overhead)
                 should_flip_recorded_overhead_flag = False
-
-                self.log.debug(f'Tokenization of the {self.name} dataset completed in {self._tokenize_duration} sec.')
 
             self.__load_tokenized_dataset_from_disk(should_flip_recorded_overhead_flag)
             return
@@ -206,6 +177,42 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_truncation=token_truncation,
             token_padding=token_padding,
         )
+
+    def __simulate_tokenization_overhead(self, simulate_tokenization_overhead = 0.0):
+        if simulate_tokenization_overhead <= 0.0:
+            return
+
+        scale: float = simulate_tokenization_overhead * 0.10
+
+        interval: float = np.random.normal(
+            loc = simulate_tokenization_overhead,
+            scale = scale
+        )
+
+        self.log.debug(f'Simulating tokenization overhead for "{self.dataset_name()}" dataset with '
+                       f'interval={interval} (loc={simulate_tokenization_overhead}, scale={scale}).')
+
+        num_increments: int = 10
+        interval_increment: float = interval / num_increments
+
+        self._tokenize_start: float = time.time()
+        for i in range(num_increments):
+            time.sleep(interval_increment)
+
+            timeElapsed: float = time.time() - self._tokenize_start
+            percentDone: float = timeElapsed / interval
+
+            if percentDone >= 1.0:
+                percentDone = 1.0
+
+            self.log.debug('Tokenization of {} dataset: {:.2f}% complete.'.format(
+                self.dataset_shortname(), percentDone*100))
+
+        self._tokenize_end: float = time.time()
+        self._tokenize_duration = self._tokenize_end - self._tokenize_start
+        should_flip_recorded_overhead_flag = False
+
+        self.log.debug(f'Tokenization of the {self.name} dataset completed in {self._tokenize_duration} sec.')
 
     def __load_tokenized_dataset_from_disk(self, should_flip_recorded_overhead_flag: bool = True):
         self.log.debug(f'The {self.name} dataset was already tokenized. Loading cached, tokenized {self.name} '
