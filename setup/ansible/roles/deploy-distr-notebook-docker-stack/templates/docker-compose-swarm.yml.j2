@@ -3,6 +3,9 @@ services:
     environment:
       - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
+      - "NUM_CLUSTER_GATEWAYS={{ gateway_num_shards }}"
+      - "GATEWAY_STARTING_PORT={{ gateway_provisioner_port }}"
+      - "_BASE_ADDRESS=gateway"
     image: {{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}:{{ jupyter_server_docker_image_tag }}
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
     networks:
