@@ -3522,6 +3522,26 @@ func (mr *MockHostMockRecorder) StartKernelReplica(ctx, in any, opts ...any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartKernelReplica", reflect.TypeOf((*MockHost)(nil).StartKernelReplica), varargs...)
 }
 
+// StartSyncLog mocks base method.
+func (m *MockHost) StartSyncLog(ctx context.Context, in *proto.ReplicaInfo, opts ...grpc.CallOption) (*proto.Void, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "StartSyncLog", varargs...)
+	ret0, _ := ret[0].(*proto.Void)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StartSyncLog indicates an expected call of StartSyncLog.
+func (mr *MockHostMockRecorder) StartSyncLog(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartSyncLog", reflect.TypeOf((*MockHost)(nil).StartSyncLog), varargs...)
+}
+
 // Stats mocks base method.
 func (m *MockHost) Stats() scheduling.HostStatistics {
 	m.ctrl.T.Helper()
@@ -5304,6 +5324,26 @@ func (mr *MockUnitTestingHostMockRecorder) StartKernelReplica(ctx, in any, opts 
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartKernelReplica", reflect.TypeOf((*MockUnitTestingHost)(nil).StartKernelReplica), varargs...)
+}
+
+// StartSyncLog mocks base method.
+func (m *MockUnitTestingHost) StartSyncLog(ctx context.Context, in *proto.ReplicaInfo, opts ...grpc.CallOption) (*proto.Void, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "StartSyncLog", varargs...)
+	ret0, _ := ret[0].(*proto.Void)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StartSyncLog indicates an expected call of StartSyncLog.
+func (mr *MockUnitTestingHostMockRecorder) StartSyncLog(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartSyncLog", reflect.TypeOf((*MockUnitTestingHost)(nil).StartSyncLog), varargs...)
 }
 
 // Stats mocks base method.

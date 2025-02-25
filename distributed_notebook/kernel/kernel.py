@@ -1279,14 +1279,15 @@ class DistributedKernel(IPythonKernel):
         try:
             self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
             self.log.info(f"Persistent store confirmed on start: {self.store}")
-            return True
         except Exception as ex:
             self.log.error(f'Failed to initialize persistent store with ID "{persistent_id}" because: {ex}')
             self.log.error(traceback.format_exc())
-
             return False
-        # finally:
-        #    faulthandler.dump_traceback(file=sys.stderr)
+
+        rsp = self.gen_simple_response()
+        future.set_result(rsp)
+        self.log.info("Persistent store confirmed: " + self.store)
+        return True
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""
@@ -1646,9 +1647,7 @@ class DistributedKernel(IPythonKernel):
             self.store = future
 
             # Execute code to get persistent id
-            await asyncio.ensure_future(
-                super().do_execute(code, True, store_history=False)
-            )
+            await asyncio.ensure_future(super().do_execute(code, True, store_history=False))
             self.log.info('Successfully executed initialization code: "%s"' % str(code))
             # Reset execution_count
             self.shell.execution_count = execution_count  # type: ignore
@@ -2436,7 +2435,7 @@ class DistributedKernel(IPythonKernel):
             "prewarm_container": True,
         }, True
 
-    async def __handle_start_synclog_request(self) -> Dict[str, str]:
+    async def __handle_start_synclog_request(self, parent) -> Dict[str, str]:
         if self.persistent_id is None or self.persistent_id == "":
             content = parent.get("content", {})
             self.persistent_id = content.get("persistent_id", "")
@@ -2453,7 +2452,14 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(f'Starting SyncLog. PersistentID="{self.persistent_id}"')
 
-        await self.init_persistent_store_with_persistent_id(self.persistent_id)
+        # Create future to avoid duplicate initialization
+        future: asyncio.Future = asyncio.Future(loop=asyncio.get_running_loop())
+        self.store = future
+        self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+
+        rsp = self.gen_simple_response()
+        future.set_result(rsp)
+        self.log.info("Persistent store confirmed: " + self.store)
 
         reply_content: Dict[str, str] = {"status": "ok"}
         return reply_content
@@ -2472,9 +2478,7 @@ class DistributedKernel(IPythonKernel):
         """
         self.log.debug("start_synclog_request: Starting SyncLog now.")
 
-
-
-        reply_content: Dict[str, str] = await self.__handle_start_synclog_request()
+        reply_content: Dict[str, str] = await self.__handle_start_synclog_request(parent)
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -2573,17 +2577,34 @@ class DistributedKernel(IPythonKernel):
         if self.prometheus_enabled:
             self.registration_time_milliseconds.observe(registration_duration)
 
-        self.log.info(f'Initializing Persistent Store with new Persistent ID: "{self.persistent_id}"')
+        # We use whatever is included in the prewarm request body rather than our instance variable (which we only
+        # use as a fall-back here), as we are a pre-warm container, and so the value of the 
+        # self.start_synclog_immediately instance variable does not reflect what we are supposed to do here.
+        #
+        # If we're being used as part of a migration, then we'll want to delay initializing the persistent store
+        # until we're explicitly told to do so.
+        start_synclog_immediately: bool = content.get("start_synclog_immediately", self.start_synclog_immediately)
 
-        # Create future to avoid duplicate initialization
-        self.store = asyncio.Future(loop=asyncio.get_running_loop())
-        self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+        if start_synclog_immediately:
+            self.log.info(f'Initializing Persistent Store with new Persistent ID: "{self.persistent_id}"')
+
+            # Create future to avoid duplicate initialization
+            future: asyncio.Future = asyncio.Future(loop=asyncio.get_running_loop())
+            self.store = future
+            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+
+            rsp = self.gen_simple_response()
+            future.set_result(rsp)
+            self.log.info("Persistent store confirmed: " + self.store)
+        else:
+            self.log.info(f'Waiting to start SyncLog until explicitly instructed to do so. '
+                          f'Persistent ID: "{self.persistent_id}"')
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "promote_prewarm_reply",
-            {"timestamp": time.time()},
+            {"timestamp": time.time(), "persistent_id": self.persistent_id},
             parent,
             metadata={},
             buffers=buffers,

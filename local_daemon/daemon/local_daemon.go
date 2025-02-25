@@ -1805,22 +1805,23 @@ func (d *LocalScheduler) StartSyncLog(_ context.Context, req *proto.ReplicaInfo)
 		return nil, types.ErrKernelNotFound
 	}
 
-	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypePrepareToMigrateRequest, kernel.Sessions()[0])
-	if err := frames.EncodeContent(&messaging.MessageSMRReady{
+	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypeStartSyncLogRequest, kernel.Sessions()[0])
+	if err := frames.EncodeContent(&messaging.MessageSMRReady{ // We just need to pass the persistent ID here.
 		PersistentID: req.PersistentId,
 	}); err != nil {
-		d.log.Error("↩ LocalScheduler::StartSyncLog: error encoding message: %v", err)
+		d.log.Error("↩ LocalScheduler::StartSyncLog: error encoding \"%s\" message: %v",
+			messaging.MessageTypeStartSyncLogRequest, err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
-		d.log.Error("↩ LocalScheduler::StartSyncLog: error while signing frames of request targeting replica %d of kernel %s: %v",
-			replicaId, kernelId, err)
+		d.log.Error("↩ LocalScheduler::StartSyncLog: error while signing frames of \"%s\" request targeting replica %d of kernel %s: %v",
+			messaging.MessageTypeStartSyncLogRequest, replicaId, kernelId, err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	d.log.Debug("LocalScheduler::StartSyncLog: sending req to replica %d of kernel \"%s\" now",
-		req.ReplicaId, req.KernelId)
+	d.log.Debug("LocalScheduler::StartSyncLog: sending \"%s\" request to replica %d of kernel \"%s\" now",
+		messaging.MessageTypeStartSyncLogRequest, req.ReplicaId, req.KernelId)
 
 	_msg := &zmq4.Msg{Frames: frames.Frames}
 	jMsg := messaging.NewJupyterMessage(_msg)
@@ -1829,19 +1830,19 @@ func (d *LocalScheduler) StartSyncLog(_ context.Context, req *proto.ReplicaInfo)
 	// var dataDirectory string
 
 	err := kernel.RequestWithHandler(context.Background(), "Sending", messaging.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
-		d.log.Debug("LocalScheduler::StartSyncLog: received response from replica %d of kernel \"%s\": %s",
-			req.ReplicaId, req.KernelId, msg.JupyterFrames.StringFormatted())
+		d.log.Debug("LocalScheduler::StartSyncLog: received \"%s\" response from replica %d of kernel \"%s\": %s",
+			msg.JupyterMessageType(), req.ReplicaId, req.KernelId, msg.JupyterFrames.StringFormatted())
 		return nil
 	}, requestWG.Done)
 	if err != nil {
-		d.log.Error("↩ LocalScheduler::StartSyncLog: Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v",
-			replicaId, kernelId, err)
+		d.log.Error("↩ LocalScheduler::StartSyncLog: Error occurred while issuing \"%s\" request to replica %d of kernel %s: %v",
+			messaging.MessageTypeStartSyncLogRequest, replicaId, kernelId, err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	requestWG.Wait()
-	d.log.Debug("↩ LocalScheduler::StartSyncLog: request to replica %d of kernel %s succeeded.",
-		replicaId, kernelId)
+	d.log.Debug("↩ LocalScheduler::StartSyncLog: \"%s\" request targeting replica %d of kernel %s succeeded.",
+		messaging.MessageTypeStartSyncLogRequest, replicaId, kernelId)
 
 	return proto.VOID, nil
 }
@@ -2262,6 +2263,10 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	// from configuration files that are populated by the KernelInvoker.
 	content["kernel_id"] = kernelReplicaSpec.Kernel.Id
 	content["distributed_kernel_config"] = distributedKernelConfig
+
+	// If this is for a migration, then we do not want the container to immediately initialize
+	// its persistent store. We want it to wait until it is explicitly instructed to do so.
+	content["start_synclog_immediately"] = !in.ForMigration
 
 	err = frames.EncodeContent(&content)
 	if err != nil {

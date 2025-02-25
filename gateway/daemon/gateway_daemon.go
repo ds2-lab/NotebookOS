@@ -3442,6 +3442,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 			targetNodeIdForLogging = resp.NewNodeId
 		} else if targetNodeId != "" {
 			targetNodeIdForLogging = targetNodeId
+		} else {
+			targetNodeId = in.GetTargetNodeId()
 		}
 
 		if reason != nil { // simply couldn't migrate the container, presumably due to insufficient resources available

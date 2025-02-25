@@ -50,7 +50,7 @@ func newKernelMigrator(kernelProvider KernelProvider, scheduler clusterScheduler
 	return &kernelMigrator{
 		kernelProvider:                        kernelProvider,
 		scheduler:                             scheduler,
-		log:                                   config.GetLogger("kernelMigrator "),
+		log:                                   config.GetLogger("KernelMigrator "),
 		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
 		smrPort:                               smrPort,
@@ -358,7 +358,7 @@ func (km *kernelMigrator) performContainerAndKernelReplicaSwap(kernel scheduling
 
 // issueStartSyncLogRequest instruct the newly-created scheduling.KernelReplica to start its SyncLog/RaftLog.
 func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.KernelReplica, persistentId string) error {
-	km.log.Debug("issueStartSyncLogRequest: instructing new replica %d of kernel \"%s\" to start its SyncLog.",
+	km.log.Debug("↪ issueStartSyncLogRequest: instructing new replica %d of kernel \"%s\" to start its SyncLog.",
 		targetReplica.ReplicaID(), targetReplica.ID())
 
 	host := targetReplica.Host()
@@ -374,9 +374,12 @@ func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.Kern
 	})
 
 	if err != nil {
-		km.log.Error("issueStartSyncLogRequest: error response from StartSyncLog: %v", err)
+		km.log.Error("↩ issueStartSyncLogRequest: error response from StartSyncLog: %v", err)
 		return err
 	}
+
+	km.log.Debug("↩ issueStartSyncLogRequest: successfully instructed new replica %d of kernel \"%s\" to start its SyncLog.",
+		targetReplica.ReplicaID(), targetReplica.ID())
 
 	return nil
 }
@@ -869,6 +872,11 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 			ForTraining:      forTraining,
 			ForMigration:     true,
 		}
+
+		//
+		// Create and place the new kernel replica on a host.
+		// This is what actually causes the new container to be created.
+		//
 		err := km.scheduler.ScheduleKernelReplica(ctx, args)
 
 		if err != nil {
@@ -1030,7 +1038,7 @@ func (km *kernelMigrator) GetAddReplicaOperationManager() hashmap.HashMap[string
 // readyReplica is one of the other replicas of the kernel.
 func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.KernelReplica, targetReplicaId int32, newAddress string) error {
 	km.log.Info("Issuing 'update-replica' request to replica %d of kernel %s for replica %s, newAddr = %s.",
-		readyReplica.ID(), readyReplica.ReplicaID(), targetReplicaId, newAddress)
+		readyReplica.ReplicaID(), readyReplica.ID(), targetReplicaId, newAddress)
 
 	if !readyReplica.IsReady() {
 		panic(fmt.Sprintf("Selected non-ready replica %d of kernel %s to be target of 'update-replica' request...",
@@ -1057,7 +1065,7 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", targetReplicaId, readyReplica.ID()))
 	}
 
-	km.log.Debug("Successfully updated peer address of replica %s of kernel %s to %s.", targetReplicaId, readyReplica.ID(), newAddress)
+	km.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.", targetReplicaId, readyReplica.ID(), newAddress)
 
 	return nil
 }
