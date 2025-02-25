@@ -49,6 +49,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             batch_size=16,
             aws_region: str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
+            force_s3_download:bool = True,
             **kwargs
     ):
         assert model_name is not None and model_name != ""
@@ -87,6 +88,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_padding=token_padding,
             aws_region=aws_region,
             s3_bucket_name=s3_bucket_name,
+            force_s3_download=force_s3_download,
         )
 
         # Create the DataLoader for our training set
@@ -147,6 +149,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_padding: str = "max_length",
             aws_region:str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
+            force_s3_download:bool = False,
     ):
         if not self._dataset_already_tokenized:
             self.__tokenize_dataset(
@@ -158,6 +161,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
                 token_padding=token_padding,
                 aws_region=aws_region,
                 s3_bucket_name=s3_bucket_name,
+                force_s3_download=force_s3_download,
             )
         else:
             self.__load_tokenized_dataset_from_disk()
@@ -183,8 +187,9 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_padding: str = "max_length",
             aws_region:str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
+            force_s3_download:bool = False,
     ):
-        if not torch.cuda.is_available():
+        if force_s3_download or not torch.cuda.is_available():
             self.__retrieve_tokenized_dataset_from_s3(
                 aws_region=aws_region,
                 s3_bucket_name=s3_bucket_name,
