@@ -9,7 +9,7 @@ from grpc.aio import AioRpcError
 from jupyter_client.connect import KernelConnectionInfo
 from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
 from traitlets.config import Unicode
-from uhashring import HashRing
+# from uhashring import HashRing
 
 from .kernel_creation_error import KernelCreationError
 from ..gateway import gateway_pb2
@@ -35,7 +35,7 @@ class GatewayProvisioner(KernelProvisionerBase):
     gateway_grpc_port: int = DefaultGatewayGrpcPort
     gateway_base_address: str = DefaultGatewayBaseAddress
     gateway_nodes: list[str] = [f"{DefaultGatewayBaseAddress}:{DefaultGatewayGrpcPort}"]
-    gateway_hash_ring: Optional[HashRing] = None
+    # gateway_hash_ring: Optional[HashRing] = None
 
     # Our version of kernel_id
     _kernel_id: Union[str, Unicode] = Unicode(None, allow_none=True)
@@ -371,35 +371,35 @@ class GatewayProvisioner(KernelProvisionerBase):
         self.log.debug("Loading provisioner info: %s" % str(provisioner_info))
         self.gateway = provisioner_info['gateway']
 
-        if "NUM_CLUSTER_GATEWAYS" in os.environ:
-            self.num_gateways = int(os.environ["NUM_CLUSTER_GATEWAYS"])
-        else:
-            self.num_gateways = 1
-
-        assert self.num_gateways > 0
-        self.log.debug(f"Number of Cluster Gateways: {self.num_gateways}")
-
-        if "GATEWAY_GRPC_PORT" in os.environ:
-            self.gateway_grpc_port = int(os.environ["GATEWAY_GRPC_PORT"])
-        else:
-            self.gateway_grpc_port = DefaultGatewayGrpcPort
-
-        self.log.debug(f"Gateway starting port: {self.gateway_grpc_port}")
-
-        if "GATEWAY_BASE_ADDRESS" in os.environ:
-            self.gateway_base_address = os.environ["_BASE_ADDRESS"]
-        else:
-            self.gateway_base_address = DefaultGatewayBaseAddress
-
-        self.log.debug(f'Gateway base address: "{self.gateway_base_address}"')
-
-        if self.num_gateways > 1:
-            self.gateway_nodes: list[str] = [f"{self.gateway_base_address}-{idx}:{self.gateway_grpc_port}" for idx in
-                                             range(1, self.num_gateways + 1)]
-            self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
-        else:
-            self.gateway_nodes: list[str] = [f"{self.gateway_base_address}:{self.gateway_grpc_port}"]
-            self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
+        # if "NUM_CLUSTER_GATEWAYS" in os.environ:
+        #     self.num_gateways = int(os.environ["NUM_CLUSTER_GATEWAYS"])
+        # else:
+        #     self.num_gateways = 1
+        #
+        # assert self.num_gateways > 0
+        # self.log.debug(f"Number of Cluster Gateways: {self.num_gateways}")
+        #
+        # if "GATEWAY_GRPC_PORT" in os.environ:
+        #     self.gateway_grpc_port = int(os.environ["GATEWAY_GRPC_PORT"])
+        # else:
+        #     self.gateway_grpc_port = DefaultGatewayGrpcPort
+        #
+        # self.log.debug(f"Gateway starting port: {self.gateway_grpc_port}")
+        #
+        # if "GATEWAY_BASE_ADDRESS" in os.environ:
+        #     self.gateway_base_address = os.environ["_BASE_ADDRESS"]
+        # else:
+        #     self.gateway_base_address = DefaultGatewayBaseAddress
+        #
+        # self.log.debug(f'Gateway base address: "{self.gateway_base_address}"')
+        #
+        # if self.num_gateways > 1:
+        #     self.gateway_nodes: list[str] = [f"{self.gateway_base_address}-{idx}:{self.gateway_grpc_port}" for idx in
+        #                                      range(1, self.num_gateways + 1)]
+        #     self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
+        # else:
+        #     self.gateway_nodes: list[str] = [f"{self.gateway_base_address}:{self.gateway_grpc_port}"]
+        #     self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
 
     def get_shutdown_wait_time(self, recommended: Optional[float] = 5.0) -> float:
         """
@@ -421,15 +421,15 @@ class GatewayProvisioner(KernelProvisionerBase):
         if self._kernel_id is None or self._kernel_id == "":
             raise ValueError("Cannot get stub without valid kernel id")
 
-        if self.gateway_hash_ring is None:
-            raise ValueError("HashRing of Gateway nodes has not yet been initialized")
+        # if self.gateway_hash_ring is None:
+        #     raise ValueError("HashRing of Gateway nodes has not yet been initialized")
 
         if self.gatewayChannel is None:
-            gateway_addr: str = self.gateway_hash_ring[self._kernel_id]
+            # gateway_addr: str = self.gateway_hash_ring[self._kernel_id]
+            #
+            # self.log.debug(f'Creating GatewayChannel now for kernel "{self._kernel_id}": "{gateway_addr}"')
 
-            self.log.debug(f'Creating GatewayChannel now for kernel "{self._kernel_id}": "{gateway_addr}"')
-
-            self.gatewayChannel: aio.Channel = aio.insecure_channel(gateway_addr)
+            self.gatewayChannel: aio.Channel = aio.insecure_channel(self.gateway)
             self.gatewayStub = LocalGatewayStub(self.gatewayChannel)
 
         return self.gatewayStub
