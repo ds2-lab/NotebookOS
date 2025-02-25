@@ -5,15 +5,19 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -232,4 +236,84 @@ func (km *Manager) heartbeatHandler(kernel scheduling.Kernel, socketTyp messagin
 	}
 
 	return kernel.RequestWithHandler(context.Background(), forwarding, socketTyp, msg, km.forwardResponseFromKernel, nil)
+}
+
+func (km *Manager) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+// GetKernelStatus returns the status of a paritcular kernel as specified in the proto.KernelId parameter.
+func (km *Manager) GetKernelStatus(ctx context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
+	kernel, ok := km.kernels.Load(in.Id)
+	if !ok {
+		km.log.Warn("GetKernelStatus: unknown kernel \"%s\". Returning KernelStatusExited (%v).",
+			in.Id, jupyter.KernelStatusExited)
+
+		return km.statusErrorf(jupyter.KernelStatusExited, nil)
+	}
+
+	kernelStatus := kernel.Status()
+
+	return km.statusErrorf(kernelStatus, nil)
+}
+
+func (km *Manager) KillKernel(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) StopKernel(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) SmrNodeAdded(ctx context.Context, in *proto.ReplicaInfo) (*proto.Void, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func errorf(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	_, ok := status.FromError(err)
+	if ok {
+		return err
+	}
+
+	return status.Errorf(codes.Internal, err.Error())
+}
+
+func statusErrorf(status jupyter.KernelStatus, err error) (*proto.KernelStatus, error) {
+	if err != nil {
+		return nil, errorf(err)
+	}
+	return &proto.KernelStatus{Status: int32(status)}, nil
 }

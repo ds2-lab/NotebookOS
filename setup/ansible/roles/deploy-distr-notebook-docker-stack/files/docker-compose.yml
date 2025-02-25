@@ -323,17 +323,25 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
+    ports:
+      - "7126:7126"  # Expose the new port
     command:
       - "-port=7126"
     networks:
       - traefik-public
       - distributed_cluster_default
-
+    healthcheck:
+      test: "['CMD', 'wget', '--spider', 'http://localhost:7126/healthz']"
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   coredumps_volume:
   prometheus_data:
+    driver: local
   grafana_data:
+    driver: local
   loki_data:
   redis_data:
 

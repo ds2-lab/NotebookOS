@@ -3,61 +3,54 @@ import boto3
 # This assumes you've named the "main" VM "Jupyter NaaS Leader"
 # and each of the followers is named "Jupyter Jupyer Follower " (or at least prefixed with that string).
 
-def get_jupyter_naas_public_ips(name_filter_value:str = ""):
+def get_jupyter_naas_ips(name_filter_value:str = "", tag_filters: list[dict[str, str|list[str]]]|dict[str, str|list[str]] = [], public: bool = True):
     # Initialize a session using Boto3
-    ec2 = boto3.client('ec2', region_name = 'us-east-1')
+    ec2 = boto3.client('ec2', region_name = 'us-east-1', )
+
+    filters=[
+        {'Name': 'instance-state-name', 'Values': ['running']}
+    ]
+
+    if name_filter_value is not None and name_filter_value != "":
+        filters.append({'Name': 'tag:Name', 'Values': [name_filter_value]}) # Prefix-based
+
+    if isinstance(tag_filters, dict):
+        tag_filters = [tag_filters]
+
+    for tag_filter in tag_filters:
+        for k, v in tag_filter.items():
+            if isinstance(v, list):
+                filters.append({'Name': k, 'Values': v})
+            else:
+                filters.append({'Name': k, 'Values': [v]})
 
     # Describe EC2 instances
-    response = ec2.describe_instances(
-        Filters=[
-            {'Name': 'tag:Name', 'Values': [name_filter_value]},  # Prefix-based search
-            {'Name': 'instance-state-name', 'Values': ['running']}
-        ]
-    )
+    response = ec2.describe_instances(Filters=filters)
 
-    public_ips = []
+    key: str = "PublicIpAddress"
+    if not public:
+        key = "PrivateIpAddress"
+
+    ips = []
 
     # Parse the response for public IPv4 addresses
     for reservation in response['Reservations']:
         for instance in reservation['Instances']:
             if instance.get('State', {}).get('Name') == 'running':
-                public_ip_address = instance.get('PublicIpAddress')
-                if public_ip_address:
-                    public_ips.append(public_ip_address)
+                # print(instance)
+                ip_address = instance.get(key)
+                if ip_address:
+                    ips.append(ip_address)
 
-    return public_ips
+    return ips
 
-def get_jupyter_naas_private_ips(name_filter_value:str = ""):
-    # Initialize a session using Boto3
-    ec2 = boto3.client('ec2', region_name = 'us-east-1')
+follower_private_ips = get_jupyter_naas_ips(public=False, tag_filters = [{"tag:swarm": "follower"}])
+dn_private_ips = get_jupyter_naas_ips(public=False, tag_filters = [{"tag:swarm": "follower"}])
+leader_private_ip = get_jupyter_naas_ips(public=False, name_filter_value = 'Jupyter NaaS Leader')[0]
 
-    # Describe EC2 instances
-    response = ec2.describe_instances(
-        Filters=[
-            {'Name': 'tag:Name', 'Values': [name_filter_value]},  # Prefix-based search
-            {'Name': 'instance-state-name', 'Values': ['running']}
-        ]
-    )
-
-    private_ips = []
-
-    # Parse the response for public IPv4 addresses
-    for reservation in response['Reservations']:
-        for instance in reservation['Instances']:
-            if instance.get('State', {}).get('Name') == 'running':
-                private_ip_address = instance.get('PrivateIpAddress')
-                if private_ip_address:
-                    private_ips.append(private_ip_address)
-
-    return private_ips
-
-follower_private_ips = get_jupyter_naas_private_ips(name_filter_value = 'Jupyer Follower *')
-dn_private_ips = get_jupyter_naas_private_ips(name_filter_value = 'Jupyer Follower *(DN*')
-leader_private_ip = get_jupyter_naas_private_ips(name_filter_value = 'Jupyter NaaS Leader')[0]
-
-follower_public_ips = get_jupyter_naas_public_ips(name_filter_value = 'Jupyer Follower *')
-dn_public_ips = get_jupyter_naas_public_ips(name_filter_value = 'Jupyer Follower *(DN*')
-leader_public_ip = get_jupyter_naas_public_ips(name_filter_value = 'Jupyter NaaS Leader')[0]
+follower_public_ips = get_jupyter_naas_ips(public=True, tag_filters = [{"tag:swarm": "follower"}])
+dn_public_ips = get_jupyter_naas_ips(public=True, tag_filters = [{"tag:swarm": "follower"}])
+leader_public_ip = get_jupyter_naas_ips(public=True, name_filter_value = 'Jupyter NaaS Leader')[0]
 
 print("[vms]")
 print(f"vm0 ansible_host={leader_public_ip} private_ip={leader_private_ip} ansible_user=ubuntu")
