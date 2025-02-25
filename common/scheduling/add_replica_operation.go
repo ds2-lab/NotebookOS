@@ -26,9 +26,10 @@ type AddReplicaWaitOptions interface {
 type AddReplicaOperation struct {
 	createdAt time.Time // createdAt is the time at which the AddReplicaOperation struct was created.
 
-	client   Kernel                               // distributedKernelClientImpl of the kernel for which we're migrating a replica.
-	metadata hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
-	spec     *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
+	client            Kernel                               // distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	metadata          hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
+	spec              *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
+	NewlyAddedReplica KernelReplica                        // NewlyAddedReplica is the new replica created during the add/migrate op.
 
 	podOrContainerStartedChannel chan string   // Used to notify that the new Pod has started.
 	replicaRegisteredChannel     chan struct{} // Used to notify that the new replica has registered with the Gateway.
@@ -201,12 +202,13 @@ func (op *AddReplicaOperation) ReplicaRegistered() bool {
 // SetReplicaRegistered Records that the new replica for this migration operation has registered with the Gateway.
 // Will return an error if we've already recorded that the new replica has registered.
 // This also sends a notification on the replicaRegisteredChannel.
-func (op *AddReplicaOperation) SetReplicaRegistered() error {
+func (op *AddReplicaOperation) SetReplicaRegistered(replica KernelReplica) error {
 	if op.replicaRegistered {
 		return fmt.Errorf("replica has already registered for AddReplicaOperation \"%s\"", op.OperationID())
 	}
 
 	op.replicaRegistered = true
+	op.NewlyAddedReplica = replica
 	op.replicaRegisteredChannel <- struct{}{} // KernelID isn't needed.
 
 	return nil

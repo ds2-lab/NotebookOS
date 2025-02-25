@@ -2,10 +2,12 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"golang.org/x/net/context"
 	"math/rand"
 	"slices"
 )
@@ -14,8 +16,8 @@ type StaticPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+func NewStaticPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*StaticPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +37,16 @@ func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
 	}
 
 	return policy, nil
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *StaticPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
 }
 
 func (p *StaticPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
@@ -75,7 +87,7 @@ func (p *StaticPolicy) SmrEnabled() bool {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticMultiIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticMultiIndex), nil
+	return placer.NewBasicPlacerWithSpecificIndex[*index.LeastLoadedIndex](metricsProvider, p.NumReplicas(), p, index.NewLeastLoadedIndexWrapper), nil
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
@@ -88,6 +100,17 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 	targetReplicaId := int32(rand.Intn(kernel.Size()) + 1 /* IDs start at 1.  */)
 
 	return kernel.GetReplicaByID(targetReplicaId)
+}
+
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *StaticPolicy) RequirePrewarmContainer() bool {
+	return false
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *StaticPolicy) PrioritizePrewarmContainers() bool {
+	return false
 }
 
 // FindReadyReplica (optionally) selects a KernelReplica of the specified kernel to be

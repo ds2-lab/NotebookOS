@@ -18,6 +18,10 @@ const (
 
 type DeploymentMode string
 
+func (d DeploymentMode) IsDockerMode() bool {
+	return d == DockerComposeMode || d == DockerSwarmMode
+}
+
 func (d DeploymentMode) String() string {
 	return string(d)
 }

@@ -632,12 +632,15 @@ service LocalGateway {
   // SetClose request the gateway to close all kernels and stop.
   rpc SetClose(Void) returns (Void) {}
 
-  // Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+  // AddReplica instructs a set of kernel replicas to add a new node to their SMR cluster.
   rpc AddReplica(ReplicaInfoWithAddr) returns (Void) {}
 
-  // Used to instruct a set of kernel replicas to update the peer address of a particular node.
+  // UpdateReplicaAddr instructs a set of kernel replicas to update the peer address of a particular node.
   // This is primarily used during migrations.
   rpc UpdateReplicaAddr(ReplicaInfoWithAddr) returns (Void) {}
+
+  // StartSyncLog instructs the LocalGateway to send a "start_synclog_request" message to the specified kernel replica.
+  rpc StartSyncLog(ReplicaInfo) returns (Void) {}
 
   // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
   // This involves writing the contents of the etcd-raft data directory to remote storage so that
@@ -693,6 +696,7 @@ message LocalDaemonInfo {
 message PrewarmedKernelReplicaSpec {
   KernelReplicaSpec kernelReplicaSpec = 1;
   string prewarmedContainerId = 2;
+  bool forMigration = 3;
 }
 
 // ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.
@@ -807,6 +811,7 @@ message KernelReplicaSpec {
   int32 dockerModeKernelDebugPort = 7;
   string workloadId = 8;
   bool prewarmContainer = 9;
+  optional bool forMigration = 10;
 }
 
 message ResourceSpec {
@@ -837,6 +842,7 @@ message MigrationRequest {
   ReplicaInfo targetReplica = 1;
   bool forTraining = 2;
   optional string targetNodeId = 3;
+  bool canCreateNewHost = 4;
 }
 
 message SmrReadyNotification {

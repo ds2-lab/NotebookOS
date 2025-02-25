@@ -271,6 +271,14 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 }
 
 func (c *BaseCluster) initRatioUpdater() {
+	skipValidateCapacity := false
+
+	schedulingPolicy := c.Scheduler().Policy()
+	scalingPolicy := schedulingPolicy.ResourceScalingPolicy()
+	if !scalingPolicy.ScalingInEnabled() && !scalingPolicy.ScalingOutEnabled() && !schedulingPolicy.SupportsPredictiveAutoscaling() {
+		skipValidateCapacity = true
+	}
+
 	go func() {
 		c.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", c.validateCapacityInterval)
 
@@ -278,7 +286,7 @@ func (c *BaseCluster) initRatioUpdater() {
 		time.Sleep(c.validateCapacityInterval)
 
 		for !c.closed.Load() {
-			c.scheduler.UpdateRatio(false)
+			c.scheduler.UpdateRatio(skipValidateCapacity)
 			time.Sleep(c.validateCapacityInterval)
 		}
 	}()
@@ -437,29 +445,30 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 
 // UpdateIndex updates the ClusterIndex that contains the specified host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
-	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
-	if categoryMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
-	}
+	//categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
+	//if categoryMetadata == nil {
+	//	return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
+	//		host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
+	//}
+	//
+	//keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	//if keyMetadata == nil {
+	//	return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
+	//		host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+	//}
+	//
+	//key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
+	//clusterIndex, loaded := c.indexes.Load(key)
+	//
+	//if !loaded || clusterIndex == nil {
+	//	return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
+	//		categoryMetadata, keyMetadata.(string))
+	//}
+	//
+	//c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
+	//clusterIndex.Update(host)
 
-	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
-	if keyMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
-	}
-
-	key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
-	clusterIndex, loaded := c.indexes.Load(key)
-
-	if !loaded || clusterIndex == nil {
-		return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
-			categoryMetadata, keyMetadata.(string))
-	}
-
-	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
-	clusterIndex.Update(host)
-	return nil
+	return c.scheduler.UpdateIndex(host)
 }
 
 // unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,
@@ -551,6 +560,35 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 		}
 	}
+
+	// If we're outside the "initial connection" period, then we should provision the pre-warm containers on the host.
+	// If we're still within the "initial connection" period, then we skip this step here, because we'll trigger the
+	// creation of the pre-warm containers on the newly-connected hosts later, once they've all connected.
+	if !c.inInitialConnectionPeriod.Load() && host.Enabled() {
+		c.log.Debug("Provisioning initial pre-warm containers on new host, host %s.", host.GetNodeName())
+		go c.provisionInitialPrewarmContainersOnHost(host)
+	}
+}
+
+// provisionInitialPrewarmContainersOnHost is called when adding a new scheduling.Host after the conclusion of the
+// "initial connection" period.
+//
+// provisionInitialPrewarmContainersOnHost directs the BaseCluster's scheduling.ContainerPrewarmer to provision the
+// configured number of pre-warm containers on the new scheduling.Host.
+func (c *BaseCluster) provisionInitialPrewarmContainersOnHost(host scheduling.Host) {
+	prewarmer := c.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		return
+	}
+
+	numCreatedChan := make(chan int32, 1)
+	startTime := time.Now()
+
+	prewarmer.ProvisionInitialPrewarmContainersOnHost(host, numCreatedChan)
+
+	numCreated := <-numCreatedChan
+	c.log.Debug("Successfully provisioned %d initial pre-warm container(s) on new host %s in %v.",
+		numCreated, host.GetNodeName(), time.Since(startTime))
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
@@ -949,11 +987,6 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	}
 
 	numProvisioned := c.Len() - int(scaleOp.InitialScale)
-	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
-
-		})
-	}
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {

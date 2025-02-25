@@ -464,7 +464,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.numResendAttempts = DefaultNumResendAttempts
 	}
 
-	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
+	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -1109,6 +1109,8 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		RedisDatabase:                        d.RedisDatabase,
 		RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 		DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
+		LocalSchedulerNodeName:               d.nodeName,
+		ForMigration:                         kernelReplicaSpec.GetForMigration(),
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1684,11 +1686,11 @@ func (d *LocalScheduler) PingKernel(_ context.Context, _ *proto.PingInstruction)
 func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
-	d.log.Debug("Preparing to migrate replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
+	d.log.Debug("↪ LocalScheduler::PrepareToMigrate[KernelId=\"%s\",ReplicaId=%d]", kernelId, replicaId)
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
+		d.log.Error("↩ LocalScheduler::PrepareToMigrate: Could not find KernelReplica for kernel %s.", kernelId)
 		return nil, types.ErrKernelNotFound
 	}
 
@@ -1697,12 +1699,13 @@ func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaI
 		NodeID:  replicaId,
 		Address: kernel.Address(),
 	}); err != nil {
-		d.log.Error("Failed to encode JupyterFrames for \"MessageSMRAddOrUpdateReplicaRequest\" message because: %v", err)
+		d.log.Error("↩ LocalScheduler::PrepareToMigrate: Failed to encode JupyterFrames for \"MessageSMRAddOrUpdateReplicaRequest\" message because: %v", err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
-		d.log.Error("Error occurred while signing frames for prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
+		d.log.Error("↩ LocalScheduler::PrepareToMigrate: Error occurred while signing frames for prepare-to-migrate request to replica %d of kernel %s: %v",
+			replicaId, kernelId, err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
@@ -1714,20 +1717,17 @@ func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaI
 	// var dataDirectory string
 
 	err := kernel.RequestWithHandler(context.Background(), "Sending", messaging.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
-		d.log.Debug("Received response from 'prepare-to-migrate' request.")
-
-		for i, frame := range msg.JupyterFrames.Frames {
-			d.log.Debug("Frame #%d: %s", i, string(frame))
-		}
+		d.log.Debug("LocalScheduler::PrepareToMigrate: received response from replica %d of kernel \"%s\": %s",
+			req.ReplicaId, req.KernelId, msg.JupyterFrames.StringFormatted())
 
 		var respMessage messaging.MessageDataDirectory
 		if err := msg.JupyterFrames.Validate(); err != nil {
-			d.log.Error("Failed to validate frames of `MessageDataDirectory` message: %v", err)
+			d.log.Error("↩ LocalScheduler::PrepareToMigrate: Failed to validate frames of `MessageDataDirectory` message: %v", err)
 			return err
 		}
 		err := msg.JupyterFrames.DecodeContent(&respMessage)
 		if err != nil {
-			d.log.Error("Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
+			d.log.Error("↩ LocalScheduler::PrepareToMigrate: Failed to decode Content frame of `MessageDataDirectory` message: %v", err)
 			return err
 		}
 
@@ -1736,7 +1736,7 @@ func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaI
 			err := msg.JupyterFrames.DecodeBuffers(&respMessage)
 
 			if err != nil {
-				d.log.Error("Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
+				d.log.Error("↩ LocalScheduler::PrepareToMigrate: Failed to decode Buffer frame of `MessageDataDirectory` message: %v", err)
 				return err
 			}
 		}
@@ -1746,25 +1746,29 @@ func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaI
 			var msgErr messaging.MessageError
 			err := msg.JupyterFrames.DecodeBuffers(&msgErr)
 			if err != nil {
-				d.log.Error("Failed to decode ErrorMessage from JupyterMessage content: %v", err)
+				d.log.Error("LocalScheduler::PrepareToMigrate: Failed to decode ErrorMessage from JupyterMessage content: %v", err)
 				return err
 			}
 
-			d.log.Error("Error encountered by kernel %s while it was preparing to migrate: %v", kernel.ID(), msgErr)
+			d.log.Error("↩ LocalScheduler::PrepareToMigrate: Error encountered by kernel %s while it was preparing to migrate: %v",
+				kernel.ID(), msgErr)
 			return fmt.Errorf("ErrPrepareToMigrateFailed (%s) -- %s: %s", msgErr.Status, msgErr.ErrName, msgErr.ErrValue)
 		} else {
-			d.log.Debug("Response from 'prepare-to-migrate' request: %s", respMessage.String())
+			d.log.Debug("LocalScheduler::PrepareToMigrate: Response from 'prepare-to-migrate' request: %s",
+				respMessage.String())
 		}
 
 		return nil
 	}, requestWG.Done)
 	if err != nil {
-		d.log.Error("Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v", replicaId, kernelId, err)
+		d.log.Error("↩ LocalScheduler::PrepareToMigrate: Error occurred while issuing prepare-to-migrate request to replica %d of kernel %s: %v",
+			replicaId, kernelId, err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	requestWG.Wait()
-	d.log.Debug("Prepare-to-migrate request to replica %d of kernel %s succeeded.", replicaId, kernelId)
+	d.log.Debug("↩ LocalScheduler::PrepareToMigrate: Prepare-to-migrate request to replica %d of kernel %s succeeded.",
+		replicaId, kernelId)
 
 	return &proto.PrepareToMigrateResponse{
 		Id:       replicaId,
@@ -1779,7 +1783,7 @@ func (d *LocalScheduler) YieldNextExecution(_ context.Context, in *proto.KernelI
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s specified in 'YieldNextExecution' request.", kernelId)
+		d.log.Error("Could not find KernelReplica for kernel %s specified in 'YieldNextExecution' request.", kernelId)
 		return proto.VOID, types.ErrKernelNotFound
 	}
 
@@ -1789,6 +1793,62 @@ func (d *LocalScheduler) YieldNextExecution(_ context.Context, in *proto.KernelI
 	return proto.VOID, nil
 }
 
+// StartSyncLog instructs the LocalScheduler to send a "start_synclog_request" message to the specified kernel replica.
+func (d *LocalScheduler) StartSyncLog(_ context.Context, req *proto.ReplicaInfo) (*proto.Void, error) {
+	kernelId := req.KernelId
+	replicaId := req.ReplicaId
+	d.log.Debug("↪ LocalScheduler::StartSyncLog[KernelId=\"%s\",ReplicaId=%d]", req.KernelId, req.ReplicaId)
+
+	kernel, ok := d.kernels.Load(kernelId)
+	if !ok {
+		d.log.Error("LocalScheduler::StartSyncLog: Could not find KernelReplica for kernel %s.", kernelId)
+		return nil, types.ErrKernelNotFound
+	}
+
+	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypeStartSyncLogRequest, kernel.Sessions()[0])
+	if err := frames.EncodeContent(&messaging.MessageSMRReady{ // We just need to pass the persistent ID here.
+		PersistentID: req.PersistentId,
+	}); err != nil {
+		d.log.Error("↩ LocalScheduler::StartSyncLog: error encoding \"%s\" message: %v",
+			messaging.MessageTypeStartSyncLogRequest, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	if _, err := frames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+		d.log.Error("↩ LocalScheduler::StartSyncLog: error while signing frames of \"%s\" request targeting replica %d of kernel %s: %v",
+			messaging.MessageTypeStartSyncLogRequest, replicaId, kernelId, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	d.log.Debug("LocalScheduler::StartSyncLog: sending \"%s\" request to replica %d of kernel \"%s\" now",
+		messaging.MessageTypeStartSyncLogRequest, req.ReplicaId, req.KernelId)
+
+	_msg := &zmq4.Msg{Frames: frames.Frames}
+	jMsg := messaging.NewJupyterMessage(_msg)
+	var requestWG sync.WaitGroup
+	requestWG.Add(1)
+	// var dataDirectory string
+
+	err := kernel.RequestWithHandler(context.Background(), "Sending", messaging.ControlMessage, jMsg, func(kernel scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+		d.log.Debug("LocalScheduler::StartSyncLog: received \"%s\" response from replica %d of kernel \"%s\": %s",
+			msg.JupyterMessageType(), req.ReplicaId, req.KernelId, msg.JupyterFrames.StringFormatted())
+		return nil
+	}, requestWG.Done)
+	if err != nil {
+		d.log.Error("↩ LocalScheduler::StartSyncLog: Error occurred while issuing \"%s\" request to replica %d of kernel %s: %v",
+			messaging.MessageTypeStartSyncLogRequest, replicaId, kernelId, err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	requestWG.Wait()
+	d.log.Debug("↩ LocalScheduler::StartSyncLog: \"%s\" request targeting replica %d of kernel %s succeeded.",
+		messaging.MessageTypeStartSyncLogRequest, replicaId, kernelId)
+
+	return proto.VOID, nil
+}
+
+// UpdateReplicaAddr instructs a set of kernel replicas to update the peer address of a particular node.
+// This is primarily used during migrations.
 func (d *LocalScheduler) UpdateReplicaAddr(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname // The new hostname of the replica.
@@ -1796,7 +1856,7 @@ func (d *LocalScheduler) UpdateReplicaAddr(_ context.Context, req *proto.Replica
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
+		d.log.Error("Could not find KernelReplica for kernel %s.", kernelId)
 		return proto.VOID, types.ErrKernelNotFound
 	}
 
@@ -1874,7 +1934,7 @@ func (d *LocalScheduler) AddReplica(_ context.Context, req *proto.ReplicaInfoWit
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		d.log.Error("Could not find BasicKernelReplicaClient for kernel %s.", kernelId)
+		d.log.Error("Could not find KernelReplica for kernel %s.", kernelId)
 		return proto.VOID, types.ErrKernelNotFound
 	}
 
@@ -2196,12 +2256,17 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 		SmrEnabled:                   d.schedulingPolicy.SmrEnabled(),
 		SimulateTrainingUsingSleep:   d.simulateTrainingUsingSleep,
 		PrewarmContainer:             false,
+		CreatedForMigration:          in.GetForMigration(),
 	}
 
 	// Pass in any information that the kernel would've normally received
 	// from configuration files that are populated by the KernelInvoker.
 	content["kernel_id"] = kernelReplicaSpec.Kernel.Id
 	content["distributed_kernel_config"] = distributedKernelConfig
+
+	// If this is for a migration, then we do not want the container to immediately initialize
+	// its persistent store. We want it to wait until it is explicitly instructed to do so.
+	content["start_synclog_immediately"] = !in.ForMigration
 
 	err = frames.EncodeContent(&content)
 	if err != nil {
@@ -2349,6 +2414,8 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 			RetrieveDatasetsFromS3:               d.localDaemonOptions.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:                     d.localDaemonOptions.DatasetsS3Bucket,
+			LocalSchedulerNodeName:               d.nodeName,
+			ForMigration:                         in.GetForMigration(),
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
@@ -2888,42 +2955,37 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	// If not, we'll change the message's header to "yield_request".
 	// If the message is an execute_request message, then we have some processing to do on it.
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest || msg.JupyterMessageType() == messaging.ShellYieldRequest {
-		d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
-			msg.JupyterMessageId(), kernel.ID())
-		resultChan := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
+		go func() {
+			err := d.handleExecuteRequest(msg, kernel)
 
-		// Wait for the result.
-		// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
-		res := <-resultChan
-
-		// Return the result as an error or nil if there was no error.
-		switch res.(type) {
-		case error:
-			return res.(error)
-		case struct{}:
-			return nil
-		}
-	} else { // Print a message about forwarding generic shell message.
-		d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s",
-			msg.JupyterFrames.Len(), kernel.ReplicaID(), kernel.ID(), msg)
-
-		// Extract the workload ID (which may or may not be included in the metadata of the request),
-		// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
-		metadataDict, err := msg.DecodeMetadata()
-		if err == nil {
-			if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
-				kernel.SetWorkloadId(workloadId.(string))
+			if err != nil {
+				d.log.Error("Error while handling \"execute_request\" message \"%s\": %v", msg.JupyterMessageId(), err)
 			}
-		} else {
-			d.log.Warn("Could not decode metadata dictionary of %s \"%s\" message %s (JupyterID=\"%s\").",
-				messaging.ShellMessage, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		}()
+
+		return nil
+	}
+
+	// Print a message about forwarding generic shell message.
+	d.log.Debug("Forwarding shell message with %d frames to replica %d of kernel %s: %s",
+		msg.JupyterFrames.Len(), kernel.ReplicaID(), kernel.ID(), msg)
+
+	// Extract the workload ID (which may or may not be included in the metadata of the request),
+	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
+	metadataDict, err := msg.DecodeMetadata()
+	if err == nil {
+		if workloadId, loaded := metadataDict["workload_id"]; loaded && !kernel.WorkloadIdSet() {
+			kernel.SetWorkloadId(workloadId.(string))
 		}
+	} else {
+		d.log.Warn("Could not decode metadata dictionary of %s \"%s\" message %s (JupyterID=\"%s\").",
+			messaging.ShellMessage, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
 	}
 
 	// IMPORTANT NOTE: The code below the if-else-statement above is NOT executed for "execute_request"
 	// messages. Those are enqueued and processed separately to avoid resource allocation issues.
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := kernel.RequestWithHandler(ctx, "Forwarding", messaging.ShellMessage, msg, d.kernelResponseForwarder, func() {
+	if err = kernel.RequestWithHandler(ctx, "Forwarding", messaging.ShellMessage, msg, d.kernelResponseForwarder, func() {
 		cancel()
 		d.log.Debug("Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling.",
 			msg.JupyterMessageType(), kernel.ReplicaID(), kernel.ID())
@@ -2932,6 +2994,63 @@ func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessa
 	}
 
 	return nil
+}
+
+func (d *LocalScheduler) handleExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) error {
+	d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
+		msg.JupyterMessageId(), kernel.ID())
+
+	resultChan, closeFlag, err := d.executeRequestForwarder.EnqueueRequest(msg, kernel, msg.JupyterMessageId())
+
+	if err != nil {
+		d.log.Error("Failed to enqueue \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*6)
+	defer cancel()
+
+	handleRes := func(res interface{}) error {
+		// Return the result as an error or nil if there was no error.
+		switch res.(type) {
+		case error:
+			d.log.Error("Received error result for \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), res.(error))
+			return res.(error)
+		default:
+			d.log.Debug("Received result for \"%s\" message \"%s\" targeting kernel \"%s\".",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
+			return nil
+		}
+	}
+
+	// Wait for the result.
+	// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
+	select {
+	case res := <-resultChan:
+		{
+			return handleRes(res)
+		}
+	case <-ctx.Done():
+		{
+			err := ctx.Err()
+			d.log.Error("Timed-out waiting for response to \"%s\" message \"%s\" targeting kernel \"%s\": %v.",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), err)
+
+			// Record that we're giving up, so if a result comes later, the execute request forwarder won't get
+			// stuck trying to send it over the channel when we're never going to be around to receive it.
+			if !closeFlag.CompareAndSwap(0, 1) {
+				d.log.Warn("Failed to flip ClosedFlag. There should be a result available now for \"%s\" message \"%s\" targeting kernel \"%s\".",
+					msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
+
+				res := <-resultChan
+				return handleRes(res)
+			}
+
+			return err
+		}
+	}
 }
 
 // processExecuteReply handles the logic of deallocating resources that have been committed to a kernel so that it could execute user-submitted code.
@@ -3116,9 +3235,9 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// This ensures that we send "execute_request" messages one-at-a-time.
 	// We wait until any pending "execute_request" messages receive an "execute_reply"
 	// response before we can forward this next "execute_request".
-	kernel.WaitForPendingExecuteRequests()
+	kernel.WaitForPendingExecuteRequests(msg.JupyterMessageId(), msg.JupyterMessageType())
 
-	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
+	d.log.Debug("[gid=%d] Processing `%s` for idle kernel %s now.", gid, msg.JupyterMessageType(), kernel.ID())
 
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_request" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
@@ -3126,8 +3245,8 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
 	targetReplicaId, requestMetadata, metadataDict, err := d.processExecuteRequestMetadata(msg, kernel)
 	if err != nil {
-		d.log.Error("Failed to process metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
-			msg.JupyterMessageId(), kernel.ID(), err)
+		d.log.Error("Failed to process metadata of \"%s\" \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), err)
 		return nil
 	}
 
@@ -3149,12 +3268,12 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 
 	gpuDeviceIds := requestMetadata.GpuDeviceIds
 	if gpuDeviceIds == nil {
-		d.log.Warn("No GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\"",
-			msg.JupyterMessageId(), kernel.ID())
+		d.log.Warn("No GPU device IDs in metadata of \"%s\" \"%s\" targeting kernel \"%s\"",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
 		gpuDeviceIds = make([]int, 0)
 	} else {
-		d.log.Debug("Found GPU device IDs in metadata of \"execute_request\" \"%s\" targeting kernel \"%s\": %v",
-			msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
+		d.log.Debug("Found GPU device IDs in metadata of \"%s\" \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), gpuDeviceIds)
 	}
 
 	metadataDict["gpu_device_ids"] = gpuDeviceIds
@@ -3193,7 +3312,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		// Convert the message to a yield request.
 		// We'll return this converted message, and it'll ultimately be forwarded to the kernel replica
 		// in place of the original 'execute_request' message.
-		msg, err = msg.CreateAndReturnYieldRequestMessage()
+		msg, err = msg.CreateAndReturnYieldRequestMessage(targetReplicaId)
 		if err != nil {
 			d.notifyClusterGatewayAndPanic("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
 				err.Error(), err)

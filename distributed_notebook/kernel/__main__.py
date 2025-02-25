@@ -20,7 +20,7 @@ root_logger.addHandler(handler)
 import faulthandler
 
 def main():
-    print("Driver process has started running.", flush = True)
+    print("DistributedKernel: main()", flush = True)
     faulthandler.enable()
     IPKernelApp.launch_instance(kernel_class=DistributedKernel)
 

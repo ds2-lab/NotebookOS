@@ -59,6 +59,7 @@ const (
 	VarSessionId         = "{session_id}"
 	VarDebugPort         = "{kernel_debug_port}"
 	VarAwsRegion         = "{aws_region}"
+	VarNodeName          = "{node_name}"
 	VarDeploymentMode    = "{deployment_mode}"
 	VarKernelDebugPyPort = "{kernel_debugpy_port}"
 	HostMountDir         = "{host_mount_dir}"
@@ -91,7 +92,7 @@ var (
 
 	// This version has debugpy.
 	// dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
-	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e DEPLOYMENT_MODE={deployment_mode} -e AWS_REGION={aws_region} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
+	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e DEPLOYMENT_MODE={deployment_mode} -e NODE_NAME={node_name} -e CONTAINER_NAME={container_name} -e AWS_REGION={aws_region} -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
 
 	// dockerShutdownCmd is used to shut down a running kernel container
 	dockerShutdownCmd = "docker stop {container_name}"
@@ -125,6 +126,9 @@ type DockerInvoker struct {
 
 	// containerName is the name of the launched container; this is the empty string before the container is launched.
 	containerName string
+
+	// localSchedulerNodeName is the name of the container in which the local scheduler is running
+	localSchedulerNodeName string
 
 	// dockerNetworkName is the name of the Docker network that the Local Daemon container is running within.
 	dockerNetworkName string
@@ -204,7 +208,8 @@ type DockerInvokerOptions struct {
 	// the DockerInvoker will be invoking.
 	AssignedGpuDeviceIds []int32
 
-	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof
+	// debug server.
 	KernelDebugPort int32
 
 	// PrometheusMetricsPort is the port that the container should serve prometheus metrics on.
@@ -246,7 +251,8 @@ type DockerInvokerOptions struct {
 	// then this option is ultimately ignored.
 	BindAllGpus bool
 
-	// SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	// SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch
+	// code or not.
 	SimulateTrainingUsingSleep bool
 
 	// BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
@@ -259,11 +265,21 @@ type DockerInvokerOptions struct {
 	// We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
 	BindGPUs bool
 
-	// RetrieveDatasetsFromS3 is a bool flag that, when true, instructs the KernelInvoker to configure the kernels to retrieve datasets from an S3 bucket.
+	// RetrieveDatasetsFromS3 is a bool flag that, when true, instructs the KernelInvoker to configure the kernels to
+	// retrieve datasets from an S3 bucket.
 	RetrieveDatasetsFromS3 bool
 
-	// DatasetsS3Bucket is the S3 bucket from which the kernels retrieve the datasets when RetrieveDatasetsFromS3 is set to true.
+	// DatasetsS3Bucket is the S3 bucket from which the kernels retrieve the datasets when RetrieveDatasetsFromS3 is
+	// set to true.
 	DatasetsS3Bucket string
+
+	// LocalSchedulerNodeName is the name of the container in which the local scheduler is running.
+	LocalSchedulerNodeName string
+
+	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
+	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
+	// existing KernelReplica.
+	ForMigration bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
@@ -305,8 +321,10 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 			simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
 			RetrieveDatasetsFromS3:               opts.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:                     opts.DatasetsS3Bucket,
+			CreatedForMigration:                  opts.ForMigration,
 		},
 		opts:                         opts,
+		localSchedulerNodeName:       opts.LocalSchedulerNodeName,
 		RunKernelsInGdb:              opts.RunKernelsInGdb,
 		tempBase:                     utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
 		hostMountDir:                 utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
@@ -327,6 +345,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
+	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarNodeName, invoker.localSchedulerNodeName)
 
 	if invoker.RunKernelsInGdb {
 		invoker.invokerCmd += " -e RUN_IN_GDB=1"
@@ -862,6 +881,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			PrewarmContainer:             spec.PrewarmContainer,
 			RetrieveDatasetsFromS3:       ivk.RetrieveDatasetsFromS3,
 			DatasetsS3Bucket:             ivk.DatasetsS3Bucket,
+			CreatedForMigration:          ivk.CreatedForMigration,
 		},
 	}
 	if spec.PersistentId != nil {

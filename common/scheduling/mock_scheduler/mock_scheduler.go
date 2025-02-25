@@ -10,8 +10,10 @@
 package mock_scheduler
 
 import (
+	context "context"
 	reflect "reflect"
 
+	proto "github.com/scusemua/distributed-notebook/common/proto"
 	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -195,6 +197,20 @@ func (mr *MockSchedulingPolicyMockRecorder) FindReadyReplica(kernel, executionId
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockSchedulingPolicy)(nil).FindReadyReplica), kernel, executionId)
 }
 
+// GetClusterProviderFunc mocks base method.
+func (m *MockSchedulingPolicy) GetClusterProviderFunc() scheduling.ClusterProvider {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterProviderFunc")
+	ret0, _ := ret[0].(scheduling.ClusterProvider)
+	return ret0
+}
+
+// GetClusterProviderFunc indicates an expected call of GetClusterProviderFunc.
+func (mr *MockSchedulingPolicyMockRecorder) GetClusterProviderFunc() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterProviderFunc", reflect.TypeOf((*MockSchedulingPolicy)(nil).GetClusterProviderFunc))
+}
+
 // GetGpusPerHost mocks base method.
 func (m *MockSchedulingPolicy) GetGpusPerHost() int {
 	m.ctrl.T.Helper()
@@ -222,6 +238,21 @@ func (m *MockSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.MetricsPr
 func (mr *MockSchedulingPolicyMockRecorder) GetNewPlacer(metricsProvider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNewPlacer", reflect.TypeOf((*MockSchedulingPolicy)(nil).GetNewPlacer), metricsProvider)
+}
+
+// HandleFailedAttemptToGetViableHosts mocks base method.
+func (m *MockSchedulingPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32, hosts []scheduling.Host) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HandleFailedAttemptToGetViableHosts", ctx, kernelSpec, numHosts, hosts)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HandleFailedAttemptToGetViableHosts indicates an expected call of HandleFailedAttemptToGetViableHosts.
+func (mr *MockSchedulingPolicyMockRecorder) HandleFailedAttemptToGetViableHosts(ctx, kernelSpec, numHosts, hosts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleFailedAttemptToGetViableHosts", reflect.TypeOf((*MockSchedulingPolicy)(nil).HandleFailedAttemptToGetViableHosts), ctx, kernelSpec, numHosts, hosts)
 }
 
 // IdleSessionReclamationPolicy mocks base method.
@@ -306,6 +337,34 @@ func (m *MockSchedulingPolicy) PreExecutionStatePolicy() scheduling.PreExecution
 func (mr *MockSchedulingPolicyMockRecorder) PreExecutionStatePolicy() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreExecutionStatePolicy", reflect.TypeOf((*MockSchedulingPolicy)(nil).PreExecutionStatePolicy))
+}
+
+// PrioritizePrewarmContainers mocks base method.
+func (m *MockSchedulingPolicy) PrioritizePrewarmContainers() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PrioritizePrewarmContainers")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// PrioritizePrewarmContainers indicates an expected call of PrioritizePrewarmContainers.
+func (mr *MockSchedulingPolicyMockRecorder) PrioritizePrewarmContainers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrioritizePrewarmContainers", reflect.TypeOf((*MockSchedulingPolicy)(nil).PrioritizePrewarmContainers))
+}
+
+// RequirePrewarmContainer mocks base method.
+func (m *MockSchedulingPolicy) RequirePrewarmContainer() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequirePrewarmContainer")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// RequirePrewarmContainer indicates an expected call of RequirePrewarmContainer.
+func (mr *MockSchedulingPolicyMockRecorder) RequirePrewarmContainer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequirePrewarmContainer", reflect.TypeOf((*MockSchedulingPolicy)(nil).RequirePrewarmContainer))
 }
 
 // ResourceBindingMode mocks base method.
@@ -445,4 +504,34 @@ func (m *MockSchedulingPolicy) ValidateCapacity(cluster scheduling.Cluster) {
 func (mr *MockSchedulingPolicyMockRecorder) ValidateCapacity(cluster any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateCapacity", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateCapacity), cluster)
+}
+
+// ValidateHostForKernel mocks base method.
+func (m *MockSchedulingPolicy) ValidateHostForKernel(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateHostForKernel", candidateHost, kernelSpec, forTraining)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateHostForKernel indicates an expected call of ValidateHostForKernel.
+func (mr *MockSchedulingPolicyMockRecorder) ValidateHostForKernel(candidateHost, kernelSpec, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostForKernel", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateHostForKernel), candidateHost, kernelSpec, forTraining)
+}
+
+// ValidateHostForReplica mocks base method.
+func (m *MockSchedulingPolicy) ValidateHostForReplica(candidateHost scheduling.Host, kernelReplicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateHostForReplica", candidateHost, kernelReplicaSpec, forTraining)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateHostForReplica indicates an expected call of ValidateHostForReplica.
+func (mr *MockSchedulingPolicyMockRecorder) ValidateHostForReplica(candidateHost, kernelReplicaSpec, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateHostForReplica", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateHostForReplica), candidateHost, kernelReplicaSpec, forTraining)
 }

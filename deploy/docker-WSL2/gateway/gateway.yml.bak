@@ -33,7 +33,7 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-scheduling-policy: middle-ground
+scheduling-policy: static
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.10
 scaling-interval: 15
@@ -57,28 +57,30 @@ num_resend_attempts: 1
 acks_enabled: false
 checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
-initial-cluster-size: 12
+initial-cluster-size: 3
 initial-connection-period: 20
-election_timeout_seconds: 3
+election_timeout_seconds: 4
 simulate_checkpointing_latency: true
-mean_scale_out_per_host_sec: 15
-std_dev_scale_out_per_host_sec: 2
-mean_scale_in_per_host_sec: 10
-std_dev_scale_in_per_host_sec: 1
+mean_scale_out_per_host_sec: 4
+std_dev_scale_out_per_host_sec: 1
+mean_scale_in_per_host_sec: 2
+std_dev_scale_in_per_host_sec: 0.75
 starting_resource_port: 9007
 num_resource_ports: 4096
 use_real_gpus: false
 assign_kernel_debug_ports: false
 submit_execute_requests_one_at_a_time: true
 idle_session_reclamation_enabled: true
-idle_session_reclamation_interval_sec: 90
+idle_session_reclamation_interval_sec: 60
 pretty_print_options: true
 prewarming_enabled: true
 initial_num_containers_per_host: 1
 min_prewarm_containers_per_host: 1
-max_prewarm_containers_per_host: 3
+max_prewarm_containers_per_host: -1
 littles_law_prewarmer_w: 25
 littles_law_prewarmer_lambda: 0.20
-# prewarming_policy: no_maintenance
+replenish_on_use: false
+dynamically_maintain_capacity: false
 prewarming_policy: maintain_minimum_capacity
+# prewarming_policy: no_maintenance
 # prewarming_policy: little_law_capacity

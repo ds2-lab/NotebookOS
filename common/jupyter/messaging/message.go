@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/logger"
-	"github.com/scusemua/distributed-notebook/common/jupyter"
-	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 
 	"github.com/go-zeromq/zmq4"
 	"github.com/scusemua/distributed-notebook/common/utils"
@@ -38,6 +39,10 @@ const (
 	WarningNotification NotificationType = 1
 	InfoNotification    NotificationType = 2
 	SuccessNotification NotificationType = 3
+
+	// TargetReplicaArg is passed within the metadata dict of an 'execute_request' ZMQ message.
+	// This indicates that a specific replica should execute the code.
+	TargetReplicaArg = "target_replica_id"
 
 	JavascriptISOString = "2006-01-02T15:04:05.999Z07:00"
 
@@ -495,7 +500,7 @@ type ExecuteRequestMetadata struct {
 	// TargetReplicaId is the SMR node ID of the replica of the kernel associated with this message (or more accurately,
 	// the kernel associated with the message in which this ExecuteRequestMetadata is contained) that should lead
 	// the execution of the code included in the "execute_request".
-	TargetReplicaId *int32 `json:"target_replica" mapstructure:"target_replica,omitempty"`
+	TargetReplicaId *int32 `json:"target_replica_id" mapstructure:"target_replica_id,omitempty"`
 
 	// WorkloadId is the identifier of the workload in which this code execution is taking place.
 	// Workloads are a construct of the workload orchestrator/cluster dashboard.
@@ -1069,9 +1074,10 @@ func (m *JupyterMessage) StringFormatted() string {
 //
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
-func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
-	// If the message is already a yield request, then just return a copy of it,
-	// as the expectation is that the returned message from this method will be a clone/copy.
+func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int32) (*JupyterMessage, error) {
+	// If the message is already a yield request, and we don't have a target replica ID to embed in the request's
+	// metadata, then just return a copy of it, as the expectation is that the returned message from this method
+	// will be a clone/copy.
 	if m.JupyterMessageType() == ShellYieldRequest {
 		return m.Clone(), nil
 	}
@@ -1081,7 +1087,7 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, 
 	}
 
 	// Clone the original message.
-	var newMessage = m.GetZmqMsg().Clone()
+	newMessage := m.GetZmqMsg().Clone()
 	jMsg := NewJupyterMessage(&newMessage)
 
 	// Change the message header.
@@ -1091,6 +1097,24 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, 
 	if err := jMsg.Validate(); err != nil {
 		// m.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
 		return nil, err
+	}
+
+	// Node IDs start at 1.
+	if targetReplicaId >= 1 {
+		metadataDict, err := m.DecodeMetadata()
+		if err != nil {
+			fmt.Printf("[WARNING] Failed to decode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\"). "+
+				"Cannot copy RequestTrace to metadata.\n", m.JupyterMessageType(), m.RequestId, m.JupyterMessageId())
+			metadataDict = make(map[string]interface{}) // Create a new metadata frame, I guess...
+		}
+
+		metadataDict[TargetReplicaArg] = targetReplicaId
+		err = jMsg.JupyterFrames.EncodeMetadata(metadataDict)
+		if err != nil {
+			fmt.Printf("[ERROR] Failed to encode metadata frame of \"%s\" message \"%s\" (JupyterID=\"%s\") after embedding RequestTrace in it: %v\n",
+				jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), err)
+			return nil, err
+		}
 	}
 
 	// Replace the header with the new header (that has the 'yield_request' MsgType).

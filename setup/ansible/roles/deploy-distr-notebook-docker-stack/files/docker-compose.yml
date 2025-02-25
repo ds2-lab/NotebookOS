@@ -307,7 +307,6 @@ services:
       - distributed_cluster_default
 
   cadvisor:
-    container_name: cadvisor
     image: gcr.io/cadvisor/cadvisor:latest
     labels:
       - "traefik.enable=true"

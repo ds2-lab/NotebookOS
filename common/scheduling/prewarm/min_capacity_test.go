@@ -143,7 +143,8 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 		}
 
 		prewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
-			PrewarmerConfig:               prewarm.NewPrewarmerConfig(initSize, maxSize, 0 /* Default of 5sec will be used */),
+			PrewarmerConfig: prewarm.NewPrewarmerConfig(
+				initSize, maxSize, 0 /* Default of 5sec will be used */),
 			MinPrewarmedContainersPerHost: minSize,
 		}
 
@@ -151,6 +152,15 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 	}
 
 	Context("Unit Tests", func() {
+		clusterProvider := func() scheduling.Cluster {
+			return mockCluster
+		}
+
+		AfterEach(func() {
+			if prewarmer != nil {
+				_ = prewarmer.Stop()
+			}
+		})
 
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
@@ -162,7 +172,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			Expect(clusterGatewayOptions.SchedulerOptions.PrewarmingEnabled).To(BeTrue())
 			Expect(clusterGatewayOptions.SchedulerOptions.PrewarmingPolicy).To(Equal(scheduling.MaintainMinCapacity.String()))
 
-			schedulingPolicy, err = policy.NewStaticPolicy(&clusterGatewayOptions.SchedulerOptions)
+			schedulingPolicy, err = policy.NewStaticPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.PolicyKey()).To(Equal(scheduling.Static))
@@ -284,7 +294,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 								blockStartReplicaWg.Wait()
 
-								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 								return connInfo, nil
 							})
 
@@ -299,7 +309,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(0))
 			}
@@ -318,7 +328,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -328,7 +338,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -341,7 +351,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				}
 
 				for _, host := range hosts {
-					curr, provisioning := prewarmer.HostLen(host)
+					curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 					if curr != (numHosts * initialCapacity) {
 						return false
 					}
@@ -354,8 +364,9 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				return true
 			}, time.Second*5, time.Millisecond*100).Should(BeTrue())
 
-			created := <-createdChan
-			target := <-targetChan
+			var created, target int32
+			Eventually(createdChan, time.Second*1, time.Millisecond*250).Should(Receive(&created))
+			Eventually(targetChan, time.Second*1, time.Millisecond*250).Should(Receive(&target))
 
 			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
 			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
@@ -403,7 +414,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 							Times(1).
 							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 								return connInfo, nil
 							})
 
@@ -461,7 +472,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 					Times(1).
 					DoAndReturn(
 						func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-							time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+							time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 							n := 128
 
 							startKernelWg.Wait()
@@ -501,7 +512,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
 				for i := 0; i < numHosts; i++ {
-					curr, prov := prewarmer.HostLen(hosts[i])
+					curr, prov := prewarmer.GetNumPrewarmContainersOnHost(hosts[i])
 
 					if curr != 1 {
 						return false
@@ -528,7 +539,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 			// Done provisioning.
 			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
 			}
@@ -547,7 +558,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 			container.OnPrewarmedContainerUsed()
 			Expect(prewarmer.Len()).To(Equal(3))
-			curr, prov := prewarmer.HostLen(hosts[1])
+			curr, prov := prewarmer.GetNumPrewarmContainersOnHost(hosts[1])
 			Expect(prov).To(Equal(0))
 			Expect(curr).To(Equal(1))
 
@@ -559,7 +570,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				Times(1).
 				DoAndReturn(
 					func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-						time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+						time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 						n := 128
 
 						startKernelWg.Wait()
@@ -589,7 +600,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
-				curr, prov := prewarmer.HostLen(hosts[1])
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(hosts[1])
 
 				if curr != 1 {
 					return false
@@ -615,7 +626,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 			// Done provisioning.
 			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
 			}
@@ -635,7 +646,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 				container.OnPrewarmedContainerUsed()
 				Expect(prewarmer.Len()).To(Equal(4 - (i + 1)))
-				curr, prov = prewarmer.HostLen(hosts[0])
+				curr, prov = prewarmer.GetNumPrewarmContainersOnHost(hosts[0])
 				Expect(prov).To(Equal(0))
 				Expect(curr).To(Equal(2 - (i + 1)))
 			}
@@ -648,7 +659,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				Times(2).
 				DoAndReturn(
 					func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-						time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+						time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 						n := 128
 
 						startKernelWg.Wait()
@@ -678,7 +689,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
-				curr, prov := prewarmer.HostLen(hosts[0])
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(hosts[0])
 
 				if curr != 0 {
 					return false
@@ -704,7 +715,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 
 			// Done provisioning.
 			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
 			}
@@ -762,7 +773,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 								Times(1).
 								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -830,7 +841,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 									GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
 										host.GetNodeName(), host.GetID())
 
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -855,6 +866,10 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			clusterGateway *daemon.ClusterGatewayImpl
 		)
 
+		clusterProvider := func() scheduling.Cluster {
+			return dockerCluster
+		}
+
 		BeforeEach(func() {
 			err := json.Unmarshal([]byte(gatewayStaticConfigJson), &clusterGatewayOptions)
 			GinkgoWriter.Printf("Error: %v\n", err)
@@ -876,7 +891,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			})
 
-			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions)
+			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
