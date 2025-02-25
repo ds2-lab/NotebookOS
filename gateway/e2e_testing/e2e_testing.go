@@ -128,7 +128,7 @@ var _ = Describe("End-to-End Tests", func() {
 		Expect(os.Getenv(invoker.DockerInvokerKernelConnInfoIp)).To(Equal(dockerInvokerKernelConnInfoIp))
 	})
 
-	Context("Scheduling Kernels", func() {
+	Context("Scheduling kernels", func() {
 		It("Will correctly schedule a kernel.", func() {
 			components := createComponents(3)
 			Expect(components).NotTo(BeNil())

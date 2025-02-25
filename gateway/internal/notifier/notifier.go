@@ -45,7 +45,7 @@ func (n *DashboardNotifier) NotifyDashboard(name string, content string, typ mes
 	})
 
 	if err != nil {
-		n.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+		n.log.Error("Failed to send notification to cluster Dashboard because: %s", err.Error())
 		n.log.Error("Notification name: %s", name)
 		n.log.Error("Notification message: %s", content)
 		n.log.Error("Notification type: %s", typ.String())

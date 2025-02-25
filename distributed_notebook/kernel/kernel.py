@@ -2131,7 +2131,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled:
             # Embed the election metadata if we've been configured to do so.
             current_election: Election = self.synchronizer.current_election
-            if self.include_election_metadata:
+            if current_election is not None and self.include_election_metadata:
                 metadata["election_metadata"] = current_election.get_election_metadata()
                 metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
                 metadata["election_metadata"]["leader_id"] = self.synclog.leader_id

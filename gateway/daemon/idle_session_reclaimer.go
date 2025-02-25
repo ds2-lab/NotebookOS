@@ -14,7 +14,7 @@ import (
 type IdleReclaimFunction func(kernel scheduling.Kernel, inSeparateGoroutine bool, noop bool) error
 
 type IdleSessionReclaimer struct {
-	// Kernels is a map from kernel and session IDs to Kernels.
+	// kernels is a map from kernel and session IDs to kernels.
 	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
 	kernels hashmap.HashMap[string, scheduling.Kernel]
 
@@ -135,7 +135,7 @@ func (r *IdleSessionReclaimer) reclaimKernels(kernelsToReclaim []scheduling.Kern
 		return
 	}
 
-	// We'll use multiple goroutines if there are 2 or more Kernels to remove.
+	// We'll use multiple goroutines if there are 2 or more kernels to remove.
 	workQueue := make(chan scheduling.Kernel, numKernelsToReclaim)
 	for _, kernel := range kernelsToReclaim {
 		workQueue <- kernel
@@ -185,7 +185,7 @@ func (r *IdleSessionReclaimer) run() {
 	var iteration atomic.Int64
 	iteration.Store(1)
 
-	// Keep running until the Cluster Gateway is stopped.
+	// Keep running until the cluster Gateway is stopped.
 	for r.closed.Load() == 0 {
 		startTime := time.Now()
 
@@ -202,7 +202,7 @@ func (r *IdleSessionReclaimer) run() {
 
 		// Sleep until we're supposed to run again.
 		//
-		// If the amount of time we spent checking if the Kernels are idle and reclaiming the idle Kernels
+		// If the amount of time we spent checking if the kernels are idle and reclaiming the idle kernels
 		// is greater than our frequency interval, then we will skip sleeping.
 		//
 		// Otherwise, we'll sleep for our frequencyInterval - timeElapsed.
@@ -213,8 +213,8 @@ func (r *IdleSessionReclaimer) run() {
 		// If, as another example, we spent 6,500ms checking + reclaiming, then we'll just skip the sleep and
 		// immediately check again.
 		//
-		// If we just check and find no idle Kernels, then the loop will be very quick. If we have to reclaim any
-		// idle Kernels, though, then it could take a lot longer. That's why we have this check.
+		// If we just check and find no idle kernels, then the loop will be very quick. If we have to reclaim any
+		// idle kernels, though, then it could take a lot longer. That's why we have this check.
 		timeElapsed := time.Since(startTime)
 		timeRemaining := frequency - timeElapsed
 		if timeRemaining > 0 {
@@ -229,14 +229,14 @@ func (r *IdleSessionReclaimer) run() {
 func (r *IdleSessionReclaimer) identifyIdleSessions() []scheduling.Kernel {
 	var kernelsToReclaim []scheduling.Kernel
 
-	// Keep track of which Kernels we've seen, as there may be duplicates in the Kernels map.
+	// Keep track of which kernels we've seen, as there may be duplicates in the kernels map.
 	kernelsSeen := make(map[string]scheduling.Kernel)
 
-	// This locks the Kernels map, so we'll just copy all the Kernels to this other map while
+	// This locks the kernels map, so we'll just copy all the kernels to this other map while
 	// also removing any duplicates.
 	r.kernels.Range(func(kernelId string, kernel scheduling.Kernel) (contd bool) {
 		// If we've already seen this kernel, then skip it.
-		// The Kernels map may have duplicate values, such as when multiple sessions map to the same kernel.
+		// The kernels map may have duplicate values, such as when multiple sessions map to the same kernel.
 		if _, loaded := kernelsSeen[kernel.ID()]; loaded {
 			return true
 		}
@@ -246,7 +246,7 @@ func (r *IdleSessionReclaimer) identifyIdleSessions() []scheduling.Kernel {
 		return true
 	})
 
-	// Now we can iterate without locking the Kernels map.
+	// Now we can iterate without locking the kernels map.
 	for kernelId, kernel := range kernelsSeen {
 		// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
 		if kernel.Status() != jupyter.KernelStatusRunning || kernel.IsIdleReclaimed() || !kernel.ReplicasAreScheduled() {
@@ -268,7 +268,7 @@ func (r *IdleSessionReclaimer) identifyIdleSessions() []scheduling.Kernel {
 			continue
 		}
 
-		// Check if the kernel is idle and, if it is, then add it to the slice of Kernels to be reclaimed.
+		// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
 		timeElapsedSinceLastTrainingSubmitted := time.Since(kernel.LastTrainingSubmittedAt())
 		timeElapsedSinceLastTrainingBegan := time.Since(kernel.LastTrainingStartedAt())
 		timeElapsedSinceLastTrainingEnded := time.Since(kernel.LastTrainingEndedAt())

@@ -120,11 +120,11 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
 	options.SchedulerOptions.ValidateClusterSchedulerOptions()
 
-	globalLogger.Debug("Cluster Gateway SchedulerOptions:\n%s", options.PrettyString(2))
+	globalLogger.Debug("cluster Gateway SchedulerOptions:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
-		globalLogger.Info("Initializing Cluster Gateway with options: %s", options.PrettyString(2))
+		globalLogger.Info("Initializing cluster Gateway with options: %s", options.PrettyString(2))
 
 		srv.SetClusterOptions(&options.SchedulerOptions)
 		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
@@ -134,9 +134,9 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
 	if err != nil {
-		log.Fatalf("Failed to listen with Distributed Cluster Service server: %v", err)
+		log.Fatalf("Failed to listen with Distributed cluster Service server: %v", err)
 	}
-	globalLogger.Info("Distributed Cluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
+	globalLogger.Info("Distributed cluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
 
 	// Listen on provisioner port
 	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
@@ -153,7 +153,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	registrar := grpc.NewServer(GetGrpcOptions("Jupyter gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterLocalGatewayServer(registrar, srv)
 
-	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed Cluster gRPC Server", tracer, distributedCluster)...)
+	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed cluster gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
@@ -214,7 +214,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Start distributed cluster gRPC server.
 	go func() {
-		defer finalize(true, "Distributed Cluster Server", distributedCluster)
+		defer finalize(true, "Distributed cluster Server", distributedCluster)
 		if serveErr := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
 			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), serveErr)
 
@@ -229,7 +229,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	// Start daemon
 	go func() {
-		defer finalize(true, "Cluster Gateway Daemon", distributedCluster)
+		defer finalize(true, "cluster Gateway Daemon", distributedCluster)
 		if serveErr := srv.Start(); serveErr != nil {
 			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), serveErr)
 

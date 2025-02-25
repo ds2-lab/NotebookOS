@@ -28,11 +28,11 @@ starting-resource-port: 9007
 num-resource-ports: 4096
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
-notebook-image-name: scusemua/jupyter-cpu:latest
+notebook-image-name: scusemua/jupyter-cpu-dev:latest
 notebook-image-tag: latest
 scheduler-http-port: 8078
 idle-session-reclamation-policy: none
-scheduling-policy: middle-ground
+scheduling-policy: static
 # scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72

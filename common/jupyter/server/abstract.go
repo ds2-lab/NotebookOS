@@ -582,7 +582,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					return
 				}
 			} else if err != nil {
-				s.Log.Error(utils.RedStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
 
 				// s.Log.Debug("[gid=%d] Will NOT abort serving for now.", goroutineId)
 				if contd != nil {
@@ -1425,7 +1425,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 		if handler != nil {
 			err := handler(info, msgType, msg)
 			if err != nil {
-				s.Log.Error(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
+				s.Log.Warn(utils.OrangeStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
 			}
 
 			_, err = request.SetComplete()

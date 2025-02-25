@@ -121,7 +121,7 @@ type DistributedClientProvider interface {
 	// GetBuilder() DistributedClientBuilder
 }
 
-// ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
+// ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook cluster.
 // This interface exists so that we can spoof it during unit tests.
 type ClusterGateway interface {
 	proto.ClusterGatewayServer
@@ -138,7 +138,7 @@ type ClusterGateway interface {
 	// GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
 	GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error)
 
-	// KubernetesMode returns true if we're running in a Kubernetes Cluster (rather than as a docker-compose application).
+	// KubernetesMode returns true if we're running in a Kubernetes cluster (rather than as a docker-compose application).
 	KubernetesMode() bool
 
 	// DockerMode returns true if we're running in "docker swarm" mode or "docker compose" mode.
@@ -236,7 +236,7 @@ type ClusterGatewayImpl struct {
 	kernelsStarting hashmap.HashMap[string, chan struct{}]
 
 	// kernelsWithReplicasBeingCreated is a map whose keys are kernel IDs.
-	// The entries in the kernelsWithReplicasBeingCreated map correspond to Kernels whose replicas are in the process
+	// The entries in the kernelsWithReplicasBeingCreated map correspond to kernels whose replicas are in the process
 	// of being created/scheduled. This is used to prevent multiple concurrent requests to schedule the kernel replicas
 	// and kernel replica containers of the same kernel.
 	// kernelsWithReplicasBeingCreated *hashmap.ThreadsafeCornelkMap[string, *kernelCreateContainers]
@@ -585,8 +585,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		panic(policyError)
 	}
 
-	// Note: we don't construct the scheduling.Cluster struct within the switch statement below.
-	// We construct the scheduling.Cluster struct immediately following the switch statement.
+	// Note: we don't construct the scheduling.cluster struct within the switch statement below.
+	// We construct the scheduling.cluster struct immediately following the switch statement.
 	var (
 		clusterPlacer scheduling.Placer
 		clusterType   cluster.Type
@@ -678,7 +678,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		panic(err)
 	}
 
-	// This is where we actually construct the scheduling.Cluster struct.
+	// This is where we actually construct the scheduling.cluster struct.
 	distributedNotebookCluster, err := cluster.NewBuilder(clusterType).
 		WithKubeClient(clusterGateway.kubeClient).
 		WithHostSpec(clusterGateway.hostSpec).
@@ -693,7 +693,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		BuildCluster()
 
 	if err != nil {
-		clusterGateway.log.Error("Failed to construct scheduling.Cluster: %v", err)
+		clusterGateway.log.Error("Failed to construct scheduling.cluster: %v", err)
 		panic(err)
 	}
 
@@ -806,7 +806,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		msg   zmq4.Msg
 		err   error
 	)
-	// frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.Sessions()[0])
+	// frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.sessions()[0])
 	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.ID())
 
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
@@ -815,18 +815,6 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		frames.Frames = append(frames.Frames, make([]byte, 0))
 
 		requestTrace = proto.NewRequestTrace(msgId, messageType, kernelId)
-
-		//startTimeUnixMilliseconds := in.CreatedAtTimestamp.AsTime().UnixMicro()
-		//endTimeUnixMilliseconds := receivedAt.UnixMicro()
-		//reqTrace.Traces = append(reqTrace.Traces, &proto.Trace{
-		//	Id:                   uuid.NewString(),
-		//	Name:                 "dashboard_to_gateway",
-		//	StartTimeUnixMicro:   startTimeUnixMilliseconds,
-		//	EndTimeUnixMicro:     endTimeUnixMilliseconds,
-		//	StartTimestamp:       in.CreatedAtTimestamp,
-		//	EndTimestamp:         timestamppb.New(time.UnixMicro(receivedAt.UnixMicro())),
-		//	DurationMicroseconds: endTimeUnixMilliseconds - startTimeUnixMilliseconds,
-		//})
 
 		// Then we'll populate the sort of metadata fields of the RequestTrace.
 		requestTrace.RequestReceivedByGateway = receivedAt.UnixMilli()
@@ -1115,13 +1103,13 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 		d.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).", registered.GetNodeName(), registered.GetID())
 		go d.notifier.NotifyDashboardOfInfo(
 			fmt.Sprintf("Local Daemon %s Reconnected", registered.GetNodeName()),
-			fmt.Sprintf("Local Daemon %s on node %s has reconnected to the Cluster Gateway.",
+			fmt.Sprintf("Local Daemon %s on node %s has reconnected to the cluster Gateway.",
 				registered.GetID(),
 				registered.GetNodeName()))
 		return nil
 	}
 
-	// This may occur if the Cluster Gateway crashes and restarts.
+	// This may occur if the cluster Gateway crashes and restarts.
 	d.log.Warn("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
 		"Node claims to be Local Daemon %s (ID=%s).", host.GetID(), host.GetNodeName())
 
@@ -1143,11 +1131,11 @@ func (d *ClusterGatewayImpl) RegisterNewHost(host scheduling.Host) error {
 
 	err := d.cluster.NewHostAddedOrConnected(host)
 	if err != nil {
-		d.log.Error("Error while adding newly-connected host %s (ID=%s) to the Cluster: %v", host.GetNodeName(), host.GetID(), err)
+		d.log.Error("Error while adding newly-connected host %s (ID=%s) to the cluster: %v", host.GetNodeName(), host.GetID(), err)
 		return err
 	}
 
-	go d.notifier.NotifyDashboardOfInfo("Local Scheduler Connected", fmt.Sprintf("Local Scheduler %s (ID=%s) has connected to the Cluster Gateway.", host.GetNodeName(), host.GetID()))
+	go d.notifier.NotifyDashboardOfInfo("Local Scheduler Connected", fmt.Sprintf("Local Scheduler %s (ID=%s) has connected to the cluster Gateway.", host.GetNodeName(), host.GetID()))
 
 	return nil
 }
@@ -1275,7 +1263,6 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 
 	d.log.Debug("Received SMR-READY notification for replica %d of kernel %s [AddOperation.OperationID=%v]. "+
 		"Notifying awaiting goroutine now...", smrReadyNotification.ReplicaId, kernelId, addReplicaOp.OperationID())
-	// addReplicaOp.ReplicaJoinedSmrChannel() <- struct{}{}
 	addReplicaOp.SetReplicaJoinedSMR()
 
 	return proto.VOID, nil
@@ -1598,7 +1585,7 @@ func (d *ClusterGatewayImpl) NotificationCallback(notificationName string, notif
 }
 
 func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
-	d.log.Warn("Local Daemon %s (Node %s) has disconnected. Removing from Cluster.", localDaemonId, nodeName)
+	d.log.Warn("Local Daemon %s (Node %s) has disconnected. Removing from cluster.", localDaemonId, nodeName)
 	_, err = d.RemoveHost(context.TODO(), &proto.HostId{
 		Id:       localDaemonId,
 		NodeName: nodeName, /* Not needed */
@@ -1652,7 +1639,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	// Initialize kernel with new context.
 	//kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 	//	d.connectionOptions, uuid.NewString(), d.DebugMode, d.ExecutionFailedCallback, d.ExecutionLatencyCallback,
-	//	d.MetricsProvider, d.NotifyDashboard)
+	//	d.metricsProvider, d.NotifyDashboard)
 
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, uuid.NewString(), d.DebugMode, d.MetricsProvider, d)
@@ -1837,7 +1824,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	// Wait for all replicas to be created.
 	// Note that creation just means that the Container/Pod was created.
 	// It does not mean that the Container/Pod has entered the active/running state.
-	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of Kernels starting: %d.",
+	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %d.",
 		in.Id, numReplicasToSchedule)
 	created.Wait()
 	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
@@ -1850,7 +1837,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	// Clean up.
 	d.kernelsStarting.Delete(in.Id)
-	d.log.Debug("All %d replica(s) of kernel %s have registered and joined their SMR cluster. Number of Kernels starting: %d.",
+	d.log.Debug("All %d replica(s) of kernel %s have registered and joined their SMR cluster. Number of kernels starting: %d.",
 		numReplicasToSchedule, in.Id, numReplicasToSchedule)
 
 	// Sanity check.
@@ -2343,7 +2330,7 @@ func (d *ClusterGatewayImpl) registerKernelWithExecReqForwarder(kernel schedulin
 // newKernelCreated pushes some metrics to Kubernetes and sends a notification to the Dashboard.
 func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId string) {
 	// Tell the Dashboard that the kernel has successfully started running.
-	go d.notifier.NotifyDashboard("kernel Started", fmt.Sprintf("kernel %s has started running. Launch took approximately %v from when the Cluster Gateway began processing the 'create kernel' request.",
+	go d.notifier.NotifyDashboard("kernel Started", fmt.Sprintf("kernel %s has started running. Launch took approximately %v from when the cluster Gateway began processing the 'create kernel' request.",
 		kernelId, time.Since(startTime)), messaging.SuccessNotification)
 
 	numActiveKernels := d.numActiveKernels.Add(1)
@@ -2619,7 +2606,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
 
 		title := fmt.Sprintf("Unknown Kernel \"%s\" Specified by 'Kernel Registered' Notification", kernelId)
-		go d.notifier.NotifyDashboardOfError(title, "The Cluster Gateway has no record of the referenced kernel.")
+		go d.notifier.NotifyDashboardOfError(title, "The cluster Gateway has no record of the referenced kernel.")
 
 		// d.mu.Unlock()
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
@@ -3996,7 +3983,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 			d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-			d.log.Error("Valid Kernels/sessions are (%d):", d.kernels.Len())
+			d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
 			d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 				d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
 				return true
@@ -4016,7 +4003,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 		d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-		d.log.Error("Valid Kernels/sessions are (%d):", d.kernels.Len())
+		d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
 		d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 			d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
 			return true
@@ -4680,7 +4667,7 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 		return nil
 	}
 
-	// Are we permitted to dynamically change the resource request(s) of Kernels? If not, then we'll just return.
+	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
 	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
 		return nil
 	}
@@ -6208,7 +6195,7 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	////////////////////////
 
 	//////////////
-	// Sessions //
+	// sessions //
 	//////////////
 	d.ClusterStatistics.NumNonTerminatedSessions.Store(d.numActiveKernels.Load())
 	d.ClusterStatistics.NumRunningSessions.Store(int32(d.cluster.Sessions().Len()))
@@ -6219,7 +6206,7 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 
 	d.clusterStatisticsMutex.Unlock()
 
-	d.log.Debug("=== Updated Cluster Statistics ===")
+	d.log.Debug("=== Updated cluster Statistics ===")
 	d.log.Debug("Idle CPUs: %.0f, Idle Mem: %.0f, Idle GPUs: %.0f, Idle VRAM: %.0f",
 		stats.IdleCPUs.Load(), stats.IdleMemory.Load(), stats.IdleGPUs.Load(), stats.IdleVRAM.Load())
 	d.log.Debug("Pending CPUs: %.0f, Pending Mem: %.0f, Pending GPUs: %.0f, Pending VRAM: %.0f",

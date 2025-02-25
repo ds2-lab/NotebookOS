@@ -65,7 +65,7 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 	})
 
 	if err != nil {
-		dc.log.Error("Failed to inform Cluster Dashboard that a fatal error occurred because: %v", err)
+		dc.log.Error("Failed to inform cluster Dashboard that a fatal error occurred because: %v", err)
 	}
 }
 
@@ -102,27 +102,27 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 	}
 	conn := incoming
 
-	dc.log.Debug("Accepting gRPC connection from Cluster Dashboard. LocalAddr: %v. RemoteAddr: %v.", incoming.LocalAddr(), incoming.RemoteAddr())
+	dc.log.Debug("Accepting gRPC connection from cluster Dashboard. LocalAddr: %v. RemoteAddr: %v.", incoming.LocalAddr(), incoming.RemoteAddr())
 
 	// Initialize yamux session for bidirectional gRPC calls
-	// At gateway side, we first wait for an incoming replacement connection, then create a reverse provisioner connection to the Cluster Dashboard.
+	// At gateway side, we first wait for an incoming replacement connection, then create a reverse provisioner connection to the cluster Dashboard.
 	cliSession, err := yamux.Client(incoming, yamux.DefaultConfig())
 	if err != nil {
-		dc.log.Error("Failed to create yamux client session with Cluster Dashboard: %v", err)
+		dc.log.Error("Failed to create yamux client session with cluster Dashboard: %v", err)
 		return incoming, nil
 	}
 
-	dc.log.Debug("Created yamux client for Cluster Dashboard. Creating new session to replace the incoming connection now...")
+	dc.log.Debug("Created yamux client for cluster Dashboard. Creating new session to replace the incoming connection now...")
 	dc.log.Debug("cliSession.LocalAddr(): %v, cliSession.RemoteAddr(): %v, cliSession.Addr(): %v", cliSession.LocalAddr(), cliSession.RemoteAddr(), cliSession.Addr())
 
 	// Create a new session to replace the incoming connection.
 	conn, err = cliSession.Accept()
 	if err != nil {
-		dc.log.Error("Failed to wait for the replacement of Cluster Dashboard connection: %v", err)
+		dc.log.Error("Failed to wait for the replacement of cluster Dashboard connection: %v", err)
 		return incoming, nil
 	}
 
-	dc.log.Debug("Accepted new session for Cluster Dashboard. Dialing to create reverse connection with dummy dialer now...")
+	dc.log.Debug("Accepted new session for cluster Dashboard. Dialing to create reverse connection with dummy dialer now...")
 
 	// Dial to create a reversion connection with dummy dialer.
 	gConn, err := grpc.Dial(":0", // grpc.NewClient("passthrough://:0",
@@ -139,13 +139,13 @@ func (dc *DistributedCluster) Accept() (net.Conn, error) {
 			return conn, nil
 		}))
 	if err != nil {
-		dc.log.Error("Failed to open reverse Distributed Cluster connection with Cluster Dashboard: %v", err)
+		dc.log.Error("Failed to open reverse Distributed cluster connection with cluster Dashboard: %v", err)
 		return conn, nil
 	}
 
-	dc.log.Debug("Successfully dialed to create reverse connection with Cluster Dashboard. Target: %v", gConn.Target())
+	dc.log.Debug("Successfully dialed to create reverse connection with cluster Dashboard. Target: %v", gConn.Target())
 
-	// Create a Cluster Dashboard client and register it.
+	// Create a cluster Dashboard client and register it.
 	dc.clusterDashboard = proto.NewClusterDashboardClient(gConn)
 	dc.gatewayDaemon.clusterDashboard = dc.clusterDashboard
 	return conn, nil
@@ -208,9 +208,9 @@ func (dc *DistributedCluster) Ping(_ context.Context, _ *proto.Void) (*proto.Pon
 	return &proto.Pong{Id: dc.gatewayDaemon.id}, nil
 }
 
-// RegisterDashboard is called by the Cluster Dashboard backend server to both verify that a connection has been
+// RegisterDashboard is called by the cluster Dashboard backend server to both verify that a connection has been
 // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
-// Kubernetes), from the Cluster Gateway.
+// Kubernetes), from the cluster Gateway.
 func (dc *DistributedCluster) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.DashboardRegistrationResponse, error) {
 	return dc.gatewayDaemon.RegisterDashboard(ctx, in)
 }
@@ -234,7 +234,7 @@ func (dc *DistributedCluster) FailNextExecution(ctx context.Context, in *proto.K
 // In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
 // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
 //
-// If the Cluster is not running in Docker mode, then this will return an error.
+// If the cluster is not running in Docker mode, then this will return an error.
 func (dc *DistributedCluster) GetVirtualDockerNodes(ctx context.Context, in *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
 	return dc.gatewayDaemon.GetVirtualDockerNodes(ctx, in)
 }
@@ -248,7 +248,7 @@ func (dc *DistributedCluster) GetVirtualDockerNodes(ctx context.Context, in *pro
 // In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
 // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
 //
-// If the Cluster is not running in Docker mode, then this will return an error.
+// If the cluster is not running in Docker mode, then this will return an error.
 func (dc *DistributedCluster) GetDockerSwarmNodes(ctx context.Context, in *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
 	return dc.gatewayDaemon.GetDockerSwarmNodes(ctx, in)
 }
@@ -281,13 +281,13 @@ func (dc *DistributedCluster) ModifyClusterNodes(ctx context.Context, in *proto.
 	return dc.gatewayDaemon.ModifyClusterNodes(ctx, in)
 }
 
-// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+// QueryMessage is used to query whether a given ZMQ message has been seen by any of the cluster components
 // and what the status of that message is (i.e., sent, response received, etc.)
 func (dc *DistributedCluster) QueryMessage(ctx context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error) {
 	return dc.gatewayDaemon.QueryMessage(ctx, in)
 }
 
-// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the cluster Gateway.
 // This is mostly used for testing/debugging the reconnection process.
 func (dc *DistributedCluster) ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
 	return dc.gatewayDaemon.ForceLocalDaemonToReconnect(ctx, in)

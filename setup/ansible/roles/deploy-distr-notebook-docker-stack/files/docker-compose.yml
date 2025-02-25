@@ -3,7 +3,7 @@ services:
     environment:
       - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
-    image: scusemua/jupyter-cpu:latest
+    image: scusemua/jupyter-cpu-dev:latest
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
     networks:
       - traefik-public
@@ -93,7 +93,7 @@ services:
   daemon:
     environment:
       - "KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base"
-      - "KERNEL_IMAGE=scusemua/jupyter-cpu:latest"
+      - "KERNEL_IMAGE=scusemua/jupyter-cpu-dev:latest"
       - "HOST_MOUNT_DIR=/home/ubuntu/kernel_base"
       - "TARGET_MOUNT_DIR=/kernel_base"
       - "STORAGE=/home/ubuntu/kernel_storage"
