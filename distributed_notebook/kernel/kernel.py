@@ -4413,7 +4413,7 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debugf("Sent 'prepare_to_migrate_reply' message: {sent_message}")
+        self.log.debug("Sent 'prepare_to_migrate_reply' message: {sent_message}")
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""

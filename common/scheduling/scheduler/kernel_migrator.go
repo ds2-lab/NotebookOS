@@ -1037,7 +1037,7 @@ func (km *kernelMigrator) GetAddReplicaOperationManager() hashmap.HashMap[string
 //
 // readyReplica is one of the other replicas of the kernel.
 func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.KernelReplica, targetReplicaId int32, newAddress string) error {
-	km.log.Info("Issuing 'update-replica' request to replica %d of kernel %s for replica %s, newAddr = %s.",
+	km.log.Info("Issuing 'update-replica' request to replica %d of kernel %s for replica %d, newAddr = %s.",
 		readyReplica.ReplicaID(), readyReplica.ID(), targetReplicaId, newAddress)
 
 	if !readyReplica.IsReady() {
@@ -1051,8 +1051,8 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 			readyReplica.ReplicaID(), readyReplica.ID()))
 	}
 
-	km.log.Debug("Issuing UpdateReplicaAddr RPC for replica %s of kernel %s to replica %km. Sending request to Local Daemon of replica %s.",
-		targetReplicaId, readyReplica.ID(), readyReplica.ReplicaID())
+	km.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s to replica %d. Sending request to Local Daemon of replica %d.",
+		targetReplicaId, readyReplica.ID(), readyReplica.ReplicaID(), readyReplica.ReplicaID())
 	replicaInfo := &proto.ReplicaInfoWithAddr{
 		Id:       targetReplicaId,
 		KernelId: readyReplica.ID(),
@@ -1061,7 +1061,7 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 
 	// Issue the 'update-replica' request. We panic if there was an error.
 	if _, err := host.UpdateReplicaAddr(context.Background(), replicaInfo); err != nil {
-		km.log.Debug("Failed to add replica %s of kernel %s to SMR cluster because: %v", targetReplicaId, readyReplica.ID(), err)
+		km.log.Debug("Failed to add replica %d of kernel %s to SMR cluster because: %v", targetReplicaId, readyReplica.ID(), err)
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", targetReplicaId, readyReplica.ID()))
 	}
 

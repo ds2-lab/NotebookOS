@@ -254,9 +254,9 @@ class RaftLog(object):
 
         # Future that is resolved when we propose that somebody win the current election.
         # This future returns the `LeaderElectionVote` that we will propose to nominate/synchronize the winner of the election with our peers.
-        self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = (
-            None
-        )
+        self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = None
+
+        self._leading_future: Optional[asyncio.Future[int]]
         # The IO loop on which the `_election_decision_future` is/was created.
         self._future_io_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -620,7 +620,7 @@ class RaftLog(object):
         # Set the future if the term is expected.
         _leading_future = self._leading_future
         if _leading_future is not None and self._leader_term >= self._expected_term:
-            self.log.debug(f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}."            )
+            self.log.debug(f"Scheduling the setting of result on '_leading_future' future to {self._leader_term}.")
             # self._future_io_loop.call_later(0, _leading_future.set_result, self._leader_term) # type: ignore
 
             if self._future_io_loop is None and self._fallback_future_io_loop is not None:
@@ -647,7 +647,8 @@ class RaftLog(object):
             self.log.debug("Scheduled setting of result on '_leading_future' future.")
         else:
             self.log.debug(
-                "Skipping setting result on _leading_future. _leading_future is None: %s. self._leader_term (%d) >= self._expected_term (%d): %s."
+                "Skipping setting result on _leading_future. _leading_future is None: %s. self._leader_term (%d) "
+                ">= self._expected_term (%d): %s."
                 % (
                     self._leading_future is None,
                     self._leader_term,
@@ -916,7 +917,7 @@ class RaftLog(object):
         self.log.warning(f"Current election is for term {self.current_election.term_number} "
                          f"(state={self.current_election.state.get_name()}), "
                          f"but we just received a notification that election "
-                         f"{notification_term} has finished...")
+                         f"{notification_term} has finished: {notification}")
 
         if notification_term > self.current_election.term_number:
             self.__fast_forward_to_future_election(notification)
@@ -1003,7 +1004,7 @@ class RaftLog(object):
         :param notification: the ExecutionCompleteNotification that we received
         """
         self.log.debug(f'Received "execution complete" notification for election term '
-                       f"{notification.election_term} from node {notification.proposer_id}.")
+                       f"{notification.election_term} from node {notification.proposer_id}: {notification}")
 
         if self.needs_to_catch_up:
             self.__handle_execution_complete_notification_while_catching_up(notification)
@@ -1421,7 +1422,7 @@ class RaftLog(object):
             committedValue: SynchronizedValue = self.__deserialize_go_object(goObject)
 
         self.log.debug(f"Value of type {type(committedValue).__name__} and size {value_size} bytes has been "
-                       "committed to the RaftLog. Handling now...")
+                       f"committed to the RaftLog: {committedValue}")
 
         if self.needs_to_catch_up:
             assert self._catchup_value is not None
@@ -2657,7 +2658,7 @@ class RaftLog(object):
         self._received_vote_future_term: int = target_term_number
         # This is the future that we'll use to inform the local kernel replica if
         # it has been selected to "lead" the election (and therefore execute the user-submitted code).
-        self._leading_future: Optional[asyncio.Future[int]] = self._future_io_loop.create_future()
+        self._leading_future = self._future_io_loop.create_future()
 
         # Create local references.
         _election_decision_future: asyncio.Future[Any] = self._election_decision_future
