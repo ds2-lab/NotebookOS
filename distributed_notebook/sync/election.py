@@ -124,6 +124,9 @@ class Election(object):
         # The current state/status of the election.
         self._election_state: ElectionState = ElectionState.INACTIVE
 
+        self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        self._received_vote_future: asyncio.Future[Any] = self._future_io_loop.create_future()
+
         # Flag mostly used for debugging/sanity-checking.
         # If we see that we've received 3 'YIELD' proposals, then the election already knows that it is going to fail.
         # The failure isn't made official until one of the replicas had a 'FAILURE' sync/vote proposal committed.
@@ -262,6 +265,8 @@ class Election(object):
         del state["election_finished_event"]
         del state["election_finished_condition_waiter_loop"]
         del state["log"]
+        del state["_future_io_loop"]
+        del state["_received_vote_future"]
 
         self.log.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
@@ -715,7 +720,31 @@ class Election(object):
 
         self.log.debug(f"Election {self.term_number} has failed (in attempt {self.current_attempt_number}).")
 
-    async def set_election_finished_condition_waiter_loop(self, loop: asyncio.AbstractEventLoop):
+    @property
+    def received_vote_future(self)->asyncio.Future:
+        return self._received_vote_future
+
+    @received_vote_future.setter
+    def received_vote_future(self, future: asyncio.Future):
+        self._received_vote_future = future
+
+    @property
+    def future_io_loop(self)->Optional[asyncio.AbstractEventLoop]:
+        return self._future_io_loop
+
+    @future_io_loop.setter
+    def future_io_loop(self, loop: asyncio.AbstractEventLoop):
+        assert loop is not None
+
+        self._future_io_loop = loop
+
+        if self._received_vote_future is None:
+            self._received_vote_future = loop.create_future()
+        elif self._received_vote_future.get_loop() != loop:
+            raise ValueError(f"'Received Vote' future is already created on "
+                             f"different loop for election {self.term_number}.")
+
+    def set_election_finished_condition_waiter_loop(self, loop: asyncio.AbstractEventLoop):
         self.election_finished_condition_waiter_loop = loop
 
     async def wait_for_election_to_end(self):
@@ -882,7 +911,8 @@ class Election(object):
             self.log.warning(f"election for term {self._term_number} "
                              f"already selected a node to propose as winner: node {self._proposed_winner}")
             raise ElectionAlreadyDecidedError(f"election for term {self._term_number} "
-                                              f"already selected a node to propose as winner: node {self._proposed_winner}")
+                                              f"already selected a node to propose as winner: "
+                                              f"node {self._proposed_winner}")
 
         # If the election isn't active, then we shouldn't be proposing anybody.
         # if self._election_state == ElectionState.FAILED and not self._winner_selected:
@@ -890,15 +920,20 @@ class Election(object):
         #     self._winner_selected = True
         #     return -1
 
-        # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before making a decision.
-        # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals, then we should wait before making a decision.
+        # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before
+        # making a decision.
+        #
+        # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals,
+        # then we should wait before making a decision.
         #
         # Note that `self._discard_after` is reset when an election is reset.
-        should_wait: bool = self._discard_after == -1 or (
-                self._discard_after > 0 and self._discard_after > current_time)
+        should_wait: bool = self._discard_after == -1 or (self._discard_after > 0 and self._discard_after > current_time)
 
-        # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError, indicating that we should not yet select a node to propose as winner.
-        # If we have received all proposals, or if we'll be discarding any future proposals that we receive, then we should go ahead and try to decide.
+        # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError,
+        # indicating that we should not yet select a node to propose as winner.
+        #
+        # If we have received all proposals, or if we'll be discarding any future proposals that we receive,
+        # then we should go ahead and try to decide.
         if (len(self._proposals) + self._num_discarded_proposals < self._num_replicas) and should_wait:
             self.log.debug(f"Cannot pick winner for election {self.term_number} yet. "
                            f"Received: {len(self._proposals)} ({self.format_accepted_proposals()}, "
@@ -917,16 +952,15 @@ class Election(object):
         # If we know the last winner, and we have a proposal from them,
         # and the winner of the last election proposed 'LEAD' again,
         # then we'll propose that they lead this election.
-        if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id) and self._proposals[
-            last_winner_id].is_lead:
+        if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id) and self._proposals[last_winner_id].is_lead:
             self._proposed_winner = last_winner_id
-            self.log.debug(
-                f"Will propose node {self._proposed_winner}; node {self._proposed_winner} won last time, and they proposed 'LEAD' again during this election (term {self._term_number}).")
+            self.log.debug(f"Will propose node {self._proposed_winner}; node {self._proposed_winner} won last time, "
+                           f"and they proposed 'LEAD' again during this election (term {self._term_number}).")
         # If we've received at least one 'LEAD' proposal, then return the node ID of whoever proposed 'LEAD' first.
         elif self._first_lead_proposal is not None:
             self._proposed_winner = self._first_lead_proposal.proposer_id
-            self.log.debug(
-                f"Will propose node {self._proposed_winner}; first 'LEAD' proposal for election term {self._term_number} came from node {self._proposed_winner}.")
+            self.log.debug(f"Will propose node {self._proposed_winner}; first 'LEAD' proposal for election term "
+                           f"{self._term_number} came from node {self._proposed_winner}.")
         else:
             self.log.warning("We have nobody to propose as the winner of the election. Proposing 'FAILURE'")
 

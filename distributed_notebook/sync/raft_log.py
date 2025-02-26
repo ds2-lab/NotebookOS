@@ -150,16 +150,10 @@ class RaftLog(object):
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
         self._restore_namespace_time_seconds: float = 0.0
-        self._received_vote_future: Optional[asyncio.Future] = None
-        self._fast_forward_execution_count_handler: Callable[[], None] = (
-            fast_forward_execution_count_handler
-        )
-        self._set_execution_count_handler: Callable[[int], None] = (
-            set_execution_count_handler
-        )
-        self._loaded_serialized_state_callback: Callable[
-            [dict[str, dict[str, Any]]], None
-        ] = loaded_serialized_state_callback
+        # self._received_vote_future: Optional[asyncio.Future] = None
+        self._fast_forward_execution_count_handler: Callable[[], None] = fast_forward_execution_count_handler
+        self._set_execution_count_handler: Callable[[int], None] = set_execution_count_handler
+        self._loaded_serialized_state_callback: Callable[[dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
@@ -248,15 +242,13 @@ class RaftLog(object):
         self._buffered_votes_lock: threading.Lock = threading.Lock()
 
         # Mapping from term number -> Dict. The inner map is attempt number -> proposal.
-        self._proposed_values: OrderedDict[
-            int, OrderedDict[int, LeaderElectionProposal]
-        ] = OrderedDict()
+        self._proposed_values: OrderedDict[int, OrderedDict[int, LeaderElectionProposal]] = OrderedDict()
 
         # Future that is resolved when we propose that somebody win the current election.
         # This future returns the `LeaderElectionVote` that we will propose to nominate/synchronize the winner of the election with our peers.
         self._election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = None
 
-        self._leading_future: Optional[asyncio.Future[int]]
+        self._leading_future: Optional[asyncio.Future[int]] = None
         # The IO loop on which the `_election_decision_future` is/was created.
         self._future_io_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -268,9 +260,11 @@ class RaftLog(object):
         # kernel is created.
         self._fallback_future_io_loop: Optional[asyncio.AbstractEventLoop] = None
 
-        # The SynchronizedValue that we propose/append and then wait to see get committed in order to know that we've caught-up with our peers after a migration/restart.
+        # The SynchronizedValue that we propose/append and then wait to see get committed
+        # in order to know that we've caught-up with our peers after a migration/restart.
         self._catchup_value: Optional[SynchronizedValue] = None
-        # Future that is created so that we can wait for the `self._catchup_value` to be fully committed. This just returns the committed `_catchup_value`.
+        # Future that is created so that we can wait for the `self._catchup_value` to be fully committed.
+        # This just returns the committed `_catchup_value`.
         self._catchup_future: Optional[asyncio.Future[SynchronizedValue]] = None
         # The IO loop that the `self._catchup_future` is created on.
         self._catchup_io_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -284,9 +278,8 @@ class RaftLog(object):
         self._election_tick: int = election_tick
 
         # Called by Go (into Python) when a value is committed.
-        self._valueCommittedCallback: Callable[[Any, int, str], Any] = (
-            self.__value_committed_wrapper
-        )
+        self._valueCommittedCallback: Callable[[Any, int, str], Any] = self.__value_committed_wrapper
+
         # Called by Go (into Python) when a value is restored (from a checkpoint/backup).
         # Note: this must not be an awaitable/it must not run on an IO loop.
         # Because the Go LogNode::Start function is called by Python from within the asyncio IO loop,
@@ -303,7 +296,7 @@ class RaftLog(object):
         self._restoration_time_seconds: float = 0.0
         if hasattr(self, "_log_node"):
             # This will just do nothing if there's no serialized state to be loaded.
-            self._needs_to_catch_up: bool = self.load_and_apply_serialized_state()
+            self._needs_to_catch_up: bool = self.load_and_apply_serialized_state(shell_io_loop = shell_io_loop)
         else:
             self._needs_to_catch_up: bool = False
 
@@ -602,13 +595,15 @@ class RaftLog(object):
             with self._election_lock:
                 self._current_election.set_election_vote_completed(vote.proposed_node_id)
 
-                _received_vote_future = self._received_vote_future
+                # _received_vote_future = self._received_vote_future
+                _received_vote_future = self._current_election.received_vote_future
                 if (
                         _received_vote_future is not None
-                        and vote.election_term == self._received_vote_future_term
+                        and vote.election_term == self._current_election.term_number # self._received_vote_future_term
                         and not _received_vote_future.done()
                 ):
-                    self._received_vote_future = None
+                    # self._received_vote_future = None
+                    self._current_election.received_vote_future = None
                     self._future_io_loop.call_soon_threadsafe(_received_vote_future.set_result, vote)
 
             self._last_winner_id = vote.proposed_node_id
@@ -1214,9 +1209,7 @@ class RaftLog(object):
                     return
 
                 try:
-                    picked_a_winner: bool = self.__try_pick_winner_to_propose(
-                        current_term
-                    )
+                    picked_a_winner: bool = self.__try_pick_winner_to_propose(current_term)
 
                     if not picked_a_winner:
                         if self._current_election.is_active:
@@ -1311,9 +1304,7 @@ class RaftLog(object):
             # Select a winner.
             with self._election_lock:
                 id_of_winner_to_propose: int = (
-                    self._current_election.pick_winner_to_propose(
-                        last_winner_id=self._last_winner_id
-                    )
+                    self._current_election.pick_winner_to_propose(last_winner_id=self._last_winner_id)
                 )
 
             if id_of_winner_to_propose > 0:
@@ -1768,7 +1759,7 @@ class RaftLog(object):
         """
         self._restore_namespace_time_seconds = 0
 
-    def load_and_apply_serialized_state(self) -> bool:
+    def load_and_apply_serialized_state(self, shell_io_loop: asyncio.AbstractEventLoop) -> bool:
         """
         Retrieve the serialized state read by the Go-level LogNode.
         This state is read from RemoteStorage during migration/error recovery.
@@ -1778,17 +1769,13 @@ class RaftLog(object):
             (bool) True if serialized state was loaded, indicating that this replica was started after an eviction/migration.
                If no serialized state was loaded, then this simply returns False.
         """
-        self.log.debug(
-            "Loading and applying serialized state. First, retrieving serialized state from LogNode."
-        )
+        self.log.debug("Loading and applying serialized state. First, retrieving serialized state from LogNode.")
 
         if self._log_node is None:
             self.log.error("LogNode is None. Cannot retrieve serialized state.")
             sys.stderr.flush()
             sys.stdout.flush()
-            raise ValueError(
-                "LogNode is None while trying to retrieve and apply serialized state"
-            )
+            raise ValueError("LogNode is None while trying to retrieve and apply serialized state")
 
         start_time: float = time.time()
         serialized_state_bytes: bytes = self.retrieve_serialized_state_from_remote_storage()
@@ -1834,7 +1821,8 @@ class RaftLog(object):
 
             # Ensure the "election_finished_condition_waiter" loop is set.
             if not voting_done or not execution_done:
-                prior_election.set_election_finished_condition_waiter_loop(self._shell_io_loop)
+                prior_election.set_election_finished_condition_waiter_loop(shell_io_loop)
+                prior_election.future_io_loop = shell_io_loop
 
         # The value of _leader_term before a migration/eviction was triggered.
         self._leader_term_before_migration: int = data_dict["leader_term"]
@@ -2437,7 +2425,8 @@ class RaftLog(object):
 
             assert self._current_election.voting_phase_completed_successfully
 
-            self._received_vote_future = None
+            self._current_election.received_vote_future = None
+            # self._received_vote_future = None
             self._election_decision_future = None
 
             return True, voteReceived.proposed_node_id == self.node_id, None
@@ -2482,10 +2471,7 @@ class RaftLog(object):
 
                 # TODO: Is it OK to just pass the current time for `received_at`?
                 #       Or should I save the time at which it was received and buffered, and pass that instead?
-                self.__handle_proposal(
-                    buffered_proposal.proposal,
-                    received_at=buffered_proposal.received_at,
-                )
+                self.__handle_proposal(buffered_proposal.proposal, received_at=buffered_proposal.received_at)
                 self.log.debug(f"Handled buffered proposal {i + 1}/{len(buffered_proposals)} "
                                f"during election term {election_term}.")
                 num_buffered_proposals_processed += 1
@@ -2507,7 +2493,8 @@ class RaftLog(object):
             voteProposal: LeaderElectionVote = proposalOrVote
 
         self.log.debug(f"Finished waiting on 'election decision' future for term {election_term}: {voteProposal}")
-        self._received_vote_future = None
+        # self._received_vote_future = None
+        self._current_election.received_vote_future = None
         self._election_decision_future = None
 
         # Validate that the term number matches the current election.
@@ -2650,12 +2637,13 @@ class RaftLog(object):
         # the `_leading` future on this same IO loop later.
         self._future_io_loop = asyncio.get_running_loop()
         self._future_io_loop.set_debug(True)
+
         # This is the future we'll use to submit a formal vote for who should lead,
         # based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future = self._future_io_loop.create_future()
-        self._received_vote_future = self._future_io_loop.create_future()
+        # self._received_vote_future = self._future_io_loop.create_future()
         
-        self._received_vote_future_term: int = target_term_number
+        # self._received_vote_future_term: int = target_term_number
         # This is the future that we'll use to inform the local kernel replica if
         # it has been selected to "lead" the election (and therefore execute the user-submitted code).
         self._leading_future = self._future_io_loop.create_future()
@@ -2663,7 +2651,7 @@ class RaftLog(object):
         # Create local references.
         _election_decision_future: asyncio.Future[Any] = self._election_decision_future
         _leading_future: asyncio.Future[int] = self._leading_future
-        _received_vote_future: asyncio.Future[Any] = self._received_vote_future
+        _received_vote_future: asyncio.Future[Any] = self._current_election.received_vote_future # self._received_vote_future
 
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.

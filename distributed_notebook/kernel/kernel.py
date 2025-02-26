@@ -4413,7 +4413,7 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debug("Sent 'prepare_to_migrate_reply' message: {sent_message}")
+        self.log.debug(f"Sent 'prepare_to_migrate_reply' message: {sent_message}")
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
@@ -4814,14 +4814,12 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
-            self.log.warning(
-                f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup."
-            )
+            self.log.warning(f"Cannot send 'error_report' for error \"{error_title}\" "
+                             f"as our gRPC connection was never setup.")
             return
 
-        self.log.debug(
-            f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}"
-        )
+        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now. "
+                       f"Error message: {error_message}")
         self.kernel_notification_service_stub.Notify(
             gateway_pb2.KernelNotification(
                 title=error_title,
@@ -4830,7 +4828,7 @@ class DistributedKernel(IPythonKernel):
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
                 containerId=self.docker_container_id,
-                containerName=self.node_name,
+                containerName=self.docker_container_name,
             )
         )
 
