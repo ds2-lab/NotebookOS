@@ -330,9 +330,9 @@ class RaftLog(object):
             self._catchup_io_loop.set_debug(True)
             self._catchup_future = self._catchup_io_loop.create_future()
             self._catchup_future.add_done_callback(caught_up_callback)
-            self.log.debug(
-                f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value.timestamp}, and election term={self._catchup_value.election_term}."
-            )
+            self.log.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, "
+                           f"timestamp={self._catchup_value.timestamp}, "
+                           f"and election term={self._catchup_value.election_term}.")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -355,16 +355,10 @@ class RaftLog(object):
     def __repr__(self):
         return f'RaftLog[KernelId={self._kernel_id},NodeID={self._node_id}]'
 
-    def set_fast_forward_executions_handler(
-            self, fast_forward_execution_count_handler: Callable[[], None]
-    ):
-        self._fast_forward_execution_count_handler = (
-            fast_forward_execution_count_handler
-        )
+    def set_fast_forward_executions_handler(self, fast_forward_execution_count_handler: Callable[[], None]):
+        self._fast_forward_execution_count_handler = fast_forward_execution_count_handler
 
-    def set_set_execution_count_handler(
-            self, set_execution_count_handler: Callable[[int], None]
-    ):
+    def set_set_execution_count_handler(self, set_execution_count_handler: Callable[[int], None]):
         self._set_execution_count_handler = set_execution_count_handler
 
     def create_log_node(
@@ -414,9 +408,7 @@ class RaftLog(object):
             sys.stderr.flush()
             sys.stdout.flush()
             raise RuntimeError("The LogNode failed to connect to RemoteStorage")
-        self.log.info(
-            "<< RETURNED FROM GO CODE (_log_node.ConnectedToRemoteStorage)"
-        )
+        self.log.info("<< RETURNED FROM GO CODE (_log_node.ConnectedToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 
