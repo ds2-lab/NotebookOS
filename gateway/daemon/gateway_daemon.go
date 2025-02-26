@@ -1903,7 +1903,7 @@ func (d *ClusterGatewayImpl) sendStatusMessage(kernel scheduling.Kernel, executi
 	if err != nil {
 		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
 			kernel.ID(), kernel.ConnectionInfo().SignatureScheme, err)
-		return nil, ErrFailedToVerifyMessage
+		return nil, jupyter.ErrFailedToVerifyMessage
 	}
 
 	jMsg := messaging.NewJupyterMessage(&msg)

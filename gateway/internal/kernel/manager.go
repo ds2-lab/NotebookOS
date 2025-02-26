@@ -20,6 +20,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
+	"github.com/scusemua/distributed-notebook/gateway/internal/kernel/provisioner"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -91,7 +92,7 @@ type Manager struct {
 	idleSessionReclaimer *IdleSessionReclaimer
 
 	// kernelProvisioner handles the creation of kernels.
-	kernelProvisioner *Provisioner
+	kernelProvisioner *provisioner.Provisioner
 
 	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
 	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
@@ -106,7 +107,9 @@ type Manager struct {
 }
 
 // NewManager creates a new Manager struct and returns a pointer to it.
-func NewManager(cluster scheduling.Cluster, requestLog *metrics.RequestLog, responseForwarder ResponseForwarder, opts *domain.ClusterGatewayOptions) *Manager {
+func NewManager(cluster scheduling.Cluster, requestLog *metrics.RequestLog, responseForwarder ResponseForwarder,
+	metricsProvider *metrics.ClusterMetricsProvider, notifier domain.Notifier, opts *domain.ClusterGatewayOptions) *Manager {
+
 	manager := &Manager{
 		kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
@@ -115,7 +118,8 @@ func NewManager(cluster scheduling.Cluster, requestLog *metrics.RequestLog, resp
 		cluster:           cluster,
 		requestLog:        requestLog,
 		debugMode:         opts.DebugMode,
-		kernelProvisioner: NewProvisioner(cluster),
+		metricsProvider:   metricsProvider,
+		kernelProvisioner: provisioner.NewProvisioner(cluster, notifier, metricsProvider, opts),
 	}
 
 	manager.handlers[messaging.ControlMessage] = manager.controlHandler
