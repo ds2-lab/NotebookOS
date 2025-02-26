@@ -1080,6 +1080,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					kernel.EXPECT().MigrationStarted().Times(1).Return(nil)
 					kernel.EXPECT().MigrationConcluded().Times(1)
+					kernel.EXPECT().GetSession().AnyTimes().Return(session)
 					kernel.EXPECT().GetReadyReplica().Times(1).DoAndReturn(func() scheduling.KernelReplica {
 						// Return a mocked kernel replica that is NOT the one that is being migrated.
 						var i int32
@@ -1099,6 +1100,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 						panic("Failed to find ready replica of mocked kernel")
 					})
+
+					kernelReplica1.EXPECT().Address().AnyTimes().Return("10.0.0.1")
 
 					go func() {
 						// defer GinkgoRecover()

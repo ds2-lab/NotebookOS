@@ -8,7 +8,7 @@ def test_train_bert_on_cola_cpu():
     Train the Bert model on the CoLA dataset using the CPU.
     Validate that the weights are updated correctly.
     """
-    dataset: CoLA = CoLA(model_name = "bert")
+    dataset: CoLA = CoLA(model_name = "BERT")
     model: Bert = Bert(out_features = 2)
 
     training_duration_ms = 3250
@@ -41,7 +41,7 @@ def test_train_bert_on_cola():
     """
     Train the BERT model on the CoLA dataset. Validate that the weights are updated correctly.
     """
-    dataset: CoLA = CoLA(model_name = "bert")
+    dataset: CoLA = CoLA(model_name = "BERT")
     model: Bert = Bert(out_features = 2)
 
     training_duration_ms: int = 2000
@@ -67,7 +67,7 @@ def test_train_bert_on_truncated_imdb():
     """
     Train the BERT model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
-    dataset: IMDbLargeMovieReviewTruncated = IMDbLargeMovieReviewTruncated(model_name = "bert")
+    dataset: IMDbLargeMovieReviewTruncated = IMDbLargeMovieReviewTruncated(model_name = "BERT")
     model: Bert = Bert(out_features = 2)
 
     training_duration_ms: int = 2000
@@ -93,7 +93,7 @@ def test_train_bert_on_imdb():
     """
     Train the BERT model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
-    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "bert", simulate_tokenization_overhead=15)
+    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "BERT", simulate_tokenization_overhead=15)
     model: Bert = Bert(out_features = 2)
 
     training_duration_ms: int = 2000

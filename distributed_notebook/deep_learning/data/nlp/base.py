@@ -63,6 +63,9 @@ class NLPDataset(HuggingFaceDataset, ABC):
         model_name = model_name.lower()
         assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
 
+        if model_name == "gpt-2":
+            model_name = "gpt2"
+
         self._recorded_tokenization_overhead: bool = False
 
         super().__init__(

@@ -27,7 +27,7 @@ class CoLA(NLPDataset):
             root_dir: str = default_root_directory,
             shuffle: bool = True,
             num_workers: int = 2,
-            model_name: Optional[str] = None,
+            model_name: str = None,
             max_token_length: int = 128,
             batch_size: int = 1,
             hugging_face_dataset_name: str = hugging_face_dataset_name,
@@ -37,6 +37,10 @@ class CoLA(NLPDataset):
             postprocess_tokenized_dataset: Callable[[Any, str], Any] = cola_postprocess_tokenized_dataset,
             **kwargs
     ):
+        model_name = model_name.lower()
+        if model_name == "gpt-2":
+            model_name = "gpt2"
+
         super().__init__(
             root_dir = root_dir,
             model_name = model_name,
@@ -60,6 +64,7 @@ class CoLA(NLPDataset):
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str)->str:
+        model_name = model_name.lower()
         return f'/home/{get_username()}/.cache/distributed_notebook/tokenized_datasets/glue/cola/{model_name}'
 
     @property

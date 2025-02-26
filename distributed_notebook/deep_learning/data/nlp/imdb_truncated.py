@@ -27,7 +27,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             max_token_length: int = 256,
             shuffle: bool = True,
             num_workers: int = 2,
-            model_name: Optional[str] = None,
+            model_name: str = None,
             batch_size: int = 1,
             hugging_face_dataset_name: str = hugging_face_dataset_name,
             hugging_face_dataset_config_name: str = hugging_face_dataset_config_name,
@@ -36,6 +36,10 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             postprocess_tokenized_dataset: Callable[[Any, str], Any] = imdb_truncated_postprocess_tokenized_dataset,
             **kwargs
     ):
+        model_name = model_name.lower()
+        if model_name == "gpt-2":
+            model_name = "gpt2"
+
         super().__init__(
             root_dir=root_dir,
             model_name=model_name,
@@ -58,6 +62,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str) -> str:
+        model_name = model_name.lower()
         return os.path.expanduser(
             f"~/.cache/distributed_notebook/tokenized_datasets/shawhin___imdb-truncated/{model_name}")
 
