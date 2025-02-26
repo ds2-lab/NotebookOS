@@ -958,7 +958,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleOutEvents += 1
+			stats.NumActiveScaleOutEvents.Add(1)
 		})
 	}
 
@@ -1027,7 +1027,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleOutEvents -= 1
+			stats.NumActiveScaleOutEvents.Sub(1)
 		})
 	}
 
@@ -1148,7 +1148,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 				},
 			})
 
-			stats.NumActiveScaleInEvents -= 1
+			stats.NumActiveScaleInEvents.Sub(1)
 		})
 	}
 
@@ -1272,7 +1272,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleInEvents -= 1
+			stats.NumActiveScaleInEvents.Sub(1)
 		})
 	}
 

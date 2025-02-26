@@ -628,8 +628,8 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		}
 
 		m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-			statistics.CompletedTrainings += 1
-			statistics.NumIdleSessions += 1
+			statistics.CompletedTrainings.Add(1)
+			statistics.NumIdleSessions.Add(1)
 		})
 	}
 
