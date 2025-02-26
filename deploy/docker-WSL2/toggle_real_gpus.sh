@@ -32,14 +32,14 @@ if [[ "$new_value" == "true" ]]; then
   echo "Enabling real GPU support."
   echo ""
 
-  old_image="scusemua/jupyter-cpu:latest"
+  old_image="scusemua/jupyter-cpu-dev:latest"
   new_image="scusemua/jupyter-gpu:latest"
 else
   echo "Disabling real GPU support."
   echo ""
 
   old_image="scusemua/jupyter-gpu:latest"
-  new_image="scusemua/jupyter-cpu:latest"
+  new_image="scusemua/jupyter-cpu-dev:latest"
 fi
 
 sed -i.bak -E "s~^notebook-image-name:.*~notebook-image-name: $new_image~" "$target_file"
