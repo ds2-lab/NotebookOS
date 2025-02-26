@@ -157,13 +157,17 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 		requestLog:        requestLog,
 		debugMode:         opts.DebugMode,
 		metricsProvider:   metricsProvider,
-		kernelProvisioner: provisioner.NewProvisioner(id, cluster, notifier, metricsProvider, networkProvider, opts),
 	}
 
 	manager.handlers[messaging.ControlMessage] = manager.controlHandler
 	manager.handlers[messaging.ShellMessage] = manager.shellHandler
 	manager.handlers[messaging.StdinMessage] = manager.stdinHandler
 	manager.handlers[messaging.HBMessage] = manager.heartbeatHandler
+
+	kernelProvisioner := provisioner.NewProvisioner(id, cluster, notifier, metricsProvider, networkProvider,
+		manager.shellHandlerWrapper, manager.CallbackProvider(), opts)
+
+	manager.kernelProvisioner = kernelProvisioner
 
 	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
 		interval := time.Duration(opts.IdleSessionReclamationIntervalSec) * time.Second
@@ -222,16 +226,28 @@ func (km *Manager) StartKernel(ctx context.Context, in *proto.KernelSpec) (*prot
 	existingKernel, _ := km.kernels.Load(in.Id)
 
 	kernel, resp, err := km.kernelProvisioner.StartKernel(ctx, in, existingKernel)
-
-	if err == nil {
-		km.newKernelCreated(startTime, in.Id)
-
-		km.registerKernelWithExecReqForwarder(kernel)
-
-		return resp, nil
+	if err != nil {
+		return nil, errorf(err)
 	}
 
-	return nil, errorf(err)
+	km.kernelIdToKernel.Store(in.Id, kernel)
+	km.kernels.Store(in.Id, kernel)
+
+	// Make sure to associate the Jupyter Session with the kernel.
+	kernel.BindSession(in.Session)
+	km.kernels.Store(in.Session, kernel)
+
+	// Map all the sessions to the kernel client.
+	for _, sess := range kernel.Sessions() {
+		km.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
+		km.kernels.Store(sess, kernel)
+	}
+
+	km.newKernelCreated(startTime, in.Id)
+
+	km.registerKernelWithExecReqForwarder(kernel)
+
+	return resp, nil
 }
 
 // GetKernelStatus returns the status of a particular kernel as specified in the proto.KernelId parameter.
@@ -833,6 +849,12 @@ func (km *Manager) shellHandler(kernel scheduling.Kernel, socketTyp messaging.Me
 	panic("Implement me")
 }
 
+// ShellHandler is responsible for forwarding a message received on the CONTROL socket to
+// the appropriate/targeted scheduling.Kernel.
+func (km *Manager) shellHandlerWrapper(kernel scheduling.KernelInfo, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
+	return km.shellHandler(kernel.(scheduling.Kernel), socketTyp, msg)
+}
+
 // StdinHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
 func (km *Manager) stdinHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
@@ -927,4 +949,38 @@ func (km *Manager) registerKernelWithExecReqForwarder(kernel scheduling.Kernel) 
 	}
 
 	km.executeRequestForwarder.RegisterKernel(kernel, forwarder, km.forwardResponseFromKernel)
+}
+
+func (km *Manager) CallbackProvider() scheduling.CallbackProvider {
+	return km
+}
+
+func (km *Manager) ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) ExecutionFailedCallback(c scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) NotificationCallback(title string, content string, notificationType messaging.NotificationType) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) IncrementNumActiveExecutions() {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) DecrementNumActiveExecutions() {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) NumActiveExecutions() int32 {
+	//TODO implement me
+	panic("implement me")
 }

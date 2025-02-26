@@ -54,6 +54,8 @@ type Provisioner struct {
 	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
 	kernelsStarting hashmap.HashMap[string, chan struct{}]
 
+	kernelShellHandler scheduling.KernelMessageHandler
+
 	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
 	// by multiple concurrent RPC requests).
@@ -82,13 +84,16 @@ type Provisioner struct {
 
 	distributedClientProvider DistributedClientProvider
 
+	kernelCallbackProvider scheduling.CallbackProvider
+
 	opts *domain.ClusterGatewayOptions
 
 	log logger.Logger
 }
 
 func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider *metrics.ClusterMetricsProvider,
-	networkProvider NetworkProvider, opts *domain.ClusterGatewayOptions) *Provisioner {
+	networkProvider NetworkProvider, kernelShellHandler scheduling.KernelMessageHandler,
+	kernelCallbackProvider scheduling.CallbackProvider, opts *domain.ClusterGatewayOptions) *Provisioner {
 
 	provisioner := &Provisioner{
 		id:                            id,
@@ -97,6 +102,8 @@ func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notif
 		metricsProvider:               metricsProvider,
 		opts:                          opts,
 		networkProvider:               networkProvider,
+		kernelShellHandler:            kernelShellHandler,
+		kernelCallbackProvider:        kernelCallbackProvider,
 		kernelSpecs:                   hashmap.NewConcurrentMap[*proto.KernelSpec](32),
 		waitGroups:                    hashmap.NewConcurrentMap[*registrationWaitGroups](32),
 		kernelRegisteredNotifications: hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](64),
@@ -191,13 +198,13 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec, ker
 		in.ResourceSpec = proto.ResourceSpecFromSpec(kernel.ResourceSpec())
 	}
 
-	p.kernelIdToKernel.Store(in.Id, kernel)
-	p.kernels.Store(in.Id, kernel)
-	p.kernelSpecs.Store(in.Id, in)
-
-	// Make sure to associate the Jupyter Session with the kernel.
-	kernel.BindSession(in.Session)
-	p.kernels.Store(in.Session, kernel)
+	//p.kernelIdToKernel.Store(in.Id, kernel)
+	//p.kernels.Store(in.Id, kernel)
+	//p.kernelSpecs.Store(in.Id, in)
+	//
+	//// Make sure to associate the Jupyter Session with the kernel.
+	//kernel.BindSession(in.Session)
+	//p.kernels.Store(in.Session, kernel)
 
 	err := p.sendStartingStatusIoPub(kernel)
 	if err != nil {
@@ -453,7 +460,7 @@ func (p *Provisioner) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, er
 
 	kernel := p.distributedClientProvider.NewDistributedKernelClient(context.Background(), in,
 		p.cluster.Scheduler().Policy().NumReplicas(), p.id, p.networkProvider.ConnectionInfo(), uuid.NewString(), p.opts.DebugMode,
-		p.metricsProvider, p)
+		p.metricsProvider, p.kernelCallbackProvider)
 
 	p.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err := kernel.InitializeShellForwarder(p.kernelShellHandler)
@@ -726,21 +733,21 @@ func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Ke
 	replicaRegisteredTimestamps := make(map[int32]time.Time)
 	var replicaRegisteredEventsMutex sync.Mutex
 
-	p.clusterStatisticsMutex.Lock()
 	startTime := time.Now()
-	for _, replicaId := range replicasToSchedule {
-		event := &metrics.ClusterEvent{
-			EventId:             uuid.NewString(),
-			Name:                metrics.ScheduleReplicasStarted,
-			KernelId:            in.Id,
-			ReplicaId:           replicaId,
-			Timestamp:           startTime,
-			TimestampUnixMillis: startTime.UnixMilli(),
+	p.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		for _, replicaId := range replicasToSchedule {
+			event := &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScheduleReplicasStarted,
+				KernelId:            in.Id,
+				ReplicaId:           replicaId,
+				Timestamp:           startTime,
+				TimestampUnixMillis: startTime.UnixMilli(),
+			}
+			statistics.ClusterEvents = append(statistics.ClusterEvents, event)
+			scheduleReplicasStartedEvents[replicaId] = event
 		}
-		p.ClusterStatistics.ClusterEvents = append(p.ClusterStatistics.ClusterEvents, event)
-		scheduleReplicasStartedEvents[replicaId] = event
-	}
-	p.clusterStatisticsMutex.Unlock()
+	})
 
 	// Record that this kernel is starting.
 	kernelStartedChan := make(chan struct{})
@@ -795,33 +802,34 @@ func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Ke
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 
-	// Map all the sessions to the kernel client.
-	for _, sess := range kernel.Sessions() {
-		p.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
-		p.kernels.Store(sess, kernel)
-	}
+	//// Map all the sessions to the kernel client.
+	//for _, sess := range kernel.Sessions() {
+	//	p.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
+	//	p.kernels.Store(sess, kernel)
+	//}
 
-	// Create corresponding events for when the replicas registered.
-	for replicaId, timestamp := range replicaRegisteredTimestamps {
-		timeElapsed := timestamp.Sub(startTime)
-		event := &metrics.ClusterEvent{
-			EventId:             uuid.NewString(),
-			Name:                metrics.ScheduleReplicasComplete,
-			KernelId:            in.Id,
-			ReplicaId:           replicaId,
-			Timestamp:           timestamp,
-			TimestampUnixMillis: timestamp.UnixMilli(),
-			Duration:            timeElapsed,
-			DurationMillis:      timeElapsed.Milliseconds(),
-			Metadata: map[string]interface{}{
-				"start_time_unix_millis":       startTime.UnixMilli(),
-				"corresponding_start_event_id": scheduleReplicasStartedEvents[replicaId].EventId,
-			},
+	p.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		// Create corresponding events for when the replicas registered.
+		for replicaId, timestamp := range replicaRegisteredTimestamps {
+			timeElapsed := timestamp.Sub(startTime)
+			event := &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScheduleReplicasComplete,
+				KernelId:            in.Id,
+				ReplicaId:           replicaId,
+				Timestamp:           timestamp,
+				TimestampUnixMillis: timestamp.UnixMilli(),
+				Duration:            timeElapsed,
+				DurationMillis:      timeElapsed.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"start_time_unix_millis":       startTime.UnixMilli(),
+					"corresponding_start_event_id": scheduleReplicasStartedEvents[replicaId].EventId,
+				},
+			}
+
+			statistics.ClusterEvents = append(statistics.ClusterEvents, event)
 		}
-		p.clusterStatisticsMutex.Lock()
-		p.ClusterStatistics.ClusterEvents = append(p.ClusterStatistics.ClusterEvents, event)
-		p.clusterStatisticsMutex.Unlock()
-	}
+	})
 
 	// Record that the container creation attempt has completed successfully.
 	attempt.SetDone(nil)
