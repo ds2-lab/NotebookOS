@@ -2336,7 +2336,7 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 	numActiveKernels := d.numActiveKernels.Add(1)
 
 	d.clusterStatisticsMutex.Lock()
-	d.ClusterStatistics.NumIdleSessions += 1
+	d.ClusterStatistics.NumIdleSessions.Add(1)
 
 	now := time.Now()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
@@ -3029,7 +3029,7 @@ func (d *ClusterGatewayImpl) KillKernel(ctx context.Context, in *proto.KernelId)
 		session := d.cluster.RemoveSession(in.Id)
 
 		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.NumStoppedSessions += 1
+		d.ClusterStatistics.NumStoppedSessions.Add(1)
 
 		if session != nil {
 			lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
@@ -3192,7 +3192,7 @@ func (d *ClusterGatewayImpl) StopKernel(ctx context.Context, in *proto.KernelId)
 	session := d.cluster.RemoveSession(in.Id)
 
 	d.clusterStatisticsMutex.Lock()
-	d.ClusterStatistics.NumStoppedSessions += 1
+	d.ClusterStatistics.NumStoppedSessions.Add(1)
 
 	if session != nil {
 		lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
@@ -3447,7 +3447,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 
 		d.clusterStatisticsMutex.Lock()
 
-		d.ClusterStatistics.NumFailedMigrations += 1
+		d.ClusterStatistics.NumFailedMigrations.Add(1)
 
 		now := time.Now()
 		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
@@ -3478,7 +3478,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 
 		d.clusterStatisticsMutex.Lock()
 
-		d.ClusterStatistics.NumSuccessfulMigrations += 1
+		d.ClusterStatistics.NumSuccessfulMigrations.Add(1)
 
 		now := time.Now()
 		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
@@ -5185,7 +5185,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
 	if sendError == nil {
 		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
+		d.ClusterStatistics.NumJupyterRepliesSentByClusterGateway.Add(1)
 		d.clusterStatisticsMutex.Unlock()
 	}
 
