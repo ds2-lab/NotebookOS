@@ -319,6 +319,9 @@ services:
       - "traefik.enable=true"
       - "app=distributed_cluster"
       - "component=cadvisor"
+      - "prometheus.metrics.port={{ cadvisor_port }}"
+      - "prometheus-metrics-provider=true"
+      - "prometheus.metrics.basepath=/metrics"
     deploy:
       mode: global
       labels:
