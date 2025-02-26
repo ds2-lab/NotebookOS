@@ -147,6 +147,7 @@ class RaftLog(object):
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
         self._restore_namespace_time_seconds: float = 0.0
+        self._received_vote_future: Optional[asyncio.Future] = None
         self._fast_forward_execution_count_handler: Callable[[], None] = (
             fast_forward_execution_count_handler
         )
@@ -2388,7 +2389,11 @@ class RaftLog(object):
                     f"after processing {num_buffered_proposals_processed} buffered proposal(s) "
                     f"and {num_buffered_votes_processed} buffered votes: {proposal}")
 
-        await self._append_election_proposal(proposal)
+        if _received_vote_future is not None and _received_vote_future.done():
+            self.log.debug(f"Was going to to propose our own value for election {election_term}, but we already "
+                           f"received a vote for this election term. Skipping proposal.")
+        else:
+            await self._append_election_proposal(proposal)
 
         self.log.debug(f"Waiting on 'election decision' and 'received vote' futures for term {election_term}.")
 
@@ -2436,6 +2441,9 @@ class RaftLog(object):
 
         assert _election_decision_future.done()
         voteProposal: LeaderElectionVote = _election_decision_future.result()
+
+        if voteProposal is not None:
+            assert isinstance(voteProposal, LeaderElectionVote)
         
         return False, False, voteProposal
 
@@ -2487,8 +2495,10 @@ class RaftLog(object):
                 _election_decision_future = _election_decision_future,
                 _received_vote_future = _received_vote_future)
 
-            if voteProposal is None:
+            if voteProposal is None or isDone:
                 return isDone, isLeading
+
+            assert isinstance(proposalOrVote, LeaderElectionVote)
         else:
             assert isinstance(proposalOrVote, LeaderElectionVote)
             voteProposal: LeaderElectionVote = proposalOrVote
@@ -2499,7 +2509,7 @@ class RaftLog(object):
 
         # Validate that the term number matches the current election.
         if voteProposal.election_term != election_term:
-            raise ValueError(f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) "
+            raise ValueError(f"Received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) "
                              f"compared to current election term number ({election_term})")
 
         # Are we proposing that the election failed?
@@ -2640,7 +2650,7 @@ class RaftLog(object):
         # This is the future we'll use to submit a formal vote for who should lead,
         # based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future = self._future_io_loop.create_future()
-        self._received_vote_future: Optional[asyncio.Future] = self._future_io_loop.create_future()
+        self._received_vote_future = self._future_io_loop.create_future()
         
         self._received_vote_future_term: int = target_term_number
         # This is the future that we'll use to inform the local kernel replica if

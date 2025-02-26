@@ -7,7 +7,6 @@ import (
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
@@ -15,6 +14,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
@@ -34,7 +34,18 @@ type DistributedClientProvider interface {
 		statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
 }
 
+type NetworkProvider interface {
+	IP() string
+	Transport() string
+	ControlPort() int32
+	StdinPort() int32
+	HbPort() int32
+	ConnectionInfo() *jupyter.ConnectionInfo
+}
+
 type Provisioner struct {
+	id string
+
 	// kernelsStarting is a map of kernels that are starting for the first time.
 	//
 	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
@@ -64,6 +75,9 @@ type Provisioner struct {
 	// notifier is used to send notifications to the cluster dashboard.
 	notifier domain.Notifier
 
+	// networkProvider provides the Provisioner with network info required to create kernels.
+	networkProvider NetworkProvider
+
 	cluster scheduling.Cluster
 
 	distributedClientProvider DistributedClientProvider
@@ -73,14 +87,16 @@ type Provisioner struct {
 	log logger.Logger
 }
 
-func NewProvisioner(cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider *metrics.ClusterMetricsProvider,
-	opts *domain.ClusterGatewayOptions) *Provisioner {
+func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider *metrics.ClusterMetricsProvider,
+	networkProvider NetworkProvider, opts *domain.ClusterGatewayOptions) *Provisioner {
 
 	provisioner := &Provisioner{
+		id:                            id,
 		cluster:                       cluster,
 		notifier:                      notifier,
 		metricsProvider:               metricsProvider,
 		opts:                          opts,
+		networkProvider:               networkProvider,
 		kernelSpecs:                   hashmap.NewConcurrentMap[*proto.KernelSpec](32),
 		waitGroups:                    hashmap.NewConcurrentMap[*registrationWaitGroups](32),
 		kernelRegisteredNotifications: hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](64),
@@ -129,62 +145,19 @@ func (p *Provisioner) SmrReady(in *proto.SmrReadyNotification) error {
 }
 
 // StartKernel launches a new kernel.
-func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
+func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec, kernel scheduling.Kernel) (scheduling.Kernel, *proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
 
 	if in == nil {
 		panic("Received nil proto.KernelSpec argument to ClusterGatewayImpl::StartKernel...")
 	}
 
-	// If the resource spec of the KernelSpec argument is non-nil, then we will "sanitize" it.
-	var originalSpec *proto.ResourceSpec
-	if in.ResourceSpec != nil {
-		// In rare cases, the ResourceSpec will be received with certain quantities -- particularly memory -- different
-		// from how they were originally sent.
-		//
-		// For example, there is a spec from the workload trace in which the memory is 3.908 (MB), but we receive it
-		// here as "3.9079999923706055". It is still correct in the Jupyter Server and in the Gateway Provisioner (the
-		// Python object), but we receive the 3.908 as 3.9079999923706055, which leads to errors.
-		//
-		// So, we just round everything to 3 decimal places again here, to be safe.
-		originalSpec = in.ResourceSpec.Clone()
-		in.ResourceSpec = &proto.ResourceSpec{
-			Cpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)).Round(0).InexactFloat64()),
-			Memory: float32(decimal.NewFromFloat(float64(in.ResourceSpec.Memory)).Round(3).InexactFloat64()),
-			Gpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)).Round(0).InexactFloat64()),
-			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).Round(6).InexactFloat64()),
-		}
-	} else {
-		// Assign a default, "empty" resource spec.
-		in.ResourceSpec = &proto.ResourceSpec{
-			Cpu:    0,
-			Memory: 0,
-			Gpu:    0,
-			Vram:   0,
-		}
-	}
+	p.validateResourceSpec(in)
 
 	p.log.Info(
 		utils.LightBlueStyle.Render(
 			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v]"),
 		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-
-	// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
-	// unequal. If so, we'll log a message indicating as such.
-	if originalSpec != nil {
-		// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
-		// unequal. If so, we'll log a message indicating as such.
-		if isEqual, unequalField := in.ResourceSpec.EqualsWithField(originalSpec); !isEqual {
-			p.log.Warn(
-				"Original ResourceSpec included in KernelSpec for new kernel \"%s\" has been rounded, and their \"%s\" fields differ.",
-				in.Id, unequalField)
-
-			p.log.Warn("Original \"%s\" field: %f. Rounded \"%s\" field: %v.",
-				originalSpec.GetResourceQuantity(unequalField), in.ResourceSpec.GetResourceQuantity(unequalField))
-		}
-	} else {
-		p.log.Warn("KernelSpec for new kernel \"%s\" did not originally contain a ResourceSpec...")
-	}
 
 	p.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 		now := time.Now()
@@ -198,15 +171,8 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 		})
 	})
 
-	var (
-		kernel scheduling.Kernel
-		ok     bool
-		err    error
-	)
-
-	// Try to find existing kernel by session id first. The kernel that associated with the session id will not be clear during restart.
-	kernel, ok = p.kernels.Load(in.Id)
-	if !ok {
+	if kernel == nil {
+		var err error
 		kernel, err = p.initNewKernel(in)
 		if err != nil {
 			p.log.Error("Failed to create new kernel %s because: %v", in.Id, err)
@@ -214,7 +180,7 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 				utils.RedStyle.Render(
 					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
 				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-			return nil, err
+			return nil, nil, err
 		}
 	} else {
 		p.log.Info("Restarting kernel \"%s\".", kernel.ID())
@@ -233,15 +199,14 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 	kernel.BindSession(in.Session)
 	p.kernels.Store(in.Session, kernel)
 
-	err = p.sendStartingStatusIoPub(kernel)
-
+	err := p.sendStartingStatusIoPub(kernel)
 	if err != nil {
 		p.log.Error("Failed to send IOPub status messages during start-up of kernel %s: %v", in.Id, err)
 		p.log.Error(
 			utils.RedStyle.Render(
 				"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
 			in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-		return nil, err
+		return nil, nil, err
 	}
 
 	if p.cluster.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
@@ -250,7 +215,7 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 		// Since we're not going to schedule any replicas now, we'll send an 'idle' status update in 1.5-3 seconds.
 		go func() {
 			time.Sleep(time.Millisecond * time.Duration(1500+rand.Intn(1500)))
-			err = p.sendIdleStatusIoPub(kernel)
+			err = p.sendStartingStatusIoPub(kernel)
 			if err != nil {
 				p.log.Error("Failed to send 'idle' status update for new kernel \"%s\": %v", in.Id, err)
 			}
@@ -272,7 +237,7 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 					utils.OrangeStyle.Render(
 						"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
 					in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-				return nil, err
+				return nil, nil, err
 			}
 
 			p.log.Error("Error while starting long-running kernel \"%s\": %v", in.Id, err)
@@ -280,19 +245,19 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 				utils.RedStyle.Render(
 					"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Failure ✗"),
 				in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	p.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
 
 	info := &proto.KernelConnectionInfo{
-		Ip:              p.ip,
-		Transport:       p.transport,
-		ControlPort:     int32(p.router.Socket(messaging.ControlMessage).Port),
+		Ip:              p.networkProvider.IP(),
+		Transport:       p.networkProvider.Transport(),
+		ControlPort:     p.networkProvider.ControlPort(), // int32(p.router.Socket(messaging.ControlMessage).Port),
 		ShellPort:       int32(kernel.GetSocketPort(messaging.ShellMessage)),
-		StdinPort:       int32(p.router.Socket(messaging.StdinMessage).Port),
-		HbPort:          int32(p.router.Socket(messaging.HBMessage).Port),
+		StdinPort:       p.networkProvider.StdinPort(), // int32(p.router.Socket(messaging.StdinMessage).Port),
+		HbPort:          p.networkProvider.HbPort(),    // int32(p.router.Socket(messaging.HBMessage).Port),
 		IopubPort:       int32(kernel.GetSocketPort(messaging.IOMessage)),
 		IosubPort:       int32(kernel.GetSocketPort(messaging.IOMessage)),
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
@@ -321,10 +286,6 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 		panic(errorMessage)
 	}
 
-	p.registerKernelWithExecReqForwarder(kernel)
-
-	p.newKernelCreated(startTime, kernel.ID())
-
 	p.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v:\n%v",
 		kernel.ID(), time.Since(startTime), info.PrettyString())
 
@@ -333,7 +294,52 @@ func (p *Provisioner) StartKernel(ctx context.Context, in *proto.KernelSpec) (*p
 			"↩ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v] Success ✓"),
 		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
 
-	return info, nil
+	return kernel, info, nil
+}
+
+// validateResourceSpec ensures that the given proto.KernelSpec has a valid proto.ResourceSpec.
+//
+// If it doesn't, then validateResourceSpec will generate one.
+func (p *Provisioner) validateResourceSpec(in *proto.KernelSpec) {
+	// If the resource spec of the KernelSpec argument is non-nil, then we will "sanitize" it.
+	if in.ResourceSpec != nil {
+		// In rare cases, the ResourceSpec will be received with certain quantities -- particularly memory -- different
+		// from how they were originally sent.
+		//
+		// For example, there is a spec from the workload trace in which the memory is 3.908 (MB), but we receive it
+		// here as "3.9079999923706055". It is still correct in the Jupyter Server and in the Gateway Provisioner (the
+		// Python object), but we receive the 3.908 as 3.9079999923706055, which leads to errors.
+		//
+		// So, we just round everything to 3 decimal places again here, to be safe.
+		originalResourceSpec := in.ResourceSpec.Clone()
+		in.ResourceSpec = &proto.ResourceSpec{
+			Cpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Cpu)).Round(0).InexactFloat64()),
+			Memory: float32(decimal.NewFromFloat(float64(in.ResourceSpec.Memory)).Round(3).InexactFloat64()),
+			Gpu:    int32(decimal.NewFromFloat(float64(in.ResourceSpec.Gpu)).Round(0).InexactFloat64()),
+			Vram:   float32(decimal.NewFromFloat(float64(in.ResourceSpec.Vram)).Round(6).InexactFloat64()),
+		}
+
+		// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
+		// unequal. If so, we'll log a message indicating as such.
+		if isEqual, unequalField := in.ResourceSpec.EqualsWithField(originalResourceSpec); !isEqual {
+			p.log.Warn(
+				"Original ResourceSpec included in KernelSpec for new kernel \"%s\" has been rounded, and their \"%s\" fields differ.",
+				in.Id, unequalField)
+
+			p.log.Warn("Original \"%s\" field: %f. Rounded \"%s\" field: %v.",
+				originalResourceSpec.GetResourceQuantity(unequalField), in.ResourceSpec.GetResourceQuantity(unequalField))
+		}
+	}
+
+	p.log.Warn("KernelSpec for new kernel \"%s\" did not originally contain a ResourceSpec...")
+
+	// Assign a default, "empty" resource spec.
+	in.ResourceSpec = &proto.ResourceSpec{
+		Cpu:    0,
+		Memory: 0,
+		Gpu:    0,
+		Vram:   0,
+	}
 }
 
 // Return the add-replica operation associated with the given kernel ID and SMR Node ID of the new replica.
@@ -445,8 +451,9 @@ func (p *Provisioner) sendStatusMessage(kernel scheduling.Kernel, executionState
 func (p *Provisioner) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, error) {
 	p.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 
-	kernel := p.distributedClientProvider.NewDistributedKernelClient(context.Background(), in, p.NumReplicas(), p.id,
-		p.connectionOptions, uuid.NewString(), p.DebugMode, p.MetricsProvider, d)
+	kernel := p.distributedClientProvider.NewDistributedKernelClient(context.Background(), in,
+		p.cluster.Scheduler().Policy().NumReplicas(), p.id, p.networkProvider.ConnectionInfo(), uuid.NewString(), p.opts.DebugMode,
+		p.metricsProvider, p)
 
 	p.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err := kernel.InitializeShellForwarder(p.kernelShellHandler)
@@ -484,41 +491,339 @@ func (p *Provisioner) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, er
 	return kernel, nil
 }
 
-// newKernelCreated is to be called from StartKernel if and when the procedure succeeds.
+// startLongRunningKernel runs some long-running-kernel-specific start-up code.
 //
-// newKernelCreated pushes some metrics to Kubernetes and sends a notification to the Dashboard.
-func (p *Provisioner) newKernelCreated(startTime time.Time, kernelId string) {
-	// Tell the Dashboard that the kernel has successfully started running.
-	go p.notifier.NotifyDashboard("kernel Started",
-		fmt.Sprintf("kernel %s has started running. Launch took approximately %v from when the cluster Gateway began processing the 'create kernel' request.",
-			kernelId, time.Since(startTime)), messaging.SuccessNotification)
+// startLongRunningKernel will return as soon as the container creation process for the long-running kernel enters
+// the "placement" stage, as it is very likely to succeed at that point, but the remaining process can take anywhere
+// from 15 to 45 seconds (on average).
+func (p *Provisioner) startLongRunningKernel(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec) error {
+	notifyChan := make(chan interface{}, 1)
+	attemptChan := make(chan scheduling.CreateReplicaContainersAttempt, 1)
 
-	numActiveKernels := p.numActiveKernels.Add(1)
+	// Use a separate goroutine for this step.
+	go func() {
+		// We pass a new/separate context, because if we end up returning all the way back to the gRPC handler (and
+		// then return from there), then the scheduling operation will fail, as the context will be cancelled (when we
+		// return from the gRPC handler).
+		err := p.scheduleReplicas(context.Background(), kernel, in, attemptChan)
 
-	p.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		statistics.NumIdleSessions += 1
+		if err == nil {
+			notifyChan <- struct{}{}
+			return
+		}
 
-		now := time.Now()
-		statistics.ClusterEvents = append(statistics.ClusterEvents, &metrics.ClusterEvent{
-			EventId:             uuid.NewString(),
-			Name:                metrics.KernelCreationComplete,
-			KernelId:            kernelId,
-			ReplicaId:           -1,
-			Timestamp:           now,
-			TimestampUnixMillis: now.UnixMilli(),
-		})
-	})
+		if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+			p.log.Warn("Insufficient hosts available to schedule replica container(s) of new kernel %s: %v",
+				in.Id, err)
+		} else {
+			p.log.Error("Failed to schedule replica container(s) of new kernel %s at creation time: %v",
+				in.Id, err)
+		}
 
-	if p.metricsProvider.PrometheusMetricsEnabled() {
-		p.metricsProvider.GetGatewayPrometheusManager().NumActiveKernelReplicasGaugeVec.
-			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
-			Set(float64(numActiveKernels))
+		// Set the kernel's status to KernelStatusError.
+		kernel.InitialContainerCreationFailed()
 
-		p.metricsProvider.GetGatewayPrometheusManager().TotalNumKernelsCounterVec.
-			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
-			Inc()
+		notifyChan <- err
+	}()
 
-		p.metricsProvider.GetGatewayPrometheusManager().KernelCreationLatencyHistogram.
-			Observe(float64(time.Since(startTime).Milliseconds()))
+	//handleSchedulingError := func(err error) error {
+	//	p.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+	//
+	//	// Clean up everything since we failed to create the long-running kernel.
+	//	p.kernelIdToKernel.Delete(in.Id)
+	//	p.kernelsStarting.Delete(in.Id)
+	//	p.kernels.Delete(in.Id)
+	//	p.kernelSpecs.Delete(in.Id)
+	//	p.waitGroups.Delete(in.Id)
+	//
+	//	closeKernelError := kernel.Close()
+	//	if closeKernelError != nil {
+	//		p.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
+	//	}
+	//
+	//	// The error should already be compatible with gRPC. But just in case it isn't...
+	//	_, ok := status.FromError(err)
+	//	if !ok {
+	//		err = status.Error(codes.Internal, err.Error())
+	//	}
+	//
+	//	return err
+	//}
+
+	var attempt scheduling.CreateReplicaContainersAttempt
+	select {
+	case <-ctx.Done(): // Original context passed to us from the gRPC handler.
+		{
+			err := ctx.Err()
+
+			p.log.Error("gRPC context cancelled while scheduling replicas of new kernel \"%s\": %v",
+				in.Id, err)
+
+			if err != nil {
+				return fmt.Errorf("%w: failed to schedule replicas of kernel \"%s\"", err, in.Id)
+			}
+
+			return fmt.Errorf("failed to schedule replicas of kernel \"%s\" because: %w",
+				in.Id, types.ErrRequestTimedOut)
+		}
+	case v := <-notifyChan:
+		{
+			// If we received an error, then we already know that the operation failed (and we know why -- it is
+			// whatever the error is/says), so we can just return the error.
+			if err, ok := v.(error); ok {
+				p.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+			}
+
+			// Print a warning message because this is suspicious, but not necessarily indicative
+			// that something is wrong. (It is really, really weird, though...)
+			p.log.Warn("Received non-error response to creation of new, "+
+				"long-running kernel \"%s\" before receiving attempt value...", in.Id)
+
+			// If we receive a non-error response here, then we apparently already scheduled the replicas?
+			// This is very unexpected, but technically it's possible...
+			//
+			// It's unexpected because the overhead of starting containers is high enough that the case in which
+			// we receive the value from the attemptChan should occur first. We receive the attempt as soon as the
+			// placement of the containers begins, which should be anywhere from 15 to 45 seconds before the
+			// containers are fully created.
+			return nil
+		}
+	case attempt = <-attemptChan:
+		{
+			break
+		}
 	}
+
+	// Sanity check. We should only get to this point if the attempt was received from the attempt channel.
+	if attempt == nil {
+		panic("Expected scheduling.CreateReplicaContainersAttempt variable to be non-nil at this point.")
+	}
+
+	err := attempt.WaitForPlacementPhaseToBegin(ctx)
+	if err != nil {
+		p.log.Error("Error waiting for placement to begin during creation of new kernel \"%s\": %v", in.Id, err)
+		return err
+	}
+
+	return attempt.Wait(ctx)
+
+	//select {
+	//// Check if there's already an error available, in which case we'll return it.
+	//case v := <-notifyChan:
+	//	{
+	//		// If we received an error, then we already know that the operation failed (and we know why -- it is
+	//		// whatever the error is/says), so we can just return the error. Otherwise, we just return optimistically.
+	//		var ok bool
+	//		if err, ok = v.(error); ok {
+	//			p.log.Warn("Failed to schedule replicas of new kernel \"%s\" because: %v", in.Id, err)
+	//		}
+	//	}
+	//default:
+	//	{
+	//		// No-op.
+	//	}
+	//}
+	//
+	//p.log.Debug("Placement phase began for new kernel \"%s\".", in.Id)
+	//return nil
+}
+
+// scheduleReplicas actually scheduled the replicas of the specified kernel.
+//
+// Important: if the attemptChan argument is non-nil, then it should be a buffered channel so that the operation
+// to place the scheduling.CreateReplicaContainersAttempt into it will not block. (We don't want to get stuck
+// there forever in case the caller goes away for whatever reason.)
+func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec,
+	attemptChan chan<- scheduling.CreateReplicaContainersAttempt) error {
+
+	// Check if any replicas are being migrated and, if so, then wait for them to finish being migrated.
+	migrationCtx, migrateCancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer migrateCancel()
+
+	err := kernel.WaitForMigrationsToComplete(migrationCtx)
+	if err != nil {
+		return err
+	}
+
+	replicasToSchedule := kernel.MissingReplicaIds()
+	numReplicasToSchedule := len(replicasToSchedule)
+
+	if numReplicasToSchedule == 0 {
+		p.log.Warn("All replicas of kernel \"%s\" are already scheduled...?", kernel.ID())
+		return nil
+	}
+
+	p.log.Debug("Scheduling %d replica container(s) of kernel %s.",
+		numReplicasToSchedule, kernel.ID())
+
+	var (
+		startedScheduling bool
+		attempt           scheduling.CreateReplicaContainersAttempt
+	)
+
+	// We'll keep executing this loop as long as the replicas of the target kernel are not scheduled.
+	// We break from the loop internally if (a) we claim ownership over a container creation attempt, in which case we
+	// break out so that we can orchestrate the container creation attempt, or (b) if we find that the replicas are in
+	// fact scheduled. This may occur if, for example, a previous attempt concludes.
+	for {
+		// Try to start a new attempt at scheduling the replica container(s) of this kernel.
+		startedScheduling, attempt = kernel.InitSchedulingReplicaContainersOperation()
+
+		// If we started a new attempt, then we'll break out of the loop and orchestrate the creation of
+		// the containers for the replicas of the target kernel.
+		if startedScheduling {
+			p.log.Debug(utils.LightBlueStyle.Render("Started attempt to schedule %d replica container(s) for kernel \"%s\"."),
+				p.cluster.Scheduler().Policy().NumReplicas(), kernel.ID())
+			break
+		}
+
+		// We didn't start a new scheduling attempt.
+		// If the returned attempt is also nil, then that means that there was also not an active attempt.
+		// So, the replicas are apparently already scheduled.
+		if attempt == nil {
+			p.log.Debug("Tried to start attempt to schedule %d replica container(s) for kernel \"%s\", but apparently they're already scheduled.",
+				p.cluster.Scheduler().Policy().NumReplicas(), kernel.ID())
+
+			// Double-check that the kernel's replicas are scheduled. If they are, then we'll just return entirely.
+			if kernel.ReplicasAreScheduled() {
+				return nil
+			}
+
+			// This would be truly bizarre, but if this occurs, then we'll just sleep briefly and then try again...
+			p.log.Error("We were lead to believe that kernel %s's replicas were scheduled, but they're not...",
+				kernel.ID())
+
+			time.Sleep(time.Millisecond * (5 + time.Duration(rand.Intn(25))))
+			continue
+		}
+
+		if attemptChan != nil {
+			attemptChan <- attempt
+		}
+
+		// If we did not start a new attempt, then a previous attempt must still be active.
+		// We'll just wait for the attempt to conclude.
+		// If the scheduling is successful, then this will eventually return nil.
+		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
+		p.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
+			kernel.ID(), attempt.TimeElapsed())
+		return attempt.Wait(ctx)
+	}
+
+	if attemptChan != nil {
+		attemptChan <- attempt
+	}
+
+	// Verify that the replicas aren't scheduled.
+	// If we encountered an existing scheduling operation up above that we waited for and that completed successfully,
+	// then the replicas may well be available now, so we can just return.
+	if kernel.ReplicasAreScheduled() {
+		p.log.Debug("Replicas of kernel \"%s\" are apparently scheduled now. Returning.", kernel.ID())
+		return nil
+	}
+
+	scheduleReplicasStartedEvents := make(map[int32]*metrics.ClusterEvent)
+	replicaRegisteredTimestamps := make(map[int32]time.Time)
+	var replicaRegisteredEventsMutex sync.Mutex
+
+	p.clusterStatisticsMutex.Lock()
+	startTime := time.Now()
+	for _, replicaId := range replicasToSchedule {
+		event := &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.ScheduleReplicasStarted,
+			KernelId:            in.Id,
+			ReplicaId:           replicaId,
+			Timestamp:           startTime,
+			TimestampUnixMillis: startTime.UnixMilli(),
+		}
+		p.ClusterStatistics.ClusterEvents = append(p.ClusterStatistics.ClusterEvents, event)
+		scheduleReplicasStartedEvents[replicaId] = event
+	}
+	p.clusterStatisticsMutex.Unlock()
+
+	// Record that this kernel is starting.
+	kernelStartedChan := make(chan struct{})
+	p.kernelsStarting.Store(in.Id, kernelStartedChan)
+	created := newRegistrationWaitGroups(numReplicasToSchedule)
+	created.AddOnReplicaRegisteredCallback(func(replicaId int32) {
+		replicaRegisteredEventsMutex.Lock()
+		defer replicaRegisteredEventsMutex.Unlock()
+
+		replicaRegisteredTimestamps[replicaId] = time.Now()
+	})
+	p.waitGroups.Store(in.Id, created)
+
+	err = p.cluster.Scheduler().DeployKernelReplicas(ctx, kernel, int32(numReplicasToSchedule), []scheduling.Host{ /* No blacklisted hosts */ })
+	if err != nil {
+		p.log.Warn("Failed to deploy kernel replica(s) for kernel \"%s\" because: %v", kernel.ID(), err)
+
+		// Only notify if there's an "actual" error.
+		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &scheduling.InsufficientResourcesError{}) {
+			go p.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Create kernel \"%s\"", in.Id), err.Error())
+		}
+
+		// Record that the container creation attempt has completed with an error (i.e., it failed).
+		attempt.SetDone(err)
+
+		return err
+	}
+
+	// Wait for all replicas to be created.
+	// Note that creation just means that the Container/Pod was created.
+	// It does not mean that the Container/Pod has entered the active/running state.
+	p.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %p.",
+		in.Id, numReplicasToSchedule)
+	created.Wait()
+	p.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
+		numReplicasToSchedule, in.Id)
+
+	// Wait until all replicas have started.
+	for i := 0; i < numReplicasToSchedule; i++ {
+		<-kernelStartedChan // Wait for all replicas to join their SMR cluster.
+	}
+
+	// Clean up.
+	p.kernelsStarting.Delete(in.Id)
+	p.log.Debug("All %d replica(s) of kernel %s have registered and joined their SMR cluster. Number of kernels starting: %p.",
+		numReplicasToSchedule, in.Id, numReplicasToSchedule)
+
+	// Sanity check.
+	if kernel.Size() == 0 {
+		// Record that the container creation attempt has completed with an error (i.e., it failed).
+		attempt.SetDone(client.ErrFailureUnspecified)
+		return status.Errorf(codes.Internal, "Failed to start kernel")
+	}
+
+	// Map all the sessions to the kernel client.
+	for _, sess := range kernel.Sessions() {
+		p.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
+		p.kernels.Store(sess, kernel)
+	}
+
+	// Create corresponding events for when the replicas registered.
+	for replicaId, timestamp := range replicaRegisteredTimestamps {
+		timeElapsed := timestamp.Sub(startTime)
+		event := &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.ScheduleReplicasComplete,
+			KernelId:            in.Id,
+			ReplicaId:           replicaId,
+			Timestamp:           timestamp,
+			TimestampUnixMillis: timestamp.UnixMilli(),
+			Duration:            timeElapsed,
+			DurationMillis:      timeElapsed.Milliseconds(),
+			Metadata: map[string]interface{}{
+				"start_time_unix_millis":       startTime.UnixMilli(),
+				"corresponding_start_event_id": scheduleReplicasStartedEvents[replicaId].EventId,
+			},
+		}
+		p.clusterStatisticsMutex.Lock()
+		p.ClusterStatistics.ClusterEvents = append(p.ClusterStatistics.ClusterEvents, event)
+		p.clusterStatisticsMutex.Unlock()
+	}
+
+	// Record that the container creation attempt has completed successfully.
+	attempt.SetDone(nil)
+	return nil
 }

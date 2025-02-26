@@ -2812,7 +2812,7 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
-        target_replica_id: int = metadata.get("target_replica_id", -1)
+        target_replica_id: int = parent["metadata"].get("target_replica_id", -1)
 
         await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
 
@@ -2904,6 +2904,7 @@ class DistributedKernel(IPythonKernel):
         # recover partial output (that could have been generated early in a
         # block, before an error) and always clear the payload system.
         reply_content["payload"] = self.shell.payload_manager.read_payload()
+        reply_content["yielded"] = True
 
         # If there was a reason for why we were explicitly told to YIELD included in the metadata of the
         # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
@@ -3506,6 +3507,7 @@ class DistributedKernel(IPythonKernel):
             reply_content["term_number"] = current_term_number
             reply_content["performed_dl_training"] = performed_dl_training
             reply_content["code"] = code
+            reply_content["yielded"] = False
         except ElectionAbortedException as ex:
             self.log.warning("ElectionAbortedException: {ex}")
 
@@ -3515,6 +3517,7 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Execution yielded: {}".format(eye))
 
             reply_content = gen_error_response(eye)
+            reply_content["yielded"] = True
         except DiscardMessageError as dme:
             self.log.warning(
                 f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
@@ -3535,6 +3538,7 @@ class DistributedKernel(IPythonKernel):
             self.report_error("Execution Error", f"{type(e).__name__}: {e}")
 
             reply_content = gen_error_response(e)
+            reply_content["yielded"] = False
 
         return reply_content
 

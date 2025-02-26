@@ -325,6 +325,16 @@ services:
         - "traefik.enable=true"
         - "app=distributed_cluster"
         - "component=cadvisor"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.cadvisor-http.entryPoints=http"
+        - "traefik.http.routers.cadvisor-http.rule=Host(`18.211.101.117`) && PathPrefix(`/cadvisor`)"
+        - "traefik.http.middlewares.cadvisor-strip.stripprefix.prefixes=/cadvisor"
+        - "traefik.http.routers.cadvisor-http.middlewares=cadvisor-strip"
+
+        - "traefik.http.services.cadvisor.loadbalancer.server.port={{ cadvisor_port }}"
+        - "traefik.http.routers.cadvisor-http.service=cadvisor"
     volumes:
       - "/:/rootfs:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
@@ -338,7 +348,7 @@ services:
       - traefik-public
       - distributed_cluster_default
     healthcheck:
-      test: "['CMD', 'wget', '--spider', 'http://localhost:{{ cadvisor_port }}/']"
+      test: ['CMD', 'wget', '--spider', 'http://localhost:{{ cadvisor_port }}/healthz']
       interval: 30s
       timeout: 10s
       retries: 3

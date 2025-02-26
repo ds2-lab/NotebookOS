@@ -28,7 +28,7 @@ type KernelManager interface {
 	NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error)
 	PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error)
 	IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error)
-	
+
 	PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error)
 
 	SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error)
@@ -76,6 +76,7 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 		forwarder:     b.forwarder,
 		kernelManager: b.kernelManager,
 		options:       b.options,
+		router:        b.router,
 	}
 
 	config.InitLogger(&gatewayDaemon.log, gatewayDaemon)
@@ -84,14 +85,18 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 }
 
 type GatewayDaemon struct {
+	id               string
+	ipAddress        string
+	networkTransport string
+
 	DeploymentMode types.DeploymentMode
 
 	notifier       domain.Notifier
 	forwarder      MessageForwarder
 	kernelManager  KernelManager
 	metricsManager MetricsManager
+	router         *router.Router
 	cluster        scheduling.Cluster
-	id             string
 
 	options         *domain.ClusterGatewayOptions
 	dockerNodeMutex sync.Mutex
@@ -209,4 +214,24 @@ func (g *GatewayDaemon) SmrReady(ctx context.Context, in *proto.SmrReadyNotifica
 
 func (g *GatewayDaemon) SmrNodeAdded(ctx context.Context, in *proto.ReplicaInfo) (*proto.Void, error) {
 	return g.kernelManager.SmrNodeAdded(ctx, in)
+}
+
+func (g *GatewayDaemon) IP() string {
+	return g.ipAddress
+}
+
+func (g *GatewayDaemon) Transport() string {
+	return g.networkTransport
+}
+
+func (g *GatewayDaemon) ControlPort() int32 {
+	return int32(g.router.Socket(messaging.ControlMessage).Port)
+}
+
+func (g *GatewayDaemon) StdinPort() int32 {
+	return int32(g.router.Socket(messaging.StdinMessage).Port)
+}
+
+func (g *GatewayDaemon) HbPort() int32 {
+	return int32(g.router.Socket(messaging.HBMessage).Port)
 }

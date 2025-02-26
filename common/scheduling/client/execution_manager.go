@@ -515,8 +515,8 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 	}
 
 	kernelId := m.Kernel.ID()
-	m.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from replica %d of kernel %s.",
-		msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
+	m.log.Debug("Received \"%s\" message with JupyterID=\"%s\" from replica %d of kernel %s.",
+		msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
 
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
@@ -537,7 +537,21 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 		return false, err
 	}
 
-	isYieldProposal := msgErr.ErrName == messaging.MessageErrYieldExecution
+	var isYieldProposal bool
+	if msgErr.Status != messaging.MessageStatusOK {
+		isYieldProposal = (msgErr.ErrName == messaging.MessageErrYieldExecution) || msgErr.YieldReason != "" || msgErr.Yielded
+
+		if msgErr.ErrName != messaging.MessageErrYieldExecution {
+			m.log.Error("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue)
+
+			title := "Kernel Encountered Error During Code Execution"
+			m.sendNotification(title, fmt.Sprintf("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue), messaging.ErrorNotification, true)
+		}
+	}
 
 	activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
 	if activeExec != nil {

@@ -46,6 +46,40 @@ var (
 	ErrKernelNotReady = status.Error(codes.Unavailable, "kernel not ready")
 )
 
+func errorf(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	_, ok := status.FromError(err)
+	if ok {
+		return err
+	}
+
+	return status.Errorf(codes.Internal, err.Error())
+}
+
+func statusErrorf(status jupyter.KernelStatus, err error) (*proto.KernelStatus, error) {
+	if err != nil {
+		return nil, errorf(err)
+	}
+	return &proto.KernelStatus{Status: int32(status)}, nil
+}
+
+func getMessageAndSocketTypeForPing(in *proto.PingInstruction) (msgTyp string, socketTyp messaging.MessageType, err error) {
+	if in.SocketType == "shell" {
+		socketTyp = messaging.ShellMessage
+		msgTyp = "ping_kernel_shell_request"
+	} else if in.SocketType == "control" {
+		socketTyp = messaging.ControlMessage
+		msgTyp = "ping_kernel_ctrl_request"
+	} else {
+		err = fmt.Errorf("%w: \"%s\"", types.ErrInvalidSocketType, in.SocketType)
+	}
+
+	return
+}
+
 type MessageHandler func(kernel scheduling.Kernel, socketType messaging.MessageType, msg *messaging.JupyterMessage) error
 
 // ResponseForwarder is an interface that provides the means to forward responses from scheduling.Kernel and
@@ -59,6 +93,8 @@ type ResponseForwarder interface {
 // Manager is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
 // scheduling.KernelReplica instances running within the cluster.
 type Manager struct {
+	id string
+
 	log logger.Logger
 
 	// debugMode causes more information to be included in Jupyter requests, among other things.
@@ -107,10 +143,12 @@ type Manager struct {
 }
 
 // NewManager creates a new Manager struct and returns a pointer to it.
-func NewManager(cluster scheduling.Cluster, requestLog *metrics.RequestLog, responseForwarder ResponseForwarder,
-	metricsProvider *metrics.ClusterMetricsProvider, notifier domain.Notifier, opts *domain.ClusterGatewayOptions) *Manager {
+func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.RequestLog, responseForwarder ResponseForwarder,
+	metricsProvider *metrics.ClusterMetricsProvider, networkProvider provisioner.NetworkProvider, notifier domain.Notifier,
+	opts *domain.ClusterGatewayOptions) *Manager {
 
 	manager := &Manager{
+		id:                id,
 		kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
 		responseForwarder: responseForwarder,
@@ -119,7 +157,7 @@ func NewManager(cluster scheduling.Cluster, requestLog *metrics.RequestLog, resp
 		requestLog:        requestLog,
 		debugMode:         opts.DebugMode,
 		metricsProvider:   metricsProvider,
-		kernelProvisioner: provisioner.NewProvisioner(cluster, notifier, metricsProvider, opts),
+		kernelProvisioner: provisioner.NewProvisioner(id, cluster, notifier, metricsProvider, networkProvider, opts),
 	}
 
 	manager.handlers[messaging.ControlMessage] = manager.controlHandler
@@ -177,8 +215,23 @@ func (km *Manager) ForwardRequestToKernel(kernelOrSessionId string, msg *messagi
 }
 
 func (km *Manager) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
-	//TODO implement me
-	panic("implement me")
+	startTime := time.Now()
+
+	// Try to find existing kernel by session id first.
+	// The kernel that associated with the session id will not be clear during restart.
+	existingKernel, _ := km.kernels.Load(in.Id)
+
+	kernel, resp, err := km.kernelProvisioner.StartKernel(ctx, in, existingKernel)
+
+	if err == nil {
+		km.newKernelCreated(startTime, in.Id)
+
+		km.registerKernelWithExecReqForwarder(kernel)
+
+		return resp, nil
+	}
+
+	return nil, errorf(err)
 }
 
 // GetKernelStatus returns the status of a particular kernel as specified in the proto.KernelId parameter.
@@ -827,36 +880,51 @@ func (km *Manager) shouldReplicasBeRunning(kernel scheduling.Kernel) bool {
 	return km.cluster.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning
 }
 
-func errorf(err error) error {
-	if err == nil {
-		return nil
-	}
+// newKernelCreated is to be called from StartKernel if and when the procedure succeeds.
+//
+// newKernelCreated pushes some metrics to Kubernetes and sends a notification to the Dashboard.
+func (km *Manager) newKernelCreated(startTime time.Time, kernelId string) {
+	// Tell the Dashboard that the kernel has successfully started running.
+	go km.notifier.NotifyDashboard("kernel Started",
+		fmt.Sprintf("kernel %s has started running. Launch took approximately %v from when the cluster Gateway began processing the 'create kernel' request.",
+			kernelId, time.Since(startTime)), messaging.SuccessNotification)
 
-	_, ok := status.FromError(err)
-	if ok {
-		return err
-	}
+	numActiveKernels := km.numActiveKernels.Add(1)
 
-	return status.Errorf(codes.Internal, err.Error())
+	km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		statistics.NumIdleSessions += 1
+
+		now := time.Now()
+		statistics.ClusterEvents = append(statistics.ClusterEvents, &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.KernelCreationComplete,
+			KernelId:            kernelId,
+			ReplicaId:           -1,
+			Timestamp:           now,
+			TimestampUnixMillis: now.UnixMilli(),
+		})
+	})
+
+	if km.metricsProvider.PrometheusMetricsEnabled() {
+		km.metricsProvider.GetGatewayPrometheusManager().NumActiveKernelReplicasGaugeVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+			Set(float64(numActiveKernels))
+
+		km.metricsProvider.GetGatewayPrometheusManager().TotalNumKernelsCounterVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+			Inc()
+
+		km.metricsProvider.GetGatewayPrometheusManager().KernelCreationLatencyHistogram.
+			Observe(float64(time.Since(startTime).Milliseconds()))
+	}
 }
 
-func statusErrorf(status jupyter.KernelStatus, err error) (*proto.KernelStatus, error) {
-	if err != nil {
-		return nil, errorf(err)
-	}
-	return &proto.KernelStatus{Status: int32(status)}, nil
-}
-
-func getMessageAndSocketTypeForPing(in *proto.PingInstruction) (msgTyp string, socketTyp messaging.MessageType, err error) {
-	if in.SocketType == "shell" {
-		socketTyp = messaging.ShellMessage
-		msgTyp = "ping_kernel_shell_request"
-	} else if in.SocketType == "control" {
-		socketTyp = messaging.ControlMessage
-		msgTyp = "ping_kernel_ctrl_request"
-	} else {
-		err = fmt.Errorf("%w: \"%s\"", types.ErrInvalidSocketType, in.SocketType)
+func (km *Manager) registerKernelWithExecReqForwarder(kernel scheduling.Kernel) {
+	// Create a wrapper around the kernel's RequestWithHandlerAndReplicas method.
+	forwarder := func(ctx context.Context, op string, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage,
+		handler scheduling.KernelReplicaMessageHandler, done func()) error {
+		return kernel.RequestWithHandlerAndReplicas(ctx, op, typ, jupyterMessages, handler, done, kernel.Replicas()...)
 	}
 
-	return
+	km.executeRequestForwarder.RegisterKernel(kernel, forwarder, km.forwardResponseFromKernel)
 }

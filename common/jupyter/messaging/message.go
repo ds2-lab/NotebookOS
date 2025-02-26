@@ -218,6 +218,7 @@ type MessageErrorWithYieldReason struct {
 	*MessageError
 
 	YieldReason string `json:"yield-reason"`
+	Yielded     bool   `json:"yielded"`
 }
 
 func (m *MessageErrorWithYieldReason) String() string {
