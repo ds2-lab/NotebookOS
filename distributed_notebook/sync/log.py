@@ -450,6 +450,12 @@ class SyncLog(Protocol):
         Close the LogNode's RemoteStorage client.
         """
 
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        pass
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        pass
+
     async def write_data_dir_to_remote_storage(
             self,
             last_resource_request: Optional[

@@ -117,6 +117,9 @@ class RaftLog(object):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._term_to_jupyter_id: Dict[int, str] = {}
+        self._jupyter_id_to_term: Dict[str, int] = {}
+
         self.log.info("Creating RaftNode %d now." % node_id)
 
         if debug_port <= 1023 or debug_port >= 65535:
@@ -1678,6 +1681,8 @@ class RaftLog(object):
             "elections": self._elections,  # map of Election objects
             "current_election": self._current_election,  # Election object
             "last_completed_election": self._last_completed_election,  # Election object
+            "_term_to_jupyter_id": self._term_to_jupyter_id,
+            "_jupyter_id_to_term": self._jupyter_id_to_term,
         }
 
         # Add the resource request entry, if available.
@@ -1738,9 +1743,8 @@ class RaftLog(object):
         self.log.debug(f"Retrieved serialized state from LogNode: {val}")
 
         try:
-            serialized_state_bytes: bytes = bytes(
-                val
-            )  # Convert the Go bytes (Slice_byte) to Python bytes.
+            # Convert the Go bytes (Slice_byte) to Python bytes.
+            serialized_state_bytes: bytes = bytes(val)
             return serialized_state_bytes
         except Exception as ex:
             self.log.error(
@@ -1796,9 +1800,7 @@ class RaftLog(object):
             return False
 
         try:
-            data_dict: dict = pickle.loads(
-                serialized_state_bytes
-            )  # json.loads(serialized_state_json)
+            data_dict: dict = pickle.loads(serialized_state_bytes)
             if len(data_dict) == 0:
                 self.log.debug("No serialized state found. Nothing to apply.")
                 return False
@@ -1814,14 +1816,14 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        # TODO:
-        # There may be some bugs that arrise from these values being somewhat old or outdated, potentially.
         self._buffered_proposals = data_dict["buffered_proposals"]
         self._buffered_votes = data_dict["buffered_votes"]
         self._proposed_values = data_dict["proposed_values"]
         self._elections = data_dict["elections"]
         self._current_election = data_dict["current_election"]
         self._last_completed_election = data_dict["last_completed_election"]
+        self._term_to_jupyter_id = data_dict["_term_to_jupyter_id"]
+        self._jupyter_id_to_term = data_dict["_jupyter_id_to_term"]
 
         # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
         # (a) already know about and (b) aren't finished yet in some capacity.
@@ -3374,3 +3376,47 @@ class RaftLog(object):
             return False
 
         return election.code_execution_completed_successfully
+
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        if val is None:
+            return
+
+        if hasattr(val, "jupyter_message_id") and val.jupyter_message_id is not None and val.jupyter_message_id != "":
+            jupyter_message_id: str = val.jupyter_message_id
+            term_number: int = val.election_term
+
+            if term_number not in self._term_to_jupyter_id:
+                self._term_to_jupyter_id[term_number] = jupyter_message_id
+            elif self._term_to_jupyter_id[term_number] != jupyter_message_id:
+                self.log.error(f'SynchronizedValue from term {term_number} has Jupyter message ID '
+                               f'"{jupyter_message_id}", but we have recorded that this ID is associated '
+                               f'with term {self._term_to_jupyter_id[term_number]}: {val}')
+
+                if self._report_error_callback is not None:
+                    title:str = "Inconsistent Term Number to Jupyter Message ID Association"
+                    msg:str = f'SynchronizedValue from term {term_number} has Jupyter message ID ' \
+                              f'"{jupyter_message_id}", but we have recorded that this ID is associated ' \
+                              f'with term {self._term_to_jupyter_id[term_number]}: {val}'
+
+                    self._report_error_callback(title, msg)
+
+            if jupyter_message_id not in self._jupyter_id_to_term:
+                self._jupyter_id_to_term[jupyter_message_id] = term_number
+            elif self._jupyter_id_to_term[jupyter_message_id] != term_number:
+                self.log.error(f'SynchronizedValue from with jID={jupyter_message_id} has term={term_number}, '
+                               f'but we have an existing record that indicates that this ID is associated with term '
+                               f'{self._jupyter_id_to_term[jupyter_message_id]}: {val}')
+
+                if self._report_error_callback is not None:
+                    title:str = "Inconsistent Jupyter Message ID to Term Number Association"
+                    msg:str = f'SynchronizedValue from with jID={jupyter_message_id} has term={term_number}, ' \
+                              f'but we have an existing record that indicates that this ID is associated with term ' \
+                              f'{self._jupyter_id_to_term[jupyter_message_id]}: {val}'
+
+                    self._report_error_callback(title, msg)
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        if jupyter_msg_id in self._jupyter_id_to_term:
+            return self._jupyter_id_to_term[jupyter_msg_id]
+
+        return -1

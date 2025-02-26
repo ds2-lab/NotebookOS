@@ -489,3 +489,9 @@ class RemoteStorageLog(object):
         "yield_request" message.
         """
         pass # not supported when SMR is disabled
+
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        pass
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        return -1

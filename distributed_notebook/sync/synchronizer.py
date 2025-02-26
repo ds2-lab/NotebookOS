@@ -113,9 +113,6 @@ class Synchronizer:
             raise ValueError("remote checkpointer cannot be null")
         self._remote_checkpointer: Checkpointer = remote_checkpointer
 
-        self._term_to_jupyter_id: Dict[int, str] = {}
-        self._jupyter_id_to_term: Dict[str, int] = {}
-
         self.log.debug("Finished creating Synchronizer")
 
     @property
@@ -266,51 +263,7 @@ class Synchronizer:
             self.log.warning(f"Current local election has term number {local_election.term_number}, "
                              f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
 
-        self.update_term_msg_id_mappings(val)
-
-    def update_term_msg_id_mappings(self, val: SynchronizedValue):
-        if val is None:
-            return
-
-        if hasattr(val, "jupyter_message_id") and val.jupyter_message_id is not None and val.jupyter_message_id != "":
-            jupyter_message_id: str = val.jupyter_message_id
-            term_number: int = val.election_term
-
-            if term_number not in self._term_to_jupyter_id:
-                self._term_to_jupyter_id[term_number] = jupyter_message_id
-            elif self._term_to_jupyter_id[term_number] != jupyter_message_id:
-                self.log.error(f'SynchronizedValue from term {term_number} has Jupyter message ID '
-                               f'"{jupyter_message_id}", but we have recorded that this ID is associated '
-                               f'with term {self._term_to_jupyter_id[term_number]}: {val}')
-
-                if self._report_error_callback is not None:
-                    title:str = "Inconsistent Term Number to Jupyter Message ID Association"
-                    msg:str = f'SynchronizedValue from term {term_number} has Jupyter message ID ' \
-                              f'"{jupyter_message_id}", but we have recorded that this ID is associated ' \
-                              f'with term {self._term_to_jupyter_id[term_number]}: {val}'
-
-                    self._report_error_callback(title, msg)
-
-            if jupyter_message_id not in self._jupyter_id_to_term:
-                self._jupyter_id_to_term[jupyter_message_id] = term_number
-            elif self._jupyter_id_to_term[jupyter_message_id] != term_number:
-                self.log.error(f'SynchronizedValue from with jID={jupyter_message_id} has term={term_number}, '
-                               f'but we have an existing record that indicates that this ID is associated with term '
-                               f'{self._jupyter_id_to_term[jupyter_message_id]}: {val}')
-
-                if self._report_error_callback is not None:
-                    title:str = "Inconsistent Jupyter Message ID to Term Number Association"
-                    msg:str = f'SynchronizedValue from with jID={jupyter_message_id} has term={term_number}, ' \
-                              f'but we have an existing record that indicates that this ID is associated with term ' \
-                              f'{self._jupyter_id_to_term[jupyter_message_id]}: {val}'
-
-                    self._report_error_callback(title, msg)
-
-    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
-        if jupyter_msg_id in self._jupyter_id_to_term:
-            return self._jupyter_id_to_term[jupyter_msg_id]
-
-        return -1
+        self._synclog.update_term_msg_id_mappings(val)
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
@@ -356,7 +309,7 @@ class Synchronizer:
 
         # Update this mapping before, so if we receive an execute_request or yield_request and begin processing it,
         # the mapping exists before the execution_count field is updated.
-        self.update_term_msg_id_mappings(syncVal)
+        self._synclog.update_term_msg_id_mappings(syncVal)
         self._ast = existed
 
         if self.execution_count != old_exec_count:

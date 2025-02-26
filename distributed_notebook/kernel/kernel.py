@@ -2749,7 +2749,7 @@ class DistributedKernel(IPythonKernel):
 
         existing_election: Optional[Election] = self.synclog.get_election(-1, msg_id)
         if existing_election is None:
-            term = self.synchronizer.check_for_term_with_jupyter_id(msg_id)
+            term = self.synclog.check_for_term_with_jupyter_id(msg_id)
 
             if term != -1:
                 self.log.debug(f'Found mapping from Jupyter message ID "{msg_id}" to '
