@@ -513,8 +513,8 @@ class Synchronizer:
         self,
         execution_ast: ast.Module,
         source: Optional[str] = None,
-        jupyter_msg_id: str = "",
         checkpointer: Optional[Checkpointer] = None,
+        jupyter_message_id: str = "",
     ) -> bool:
         """
         Note: `execution_ast` may be None if the user's code had a syntax error.
@@ -570,7 +570,7 @@ class Synchronizer:
                 self._syncing = False
 
             sync_ast.set_proposer_id(self._node_id)
-            sync_ast.jupyter_message_id = jupyter_msg_id
+            sync_ast.jupyter_message_id = jupyter_message_id
 
             # current_election: Election = self._synclog.current_election
             # if current_election is not None:
@@ -780,8 +780,13 @@ class Synchronizer:
             checkpointer: Optional[Checkpointer] = None,
     )->bool:
         try:
-            return await self.sync(execution_ast, source, checkpointer)
-        except Exception:
+            return await self.sync(
+                execution_ast,
+                source = source,
+                checkpointer = checkpointer
+            )
+        except Exception as ex:
+            self.log.warning(f"Exception while syncing (and swallowing exceptions): {ex}")
             return False
 
     def checkpoint_callback(self, checkpointer: Checkpointer) -> None:

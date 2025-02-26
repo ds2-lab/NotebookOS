@@ -3688,7 +3688,7 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content, performed_dl_training, code
 
-    async def synchronize_updated_state(self, term_number: int, jupyter_msg_id:str):
+    async def synchronize_updated_state(self, term_number: int, jupyter_message_id:str):
         """
         Synchronize any state updated during the last execution with peer replicas.
 
@@ -3696,6 +3696,7 @@ class DistributedKernel(IPythonKernel):
 
         Warning: as of right now, any synchronization errors are simply caught and logged.
 
+        :param jupyter_message_id: the associated jupyter message id
         :param term_number: the term for which we're performing the state synchronization.
         """
         if self.execution_ast is None:
@@ -3713,7 +3714,7 @@ class DistributedKernel(IPythonKernel):
             synchronized_successfully: bool = await self.synchronizer.sync(
                 execution_ast = self.execution_ast,
                 source = self.source,
-                jupyter_msg_id = jupyter_msg_id
+                jupyter_message_id = jupyter_message_id
             )
         except Exception as exc:
             self.log.error(f"Synchronization failed: {exc}")
