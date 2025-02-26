@@ -6,7 +6,7 @@ import sys
 import time
 import traceback
 import types
-from typing import Any, Callable, Optional, List
+from typing import Any, Callable, Optional, List, Dict
 
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.logs import ColoredLogFormatter
@@ -47,10 +47,9 @@ class Synchronizer:
         opts=0,
         node_id: int = -1,
         num_replicas: int = 3,
-        large_object_pointer_committed: Callable[
-            [SyncPointer], Optional[CustomDataset | DeepLearningModel]
-        ] = None,
+        large_object_pointer_committed: Callable[[SyncPointer], Optional[CustomDataset | DeepLearningModel]] = None,
         remote_checkpointer: Checkpointer = None,
+        report_error_callback: Callable[[str, str], None] = None,
     ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
@@ -66,6 +65,7 @@ class Synchronizer:
         self._store_path: str = store_path
         self._node_id: int = node_id
         self._num_replicas: int = num_replicas
+        self._report_error_callback: Callable[[str, str], None] = report_error_callback
 
         # Set callbacks for synclog
         sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)
@@ -112,6 +112,9 @@ class Synchronizer:
         if remote_checkpointer is None:
             raise ValueError("remote checkpointer cannot be null")
         self._remote_checkpointer: Checkpointer = remote_checkpointer
+
+        self._term_to_jupyter_id: Dict[int, str] = {}
+        self._jupyter_id_to_term: Dict[str, int] = {}
 
         self.log.debug("Finished creating Synchronizer")
 
@@ -182,9 +185,7 @@ class Synchronizer:
         prev_exec_count: int = self._ast.execution_count
         self._ast.fast_forward_executions()
 
-        self.log.debug(
-            f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count})."
-        )
+        self.log.debug(f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count}).")
 
     def set_execution_count(self, execution_count):
         """
@@ -195,14 +196,12 @@ class Synchronizer:
         prev_exec_count: int = self._ast.execution_count
 
         if execution_count < prev_exec_count:
-            raise ValueError(
-                f"cannot set execution count to a lower value (current: {execution_count}, specified: {prev_exec_count})"
-            )
+            raise ValueError(f"cannot set execution count to a lower value "
+                             f"(current: {execution_count}, specified: {prev_exec_count})")
 
         self._ast.set_executions(execution_count)
-        self.log.debug(
-            f"Fast-forwarded execution count by {execution_count - prev_exec_count} (from {prev_exec_count} to {self._ast.execution_count})."
-        )
+        self.log.debug(f"Fast-forwarded execution count by {execution_count - prev_exec_count} "
+                       f"(from {prev_exec_count} to {self._ast.execution_count}).")
 
     def change_handler(self, val: SynchronizedValue, restoring: bool = False):
         """Change handler"""
@@ -246,7 +245,7 @@ class Synchronizer:
             # End of switch context
 
             if val.key == KEY_SYNC_AST:
-                self.ast_changed(existed, diff)
+                self.ast_changed(existed, diff, val)
             else:
                 assert isinstance(existed, SyncObjectWrapper)
                 assert val.key is not None
@@ -266,6 +265,52 @@ class Synchronizer:
         if local_election is not None and local_election.term_number < self.execution_count:
             self.log.warning(f"Current local election has term number {local_election.term_number}, "
                              f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
+
+        self.update_term_msg_id_mappings(val)
+
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        if val is None:
+            return
+
+        if hasattr(val, "jupyter_message_id") and val.jupyter_message_id is not None and val.jupyter_message_id != "":
+            jupyter_message_id: str = val.jupyter_message_id
+            term_number: int = val.election_term
+
+            if term_number not in self._term_to_jupyter_id:
+                self._term_to_jupyter_id[term_number] = jupyter_message_id
+            elif self._term_to_jupyter_id[term_number] != jupyter_message_id:
+                self.log.error(f'SynchronizedValue from term {term_number} has Jupyter message ID '
+                               f'"{jupyter_message_id}", but we have recorded that this ID is associated '
+                               f'with term {self._term_to_jupyter_id[term_number]}: {val}')
+
+                if self._report_error_callback is not None:
+                    title:str = "Inconsistent Term Number to Jupyter Message ID Association"
+                    msg:str = f'SynchronizedValue from term {term_number} has Jupyter message ID ' \
+                              f'"{jupyter_message_id}", but we have recorded that this ID is associated ' \
+                              f'with term {self._term_to_jupyter_id[term_number]}: {val}'
+
+                    self._report_error_callback(title, msg)
+
+            if jupyter_message_id not in self._jupyter_id_to_term:
+                self._jupyter_id_to_term[jupyter_message_id] = term_number
+            elif self._jupyter_id_to_term[jupyter_message_id] != term_number:
+                self.log.error(f'SynchronizedValue from with jID={jupyter_message_id} has term={term_number}, '
+                               f'but we have an existing record that indicates that this ID is associated with term '
+                               f'{self._jupyter_id_to_term[jupyter_message_id]}: {val}')
+
+                if self._report_error_callback is not None:
+                    title:str = "Inconsistent Jupyter Message ID to Term Number Association"
+                    msg:str = f'SynchronizedValue from with jID={jupyter_message_id} has term={term_number}, ' \
+                              f'but we have an existing record that indicates that this ID is associated with term ' \
+                              f'{self._jupyter_id_to_term[jupyter_message_id]}: {val}'
+
+                    self._report_error_callback(title, msg)
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        if jupyter_msg_id in self._jupyter_id_to_term:
+            return self._jupyter_id_to_term[jupyter_msg_id]
+
+        return -1
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
@@ -303,33 +348,32 @@ class Synchronizer:
         self._tags[val.key] = existed
         self.global_ns[val.key] = variable_value
 
-    def ast_changed(self, existed: Optional[SyncObject], diff):
+    def ast_changed(self, existed: Optional[SyncObject], diff, syncVal: SynchronizedValue):
         assert isinstance(existed, SyncAST)
         old_exec_count: int = -1
         if self._ast is not None:
             old_exec_count = self._ast.execution_count
+
+        # Update this mapping before, so if we receive an execute_request or yield_request and begin processing it,
+        # the mapping exists before the execution_count field is updated.
+        self.update_term_msg_id_mappings(syncVal)
         self._ast = existed
 
         if self.execution_count != old_exec_count:
-            self.log.debug(
-                f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST."
-            )
+            self.log.debug(f"Execution count changed from {old_exec_count} to "
+                           f"{self.execution_count} after synchronizing AST.")
 
         # Redeclare modules, classes, and functions.
         try:
             compiled = compile(diff, "sync", "exec")
         except Exception as ex:
-            self.log.error(
-                f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}"
-            )
+            self.log.error(f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}")
             raise ex  # Re-raise.
 
         try:
             exec(compiled, self.global_ns, self.global_ns)
         except Exception as ex:
-            self.log.error(
-                f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}"
-            )
+            self.log.error(f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}")
             raise ex  # Re-raise.
 
     async def propose_lead(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> int:
@@ -516,6 +560,7 @@ class Synchronizer:
         self,
         execution_ast: ast.Module,
         source: Optional[str] = None,
+        jupyter_msg_id: str = "",
         checkpointer: Optional[Checkpointer] = None,
     ) -> bool:
         """
@@ -572,6 +617,7 @@ class Synchronizer:
                 self._syncing = False
 
             sync_ast.set_proposer_id(self._node_id)
+            sync_ast.jupyter_message_id = jupyter_msg_id
 
             # current_election: Election = self._synclog.current_election
             # if current_election is not None:
@@ -610,6 +656,7 @@ class Synchronizer:
                     end_execution=synced == expected,
                     checkpointing=checkpointing,
                     meta=meta,
+                    jupyter_message_id=jupyter_message_id,
                 )
                 self.log.debug('Successfully synchronized key "%s".' % key)
 
@@ -635,7 +682,7 @@ class Synchronizer:
         return True
 
     async def sync_key(
-        self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None
+        self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None, jupyter_message_id = ""
     ):
         assert sync_log is not None
 
@@ -721,6 +768,9 @@ class Synchronizer:
 
             assert sync_log is not None
 
+            if jupyter_message_id is not None and jupyter_message_id != "":
+                sync_val.jupyter_message_id = jupyter_message_id
+
             st: float = time.time()
             await sync_log.append(sync_val)
             et: float = time.time()
@@ -733,17 +783,20 @@ class Synchronizer:
             # Synthesize end
             assert sync_log is not None
 
-            st: float = time.time()
-            await sync_log.append(
-                SynchronizedValue(
-                    None,
-                    None,
-                    election_term=self._ast.execution_count,
-                    should_end_execution=True,
-                    key=KEY_SYNC_END,
-                    proposer_id=self._node_id,
-                )
+            val_to_append = SynchronizedValue(
+                None,
+                None,
+                election_term=self._ast.execution_count,
+                should_end_execution=True,
+                key=KEY_SYNC_END,
+                proposer_id=self._node_id,
             )
+
+            if jupyter_message_id is not None and jupyter_message_id != "":
+                val_to_append.jupyter_message_id = jupyter_message_id
+
+            st: float = time.time()
+            await sync_log.append(val_to_append)
             et: float = time.time()
             time_elapsed: float = et - st
 

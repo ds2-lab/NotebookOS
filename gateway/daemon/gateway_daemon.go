@@ -5604,7 +5604,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 			kernelReplica := &proto.JupyterKernelReplica{
 				KernelId:  kernel.ID(),
 				ReplicaId: replica.ReplicaID(),
-				PodId:     replica.GetPodOrContainerName(),
+				PodId:     replica.GetPodOrContainerId(),
 				NodeId:    replica.NodeName(),
 			}
 			replicas = append(replicas, kernelReplica)

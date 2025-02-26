@@ -1723,6 +1723,7 @@ class DistributedKernel(IPythonKernel):
                 node_id=self.smr_node_id,
                 large_object_pointer_committed=self.large_object_pointer_committed,
                 remote_checkpointer=self._remote_checkpointer,
+                report_error_callback=self.report_error,
             )  # type: ignore
         except Exception as ex:
             self.log.error("Creation of Synchronizer failed: %s" % str(ex))
@@ -2167,7 +2168,7 @@ class DistributedKernel(IPythonKernel):
             # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
             # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
             # or Redis, depending on the system's configuration.
-            await self.synchronize_updated_state(term_number)
+            await self.synchronize_updated_state(term_number, parent_header["msg_id"])
 
             # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
             #
@@ -2748,7 +2749,13 @@ class DistributedKernel(IPythonKernel):
 
         existing_election: Optional[Election] = self.synclog.get_election(-1, msg_id)
         if existing_election is None:
-            return -1
+            term = self.synchronizer.check_for_term_with_jupyter_id(msg_id)
+
+            if term != -1:
+                self.log.debug(f'Found mapping from Jupyter message ID "{msg_id}" to '
+                               f'term number {term} in Synchronizer.')
+
+            return term # Return -1 if not found, or the term if we did find it.
 
         if not existing_election.is_in_failed_state and existing_election.voting_phase_completed_successfully:
             self.log.warning(f'At a minimum, the voting phase for existing election associated with Jupyter '
@@ -3498,6 +3505,7 @@ class DistributedKernel(IPythonKernel):
                 dataset=dataset,
                 batch_size=batch_size,
                 execute_request_metadata=execute_request_metadata,
+                execute_request_msg_id=self.next_execute_request_msg_id,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -3601,6 +3609,7 @@ class DistributedKernel(IPythonKernel):
             dataset: Optional[str] = None,
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
+            execute_request_msg_id:str = "",
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3679,7 +3688,7 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content, performed_dl_training, code
 
-    async def synchronize_updated_state(self, term_number: int):
+    async def synchronize_updated_state(self, term_number: int, jupyter_msg_id:str):
         """
         Synchronize any state updated during the last execution with peer replicas.
 
@@ -3701,7 +3710,11 @@ class DistributedKernel(IPythonKernel):
 
         try:
             # Do the synchronization
-            synchronized_successfully: bool = await self.synchronizer.sync(self.execution_ast, self.source)
+            synchronized_successfully: bool = await self.synchronizer.sync(
+                execution_ast = self.execution_ast,
+                source = self.source,
+                jupyter_msg_id = jupyter_msg_id
+            )
         except Exception as exc:
             self.log.error(f"Synchronization failed: {exc}")
             self.kernel_notification_service_stub.Notify(
@@ -4816,6 +4829,7 @@ class DistributedKernel(IPythonKernel):
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
                 containerId=self.docker_container_id,
+                containerName=self.node_name,
             )
         )
 

@@ -113,6 +113,7 @@ type KernelReplicaClient struct {
 	id                            string
 	persistentId                  string
 	busyStatus                    string
+	PodOrContainerId              string     // Name of the Pod or Container housing the associated distributed kernel replica container.
 	PodOrContainerName            string     // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                      string     // Name of the node that the Pod or Container is running on.
 	hostId                        string     // The ID of the scheduling.Host that this KernelReplicaClient is running on. This field exists because we don't actually use scheduling.Host structs on Local Daemons.
@@ -170,7 +171,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		spec:                                 spec.Kernel,
 		replicaSpec:                          spec,
 		messagingMetricsProvider:             messagingMetricsProvider,
-		PodOrContainerName:                   podOrContainerName,
+		PodOrContainerId:                     podOrContainerName,
 		nodeName:                             nodeName,
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
 		smrNodeAddedCallback:                 smrNodeAddedCallback,
@@ -787,7 +788,16 @@ func (c *KernelReplicaClient) updateLogPrefix() {
 	c.client.Log.(*logger.ColorLogger).Prefix = fmt.Sprintf("Replica %s:%d ", c.id, c.replicaId)
 }
 
-// GetPodOrContainerName returns the name of the Kubernetes Pod hosting the replica.
+// GetPodOrContainerId returns the ID of the Kubernetes Pod or Docker Container hosting the replica.
+func (c *KernelReplicaClient) GetPodOrContainerId() string {
+	return c.PodOrContainerId
+}
+
+func (c *KernelReplicaClient) SetPodOrContainerId(id string) {
+	c.PodOrContainerId = id
+}
+
+// GetPodOrContainerName returns the name of the Kubernetes Pod or Docker Container hosting the replica.
 func (c *KernelReplicaClient) GetPodOrContainerName() string {
 	return c.PodOrContainerName
 }

@@ -435,12 +435,14 @@ type KernelReplica interface {
 	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
-	GetPodOrContainerName() string
 	NodeName() string
 	ShellListenPort() int
 	IOPubListenPort() int
 	YieldNextExecutionRequest()
+	SetPodOrContainerId(id string)
+	GetPodOrContainerId() string
 	SetPodOrContainerName(name string)
+	GetPodOrContainerName() string
 	SetNodeName(name string)
 	InitializeIOForwarder() (*messaging.Socket, error)
 	YieldedNextExecutionRequest()

@@ -604,6 +604,7 @@ message KernelNotification {
   string kernelId = 4;
   int32 replicaId = 5;
   string containerId = 6;
+  string containerName = 7;
 }
 
 // The Jupyter gateway service for host local kernels.

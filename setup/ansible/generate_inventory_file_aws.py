@@ -89,3 +89,7 @@ for i, ips in enumerate(zip(follower_public_ips, follower_private_ips)):
 print("\n[docker_swarm:children]")
 print("docker_swarm_manager")
 print("docker_swarm_worker")
+
+print("\n\n\n\n\n\n\n\n\n\n\n\nFollower IPs:")
+for ip in follower_public_ips:
+    print('{"hostname": "%s", "username": "ubuntu"}, ' % ip)

@@ -659,6 +659,8 @@ func (d *LocalScheduler) ConsumeDockerEvent(event map[string]interface{}) {
 		return
 	}
 
+	containerName := attributes["name"].(string)
+
 	// Generate a more meaningful error message + notify the dashboard UI.
 	if d.containerStartedNotificationManager == nil {
 		err := fmt.Errorf("containerStartedNotificationManager is nil")
@@ -670,6 +672,7 @@ func (d *LocalScheduler) ConsumeDockerEvent(event map[string]interface{}) {
 	notification := &observer.ContainerStartedNotification{
 		FullContainerId:  fullContainerId,
 		ShortContainerId: shortContainerId,
+		ContainerName:    containerName,
 		KernelId:         kernelId,
 	}
 	d.containerStartedNotificationManager.DeliverNotification(notification)
@@ -1278,17 +1281,20 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 
 	// If the kernel client was originally a prewarm container, then there won't be a notification because the
 	// container will have been created a while ago.
-	var dockerContainerId string
+	var dockerContainerId, dockerContainerName string
 	if d.DockerMode() {
 		// If we've not yet assigned the pod/container name to this kernel, then we should do so.
-		if kernel.GetPodOrContainerName() == "" || kernel.GetPodOrContainerName() == types.DockerContainerIdTBD {
+		if kernel.GetPodOrContainerId() == "" || kernel.GetPodOrContainerId() == types.DockerContainerIdTBD {
 			containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
 			dockerContainerId = containerStartedNotification.FullContainerId
-			kernel.SetPodOrContainerName(dockerContainerId)
+			dockerContainerName = containerStartedNotification.ContainerName
+			kernel.SetPodOrContainerId(dockerContainerId)
+			kernel.SetPodOrContainerName(dockerContainerName)
 			kernel.SetNodeName(d.nodeName)
 		} else {
 			// Just use the existing pod/container name.
-			dockerContainerId = kernel.GetPodOrContainerName()
+			dockerContainerId = kernel.GetPodOrContainerId()
+			dockerContainerName = kernel.GetPodOrContainerName()
 		}
 	}
 
@@ -1320,7 +1326,7 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 	if d.DockerMode() {
 		kernelRegistrationNotification.DockerContainerId = dockerContainerId
 		kernelRegistrationNotification.NodeName = d.nodeName
-		kernelRegistrationNotification.PodOrContainerName = dockerContainerId
+		kernelRegistrationNotification.PodOrContainerName = dockerContainerName
 	}
 
 	d.log.Info("%s kernel %s registered:\n%s\nNotifying Gateway that kernel \"%s\" has registered.",
@@ -3698,23 +3704,29 @@ func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, fram
 // in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
 func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
 	containerId := notification.ContainerId
+	containerName := notification.ContainerName
+
 	if containerId == "" || containerId == "N/A" {
 		kernel, _ := d.kernels.Load(notification.KernelId)
 		if kernel != nil {
-			containerId = kernel.GetPodOrContainerName()
+			containerId = kernel.GetPodOrContainerId()
 		}
 	}
 
-	if notification.NotificationType == 0 {
-		d.log.Warn("Received error notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
-	} else {
-		d.log.Debug("Received notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
+	if containerName == "" { //  || containerId == "N/A"
+		containerName = "N/A"
 	}
 
-	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d, Container=%s]",
-		notification.Message, notification.KernelId, notification.ReplicaId, containerId)
+	if notification.NotificationType == 0 {
+		d.log.Warn("Received error notification from replica %d of kernel %s in container %s (%s). Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, containerId, containerName, notification.Title, notification.Message)
+	} else {
+		d.log.Debug("Received notification from replica %d of kernel %s in container %s (%s). Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, containerId, containerName, notification.Title, notification.Message)
+	}
+
+	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d, ContainerId=%s, ContainerName=%s, NodeName=%s]",
+		notification.Message, notification.KernelId, notification.ReplicaId, containerId, containerName, d.nodeName)
 
 	return d.provisioner.Notify(ctx, &proto.Notification{
 		Id:               uuid.NewString(),

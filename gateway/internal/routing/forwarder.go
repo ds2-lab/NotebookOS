@@ -92,50 +92,50 @@ func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder Ker
 
 // ControlHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Forwarder) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
-	g.log.Debug("Forwarding CONTROL [MsgId='%s', MsgTyp='%s'].",
+func (f *Forwarder) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+	f.log.Debug("Forwarding CONTROL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
-	return g.ForwardRequest(messaging.ControlMessage, msg)
+	return f.ForwardRequest(messaging.ControlMessage, msg)
 }
 
 // ShellHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Forwarder) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
-	g.log.Debug("Forwarding SHELL [MsgId='%s', MsgTyp='%s'].",
+func (f *Forwarder) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+	f.log.Debug("Forwarding SHELL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
-	return g.ForwardRequest(messaging.ShellMessage, msg)
+	return f.ForwardRequest(messaging.ShellMessage, msg)
 }
 
 // StdinHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Forwarder) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
-	return g.ForwardRequest(messaging.HBMessage, msg)
+func (f *Forwarder) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+	return f.ForwardRequest(messaging.HBMessage, msg)
 }
 
 // HBHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
-func (g *Forwarder) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error {
-	return g.ForwardRequest(messaging.HBMessage, msg)
+func (f *Forwarder) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+	return f.ForwardRequest(messaging.HBMessage, msg)
 }
 
 // ForwardRequest forwards the given message of the given type to the appropriate scheduling.Kernel.
-func (g *Forwarder) ForwardRequest(socketType messaging.MessageType, msg *messaging.JupyterMessage) error {
-	kernelId, msgType, err := g.extractRequestMetadata(msg)
+func (f *Forwarder) ForwardRequest(socketType messaging.MessageType, msg *messaging.JupyterMessage) error {
+	kernelId, msgType, err := f.extractRequestMetadata(msg)
 	if err != nil {
-		g.log.Error("Metadata Extraction Error: %v", err)
+		f.log.Error("Metadata Extraction Error: %v", err)
 		return err
 	}
 
-	g.log.Debug("Forwarding[SocketType=%v, MsgId='%s', MsgTyp='%s', TargetKernelId='%s']",
+	f.log.Debug("Forwarding[SocketType=%v, MsgId='%s', MsgTyp='%s', TargetKernelId='%s']",
 		socketType.String(), msg.JupyterMessageId(), msgType, kernelId)
 
-	return g.KernelManager.ForwardRequestToKernel(kernelId, msg, socketType)
+	return f.KernelManager.ForwardRequestToKernel(kernelId, msg, socketType)
 }
 
 // ForwardResponse forwards a response from a scheduling.Kernel / scheduling.KernelReplica back to the Jupyter client.
-func (g *Forwarder) ForwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (f *Forwarder) ForwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	// Validate argument.
 	if msg == nil {
 		panic("Message cannot be nil")
@@ -145,39 +145,38 @@ func (g *Forwarder) ForwardResponse(from router.Info, typ messaging.MessageType,
 	socket := from.Socket(typ)
 	if socket == nil {
 		// Use the router's socket.
-		socket = g.Router.Socket(typ)
+		socket = f.Router.Socket(typ)
 	}
 
 	// Couldn't resolve the socket...
 	if socket == nil {
-		g.log.Error("Socket Error: %v socket is unavailable; cannot forward \"%s\" message \"%s\".",
+		f.log.Error("Socket Error: %v socket is unavailable; cannot forward \"%s\" message \"%s\".",
 			typ, msg.JupyterMessageType(), msg.JupyterMessageId())
 		return ErrSocketUnavailable
 	}
 
-	if g.DebugMode {
-		_ = g.updateRequestLog(msg, typ) // Ignore the error... we already log an error message in updateRequestLog.
+	if f.DebugMode {
+		_ = f.updateRequestLog(msg, typ) // Ignore the error... we already log an error message in updateRequestLog.
 	}
 
-	g.log.Debug(
+	f.log.Debug(
 		utils.LightBlueStyle.Render(
 			"Forward Response [SocketType='%v', MsgType=\"%s\", MsgId=\"%s\", KernelId=\"%s\"]"),
 		typ, msg.JupyterMessageType(), msg.JupyterMessageId(), from.ID())
 
-	err := g.sendZmqMessage(msg, socket, from.ID())
+	err := f.sendZmqMessage(msg, socket, from.ID())
 
-	// TODO: Implement this.
-	//if err == nil {
-	//	g.clusterStatisticsMutex.Lock()
-	//	g.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
-	//	g.clusterStatisticsMutex.Unlock()
-	//}
+	if err == nil {
+		f.MetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+			statistics.NumJupyterRepliesSentByClusterGateway += 1
+		})
+	}
 
 	return err // Will be nil on success.
 }
 
 // sendZmqMessage sends the specified *messaging.JupyterMessage on/using the specified *messaging.Socket.
-func (g *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messaging.Socket, senderId string) error {
+func (f *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messaging.Socket, senderId string) error {
 	zmqMsg := *msg.GetZmqMsg()
 	sendStart := time.Now()
 	err := socket.Send(zmqMsg)
@@ -192,36 +191,36 @@ func (g *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messag
 			style = utils.OrangeStyle
 		}
 
-		g.log.Warn(style.Render("Sending %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
+		f.log.Warn(style.Render("Sending %s \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s took %v."),
 			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, sendDuration)
 	}
 
 	if err != nil {
-		g.log.Error(utils.RedStyle.Render("ZMQ Send Error [SocketType='%v', MsgId='%s', MsgTyp='%s', SenderID='%s']: %v"),
+		f.log.Error(utils.RedStyle.Render("ZMQ Send Error [SocketType='%v', MsgId='%s', MsgTyp='%s', SenderID='%s']: %v"),
 			socket.Type, msg.JupyterMessageId(), msg.JupyterMessageType(), senderId, err)
 		return err
 	}
 
 	// Update prometheus metrics, if enabled and available.
-	if g.MetricsProvider != nil && g.MetricsProvider.PrometheusMetricsEnabled() {
-		metricError := g.MetricsProvider.
+	if f.MetricsProvider != nil && f.MetricsProvider.PrometheusMetricsEnabled() {
+		metricError := f.MetricsProvider.
 			GetGatewayPrometheusManager().
-			SentMessage(g.GatewayId, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
+			SentMessage(f.GatewayId, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
 
 		if metricError != nil {
-			g.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			f.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
-		metricError = g.MetricsProvider.
+		metricError = f.MetricsProvider.
 			GetGatewayPrometheusManager().
-			SentMessageUnique(g.GatewayId, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
+			SentMessageUnique(f.GatewayId, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
 
 		if metricError != nil {
-			g.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			f.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 	}
 
-	g.log.Debug("Sent message [SocketType='%v', MsgId='%s', MsgTyp='%s', SenderID='%s', SendDuration=%v]:\n%s",
+	f.log.Debug("Sent message [SocketType='%v', MsgId='%s', MsgTyp='%s', SenderID='%s', SendDuration=%v]:\n%s",
 		socket.Type, msg.JupyterMessageId(), msg.JupyterMessageType(), senderId, sendDuration, msg.JupyterFrames.StringFormatted())
 
 	return nil
@@ -230,35 +229,29 @@ func (g *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messag
 // updateRequestLog updates the RequestLog contained within the given messaging.JupyterMessage's buffers/metadata.
 //
 // If the Forwarder is not configured to run in DebugMode, then updateRequestLog is a no-op and returns immediately.
-func (g *Forwarder) updateRequestLog(msg *messaging.JupyterMessage, typ messaging.MessageType) error {
-	if !g.DebugMode {
+func (f *Forwarder) updateRequestLog(msg *messaging.JupyterMessage, typ messaging.MessageType) error {
+	if !f.DebugMode {
 		return nil
 	}
 
-	requestTrace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(msg, time.Now(), g.log)
+	requestTrace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(msg, time.Now(), f.log)
 	if err != nil {
-		g.log.Error("Failed to update RequestTrace: %v", err)
+		f.log.Error("Failed to update RequestTrace: %v", err)
 		return err
 	}
 
 	// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
-	err = g.RequestLog.AddEntry(msg, typ, requestTrace)
+	err = f.RequestLog.AddEntry(msg, typ, requestTrace)
 	if err != nil {
-		g.log.Error("Failed to update RequestTrace: %v", err)
+		f.log.Error("Failed to update RequestTrace: %v", err)
 		return err
-	}
-
-	// Extract the data from the RequestTrace.
-	if typ == messaging.ShellMessage {
-		panic("TODO: Implement ClusterGatewayImpl::updateStatisticsFromShellExecuteReply")
-		// g.updateStatisticsFromShellExecuteReply(requestTrace)
 	}
 
 	return nil
 }
 
 // extractRequestMetadata extracts the kernel (or Jupyter session) ID and the message type from the given ZMQ message.
-func (g *Forwarder) extractRequestMetadata(msg *messaging.JupyterMessage) (string, string, error) {
+func (f *Forwarder) extractRequestMetadata(msg *messaging.JupyterMessage) (string, string, error) {
 	// This is initially the kernel's ID, which is the DestID field of the message.
 	// But we may not have set a destination ID field within the message yet.
 	// In this case, we'll fall back to the session ID within the message's Jupyter header.
@@ -277,7 +270,7 @@ func (g *Forwarder) extractRequestMetadata(msg *messaging.JupyterMessage) (strin
 		// Make sure we got a valid session ID out of the Jupyter message header.
 		// If we didn't, then we'll return an error.
 		if len(kernelOrSessionId) == 0 {
-			g.log.Error("Invalid Jupyter Session ID:\n%v", msg.JupyterFrames.StringFormatted())
+			f.log.Error("Invalid Jupyter Session ID:\n%v", msg.JupyterFrames.StringFormatted())
 
 			return NoKernelId, msgType, ErrInvalidJupyterSessionId
 		}

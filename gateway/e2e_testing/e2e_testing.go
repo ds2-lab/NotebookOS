@@ -268,7 +268,7 @@ type KernelReplica struct {
 //		PersistentId:       nil,
 //		NodeName:           k.NodeName,
 //		Key:                k.KernelId,
-//		PodOrContainerName: k.KernelId,
+//		PodOrContainerId: k.KernelId,
 //		Op:                 "register",
 //		SignatureScheme:    messaging.JupyterSignatureScheme,
 //		WorkloadId:         "",

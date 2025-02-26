@@ -136,6 +136,9 @@ type Manager struct {
 	// numActiveKernels is the number of actively-running kernels.
 	numActiveKernels atomic.Int32
 
+	// numActiveTrainings is the cluster-wide number of active training events.
+	numActiveTrainings atomic.Int32
+
 	cluster scheduling.Cluster
 
 	// notifier is used to send notifications to the cluster dashboard.
@@ -184,6 +187,53 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 	config.InitLogger(&manager.log, manager)
 
 	return manager
+}
+
+func (km *Manager) CallbackProvider() scheduling.CallbackProvider {
+	return km
+}
+
+func (km *Manager) ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
+	milliseconds := float64(latency.Milliseconds())
+
+	if km.metricsProvider.PrometheusMetricsEnabled() {
+		km.metricsProvider.GetGatewayPrometheusManager().JupyterTrainingStartLatency.
+			With(prometheus.Labels{
+				"workload_id": workloadId,
+				"kernel_id":   kernelId,
+			}).
+			Observe(milliseconds)
+	}
+
+	km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		statistics.JupyterTrainingStartLatencyMillis.Add(milliseconds)
+		statistics.JupyterTrainingStartLatenciesMillis = append(
+			statistics.JupyterTrainingStartLatenciesMillis, milliseconds)
+	})
+}
+
+func (km *Manager) ExecutionFailedCallback(c scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (km *Manager) NotificationCallback(title string, content string, notificationType messaging.NotificationType) {
+	km.notifier.NotifyDashboard(title, content, notificationType)
+}
+
+// IncrementNumActiveExecutions increments the global counter of the number of active executions.
+func (km *Manager) IncrementNumActiveExecutions() {
+	km.numActiveTrainings.Add(1)
+}
+
+// DecrementNumActiveExecutions decrements the global counter of the number of active executions.
+func (km *Manager) DecrementNumActiveExecutions() {
+	km.numActiveTrainings.Add(-1)
+}
+
+// NumActiveExecutions returns the global number of active executions.
+func (km *Manager) NumActiveExecutions() int32 {
+	return km.numActiveTrainings.Load()
 }
 
 // ForwardRequestToKernel forwards the given *messaging.JupyterMessage to the specified scheduling.Kernel using the
@@ -800,6 +850,8 @@ func (km *Manager) updateRequestTraceReplicaId(from scheduling.KernelReplicaInfo
 
 	if msg.RequestTrace != nil {
 		msg.RequestTrace.ReplicaId = from.ReplicaID()
+
+		km.updateStatisticsFromShellExecuteReply(msg.RequestTrace)
 	}
 }
 
@@ -951,36 +1003,91 @@ func (km *Manager) registerKernelWithExecReqForwarder(kernel scheduling.Kernel) 
 	km.executeRequestForwarder.RegisterKernel(kernel, forwarder, km.forwardResponseFromKernel)
 }
 
-func (km *Manager) CallbackProvider() scheduling.CallbackProvider {
-	return km
-}
+func (km *Manager) updateStatisticsFromShellExecuteReply(trace *proto.RequestTrace) {
+	if trace == nil {
+		km.log.Warn("RequestTrace is nil when attempting to extract metrics/statistics from shell \"execute_reply\"")
+		return
+	}
 
-func (km *Manager) ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
-	//TODO implement me
-	panic("implement me")
-}
+	km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		if trace.CudaInitMicroseconds > 0 {
+			statistics.CumulativeCudaInitMicroseconds.Add(float64(trace.CudaInitMicroseconds))
+			statistics.NumCudaRuntimesInitialized.Add(1)
+		}
 
-func (km *Manager) ExecutionFailedCallback(c scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) error {
-	//TODO implement me
-	panic("implement me")
-}
+		if trace.ReplayTimeMicroseconds > 0 {
+			statistics.CumulativeReplayTimeMicroseconds.Add(float64(trace.ReplayTimeMicroseconds))
+			statistics.TotalNumReplays.Add(1)
 
-func (km *Manager) NotificationCallback(title string, content string, notificationType messaging.NotificationType) {
-	//TODO implement me
-	panic("implement me")
-}
+			session, loaded := km.cluster.GetSession(trace.KernelId)
+			if !loaded || session == nil {
+				km.log.Warn("Could not find session \"%s\" specified in RequestTrace: %s", trace.KernelId, trace.String())
+			} else {
+				// Subtract 1 to exclude the last training event that just completed.
+				statistics.TotalNumCellsReplayed.Add(int64(session.NumTrainingEventsProcessed() - 1))
+			}
+		}
 
-func (km *Manager) IncrementNumActiveExecutions() {
-	//TODO implement me
-	panic("implement me")
-}
+		if trace.DownloadModelMicroseconds > 0 {
+			statistics.CumulativeTimeDownloadModelMicroseconds.Add(float64(trace.DownloadDatasetMicroseconds))
+			statistics.NumTimesDownloadModelMicroseconds.Add(1)
+		}
 
-func (km *Manager) DecrementNumActiveExecutions() {
-	//TODO implement me
-	panic("implement me")
-}
+		// Downloading the dataset overhead.
+		if trace.DownloadDatasetMicroseconds > 0 {
+			statistics.CumulativeTimeDownloadTrainingDataMicroseconds.Add(float64(trace.DownloadDatasetMicroseconds))
+			statistics.NumTimesDownloadTrainingDataMicroseconds.Add(1)
+		}
 
-func (km *Manager) NumActiveExecutions() int32 {
-	//TODO implement me
-	panic("implement me")
+		// Tokenization overhead. Only relevant for NLP datasets.
+		if trace.TokenizeDatasetMicroseconds > 0 {
+			statistics.CumulativeTokenizeDatasetMicroseconds.Add(float64(trace.TokenizeDatasetMicroseconds))
+			statistics.NumTimesTokenizeDatasetMicroseconds.Add(1)
+		}
+
+		if trace.UploadModelAndTrainingDataMicroseconds > 0 {
+			statistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds.Add(float64(trace.UploadModelAndTrainingDataMicroseconds))
+			statistics.NumTimesUploadModelAndTrainingDataMicroseconds.Add(1)
+		}
+
+		if trace.CopyFromCpuToGpuMicroseconds > 0 {
+			statistics.CumulativeTimeCopyDataHostToDeviceMicroseconds.Add(float64(trace.CopyFromCpuToGpuMicroseconds))
+			statistics.NumTimesCopyDataHostToDeviceMicroseconds.Add(1)
+		}
+
+		if trace.CopyFromGpuToCpuMicroseconds > 0 {
+			statistics.CumulativeTimeCopyDataDeviceToHostMicroseconds.Add(float64(trace.CopyFromGpuToCpuMicroseconds))
+			statistics.NumTimesCopyDataDeviceToHostMicroseconds.Add(1)
+		}
+
+		if trace.LeaderElectionTimeMicroseconds > 0 {
+			statistics.CumulativeLeaderElectionTimeMicroseconds.Add(float64(trace.LeaderElectionTimeMicroseconds))
+		}
+
+		if trace.RequestReceivedByKernelReplica > 0 && trace.ElectionCreationTime > 0 {
+			preprocessDuration := trace.ElectionCreationTime - trace.RequestReceivedByKernelReplica
+			statistics.CumulativeKernelCreateElectionMillis.Add(float64(preprocessDuration))
+		}
+
+		if trace.ElectionCreationTime > 0 && trace.ElectionProposalPhaseStartTime > 0 {
+			electionCreationDuration := trace.ElectionProposalPhaseStartTime - trace.ElectionCreationTime
+			statistics.CumulativeKernelCreateElectionMillis.Add(float64(electionCreationDuration))
+		}
+
+		if trace.ElectionProposalPhaseStartTime > 0 && trace.ElectionExecutionPhaseStartTime > 0 {
+			proposalVotePhaseDuration := trace.ElectionExecutionPhaseStartTime - trace.ElectionProposalPhaseStartTime
+			statistics.CumulativeKernelProposalVotePhaseMillis.Add(float64(proposalVotePhaseDuration))
+		}
+
+		if trace.ReplySentByKernelReplica > 0 && trace.ExecutionEndUnixMillis > 0 {
+			postprocessDuration := trace.ReplySentByKernelReplica - trace.ExecutionEndUnixMillis
+			statistics.CumulativeKernelPostprocessMillis.Add(float64(postprocessDuration))
+		}
+
+		statistics.CumulativeExecutionTimeMicroseconds.Add(float64(trace.ExecutionTimeMicroseconds))
+
+		if trace.MessageType == messaging.ShellExecuteRequest || trace.MessageType == messaging.ShellExecuteReply || trace.MessageType == messaging.ShellYieldRequest {
+			statistics.ExecuteRequestTraces = append(statistics.ExecuteRequestTraces, trace)
+		}
+	})
 }

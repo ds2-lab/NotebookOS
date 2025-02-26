@@ -12,7 +12,8 @@ import (
 type ContainerStartedNotification struct {
 	FullContainerId  string `json:"full-container-id"`  // FullContainerId is the full, non-truncated Docker container ID.
 	ShortContainerId string `json:"short-container-id"` // ShortContainerId is the first 12 characters of the FullContainerId.
-	KernelId         string `json:"kernel_id"`          // KernelId is the associated KernelId.
+	ContainerName    string `json:"container-name"`
+	KernelId         string `json:"kernel_id"` // KernelId is the associated KernelId.
 }
 
 type DockerEventHandler struct {
@@ -105,12 +106,15 @@ func (h *DockerEventHandler) ConsumeDockerEvent(event map[string]interface{}) {
 		return
 	}
 
+	containerName := attributes["name"].(string)
+
 	h.log.Debug("Docker Container %s for kernel %s has started running.", shortContainerId, kernelId)
 
 	// Notify that the Container has been created by sending its name over the channel.
 	notification := &ContainerStartedNotification{
 		FullContainerId:  fullContainerId,
 		ShortContainerId: shortContainerId,
+		ContainerName:    containerName,
 		KernelId:         kernelId,
 	}
 

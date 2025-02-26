@@ -8,6 +8,8 @@ import (
 type Manager struct {
 	metricsProvider *metrics.ClusterMetricsProvider
 
+	clusterStatistics *metrics.ClusterStatistics
+
 	mu sync.RWMutex
 }
 
@@ -29,5 +31,5 @@ func (m *Manager) UpdateClusterStatistics(updaterFunc func(statistics *metrics.C
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	updaterFunc(m.ClusterStatistics)
+	updaterFunc(m.clusterStatistics)
 }

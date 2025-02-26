@@ -7104,7 +7104,7 @@ func (mr *MockKernelMockRecorder) PersistentID() *gomock.Call {
 // PodOrContainerName mocks base method.
 func (m *MockKernel) PodOrContainerName(id int32) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodOrContainerName", id)
+	ret := m.ctrl.Call(m, "PodOrContainerId", id)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -7113,7 +7113,7 @@ func (m *MockKernel) PodOrContainerName(id int32) (string, error) {
 // PodOrContainerName indicates an expected call of PodOrContainerName.
 func (mr *MockKernelMockRecorder) PodOrContainerName(id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodOrContainerName", reflect.TypeOf((*MockKernel)(nil).PodOrContainerName), id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodOrContainerId", reflect.TypeOf((*MockKernel)(nil).PodOrContainerName), id)
 }
 
 // PrepareNewReplica mocks base method.
@@ -7894,9 +7894,9 @@ func (mr *MockKernelReplicaMockRecorder) DemoteStandardContainer(prewarmContaine
 }
 
 // GetPodOrContainerName mocks base method.
-func (m *MockKernelReplica) GetPodOrContainerName() string {
+func (m *MockKernelReplica) GetPodOrContainerId() string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPodOrContainerName")
+	ret := m.ctrl.Call(m, "GetPodOrContainerId")
 	ret0, _ := ret[0].(string)
 	return ret0
 }
@@ -7904,7 +7904,7 @@ func (m *MockKernelReplica) GetPodOrContainerName() string {
 // GetPodOrContainerName indicates an expected call of GetPodOrContainerName.
 func (mr *MockKernelReplicaMockRecorder) GetPodOrContainerName() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPodOrContainerName", reflect.TypeOf((*MockKernelReplica)(nil).GetPodOrContainerName))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPodOrContainerId", reflect.TypeOf((*MockKernelReplica)(nil).GetPodOrContainerId))
 }
 
 // GetSocketPort mocks base method.
@@ -8484,15 +8484,15 @@ func (mr *MockKernelReplicaMockRecorder) SetPersistentID(persistentId any) *gomo
 }
 
 // SetPodOrContainerName mocks base method.
-func (m *MockKernelReplica) SetPodOrContainerName(name string) {
+func (m *MockKernelReplica) SetPodOrContainerId(name string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPodOrContainerName", name)
+	m.ctrl.Call(m, "SetPodOrContainerId", name)
 }
 
 // SetPodOrContainerName indicates an expected call of SetPodOrContainerName.
 func (mr *MockKernelReplicaMockRecorder) SetPodOrContainerName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPodOrContainerName", reflect.TypeOf((*MockKernelReplica)(nil).SetPodOrContainerName), name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPodOrContainerId", reflect.TypeOf((*MockKernelReplica)(nil).SetPodOrContainerId), name)
 }
 
 // SetReady mocks base method.

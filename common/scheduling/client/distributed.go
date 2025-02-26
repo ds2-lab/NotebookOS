@@ -901,7 +901,7 @@ func (c *DistributedKernelClient) PodOrContainerName(id int32) (string, error) {
 		return "", err
 	}
 
-	return replica.GetPodOrContainerName(), nil
+	return replica.GetPodOrContainerId(), nil
 }
 
 // PrepareNewReplica determines the replica ID for the new replica and returns the kernelReplicaSpec required to start the replica.
@@ -988,7 +988,7 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 
 	if stopReplicaError != nil {
 		c.log.Error("Failed to stop replica %d on host %s (ID=%s) in container %s: %v",
-			r.ReplicaID(), hostName, hostId, r.GetPodOrContainerName(), stopReplicaError)
+			r.ReplicaID(), hostName, hostId, r.GetPodOrContainerId(), stopReplicaError)
 	}
 
 	var err error
@@ -998,7 +998,7 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 		err = r.KernelStoppedTraining(reason)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process) on host %s (ID=%s) in container %s: %v",
-				r.ReplicaID(), hostName, hostId, r.GetPodOrContainerName(), err)
+				r.ReplicaID(), hostName, hostId, r.GetPodOrContainerId(), err)
 		}
 	}
 
@@ -1006,7 +1006,7 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 	err = container.ContainerStopped()
 	if err != nil {
 		c.log.Error("Failed to cleanly stop container (ID=%s) for replica %d on host %s (ID=%s) because: %v",
-			r.GetPodOrContainerName(), r.ReplicaID(), hostName, hostId, err)
+			r.GetPodOrContainerId(), r.ReplicaID(), hostName, hostId, err)
 	}
 
 	if err = c.session.RemoveReplica(container); err != nil {
@@ -2064,7 +2064,7 @@ func (c *DistributedKernelClient) WaitClosed() jupyter.KernelStatus {
 
 func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.log.Debug("Stopping replica %d of kernel %s in container %s.",
-		r.ReplicaID(), r.ID(), r.GetPodOrContainerName())
+		r.ReplicaID(), r.ID(), r.GetPodOrContainerId())
 
 	host := r.Host() // r.Context().Value(CtxKernelHost).(scheduling.Host)
 	if err := remover(host, c.session, noop); err != nil {
@@ -2092,7 +2092,7 @@ func (c *DistributedKernelClient) clearReplicasLocked() {
 		if err != nil {
 			// TODO(Ben): Handle this more cleanly.
 			c.log.Error("Error while trying to close replica %d in container %s: %v",
-				replica.ReplicaID(), replica.GetPodOrContainerName(), err)
+				replica.ReplicaID(), replica.GetPodOrContainerId(), err)
 		} else {
 			c.log.Debug("Successfully closed replica %d.", replica.ReplicaID())
 		}
