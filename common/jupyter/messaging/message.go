@@ -160,6 +160,17 @@ type MessageHeader struct {
 	SubshellId *string            `json:"subshell_id,omitempty"`
 }
 
+func (header *MessageHeader) Equals(o interface{}) bool {
+	header2, ok := o.(*MessageHeader)
+	if !ok {
+		return false
+	}
+
+	return header.MsgType == header2.MsgType && header.MsgID == header2.MsgID && header.Session == header2.Session &&
+		header.Username == header2.Username && header.Date == header2.Date && header.Version == header2.Version &&
+		header.SubshellId == header2.SubshellId
+}
+
 // MessageHeaderFromProto creates a new MessageHeader struct with the data from the corresponding fields of the given
 // proto.JupyterMessageHeader struct.
 func MessageHeaderFromProto(msg *proto.JupyterMessageHeader) *MessageHeader {
@@ -1115,7 +1126,7 @@ func (m *JupyterMessage) String() string {
 
 func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,IsFailedExecuteRequest=%v]; JupyterMessage's JupyterFrames=\n%s",
-		m.RequestId, m.DestinationId, m.Offset, m.IsFailedExecuteRequest, m.JupyterFrames.StringFormatted())
+		m.RequestId, m.DestinationId, m.Offset(), m.IsFailedExecuteRequest, m.JupyterFrames.StringFormatted())
 }
 
 // CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.
