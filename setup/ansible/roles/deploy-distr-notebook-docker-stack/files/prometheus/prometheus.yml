@@ -46,20 +46,6 @@ scrape_configs:
       - source_labels: [__meta_dockerswarm_node_hostname]
         target_label: instance
 
-  # Scraping ZooKeeper on the Docker Swarm hosts (bare-metal)
-  - job_name: 'zookeeper'
-    scrape_interval: 10s
-    static_configs:
-      - targets:
-          - '10.0.0.8:7000'
-          - '10.0.0.26:7000'
-          - '10.0.0.25:7000'
-          - '10.0.0.20:7000'
-          - '10.0.0.30:7000'
-        labels:
-          job: 'zookeeper'
-          instance: 'zookeeper-swarm-node'
-
   # Scrape Docker Swarm services via service discovery
   - job_name: 'docker-swarm'
     dockerswarm_sd_configs:

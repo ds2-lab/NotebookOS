@@ -321,7 +321,6 @@ services:
       - "component=cadvisor"
       - "prometheus.metrics.port={{ cadvisor_port }}"
       - "prometheus-metrics-provider=true"
-      - "prometheus.metrics.basepath=/metrics"
     deploy:
       mode: global
       labels:
