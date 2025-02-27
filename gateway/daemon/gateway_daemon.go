@@ -3584,43 +3584,69 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 			go d.notifier.NotifyDashboardOfWarning(errorMessage, errorMessage)
 		}
 
-		return types.ErrKernelNotFound
+		err := fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, sessionId)
+
+		sendErr := d.sendErrorResponse(kernel, msg, err, messaging.ControlMessage)
+		if sendErr != nil {
+			d.log.Error("Failed to send error response for failed shutdown request for kernel \"%s\" because: %v",
+				kernel.ID(), sendErr)
+		}
+
+		return err
 	}
 
 	err := d.removeAllReplicasOfKernel(kernel, true, false, false)
 	if err != nil {
 		d.log.Error("Failed to remove all replicas of kernel \"%s\" because: %v", kernel.ID(), err)
+
+		sendErr := d.sendErrorResponse(kernel, msg, err, messaging.ControlMessage)
+		if sendErr != nil {
+			d.log.Error("Failed to send error response for failed shutdown request for kernel \"%s\" because: %v",
+				kernel.ID(), sendErr)
+		}
+
 		return err
 	}
 
 	// Stop the kernel. If we get an error, print it here, and then we'll return it.
 	if _, err = d.stopKernelImpl(context.Background(), &proto.KernelId{Id: kernel.ID()}); err != nil {
-		d.log.Error("Failed to (cleanly) terminate session \"%s\", kernel \"%s\" because: %v", sessionId, kernel.ID(), err)
+		d.log.Error("Failed to (cleanly) terminate session \"%s\", kernel \"%s\" because: %v",
+			sessionId, kernel.ID(), err)
+
+		sendErr := d.sendErrorResponse(kernel, msg, err, messaging.ControlMessage)
+		if sendErr != nil {
+			d.log.Error("Failed to send error response for failed shutdown request for kernel \"%s\" because: %v",
+				kernel.ID(), sendErr)
+		}
 
 		// Spawn a separate goroutine to send an error notification to the dashboard.
-		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Terminate kernel %s, Session %s", kernel.ID(), sessionId), err.Error())
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Terminate kernel %s, Session %s",
+			kernel.ID(), sessionId), err.Error())
 		return err
 	}
 
 	session, ok := d.cluster.GetSession(kernel.ID())
 	if !ok || session == nil {
-		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", kernel.ID(), kernel.ID())
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown",
+			kernel.ID(), kernel.ID())
 		d.log.Error(errorMessage)
-		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s", kernel.ID(), sessionId), errorMessage)
+		go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Find scheduling.Session of Terminating kernel \"%s\", Session ID=%s",
+			kernel.ID(), sessionId), errorMessage)
 	} else {
 		p := session.SessionStopped()
-		err := p.Error()
+		err = p.Error()
 		if err != nil {
-			d.log.Error("Error while de-scheduling kernel \"%s\" associated with session \"%s\"", kernel.ID(), sessionId)
-			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", kernel.ID()), err.Error())
+			d.log.Error("Error while de-scheduling kernel \"%s\" associated with session \"%s\"",
+				kernel.ID(), sessionId)
+			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"",
+				kernel.ID()), err.Error())
 			return err
 		}
 	}
 
-	// TODO: This doesn't actually send an error response back to the client/Jupyter server.
 	// This just returns to our underlying server's request handler code.
 	// To send a response to Jupyter, we'd need to use the ClusterGatewayImpl::kernelReplicaResponseForwarder method.
-	return err // Will be nil if we successfully shut down the kernel.
+	return nil // Will be nil if we successfully shut down the kernel.
 }
 
 func (d *ClusterGatewayImpl) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
