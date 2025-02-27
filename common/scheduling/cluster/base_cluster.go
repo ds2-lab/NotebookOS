@@ -614,7 +614,7 @@ func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	if removedFromIndex == 0 {
 		c.log.Warn("Host %s (ID=%s) was not removed from ANY indices...", host.GetNodeName(), host.GetID())
 	} else {
-		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID())
+		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID(), removedFromIndex)
 	}
 
 	c.scalingOpMutex.Lock()

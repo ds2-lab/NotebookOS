@@ -88,11 +88,41 @@ func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	index.log.Debug("Adding host %s (ID=%s) to RandomClusterIndex.", host.GetNodeName(), host.GetID())
+	index.log.Debug("Adding host %s (ID=%s) to RandomClusterIndex at index %d.",
+		host.GetNodeName(), host.GetID(), index.freeStart)
+
+	if index.freeStart < int32(len(index.hosts)) && index.hosts[index.freeStart] != nil {
+		index.log.Error("FreeStart is %d; however, host %s is stored at index %d...",
+			index.freeStart, index.hosts[index.freeStart].GetNodeName())
+
+		oldFreeStart := index.freeStart
+		freeStart := int32(-1)
+
+		// Find first nil entry.
+		for j := 0; j < len(index.hosts); j++ {
+			if index.hosts[j] == nil {
+				freeStart = int32(j)
+				break
+			}
+		}
+
+		// If we found a nil entry, then we'll reassign free start to be equal to that value.
+		if freeStart != -1 {
+			index.freeStart = freeStart
+		} else {
+			// Set free start to the current length of the hosts slice.
+			index.freeStart = int32(len(index.hosts))
+		}
+
+		index.log.Warn("Recomputed 'free start' of RandomClusterIndex. Old: %d. New: %d.",
+			oldFreeStart, index.freeStart)
+	}
 
 	i := index.freeStart
+
 	if i < int32(len(index.hosts)) {
 		index.hosts[i] = host
+		index.log.Debug("Inserting new host %s at position %d of RandomClusterIndex.", host.GetNodeName(), i)
 		for j := i + 1; j < int32(len(index.hosts)); j++ {
 			if index.hosts[j] == nil {
 				index.freeStart = j
@@ -100,10 +130,12 @@ func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 			}
 		}
 	} else {
+		i = int32(len(index.hosts))
+		index.log.Debug("Appending new host %s to end of RandomClusterIndex (pos=%d).", host.GetNodeName(), i)
 		index.hosts = append(index.hosts, host)
-		i = index.freeStart // old len(index.hosts) or current len(index.hosts) - 1
 		index.freeStart += 1
 	}
+
 	host.SetMeta(HostMetaRandomIndex, i)
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedRandomIndex)
@@ -184,7 +216,7 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
 
-	index.log.Debug("Removed host %s (ID=%s) from RandomClusterIndex at index %s.",
+	index.log.Debug("Removed host %s (ID=%s) from RandomClusterIndex at index %d.",
 		host.GetNodeName(), host.GetID(), i)
 
 	// Update freeStart.
@@ -247,7 +279,7 @@ func (index *RandomClusterIndex) compactLocked(from int32) {
 			frontier += 1
 		}
 	}
-	index.freeStart = int32(frontier)
+	index.freeStart = frontier
 	index.hosts = index.hosts[:frontier]
 }
 
