@@ -87,6 +87,15 @@ type ExecutionManager interface {
 	// the active training began.
 	LastTrainingStartedAt() time.Time
 
+	// GetSmrLeadTaskMessage returns the "smr_lead_task" IO pub message that was sent by the primary replica of the
+	// execution triggered by the "execute_request" message with the specified ID.
+	GetSmrLeadTaskMessage(executeRequestId string) (*messaging.JupyterMessage, bool)
+
+	// GetExecuteReplyMessage returns the "execute_reply" message that was sent in response to the "execute_request"
+	// message with the specified ID, if one exists. Specifically, it would be the "execute_reply" sent by the primary
+	// replica when it finished executing the user-submitted code.
+	GetExecuteReplyMessage(executeRequestId string) (*messaging.JupyterMessage, bool)
+	
 	// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
 	// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
 	// the time at which the active training was submitted to the kernel.

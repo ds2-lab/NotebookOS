@@ -114,6 +114,14 @@ type ExecutionManager struct {
 	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
 	nextExecutionIndex atomic.Int32
 
+	// executeReplyMessages maintains a mapping from jupyter message ID to the associated "execute_reply" message
+	// that was sent when an execution completed.
+	executeReplyMessages map[string]*messaging.JupyterMessage
+
+	// smrLeadTaskMessages is a map from Jupyter msg ID for the associated "execute_request" to the "smr_lead_task"
+	// message that was sent by the primary replica that handled the "execute_request".
+	smrLeadTaskMessages map[string]*messaging.JupyterMessage
+
 	// submittedExecutionIndex is used to decide if a KernelReplicaClient should actually transition into training upon
 	// receiving a "smr_lead_task" message, or if it should essentially just ignore the message.
 	//
@@ -193,6 +201,8 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 		executionIndicesToExecutions: make(map[int32]*Execution),
 		executionIndices:             make(map[string]int32),
 		failedExecutions:             make(map[string]*Execution),
+		smrLeadTaskMessages:          make(map[string]*messaging.JupyterMessage),
+		executeReplyMessages:         make(map[string]*messaging.JupyterMessage),
 		NumReplicas:                  numReplicas,
 		Kernel:                       kernel,
 		submittedExecutionIndex:      -1,
@@ -205,6 +215,27 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 	config.InitLogger(&manager.log, manager)
 
 	return manager
+}
+
+// GetSmrLeadTaskMessage returns the "smr_lead_task" IO pub message that was sent by the primary replica of the
+// execution triggered by the "execute_request" message with the specified ID.
+func (m *ExecutionManager) GetSmrLeadTaskMessage(executeRequestId string) (*messaging.JupyterMessage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	msg, ok := m.smrLeadTaskMessages[executeRequestId]
+	return msg, ok
+}
+
+// GetExecuteReplyMessage returns the "execute_reply" message that was sent in response to the "execute_request"
+// message with the specified ID, if one exists. Specifically, it would be the "execute_reply" sent by the primary
+// replica when it finished executing the user-submitted code.
+func (m *ExecutionManager) GetExecuteReplyMessage(executeRequestId string) (*messaging.JupyterMessage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	msg, ok := m.executeReplyMessages[executeRequestId]
+	return msg, ok
 }
 
 // ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
@@ -619,6 +650,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 	// Store the execution in the "finished" map.
 	m.finishedExecutions[executeRequestId] = activeExecution
+	m.executeReplyMessages[executeRequestId] = msg
 
 	// If our statistics provider field is non-nil, then we'll update some statistics.
 	if m.statisticsProvider != nil {
@@ -815,6 +847,8 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.smrLeadTaskMessages[executeRequestMsgId] = msg
 
 	activeExecution := m.getActiveExecution(executeRequestMsgId)
 	if activeExecution == nil {
