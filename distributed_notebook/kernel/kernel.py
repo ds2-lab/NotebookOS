@@ -2093,6 +2093,7 @@ class DistributedKernel(IPythonKernel):
             batch_size=batch_size,
             parent_header=parent_header,
             target_replica_id=target_replica_id,
+            parent=parent,
         )
 
         if inspect.isawaitable(reply_content):
@@ -3374,6 +3375,7 @@ class DistributedKernel(IPythonKernel):
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
             parent_header: Dict[str, Any] = None,
+            parent = None,
             target_replica_id: int = -1,
             *,
             cell_meta=None,
@@ -3491,6 +3493,7 @@ class DistributedKernel(IPythonKernel):
                 self.iopub_socket,
                 SMR_LEAD_TASK,
                 content,
+                parent=parent,
                 ident=self._topic(SMR_LEAD_TASK),
             )  # type: ignore
 
