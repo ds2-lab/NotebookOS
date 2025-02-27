@@ -32,7 +32,6 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             hugging_face_dataset_name: str = hugging_face_dataset_name,
             hugging_face_dataset_config_name: str = hugging_face_dataset_config_name,
             text_feature_column_name: str = text_feature_column_name,
-            simulate_tokenization_overhead: float = 60.0,
             postprocess_tokenized_dataset: Callable[[Any, str], Any] = imdb_truncated_postprocess_tokenized_dataset,
             **kwargs
     ):

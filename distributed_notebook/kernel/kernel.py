@@ -1479,7 +1479,7 @@ class DistributedKernel(IPythonKernel):
                         error_message=str(ex),
                     )
 
-        self.log.debug(f'\u2190 Finished processing shell message {msg_id} of type "{msg_type}"')
+        self.log.debug(f'Finished processing shell message {msg_id} of type "{msg_type}"')
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1626,7 +1626,7 @@ class DistributedKernel(IPythonKernel):
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
 
-        self.log.debug(f'\u2190 Finished processing control message {msg_id} of type "{msg_type}"')
+        self.log.debug(f'Finished processing control message {msg_id} of type "{msg_type}"')
         sys.stderr.flush()
         sys.stdout.flush()
 
