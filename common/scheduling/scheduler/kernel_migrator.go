@@ -819,8 +819,6 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 		return nil, types.ErrKernelNotFound
 	}
 
-	kernel.AddOperationStarted()
-
 	smrNodeId := int32(-1)
 
 	// Reuse the same SMR node ID if we've been told to do so.
@@ -830,6 +828,8 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 
 	// The spec to be used for the new replica that is created during the migration.
 	newReplicaSpec := kernel.PrepareNewReplica(persistentId, smrNodeId)
+
+	kernel.AddOperationStarted(newReplicaSpec.ReplicaId)
 
 	forMigration := true
 	newReplicaSpec.ForMigration = &forMigration
@@ -983,7 +983,7 @@ func (km *kernelMigrator) waitForNewReplicaToJoinSmrCluster(kernel scheduling.Ke
 
 		close(replicaJoinedSmrChannel)
 		km.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernel.ID())
-		kernel.AddOperationCompleted()
+		kernel.AddOperationCompleted(addReplicaOp.ReplicaId())
 		smrWg.Done()
 
 		if !addReplicaOp.Completed() {

@@ -456,6 +456,91 @@ class RaftLog(object):
             sys.stdout.flush()
             return GoNilError()
 
+    def __handle_vote_while_catching_up(
+            self,
+            vote: LeaderElectionVote,
+            received_at=time.time(),
+            buffered_vote: bool = True,
+    ) -> bytes:
+        if (
+                vote.election_term > self._leader_term_before_migration
+                and self._current_election is not None
+                and vote.attempt_number > self._current_election.current_attempt_number
+        ):
+            self.log.warning(f"Received vote from term {vote.election_term} "
+                             f"(with attempt number {vote.attempt_number})."
+                             f"The vote's term is > the election term prior "
+                             f"to our migration (i.e., {self._leader_term_before_migration}). "
+                             f"Buffering vote now: {vote}")
+            self.__buffer_vote(vote, received_at=received_at)
+            sys.stderr.flush()
+            sys.stdout.flush()
+            return GoNilError()
+        else:
+            self.log.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
+                           f"with attempt number {vote.attempt_number}, "
+                           f"as we need to catch-up: {vote}")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            return GoNilError()
+
+    def __handle_old_vote(
+            self,
+            vote: LeaderElectionVote,
+            received_at=time.time(),
+            buffered_vote: bool = True,
+    ) -> bytes:
+        self.log.warning(
+            f'Received old vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
+            f"with term number {vote.election_term}, while our current election is for term  "
+            f"{self._current_election.term_number}... Will just discard the vote."
+        )
+        sys.stderr.flush()
+        sys.stdout.flush()
+        return GoNilError()
+
+    def __handle_vote_with_no_current_election(
+            self,
+            vote: LeaderElectionVote,
+            received_at=time.time(),
+            buffered_vote: bool = True,
+    ) -> bytes:
+        self.log.warning(
+            f'Received vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
+            f"while our local election is None. Match: {self._node_id == vote.proposer_id}. "
+            f"Current election is None? {self._current_election is None}. "
+            f"Proposal term: {vote.election_term}. Will buffer vote for now. "
+            f"Proposal: {str(vote)}"
+        )
+
+        # This is basically just a sanity check to make sure we don't somehow get
+        # stuck in a loop of buffering the same vote(s) over and over again.
+        if not buffered_vote:
+            raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
+
+        return self.__buffer_vote(vote, received_at=received_at)
+
+    def __handle_future_vote(
+            self,
+            vote: LeaderElectionVote,
+            received_at=time.time(),
+            buffered_vote: bool = True,
+    ) -> bytes:
+        self.log.warning(
+            f'Received vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
+            f"from future election term {vote.election_term} "
+            f"while local election is for term {self.current_election_term}. "
+            f"Match: {self._node_id == vote.proposer_id}. Will buffer vote for now. "
+            f"Proposal: {str(vote)}"
+        )
+
+        # This is basically just a sanity check to make sure we don't somehow get
+        # stuck in a loop of buffering the same vote(s) over and over again.
+        if not buffered_vote:
+            raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
+
+        return self.__buffer_vote(vote, received_at=received_at)
+
     def __handle_vote(
             self,
             vote: LeaderElectionVote,
@@ -470,38 +555,11 @@ class RaftLog(object):
         :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
         """
         if self.needs_to_catch_up:
-            if (
-                    vote.election_term > self._leader_term_before_migration
-                    and self._current_election is not None
-                    and vote.attempt_number > self._current_election.current_attempt_number
-            ):
-                self.log.warning(f"Received vote from term {vote.election_term} "
-                                 f"(with attempt number {vote.attempt_number})."
-                                 f"The vote's term is > the election term prior "
-                                 f"to our migration (i.e., {self._leader_term_before_migration}). "
-                                 f"Buffering vote now: {vote}")
-                self.__buffer_vote(vote, received_at=received_at)
-                sys.stderr.flush()
-                sys.stdout.flush()
-                return GoNilError()
-            else:
-                self.log.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
-                               f"with attempt number {vote.attempt_number}, "
-                               f"as we need to catch-up: {vote}")
-                sys.stderr.flush()
-                sys.stdout.flush()
-                return GoNilError()
+            return self.__handle_vote_while_catching_up(vote, received_at, buffered_vote)
 
         # If we receive an old vote out-of-order or after a delay, then we can just discard it.
         if self._current_election is not None and vote.election_term < self._current_election.term_number:
-            self.log.warning(
-                f'Received old vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
-                f"with term number {vote.election_term}, while our current election is for term  "
-                f"{self._current_election.term_number}... Will just discard the vote."
-            )
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
+            return self.__handle_old_vote(vote, received_at, buffered_vote)
 
         # If we do not have an election upon receiving a vote, then we buffer the vote, as we presumably
         # haven't received the associated 'execute_request' or 'yield_request' message, whereas one of our peer
@@ -516,37 +574,14 @@ class RaftLog(object):
         # Also, we check this first before checking if we should simply discard the vote, in case we receive a legitimate,
         # new execution request early for some reason. This shouldn't happen, but if it does, we can just buffer the request.
         if self._current_election is None:
-            self.log.warning(
-                f'Received vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
-                f"while our local election is None. Match: {self._node_id == vote.proposer_id}. "
-                f"Current election is None? {self._current_election is None}. "
-                f"Proposal term: {vote.election_term}. Will buffer vote for now. "
-                f"Proposal: {str(vote)}"
-            )
-
-            # This is basically just a sanity check to make sure we don't somehow get
-            # stuck in a loop of buffering the same vote(s) over and over again.
-            if not buffered_vote:
-                raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
-
-            return self.__buffer_vote(vote, received_at=received_at)
+            return self.__handle_vote_with_no_current_election(vote, received_at, buffered_vote)
         elif vote.election_term > self.current_election_term:
-            self.log.warning(
-                f'Received vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
-                f"from future election term {vote.election_term} "
-                f"while local election is for term {self.current_election_term}. "
-                f"Match: {self._node_id == vote.proposer_id}. Will buffer vote for now. "
-                f"Proposal: {str(vote)}"
-            )
-
-            # This is basically just a sanity check to make sure we don't somehow get
-            # stuck in a loop of buffering the same vote(s) over and over again.
-            if not buffered_vote:
-                raise ValueError("We're already handling a buffered vote. We should not be trying to buffer it again!")
-
-            return self.__buffer_vote(vote, received_at=received_at)
-
-        self.log.debug(f"Received VOTE: {str(vote)}")
+            return self.__handle_future_vote(vote, received_at, buffered_vote)
+        
+        if buffered_vote:
+            self.log.debug(f"Handling buffered VOTE: {str(vote)}")
+        else:
+            self.log.debug(f"Received VOTE: {str(vote)}")
 
         # The first 'VOTE' proposal received during the term automatically wins.
         with self._election_lock:
@@ -585,7 +620,12 @@ class RaftLog(object):
                 )
 
             with self._election_lock:
-                self._current_election.set_election_vote_completed(vote.proposed_node_id)
+                election = self._current_election
+                if not election.voting_phase_completed_successfully:
+                    try:
+                        election.set_election_vote_completed(vote.proposed_node_id)
+                    except ValueError:
+                        self.log.warning(f"Election {election.term_number} has already completed the voting phase.")
 
                 # _received_vote_future = self._received_vote_future
                 _received_vote_future = self._current_election.received_vote_future

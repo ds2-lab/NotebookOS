@@ -1027,10 +1027,10 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					var addOpActive atomic.Bool
 					addOpActive.Store(false)
 
-					kernel.EXPECT().AddOperationStarted().Times(1).Do(func() {
+					kernel.EXPECT().AddOperationStarted(gomock.Any()).Times(1).Do(func() {
 						addOpActive.Store(true)
 					})
-					kernel.EXPECT().AddOperationCompleted().Times(1).Do(func() {
+					kernel.EXPECT().AddOperationCompleted(gomock.Any()).Times(1).Do(func() {
 						addOpActive.Store(false)
 					})
 					kernel.EXPECT().NumActiveMigrationOperations().AnyTimes().DoAndReturn(func() int {

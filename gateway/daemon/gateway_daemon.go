@@ -2146,8 +2146,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Info(
 		utils.LightBlueStyle.Render(
-			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, Spec=%v]"),
-		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), in)
+			"↪ ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%s, OriginalSpec=%v, Spec=%v]"),
+		in.Id, in.Session, in.ResourceSpec.ToDecimalSpec().String(), originalSpec, in)
 
 	// For logging/debugging purposes, we check if the rounded spec and the original spec that we received are
 	// unequal. If so, we'll log a message indicating as such.
@@ -2614,7 +2614,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	}
 
 	numActiveMigrationOperations := kernel.NumActiveMigrationOperations()
-	if numActiveMigrationOperations >= 1 {
+	if numActiveMigrationOperations >= 1 && kernel.IsActivelyMigratingReplica(in.ReplicaId) {
 		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. "+
 			"Assuming currently-registering replica is for an add-replica operation.",
 			numActiveMigrationOperations, kernel.ID())

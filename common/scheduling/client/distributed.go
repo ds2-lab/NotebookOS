@@ -76,6 +76,8 @@ type DistributedKernelClient struct {
 
 	session scheduling.UserSession
 
+	activeMigrationMap *hashmap.ThreadsafeCornelkMap[int32, bool]
+
 	log logger.Logger
 	*server.BaseServer
 	server *server.AbstractServer
@@ -210,6 +212,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		spec:                 spec,
 		targetNumReplicas:    int32(numReplicas),
 		cleaned:              make(chan struct{}),
+		activeMigrationMap:   hashmap.NewThreadsafeCornelkMap[int32, bool](3),
 		replicas:             hashmap.NewConcurrentMapWithCustomShardingFunction[int32, scheduling.KernelReplica](32, types.Int32StringerFnv32),
 		// replicas:             make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
 	}
@@ -859,12 +862,25 @@ func (c *DistributedKernelClient) NumActiveMigrationOperations() int {
 	return int(c.numActiveAddOperations.Load())
 }
 
-func (c *DistributedKernelClient) AddOperationStarted() {
-	c.numActiveAddOperations.Add(1)
+// IsActivelyMigratingReplica returns true if the specified replica of the target DistributedKernelClient
+// is actively being migrated right now.
+func (c *DistributedKernelClient) IsActivelyMigratingReplica(replicaId int32) bool {
+	isMigrating, loaded := c.activeMigrationMap.Load(replicaId)
+	if !loaded {
+		return false
+	}
+
+	return isMigrating
 }
 
-func (c *DistributedKernelClient) AddOperationCompleted() {
+func (c *DistributedKernelClient) AddOperationStarted(replicaId int32) {
+	c.numActiveAddOperations.Add(1)
+	c.activeMigrationMap.Store(replicaId, true)
+}
+
+func (c *DistributedKernelClient) AddOperationCompleted(replicaId int32) {
 	numActiveAddOperations := c.numActiveAddOperations.Add(-1)
+	c.activeMigrationMap.Store(replicaId, false)
 
 	if numActiveAddOperations < 0 {
 		panic("Number of active migration operations cannot fall below 0.")

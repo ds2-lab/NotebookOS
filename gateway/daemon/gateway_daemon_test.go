@@ -2681,8 +2681,8 @@ var _ = Describe("cluster Gateway Tests", func() {
 				return replicasToReturn[idx], nil
 			})
 
-			mockedKernel.EXPECT().AddOperationStarted().Times(1)
-			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
+			mockedKernel.EXPECT().AddOperationStarted(gomock.Any()).Times(1)
+			mockedKernel.EXPECT().AddOperationCompleted(gomock.Any()).Times(1)
 			mockedKernel.EXPECT().
 				PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).
 				DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {

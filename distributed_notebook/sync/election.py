@@ -738,7 +738,7 @@ class Election(object):
 
         self._future_io_loop = loop
 
-        if self._received_vote_future is None:
+        if not hasattr(self, "_received_vote_future") or self._received_vote_future is None:
             self._received_vote_future = loop.create_future()
         elif self._received_vote_future.get_loop() != loop:
             raise ValueError(f"'Received Vote' future is already created on "

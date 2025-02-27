@@ -276,8 +276,8 @@ type Kernel interface {
 	// MissingReplicaIds returns the replica IDs of the replicas that the kernel is missing.
 	MissingReplicaIds() []int32
 	NumActiveMigrationOperations() int
-	AddOperationStarted()
-	AddOperationCompleted()
+	AddOperationStarted(replicaId int32)
+	AddOperationCompleted(replicaId int32)
 	Replicas() []KernelReplica
 	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
@@ -397,6 +397,10 @@ type Kernel interface {
 
 	// YieldNextExecutionRequest takes note that we should yield the next execution request.
 	YieldNextExecutionRequest()
+
+	// IsActivelyMigratingReplica returns true if the specified replica of the target DistributedKernelClient
+	// is actively being migrated right now.
+	IsActivelyMigratingReplica(replicaId int32) bool
 }
 
 type KernelReplica interface {
