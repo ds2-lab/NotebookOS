@@ -810,6 +810,9 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 	opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host,
 	forTraining bool) (*scheduling.AddReplicaOperation, error) {
 
+	km.log.Debug("Adding replica %d of kernel \"%s\" during migration operation",
+		in.ReplicaId, in.KernelId)
+
 	kernelId := in.KernelId
 	persistentId := in.PersistentId
 
@@ -828,6 +831,9 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 
 	// The spec to be used for the new replica that is created during the migration.
 	newReplicaSpec := kernel.PrepareNewReplica(persistentId, smrNodeId)
+
+	km.log.Debug("Officially starting 'add' operation for replica %d of kernel \"%s\" during migration operation",
+		newReplicaSpec.ReplicaId, in.KernelId)
 
 	kernel.AddOperationStarted(newReplicaSpec.ReplicaId)
 

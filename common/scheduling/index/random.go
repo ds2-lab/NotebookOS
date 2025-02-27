@@ -158,7 +158,7 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 
 	if index.hosts[i] == nil {
 		index.log.Error("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil).", i, i)
-		for idx := 0; idx < cap(index.hosts); idx++ {
+		for idx := 0; idx < len(index.hosts); idx++ {
 			if index.hosts[idx] != nil {
 				index.log.Error("index.hosts[%d] = %v", idx, index.hosts[idx])
 			} else {
@@ -167,35 +167,14 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 		}
 
 		index.log.Error("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil).\n", i, i)
-		panic("No host at index")
+		i = index.fix(host, i)
 	}
 
 	if index.hosts[i].GetID() != host.GetID() {
 		index.log.Error("Host at index %d of RandomClusterIndex is host %s; however, we're supposed to remove host %s...\n",
 			i, index.hosts[i].GetID(), host.GetID())
 
-		for actualIndex, h := range index.hosts {
-			idx := h.GetIdx(HostMetaRandomIndex)
-
-			// Find the host we're supposed to be removing.
-			if h.GetID() == host.GetID() {
-				i = int32(actualIndex)
-			}
-
-			if actualIndex == idx {
-				index.log.Warn("✓ Host %s (ID=%s) is at index %d and correctly believes it is at index %d ✓",
-					h.GetNodeName(), h.GetID(), actualIndex, idx)
-				continue
-			}
-
-			index.log.Error(
-				utils.RedStyle.Render(
-					"✗ Host %s (ID=%s) is at index %d and incorrectly believes it is at index %d ✗"),
-				h.GetNodeName(), h.GetID(), actualIndex, idx)
-
-			// Fix the index...
-			host.SetMeta(HostMetaRandomIndex, actualIndex)
-		}
+		i = index.fix(host, i)
 	}
 
 	index.hosts[i] = nil
@@ -204,6 +183,9 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
+
+	index.log.Debug("Removed host %s (ID=%s) from RandomClusterIndex at index %s.",
+		host.GetNodeName(), host.GetID(), i)
 
 	// Update freeStart.
 	if i < index.freeStart {
@@ -219,6 +201,40 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	index.InvokeHostRemovedCallbacks(host)
 
 	return true
+}
+
+func (index *RandomClusterIndex) fix(host scheduling.Host, i int32) int32 {
+	for actualIndex, h := range index.hosts {
+		if h == nil {
+			index.log.Warn("No host at index %d", actualIndex)
+			continue
+		}
+
+		idx := h.GetIdx(HostMetaRandomIndex)
+
+		// Find the host we're supposed to be removing.
+		if h.GetID() == host.GetID() {
+			i = int32(actualIndex)
+			index.log.Error("Found host %s (the one we're supposed to remove) at index %d (instead of index %d).",
+				h.GetNodeName(), actualIndex, i)
+		}
+
+		if actualIndex == idx {
+			index.log.Warn("✓ Host %s (ID=%s) is at index %d and correctly believes it is at index %d ✓",
+				h.GetNodeName(), h.GetID(), actualIndex, idx)
+			continue
+		}
+
+		index.log.Error(
+			utils.RedStyle.Render(
+				"✗ Host %s (ID=%s) is at index %d and incorrectly believes it is at index %d ✗"),
+			h.GetNodeName(), h.GetID(), actualIndex, idx)
+
+		// Fix the index...
+		host.SetMeta(HostMetaRandomIndex, actualIndex)
+	}
+
+	return i
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {
