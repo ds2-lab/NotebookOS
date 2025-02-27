@@ -70,6 +70,8 @@ service DistributedCluster {
   // Return the current GPU resource metrics on the node.
   rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
 
+  rpc GetJupyterMessage(GetMessageRequest) returns (GetMessageResponse) {}
+
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
   rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
 
@@ -155,6 +157,21 @@ service DistributedCluster {
   //
   // ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
   rpc ClearClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+}
+
+message GetMessageRequest {
+  string kernelId = 1;
+  string jupyterMessageId = 2;
+  string messageType = 3;
+}
+
+message GetMessageResponse {
+  string kernelId = 1;
+  string jupyterMessageId = 2;
+  string messageType = 3;
+  string messageId = 4;
+  bytes messageFrames = 5;
+  repeated int32 frameOffsets = 6;
 }
 
 message IsKernelTrainingReply {

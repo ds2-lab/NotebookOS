@@ -471,6 +471,11 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.ClusterActualGpuInfo.FromString,
                 _registered_method=True)
+        self.GetJupyterMessage = channel.unary_unary(
+                '/gateway.DistributedCluster/GetJupyterMessage',
+                request_serializer=gateway__pb2.GetMessageRequest.SerializeToString,
+                response_deserializer=gateway__pb2.GetMessageResponse.FromString,
+                _registered_method=True)
         self.GetClusterVirtualGpuInfo = channel.unary_unary(
                 '/gateway.DistributedCluster/GetClusterVirtualGpuInfo',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -622,6 +627,12 @@ class DistributedClusterServicer(object):
     def GetClusterActualGpuInfo(self, request, context):
         """Return the current GPU resource metrics on the node.
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetJupyterMessage(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -827,6 +838,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.GetClusterActualGpuInfo,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.ClusterActualGpuInfo.SerializeToString,
+            ),
+            'GetJupyterMessage': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetJupyterMessage,
+                    request_deserializer=gateway__pb2.GetMessageRequest.FromString,
+                    response_serializer=gateway__pb2.GetMessageResponse.SerializeToString,
             ),
             'GetClusterVirtualGpuInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetClusterVirtualGpuInfo,
@@ -1159,6 +1175,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/GetClusterActualGpuInfo',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.ClusterActualGpuInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetJupyterMessage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetJupyterMessage',
+            gateway__pb2.GetMessageRequest.SerializeToString,
+            gateway__pb2.GetMessageResponse.FromString,
             options,
             channel_credentials,
             insecure,
