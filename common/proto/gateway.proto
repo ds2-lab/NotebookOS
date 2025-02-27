@@ -70,7 +70,9 @@ service DistributedCluster {
   // Return the current GPU resource metrics on the node.
   rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
 
-  rpc GetJupyterMessage(GetMessageRequest) returns (GetMessageResponse) {}
+  // GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+  // the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+  rpc GetJupyterMessage(GetJupyterMessageRequest) returns (GetJupyterMessageResponse) {}
 
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
   rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
@@ -159,19 +161,36 @@ service DistributedCluster {
   rpc ClearClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
 }
 
-message GetMessageRequest {
+message GetJupyterMessageRequest {
   string kernelId = 1;
   string jupyterMessageId = 2;
   string messageType = 3;
 }
 
-message GetMessageResponse {
+message GetJupyterMessageResponse {
   string kernelId = 1;
   string jupyterMessageId = 2;
   string messageType = 3;
   string messageId = 4;
-  bytes messageFrames = 5;
-  repeated int32 frameOffsets = 6;
+  JupyterMessage message = 5;
+}
+
+message JupyterMessageHeader {
+  string messageId = 1;
+  string session = 2;
+  string username = 3;
+  string date = 4;
+  string messageType = 5;
+  string version = 6;
+  optional string subshellId = 7;
+}
+
+message JupyterMessage {
+    JupyterMessageHeader header = 1;
+    JupyterMessageHeader parentHeader = 2;
+    bytes metadata = 3;
+    bytes content = 4;
+    bytes buffers = 5;
 }
 
 message IsKernelTrainingReply {

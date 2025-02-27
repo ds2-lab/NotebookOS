@@ -469,7 +469,9 @@ type DistributedClusterClient interface {
 	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
 	// Return the current GPU resource metrics on the node.
 	GetClusterActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterActualGpuInfo, error)
-	GetJupyterMessage(ctx context.Context, in *GetMessageRequest, opts ...grpc.CallOption) (*GetMessageResponse, error)
+	// GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+	// the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+	GetJupyterMessage(ctx context.Context, in *GetJupyterMessageRequest, opts ...grpc.CallOption) (*GetJupyterMessageResponse, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
 	GetClusterVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterVirtualGpuInfo, error)
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
@@ -639,9 +641,9 @@ func (c *distributedClusterClient) GetClusterActualGpuInfo(ctx context.Context, 
 	return out, nil
 }
 
-func (c *distributedClusterClient) GetJupyterMessage(ctx context.Context, in *GetMessageRequest, opts ...grpc.CallOption) (*GetMessageResponse, error) {
+func (c *distributedClusterClient) GetJupyterMessage(ctx context.Context, in *GetJupyterMessageRequest, opts ...grpc.CallOption) (*GetJupyterMessageResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetMessageResponse)
+	out := new(GetJupyterMessageResponse)
 	err := c.cc.Invoke(ctx, DistributedCluster_GetJupyterMessage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -844,7 +846,9 @@ type DistributedClusterServer interface {
 	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
 	// Return the current GPU resource metrics on the node.
 	GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error)
-	GetJupyterMessage(context.Context, *GetMessageRequest) (*GetMessageResponse, error)
+	// GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+	// the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+	GetJupyterMessage(context.Context, *GetJupyterMessageRequest) (*GetJupyterMessageResponse, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
 	GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error)
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
@@ -951,7 +955,7 @@ func (UnimplementedDistributedClusterServer) SetTotalVirtualGPUs(context.Context
 func (UnimplementedDistributedClusterServer) GetClusterActualGpuInfo(context.Context, *Void) (*ClusterActualGpuInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetClusterActualGpuInfo not implemented")
 }
-func (UnimplementedDistributedClusterServer) GetJupyterMessage(context.Context, *GetMessageRequest) (*GetMessageResponse, error) {
+func (UnimplementedDistributedClusterServer) GetJupyterMessage(context.Context, *GetJupyterMessageRequest) (*GetJupyterMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetJupyterMessage not implemented")
 }
 func (UnimplementedDistributedClusterServer) GetClusterVirtualGpuInfo(context.Context, *Void) (*ClusterVirtualGpuInfo, error) {
@@ -1189,7 +1193,7 @@ func _DistributedCluster_GetClusterActualGpuInfo_Handler(srv interface{}, ctx co
 }
 
 func _DistributedCluster_GetJupyterMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetMessageRequest)
+	in := new(GetJupyterMessageRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1201,7 +1205,7 @@ func _DistributedCluster_GetJupyterMessage_Handler(srv interface{}, ctx context.
 		FullMethod: DistributedCluster_GetJupyterMessage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DistributedClusterServer).GetJupyterMessage(ctx, req.(*GetMessageRequest))
+		return srv.(DistributedClusterServer).GetJupyterMessage(ctx, req.(*GetJupyterMessageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

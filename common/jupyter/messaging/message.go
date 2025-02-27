@@ -151,12 +151,66 @@ func (msg *Message) String() string {
 // http://jupyter-client.readthedocs.io/en/latest/messaging.html#general-message-format
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type MessageHeader struct {
-	MsgID    string             `json:"msg_id"`
-	Username string             `json:"username"`
-	Session  string             `json:"session"`
-	Date     string             `json:"date"`
-	MsgType  JupyterMessageType `json:"msg_type"`
-	Version  string             `json:"version"`
+	MsgID      string             `json:"msg_id"`
+	Username   string             `json:"username"`
+	Session    string             `json:"session"`
+	Date       string             `json:"date"`
+	MsgType    JupyterMessageType `json:"msg_type"`
+	Version    string             `json:"version"`
+	SubshellId *string            `json:"subshell_id,omitempty"`
+}
+
+// MessageHeaderFromProto creates a new MessageHeader struct with the data from the corresponding fields of the given
+// proto.JupyterMessageHeader struct.
+func MessageHeaderFromProto(msg *proto.JupyterMessageHeader) *MessageHeader {
+	if msg == nil {
+		return nil
+	}
+
+	header := &MessageHeader{}
+
+	header.MsgID = msg.MessageId
+	header.Username = msg.Username
+	header.Session = msg.Session
+	header.Date = msg.Date
+	header.MsgType = JupyterMessageType(msg.MessageType)
+	header.Version = msg.Version
+	header.SubshellId = msg.SubshellId
+
+	return header
+}
+
+// FromProto populates the fields of the target MessageHeader struct with the data from the corresponding fields
+// of the given proto.JupyterMessageHeader struct.
+func (header *MessageHeader) FromProto(msg *proto.JupyterMessageHeader) {
+	if header == nil || msg == nil {
+		return
+	}
+
+	header.MsgID = msg.MessageId
+	header.Username = msg.Username
+	header.Session = msg.Session
+	header.Date = msg.Date
+	header.MsgType = JupyterMessageType(msg.MessageType)
+	header.Version = msg.Version
+	header.SubshellId = msg.SubshellId
+}
+
+// ToProto converts the target MessageHeader to an equivalent *proto.JupyterMessageHeader struct.
+func (header *MessageHeader) ToProto() *proto.JupyterMessageHeader {
+	if header == nil {
+		return nil
+	}
+
+	return &proto.JupyterMessageHeader{
+		MessageId:   header.MsgID,
+		Username:    header.Username,
+		Session:     header.Session,
+		Date:        header.Date,
+		MessageType: header.MsgType.String(),
+		Version:     header.Version,
+		SubshellId:  nil,
+	}
 }
 
 func (header *MessageHeader) Clone() *MessageHeader {
@@ -1135,3 +1189,56 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int3
 
 	return jMsg, nil
 }
+
+// ToProto creates a new *proto.JupyterMessage struct, populating its fields with the data from the corresponding
+// fields of the target JupyterMessage struct.
+//
+// The Header and ParentHeader fields are populated as deserialized/decoded proto.JupyterMessageHeader structs,
+// whereas the metadata, content, and buffers frames are included in the new proto.JupyterMessage struct as []byte.
+func (m *JupyterMessage) ToProto() (*proto.JupyterMessage, error) {
+	var (
+		header, parentHeader                      *MessageHeader
+		protoHeader, protoParentHeader            *proto.JupyterMessageHeader
+		metadataFrame, contentFrame, buffersFrame []byte
+		err                                       error
+	)
+
+	header, err = m.GetHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	parentHeader = m.GetParentHeader()
+
+	protoHeader = header.ToProto()
+
+	if parentHeader != nil {
+		protoParentHeader = parentHeader.ToProto()
+	}
+
+	if m.JupyterFrames.MetadataFrame() != nil {
+		metadataFrame = m.JupyterFrames.MetadataFrame().Frame()
+	}
+
+	if m.JupyterFrames.ContentFrame() != nil {
+		contentFrame = m.JupyterFrames.ContentFrame().Frame()
+	}
+
+	if m.JupyterFrames.BuffersFrame() != nil {
+		buffersFrame = m.JupyterFrames.BuffersFrame().Frame()
+	}
+
+	protoMessage := &proto.JupyterMessage{
+		Header:       protoHeader,
+		ParentHeader: protoParentHeader,
+		Metadata:     metadataFrame,
+		Content:      contentFrame,
+		Buffers:      buffersFrame,
+	}
+
+	return protoMessage, nil
+}
+
+// GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+// the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+// rpc GetJupyterMessage(GetJupyterMessageRequest) returns (GetJupyterMessageResponse) {}
