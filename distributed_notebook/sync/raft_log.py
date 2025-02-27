@@ -280,6 +280,8 @@ class RaftLog(object):
         # Called by Go (into Python) when a value is committed.
         self._valueCommittedCallback: Callable[[Any, int, str], Any] = self.__value_committed_wrapper
 
+        self._exec_complete_notifications_processed = set()
+
         # Called by Go (into Python) when a value is restored (from a checkpoint/backup).
         # Note: this must not be an awaitable/it must not run on an IO loop.
         # Because the Go LogNode::Start function is called by Python from within the asyncio IO loop,
@@ -577,7 +579,7 @@ class RaftLog(object):
             return self.__handle_vote_with_no_current_election(vote, received_at, buffered_vote)
         elif vote.election_term > self.current_election_term:
             return self.__handle_future_vote(vote, received_at, buffered_vote)
-        
+
         if buffered_vote:
             self.log.debug(f"Handling buffered VOTE: {str(vote)}")
         else:
@@ -1033,6 +1035,12 @@ class RaftLog(object):
         self.log.debug(f'Received "execution complete" notification for election term '
                        f"{notification.election_term} from node {notification.proposer_id}: {notification}")
 
+        if notification.id in self._exec_complete_notifications_processed:
+            self.log.warning(f"We've already processed this 'execution complete' notification...: {notification}")
+            return GoNilError()
+
+        self._exec_complete_notifications_processed.add(notification.id)
+
         if self.needs_to_catch_up:
             self.__handle_execution_complete_notification_while_catching_up(notification)
             sys.stderr.flush()
@@ -1380,9 +1388,7 @@ class RaftLog(object):
 
         return False
 
-    def __value_committed_wrapper(
-            self, goObject, value_size: int, value_id: str
-    ) -> bytes:
+    def __value_committed_wrapper(self, goObject, value_size: int, value_id: str) -> bytes:
         """
         Wrapper around RaftLog::_valueCommitted so I can print the return value, as apparently we're sometimes returning nil?
         """
@@ -1393,11 +1399,9 @@ class RaftLog(object):
         try:
             ret = self.__value_committed(goObject, value_size, value_id)
         except Exception as ex:
-            self.log.error(
-                f"Exception encountered in self._valueCommitted while handling synchronized value with "
-                f"ID=\"{value_id}\" of size {value_size} bytes: {str(ex)}. Traceback: "
-                f"{''.join(traceback.format_exception(type(ex), ex, ex.__traceback__, 99))}"
-            )
+            self.log.error(f"Exception encountered in self._valueCommitted while handling synchronized value with "
+                           f"ID=\"{value_id}\" of size {value_size} bytes: {str(ex)}. Traceback: "
+                           f"{''.join(traceback.format_exception(type(ex), ex, ex.__traceback__, 99))}")
             print_trace(limit=10)
             sys.stderr.flush()
             sys.stdout.flush()
@@ -1411,8 +1415,7 @@ class RaftLog(object):
             sys.stdout.flush()
 
             if ret is None:
-                self.log.error("We were about to return None from the value-changed handler...")
-                ret = b""
+                return GoNilError()
 
         return ret
 
@@ -1707,6 +1710,7 @@ class RaftLog(object):
             "last_completed_election": self._last_completed_election,  # Election object
             "_term_to_jupyter_id": self._term_to_jupyter_id,
             "_jupyter_id_to_term": self._jupyter_id_to_term,
+            "_exec_complete_notifications_processed": self._exec_complete_notifications_processed,
         }
 
         # Add the resource request entry, if available.
@@ -1844,6 +1848,7 @@ class RaftLog(object):
         self._last_completed_election = data_dict["last_completed_election"]
         self._term_to_jupyter_id = data_dict["_term_to_jupyter_id"]
         self._jupyter_id_to_term = data_dict["_jupyter_id_to_term"]
+        self._exec_complete_notifications_processed = data_dict["_exec_complete_notifications_processed"]
 
         # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
         # (a) already know about and (b) aren't finished yet in some capacity.
