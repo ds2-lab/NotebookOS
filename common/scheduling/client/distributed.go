@@ -967,7 +967,7 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 			r.ReplicaID(), c.id, r.ConnectionInfo().SignatureScheme, r.ConnectionInfo().Key)
 
 		// Collect the status of the replica(s).
-		c.busyStatus.Collect(context.Background(), 1, c.replicas.Len(), messaging.MessageKernelStatusStarting, c.pubIOMessage)
+		c.busyStatus.Collect(context.Background(), 1, messaging.MessageKernelStatusStarting, c.pubIOMessage)
 	}
 
 	return nil
@@ -1808,7 +1808,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// Send the request to all replicas.
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), messaging.DefaultRequestTimeout)
 	defer statusCancel()
-	c.busyStatus.Collect(statusCtx, c.replicas.Len(), c.replicas.Len(), messaging.MessageKernelStatusBusy, c.pubIOMessage)
+	c.busyStatus.Collect(statusCtx, c.replicas.Len(), messaging.MessageKernelStatusBusy, c.pubIOMessage)
 
 	// Just pass the first message. Doesn't matter if it is "execute_request" or "yield_request".
 	if messaging.IsExecuteOrYieldRequest(jupyterMessages[0]) {
@@ -2324,6 +2324,10 @@ func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, st
 	c.log.Debug("Publishing %v status(%s:%s): %v", messaging.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
 
+	if msg == nil {
+		return fmt.Errorf("message is nil")
+	}
+
 	zmqMsg := msg.GetZmqMsg()
 
 	var err error
@@ -2348,7 +2352,7 @@ func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, st
 
 		// Initiate idle status collection.
 		if status == messaging.MessageKernelStatusBusy {
-			c.busyStatus.Collect(context.Background(), c.replicas.Len(), c.replicas.Len(), messaging.MessageKernelStatusIdle, c.pubIOMessage)
+			c.busyStatus.Collect(context.Background(), c.replicas.Len(), messaging.MessageKernelStatusIdle, c.pubIOMessage)
 			// Fill matched status that has been received before collecting.
 			// for _, replica := range c.replicas {
 			c.replicas.Range(func(i int32, replica scheduling.KernelReplica) (contd bool) {
