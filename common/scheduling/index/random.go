@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"log"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -152,7 +152,8 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	index.log.Debug("Removing host %s from RandomClusterIndex, position=%d", host.GetID(), i)
 
 	if i > int32(len(index.hosts)) {
-		log.Fatalf("Index %d is out of range for RandomClusterIndex of length %d...\n", i, len(index.hosts))
+		index.log.Error("Index %d is out of range for RandomClusterIndex of length %d...\n", i, len(index.hosts))
+		panic("Index out of range")
 	}
 
 	if index.hosts[i] == nil {
@@ -165,12 +166,36 @@ func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 			}
 		}
 
-		log.Fatalf("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil.\n", i, i)
+		index.log.Error("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil).\n", i, i)
+		panic("No host at index")
 	}
 
 	if index.hosts[i].GetID() != host.GetID() {
-		log.Fatalf("host at index %d of RandomClusterIndex is host %s; however, we're supposed to remove host %s...\n",
+		index.log.Error("Host at index %d of RandomClusterIndex is host %s; however, we're supposed to remove host %s...\n",
 			i, index.hosts[i].GetID(), host.GetID())
+
+		for actualIndex, h := range index.hosts {
+			idx := h.GetIdx(HostMetaRandomIndex)
+
+			// Find the host we're supposed to be removing.
+			if h.GetID() == host.GetID() {
+				i = int32(actualIndex)
+			}
+
+			if actualIndex == idx {
+				index.log.Warn("✓ Host %s (ID=%s) is at index %d and correctly believes it is at index %d ✓",
+					h.GetNodeName(), h.GetID(), actualIndex, idx)
+				continue
+			}
+
+			index.log.Error(
+				utils.RedStyle.Render(
+					"✗ Host %s (ID=%s) is at index %d and incorrectly believes it is at index %d ✗"),
+				h.GetNodeName(), h.GetID(), actualIndex, idx)
+
+			// Fix the index...
+			host.SetMeta(HostMetaRandomIndex, actualIndex)
+		}
 	}
 
 	index.hosts[i] = nil
