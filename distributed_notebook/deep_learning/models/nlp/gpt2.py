@@ -106,9 +106,13 @@ class GPT2(DeepLearningModel):
         self.log.debug(f'Extracted downloaded file "{download_path}" to path '
                        f'"{self.download_directory_path}" in {extract_duration:,} seconds.')
 
+        assert os.path.exists(download_path)
+
         # Optionally, remove the downloaded tar.gz file after extraction
         os.remove(download_path)
         self.log.debug(f'Removed downloaded file "{download_path}".')
+
+        assert not os.path.exists(download_path)
 
     @staticmethod
     def expected_model_class() -> Type:
