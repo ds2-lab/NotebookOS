@@ -171,8 +171,8 @@ message GetJupyterMessageResponse {
   string kernelId = 1;
   string jupyterMessageId = 2;
   string messageType = 3;
-  string messageId = 4;
-  JupyterMessage message = 5;
+  JupyterMessage message = 4;
+  int64 receivedAtUnixMillis = 5;
 }
 
 message JupyterMessageHeader {

@@ -613,6 +613,8 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 //
 // ExecutionComplete returns nil on success.
 func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
+	receivedAt := time.Now()
+
 	err := validateReply(msg)
 	if err != nil {
 		return nil, err
@@ -635,12 +637,12 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId)
 	}
 
-	err = activeExecution.ReceivedLeadNotification(msg.ReplicaId)
-	if err != nil {
-		return nil, err
-	}
+	//err = activeExecution.ReceivedSmrLeadTaskMessage(msg.ReplicaId)
+	//if err != nil {
+	//	return nil, err
+	//}
 
-	activeExecution.SetExecuted()
+	activeExecution.SetExecuted(receivedAt)
 
 	// Update the execution's state.
 	activeExecution.State = Completed
@@ -672,7 +674,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
-		m.lastTrainingEndedAt = time.Now()
+		m.lastTrainingEndedAt = receivedAt
 
 		// No longer waiting for "execute_reply" for most-recently-submitted "execute_request".
 		m.hasActiveTraining.Store(false)
@@ -836,6 +838,8 @@ func (m *ExecutionManager) ReplicaRemoved(replica scheduling.KernelReplica) {
 
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
 func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+	receivedAt := time.Now()
+
 	// Decode the jupyter.MessageSMRLeadTask message.
 	leadMessage, err := m.decodeLeadMessageContent(msg)
 	if err != nil {
@@ -890,7 +894,11 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		m.activeExecutionIndex = executionIndex
 	}
 
-	activeExecution.SetActiveReplica(replica)
+	err = activeExecution.ReceivedSmrLeadTaskMessage(replica, receivedAt)
+	if err != nil {
+		return err
+	}
+
 	m.lastPrimaryReplica = replica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.

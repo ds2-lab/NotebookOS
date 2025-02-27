@@ -95,7 +95,7 @@ type ExecutionManager interface {
 	// message with the specified ID, if one exists. Specifically, it would be the "execute_reply" sent by the primary
 	// replica when it finished executing the user-submitted code.
 	GetExecuteReplyMessage(executeRequestId string) (*messaging.JupyterMessage, bool)
-	
+
 	// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
 	// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
 	// the time at which the active training was submitted to the kernel.
@@ -139,9 +139,11 @@ type Execution interface {
 	OriginalTimestampOrCreatedAt() time.Time
 	Msg() *messaging.JupyterMessage
 	HasExecuted() bool
-	SetExecuted()
+	SetExecuted(receivedExecuteReplyAt time.Time)
 	String() string
-	ReceivedLeadNotification(smrNodeId int32) error
+	// ReceivedSmrLeadTaskMessage records that the specified kernel replica was selected as the primary replica
+	// and will be executing the code.
+	ReceivedSmrLeadTaskMessage(replica KernelReplica, receivedAt time.Time) error
 	ReceivedYieldNotification(smrNodeId int32, yieldReason string) error
 	NumRolesReceived() int
 	NumLeadReceived() int
@@ -163,6 +165,17 @@ type Execution interface {
 
 	// GetExecutionIndex returns the ExecutionIndex of the target Execution.
 	GetExecutionIndex() int32
+
+	// GetTrainingStartedAt returns the time at which the training began, as indicated in the payload of the
+	// "smr_lead_task" message that we received from the primary replica.
+	// GetTrainingStartedAt() time.Time
+
+	// GetReceivedSmrLeadTaskAt returns the time at which we received a "smr_lead_task" message from the primary replica.
+	GetReceivedSmrLeadTaskAt() time.Time
+
+	// GetReceivedExecuteReplyAt returns the time at which the "execute_reply" message that indicated that the execution
+	// had finished was received.
+	GetReceivedExecuteReplyAt() time.Time
 }
 type Proposal interface {
 	GetKey() ProposalKey

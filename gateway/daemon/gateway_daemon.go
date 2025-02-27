@@ -6259,3 +6259,113 @@ func (d *ClusterGatewayImpl) NumActiveExecutions() int32 {
 func (d *ClusterGatewayImpl) Cluster() scheduling.Cluster {
 	return d.cluster
 }
+
+// GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+// the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+func (d *ClusterGatewayImpl) GetJupyterMessage(_ context.Context, in *proto.GetJupyterMessageRequest) (*proto.GetJupyterMessageResponse, error) {
+	kernel, loaded := d.kernels.Load(in.KernelId)
+	if !loaded {
+		d.log.Warn("GetJupyterMessage: unknown kernel \"%s\"", in.KernelId)
+		return nil, d.errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.KernelId))
+	}
+
+	if in.MessageType == messaging.ShellExecuteReply {
+		return d.getExecuteReplyMessage(kernel, in)
+	} else if in.MessageType == messaging.MessageTypeSMRLeadTask {
+		return d.getSmrLeadTaskMessage(kernel, in)
+	} else {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid message type: \"%s\"", in.MessageType))
+	}
+}
+
+// getExecuteReplyMessage attempts to retrieve the specified "execute_reply" message associated
+// with the given scheduling.Kernel and specified "execute_request" message.
+func (d *ClusterGatewayImpl) getExecuteReplyMessage(kernel scheduling.Kernel, in *proto.GetJupyterMessageRequest) (*proto.GetJupyterMessageResponse, error) {
+	executionManager := kernel.GetExecutionManager()
+
+	msg, loaded := executionManager.GetExecuteReplyMessage(in.JupyterMessageId)
+	if msg == nil || !loaded {
+		errorMessage := fmt.Sprintf("no \"execute_reply\" message with ID=\"%s\"", in.JupyterMessageId)
+		return nil, status.Error(codes.FailedPrecondition, errorMessage)
+	}
+
+	convertedMessage, err := msg.ToProto()
+	if err != nil {
+		d.log.Error("Failed to convert \"execute_reply\" message \"%s\" targeting kernel \"%s\" to proto version: %v",
+			msg.JupyterMessageId(), kernel.ID(), err)
+		d.log.Error("Message in question: %v", msg.JupyterFrames.StringFormatted())
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	activeExecution := executionManager.GetActiveExecution(in.JupyterMessageId)
+	if activeExecution == nil {
+		d.log.Error("Successfully retrieved \"execute_reply\" message associated with \"execute_request\" message \"%s\"; however, could not find associated active execution...",
+			in.JupyterMessageId)
+
+		resp := &proto.GetJupyterMessageResponse{
+			JupyterMessageId:     in.JupyterMessageId,
+			MessageType:          in.MessageType,
+			KernelId:             in.KernelId,
+			ReceivedAtUnixMillis: -1,
+			Message:              convertedMessage,
+		}
+
+		return resp, nil
+	}
+
+	resp := &proto.GetJupyterMessageResponse{
+		JupyterMessageId:     in.JupyterMessageId,
+		MessageType:          in.MessageType,
+		KernelId:             in.KernelId,
+		ReceivedAtUnixMillis: activeExecution.GetReceivedExecuteReplyAt().UnixMilli(),
+		Message:              convertedMessage,
+	}
+
+	return resp, nil
+}
+
+// getExecuteReplyMessage attempts to retrieve the specified "smr_lead_task" message associated
+// with the given scheduling.Kernel and specified "execute_request" message.
+func (d *ClusterGatewayImpl) getSmrLeadTaskMessage(kernel scheduling.Kernel, in *proto.GetJupyterMessageRequest) (*proto.GetJupyterMessageResponse, error) {
+	executionManager := kernel.GetExecutionManager()
+
+	msg, loaded := executionManager.GetSmrLeadTaskMessage(in.JupyterMessageId)
+	if msg == nil || !loaded {
+		errorMessage := fmt.Sprintf("no \"smr_lead_task\" message with ID=\"%s\"", in.JupyterMessageId)
+		return nil, status.Error(codes.FailedPrecondition, errorMessage)
+	}
+
+	convertedMessage, err := msg.ToProto()
+	if err != nil {
+		d.log.Error("Failed to convert \"smr_lead_task\" message \"%s\" targeting kernel \"%s\" to proto version: %v",
+			msg.JupyterMessageId(), kernel.ID(), err)
+		d.log.Error("Message in question: %v", msg.JupyterFrames.StringFormatted())
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	activeExecution := executionManager.GetActiveExecution(in.JupyterMessageId)
+	if activeExecution == nil {
+		d.log.Error("Successfully retrieved \"smr_lead_task\" message associated with \"execute_request\" message \"%s\"; however, could not find associated active execution...",
+			in.JupyterMessageId)
+
+		resp := &proto.GetJupyterMessageResponse{
+			JupyterMessageId:     in.JupyterMessageId,
+			MessageType:          in.MessageType,
+			KernelId:             in.KernelId,
+			ReceivedAtUnixMillis: -1,
+			Message:              convertedMessage,
+		}
+
+		return resp, nil
+	}
+
+	resp := &proto.GetJupyterMessageResponse{
+		JupyterMessageId:     in.JupyterMessageId,
+		MessageType:          in.MessageType,
+		KernelId:             in.KernelId,
+		ReceivedAtUnixMillis: activeExecution.GetReceivedSmrLeadTaskAt().UnixMilli(),
+		Message:              convertedMessage,
+	}
+
+	return resp, nil
+}

@@ -35,6 +35,16 @@ type Execution struct {
 	// created and subsequently sent within the metadata field of the message.
 	OriginallySentAt time.Time
 
+	// ReceivedExecuteReplyAt is the time at which the "execute_reply" message that indicated that the execution had
+	// finished was received.
+	ReceivedExecuteReplyAt time.Time
+
+	// ReceivedSmrLeadTaskAt is the time at which we received the "smr_lead_task" message from the primary replica.
+	ReceivedSmrLeadTaskAt time.Time
+
+	// TrainingStartedAt is the time at which the kernel began executing the user-submitted code.
+	// TrainingStartedAt time.Time
+
 	// NextAttempt is the Execution attempt that occurred after this one.
 	NextAttempt scheduling.Execution
 
@@ -235,8 +245,9 @@ func (e *Execution) HasExecuted() bool {
 	return e.IsCompleted()
 }
 
-func (e *Execution) SetExecuted() {
+func (e *Execution) SetExecuted(receivedExecuteReplyAt time.Time) {
 	e.State = Completed
+	e.ReceivedExecuteReplyAt = receivedExecuteReplyAt
 }
 
 func (e *Execution) String() string {
@@ -248,14 +259,18 @@ func (e *Execution) String() string {
 		e.OriginallySentAt, e.CreatedAt)
 }
 
-// ReceivedLeadNotification records that the specified kernel replica lead the election and executed the code.
-func (e *Execution) ReceivedLeadNotification(smrNodeId int32) error {
-	if _, ok := e.Proposals[smrNodeId]; ok {
+// ReceivedSmrLeadTaskMessage records that the specified kernel replica was selected as the primary replica
+// and will be executing the code.
+func (e *Execution) ReceivedSmrLeadTaskMessage(replica scheduling.KernelReplica, receivedAt time.Time) error {
+	// TODO: This part isn't necessarily accurate, as there may have just been a vote proposal.
+	if _, ok := e.Proposals[replica.ReplicaID()]; ok {
 		return ErrProposalAlreadyReceived
 	}
-
-	e.Proposals[smrNodeId] = NewProposal(scheduling.LeadProposal, "")
+	e.Proposals[replica.ReplicaID()] = NewProposal(scheduling.LeadProposal, "")
 	e.NumLeadProposals += 1
+
+	e.ReceivedSmrLeadTaskAt = receivedAt
+	e.ActiveReplica = replica
 
 	return nil
 }
@@ -347,6 +362,23 @@ func (e *Execution) SetTargetReplica(replicaId int32) error {
 	if !e.targetReplicaId.CompareAndSwap(defaultTargetReplicaId, replicaId) {
 		return fmt.Errorf("%w: %d", ErrTargetReplicaAlreadySpecified, e.targetReplicaId.Load())
 	}
-	
+
 	return nil
+}
+
+// GetTrainingStartedAt returns the time at which the training began, as indicated in the payload of the
+// "smr_lead_task" message that we received from the primary replica.
+//func (e *Execution) GetTrainingStartedAt() time.Time {
+//	return e.TrainingStartedAt
+//}
+
+// GetReceivedSmrLeadTaskAt returns the time at which we received a "smr_lead_task" message from the primary replica.
+func (e *Execution) GetReceivedSmrLeadTaskAt() time.Time {
+	return e.ReceivedSmrLeadTaskAt
+}
+
+// GetReceivedExecuteReplyAt returns the time at which the "execute_reply" message that indicated that the execution
+// had finished was received.
+func (e *Execution) GetReceivedExecuteReplyAt() time.Time {
+	return e.ReceivedExecuteReplyAt
 }

@@ -310,3 +310,9 @@ func (dc *DistributedCluster) ClearClusterStatistics(_ context.Context, _ *proto
 func (dc *DistributedCluster) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	return dc.gatewayDaemon.IsKernelActivelyTraining(ctx, in)
 }
+
+// GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+// the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+func (dc *DistributedCluster) GetJupyterMessage(ctx context.Context, in *proto.GetJupyterMessageRequest) (*proto.GetJupyterMessageResponse, error) {
+	return dc.gatewayDaemon.GetJupyterMessage(ctx, in)
+}

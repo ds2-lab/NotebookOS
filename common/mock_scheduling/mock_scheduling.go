@@ -6438,27 +6438,27 @@ func (mr *MockKernelMockRecorder) ActiveTrainingStartedAt() *gomock.Call {
 }
 
 // AddOperationCompleted mocks base method.
-func (m *MockKernel) AddOperationCompleted() {
+func (m *MockKernel) AddOperationCompleted(replicaId int32) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AddOperationCompleted")
+	m.ctrl.Call(m, "AddOperationCompleted", replicaId)
 }
 
 // AddOperationCompleted indicates an expected call of AddOperationCompleted.
-func (mr *MockKernelMockRecorder) AddOperationCompleted() *gomock.Call {
+func (mr *MockKernelMockRecorder) AddOperationCompleted(replicaId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOperationCompleted", reflect.TypeOf((*MockKernel)(nil).AddOperationCompleted))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOperationCompleted", reflect.TypeOf((*MockKernel)(nil).AddOperationCompleted), replicaId)
 }
 
 // AddOperationStarted mocks base method.
-func (m *MockKernel) AddOperationStarted() {
+func (m *MockKernel) AddOperationStarted(replicaId int32) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AddOperationStarted")
+	m.ctrl.Call(m, "AddOperationStarted", replicaId)
 }
 
 // AddOperationStarted indicates an expected call of AddOperationStarted.
-func (mr *MockKernelMockRecorder) AddOperationStarted() *gomock.Call {
+func (mr *MockKernelMockRecorder) AddOperationStarted(replicaId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOperationStarted", reflect.TypeOf((*MockKernel)(nil).AddOperationStarted))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOperationStarted", reflect.TypeOf((*MockKernel)(nil).AddOperationStarted), replicaId)
 }
 
 // AddReplica mocks base method.
@@ -6794,6 +6794,20 @@ func (mr *MockKernelMockRecorder) InitializeShellForwarder(handler any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitializeShellForwarder", reflect.TypeOf((*MockKernel)(nil).InitializeShellForwarder), handler)
 }
 
+// IsActivelyMigratingReplica mocks base method.
+func (m *MockKernel) IsActivelyMigratingReplica(replicaId int32) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsActivelyMigratingReplica", replicaId)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsActivelyMigratingReplica indicates an expected call of IsActivelyMigratingReplica.
+func (mr *MockKernelMockRecorder) IsActivelyMigratingReplica(replicaId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsActivelyMigratingReplica", reflect.TypeOf((*MockKernel)(nil).IsActivelyMigratingReplica), replicaId)
+}
+
 // IsIdleReclaimed mocks base method.
 func (m *MockKernel) IsIdleReclaimed() bool {
 	m.ctrl.T.Helper()
@@ -7104,7 +7118,7 @@ func (mr *MockKernelMockRecorder) PersistentID() *gomock.Call {
 // PodOrContainerName mocks base method.
 func (m *MockKernel) PodOrContainerName(id int32) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PodOrContainerId", id)
+	ret := m.ctrl.Call(m, "PodOrContainerName", id)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -7113,7 +7127,7 @@ func (m *MockKernel) PodOrContainerName(id int32) (string, error) {
 // PodOrContainerName indicates an expected call of PodOrContainerName.
 func (mr *MockKernelMockRecorder) PodOrContainerName(id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodOrContainerId", reflect.TypeOf((*MockKernel)(nil).PodOrContainerName), id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodOrContainerName", reflect.TypeOf((*MockKernel)(nil).PodOrContainerName), id)
 }
 
 // PrepareNewReplica mocks base method.
@@ -7893,7 +7907,7 @@ func (mr *MockKernelReplicaMockRecorder) DemoteStandardContainer(prewarmContaine
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DemoteStandardContainer", reflect.TypeOf((*MockKernelReplica)(nil).DemoteStandardContainer), prewarmContainerId)
 }
 
-// GetPodOrContainerName mocks base method.
+// GetPodOrContainerId mocks base method.
 func (m *MockKernelReplica) GetPodOrContainerId() string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPodOrContainerId")
@@ -7901,10 +7915,24 @@ func (m *MockKernelReplica) GetPodOrContainerId() string {
 	return ret0
 }
 
+// GetPodOrContainerId indicates an expected call of GetPodOrContainerId.
+func (mr *MockKernelReplicaMockRecorder) GetPodOrContainerId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPodOrContainerId", reflect.TypeOf((*MockKernelReplica)(nil).GetPodOrContainerId))
+}
+
+// GetPodOrContainerName mocks base method.
+func (m *MockKernelReplica) GetPodOrContainerName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPodOrContainerName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
 // GetPodOrContainerName indicates an expected call of GetPodOrContainerName.
 func (mr *MockKernelReplicaMockRecorder) GetPodOrContainerName() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPodOrContainerId", reflect.TypeOf((*MockKernelReplica)(nil).GetPodOrContainerId))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPodOrContainerName", reflect.TypeOf((*MockKernelReplica)(nil).GetPodOrContainerName))
 }
 
 // GetSocketPort mocks base method.
@@ -8483,16 +8511,28 @@ func (mr *MockKernelReplicaMockRecorder) SetPersistentID(persistentId any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPersistentID", reflect.TypeOf((*MockKernelReplica)(nil).SetPersistentID), persistentId)
 }
 
-// SetPodOrContainerName mocks base method.
-func (m *MockKernelReplica) SetPodOrContainerId(name string) {
+// SetPodOrContainerId mocks base method.
+func (m *MockKernelReplica) SetPodOrContainerId(id string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPodOrContainerId", name)
+	m.ctrl.Call(m, "SetPodOrContainerId", id)
+}
+
+// SetPodOrContainerId indicates an expected call of SetPodOrContainerId.
+func (mr *MockKernelReplicaMockRecorder) SetPodOrContainerId(id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPodOrContainerId", reflect.TypeOf((*MockKernelReplica)(nil).SetPodOrContainerId), id)
+}
+
+// SetPodOrContainerName mocks base method.
+func (m *MockKernelReplica) SetPodOrContainerName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPodOrContainerName", name)
 }
 
 // SetPodOrContainerName indicates an expected call of SetPodOrContainerName.
 func (mr *MockKernelReplicaMockRecorder) SetPodOrContainerName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPodOrContainerId", reflect.TypeOf((*MockKernelReplica)(nil).SetPodOrContainerId), name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPodOrContainerName", reflect.TypeOf((*MockKernelReplica)(nil).SetPodOrContainerName), name)
 }
 
 // SetReady mocks base method.
@@ -10122,6 +10162,36 @@ func (mr *MockExecutionManagerMockRecorder) GetActiveExecution(msgId any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecution", reflect.TypeOf((*MockExecutionManager)(nil).GetActiveExecution), msgId)
 }
 
+// GetExecuteReplyMessage mocks base method.
+func (m *MockExecutionManager) GetExecuteReplyMessage(executeRequestId string) (*messaging.JupyterMessage, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExecuteReplyMessage", executeRequestId)
+	ret0, _ := ret[0].(*messaging.JupyterMessage)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetExecuteReplyMessage indicates an expected call of GetExecuteReplyMessage.
+func (mr *MockExecutionManagerMockRecorder) GetExecuteReplyMessage(executeRequestId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecuteReplyMessage", reflect.TypeOf((*MockExecutionManager)(nil).GetExecuteReplyMessage), executeRequestId)
+}
+
+// GetSmrLeadTaskMessage mocks base method.
+func (m *MockExecutionManager) GetSmrLeadTaskMessage(executeRequestId string) (*messaging.JupyterMessage, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSmrLeadTaskMessage", executeRequestId)
+	ret0, _ := ret[0].(*messaging.JupyterMessage)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetSmrLeadTaskMessage indicates an expected call of GetSmrLeadTaskMessage.
+func (mr *MockExecutionManagerMockRecorder) GetSmrLeadTaskMessage(executeRequestId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSmrLeadTaskMessage", reflect.TypeOf((*MockExecutionManager)(nil).GetSmrLeadTaskMessage), executeRequestId)
+}
+
 // HandleExecuteReplyMessage mocks base method.
 func (m *MockExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
 	m.ctrl.T.Helper()
@@ -10412,6 +10482,34 @@ func (mr *MockExecutionMockRecorder) GetOriginallySentAtTime() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOriginallySentAtTime", reflect.TypeOf((*MockExecution)(nil).GetOriginallySentAtTime))
 }
 
+// GetReceivedExecuteReplyAt mocks base method.
+func (m *MockExecution) GetReceivedExecuteReplyAt() time.Time {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetReceivedExecuteReplyAt")
+	ret0, _ := ret[0].(time.Time)
+	return ret0
+}
+
+// GetReceivedExecuteReplyAt indicates an expected call of GetReceivedExecuteReplyAt.
+func (mr *MockExecutionMockRecorder) GetReceivedExecuteReplyAt() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReceivedExecuteReplyAt", reflect.TypeOf((*MockExecution)(nil).GetReceivedExecuteReplyAt))
+}
+
+// GetReceivedSmrLeadTaskAt mocks base method.
+func (m *MockExecution) GetReceivedSmrLeadTaskAt() time.Time {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetReceivedSmrLeadTaskAt")
+	ret0, _ := ret[0].(time.Time)
+	return ret0
+}
+
+// GetReceivedSmrLeadTaskAt indicates an expected call of GetReceivedSmrLeadTaskAt.
+func (mr *MockExecutionMockRecorder) GetReceivedSmrLeadTaskAt() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReceivedSmrLeadTaskAt", reflect.TypeOf((*MockExecution)(nil).GetReceivedSmrLeadTaskAt))
+}
+
 // GetTargetReplicaId mocks base method.
 func (m *MockExecution) GetTargetReplicaId() int32 {
 	m.ctrl.T.Helper()
@@ -10644,18 +10742,18 @@ func (mr *MockExecutionMockRecorder) RangeRoles(rangeFunc any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RangeRoles", reflect.TypeOf((*MockExecution)(nil).RangeRoles), rangeFunc)
 }
 
-// ReceivedLeadNotification mocks base method.
-func (m *MockExecution) ReceivedLeadNotification(smrNodeId int32) error {
+// ReceivedSmrLeadTaskMessage mocks base method.
+func (m *MockExecution) ReceivedSmrLeadTaskMessage(replica scheduling.KernelReplica, receivedAt time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReceivedLeadNotification", smrNodeId)
+	ret := m.ctrl.Call(m, "ReceivedSmrLeadTaskMessage", replica, receivedAt)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// ReceivedLeadNotification indicates an expected call of ReceivedLeadNotification.
-func (mr *MockExecutionMockRecorder) ReceivedLeadNotification(smrNodeId any) *gomock.Call {
+// ReceivedSmrLeadTaskMessage indicates an expected call of ReceivedSmrLeadTaskMessage.
+func (mr *MockExecutionMockRecorder) ReceivedSmrLeadTaskMessage(replica, receivedAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedLeadNotification", reflect.TypeOf((*MockExecution)(nil).ReceivedLeadNotification), smrNodeId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedSmrLeadTaskMessage", reflect.TypeOf((*MockExecution)(nil).ReceivedSmrLeadTaskMessage), replica, receivedAt)
 }
 
 // ReceivedYieldNotification mocks base method.
@@ -10699,15 +10797,15 @@ func (mr *MockExecutionMockRecorder) SetActiveReplica(replica any) *gomock.Call 
 }
 
 // SetExecuted mocks base method.
-func (m *MockExecution) SetExecuted() {
+func (m *MockExecution) SetExecuted(receivedExecuteReplyAt time.Time) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetExecuted")
+	m.ctrl.Call(m, "SetExecuted", receivedExecuteReplyAt)
 }
 
 // SetExecuted indicates an expected call of SetExecuted.
-func (mr *MockExecutionMockRecorder) SetExecuted() *gomock.Call {
+func (mr *MockExecutionMockRecorder) SetExecuted(receivedExecuteReplyAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExecuted", reflect.TypeOf((*MockExecution)(nil).SetExecuted))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExecuted", reflect.TypeOf((*MockExecution)(nil).SetExecuted), receivedExecuteReplyAt)
 }
 
 // SetTargetReplica mocks base method.
