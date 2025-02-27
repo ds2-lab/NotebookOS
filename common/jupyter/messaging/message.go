@@ -173,20 +173,20 @@ func (header *MessageHeader) Equals(o interface{}) bool {
 
 // MessageHeaderFromProto creates a new MessageHeader struct with the data from the corresponding fields of the given
 // proto.JupyterMessageHeader struct.
-func MessageHeaderFromProto(msg *proto.JupyterMessageHeader) *MessageHeader {
-	if msg == nil {
+func MessageHeaderFromProto(protoHeader *proto.JupyterMessageHeader) *MessageHeader {
+	if protoHeader == nil {
 		return nil
 	}
 
 	header := &MessageHeader{}
 
-	header.MsgID = msg.MessageId
-	header.Username = msg.Username
-	header.Session = msg.Session
-	header.Date = msg.Date
-	header.MsgType = JupyterMessageType(msg.MessageType)
-	header.Version = msg.Version
-	header.SubshellId = msg.SubshellId
+	header.MsgID = protoHeader.MessageId
+	header.Username = protoHeader.Username
+	header.Session = protoHeader.Session
+	header.Date = protoHeader.Date
+	header.MsgType = JupyterMessageType(protoHeader.MessageType)
+	header.Version = protoHeader.Version
+	header.SubshellId = protoHeader.SubshellId
 
 	return header
 }
@@ -1208,10 +1208,11 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int3
 // whereas the metadata, content, and buffers frames are included in the new proto.JupyterMessage struct as []byte.
 func (m *JupyterMessage) ToProto() (*proto.JupyterMessage, error) {
 	var (
-		header, parentHeader                      *MessageHeader
-		protoHeader, protoParentHeader            *proto.JupyterMessageHeader
-		metadataFrame, contentFrame, buffersFrame []byte
-		err                                       error
+		header, parentHeader           *MessageHeader
+		protoHeader, protoParentHeader *proto.JupyterMessageHeader
+		metadataFrame, contentFrame    []byte
+		buffersFrames                  [][]byte
+		err                            error
 	)
 
 	header, err = m.GetHeader()
@@ -1236,7 +1237,12 @@ func (m *JupyterMessage) ToProto() (*proto.JupyterMessage, error) {
 	}
 
 	if m.JupyterFrames.BuffersFrame() != nil {
-		buffersFrame = m.JupyterFrames.BuffersFrame().Frame()
+		buffersJFrames := m.JupyterFrames.BuffersFrames()
+
+		buffersFrames = make([][]byte, 0, len(buffersJFrames))
+		for _, bufferFrame := range buffersJFrames {
+			buffersFrames = append(buffersFrames, bufferFrame.Frame())
+		}
 	}
 
 	protoMessage := &proto.JupyterMessage{
@@ -1244,7 +1250,7 @@ func (m *JupyterMessage) ToProto() (*proto.JupyterMessage, error) {
 		ParentHeader: protoParentHeader,
 		Metadata:     metadataFrame,
 		Content:      contentFrame,
-		Buffers:      buffersFrame,
+		Buffers:      buffersFrames,
 	}
 
 	return protoMessage, nil

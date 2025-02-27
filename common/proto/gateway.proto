@@ -190,7 +190,7 @@ message JupyterMessage {
     JupyterMessageHeader parentHeader = 2;
     bytes metadata = 3;
     bytes content = 4;
-    bytes buffers = 5;
+    repeated bytes buffers = 5;
 }
 
 message IsKernelTrainingReply {
