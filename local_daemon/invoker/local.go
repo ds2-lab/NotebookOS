@@ -41,6 +41,8 @@ type LocalInvoker struct {
 	// createdAt is the time at which the KernelInvoker first created its kernel.
 	createdAt time.Time
 
+	nodeId string
+
 	log logger.Logger
 
 	connectionFilePath string

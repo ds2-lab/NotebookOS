@@ -16,7 +16,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -125,6 +124,8 @@ type LocalScheduler struct {
 
 	host scheduling.Host
 
+	hostSpec *types.Float64Spec
+
 	tracer   opentracing.Tracer
 	listener net.Listener
 
@@ -209,7 +210,7 @@ type LocalScheduler struct {
 	containerStartedNotificationManager *notification_manager.ContainerStartedNotificationManager
 
 	// Manages resource allocations on behalf of the Local Daemon.
-	allocationManager *resource.AllocationManager
+	// allocationManager *resource.AllocationManager
 
 	// localDaemonOptions is the options struct that the Local Daemon was created with.
 	localDaemonOptions *domain.LocalDaemonOptions
@@ -479,13 +480,13 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 			gpusPerHost))
 	}
 
-	hostSpec := &types.Float64Spec{
+	daemon.hostSpec = &types.Float64Spec{
 		GPUs:      float64(gpusPerHost),
 		VRam:      scheduling.DefaultVramPerHostGb,
 		Millicpus: scheduling.DefaultMillicpusPerHost,
 		Memory:    scheduling.DefaultMemoryMbPerHost,
 	}
-	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId, nodeName)
+	// daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId, nodeName)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -692,7 +693,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 			Id:            d.id,
 			NodeName:      d.nodeName,
 			Existing:      true,
-			SpecResources: proto.ResourceSpecFromSpec(d.allocationManager.SpecResources()),
+			SpecResources: proto.ResourceSpecFromSpec(d.hostSpec),
 		}, nil
 	}
 
@@ -716,7 +717,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 
 	// We're passing back the following two values.
 	in.NodeName = d.nodeName
-	in.SpecResources = proto.ResourceSpecFromSpec(d.allocationManager.SpecResources())
+	in.SpecResources = proto.ResourceSpecFromSpec(d.hostSpec)
 
 	// Update the ID field of the router and of any existing kernels.
 	d.router.SetComponentId(d.id)
@@ -724,7 +725,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 		replicaClient.SetComponentId(d.id)
 		return true
 	})
-	d.allocationManager.NodeId = d.id
+	// d.allocationManager.NodeId = d.id
 	d.finishedGatewayHandshake = true
 
 	// If we've never been initialized before, which will usually be the case, then call initPromMetrics.
@@ -759,43 +760,43 @@ func (d *LocalScheduler) initPromMetrics(in *proto.HostId) (*proto.HostId, error
 	}
 
 	// Publish GPU resource metrics.
-	d.prometheusManager.IdleGpuGauge.
-		Set(d.allocationManager.IdleGPUs().InexactFloat64())
-	d.prometheusManager.PendingGpuGauge.
-		Set(d.allocationManager.PendingGPUs().InexactFloat64())
-	d.prometheusManager.CommittedGpuGauge.
-		Set(d.allocationManager.CommittedGPUs().InexactFloat64())
-	d.prometheusManager.SpecGpuGauge.
-		Set(d.allocationManager.SpecGPUs().InexactFloat64())
-
-	// Publish CPU resource metrics.
-	d.prometheusManager.IdleCpuGauge.
-		Set(d.allocationManager.IdleCPUs().InexactFloat64())
-	d.prometheusManager.PendingCpuGauge.
-		Set(d.allocationManager.PendingCPUs().InexactFloat64())
-	d.prometheusManager.CommittedCpuGauge.
-		Set(d.allocationManager.CommittedCPUs().InexactFloat64())
-	d.prometheusManager.SpecCpuGauge.
-		Set(d.allocationManager.SpecCPUs().InexactFloat64())
-
-	// Publish memory resource metrics.
-	d.prometheusManager.IdleMemoryGauge.
-		Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
-	d.prometheusManager.PendingMemoryGauge.
-		Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
-	d.prometheusManager.CommittedMemoryGauge.
-		Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
-	d.prometheusManager.SpecMemoryGauge.
-		Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
-
-	d.prometheusManager.NumActiveKernelReplicasGauge.
-		Set(float64(d.kernels.Len()))
+	//d.prometheusManager.IdleGpuGauge.
+	//	Set(d.allocationManager.IdleGPUs().InexactFloat64())
+	//d.prometheusManager.PendingGpuGauge.
+	//	Set(d.allocationManager.PendingGPUs().InexactFloat64())
+	//d.prometheusManager.CommittedGpuGauge.
+	//	Set(d.allocationManager.CommittedGPUs().InexactFloat64())
+	//d.prometheusManager.SpecGpuGauge.
+	//	Set(d.allocationManager.SpecGPUs().InexactFloat64())
+	//
+	//// Publish CPU resource metrics.
+	//d.prometheusManager.IdleCpuGauge.
+	//	Set(d.allocationManager.IdleCPUs().InexactFloat64())
+	//d.prometheusManager.PendingCpuGauge.
+	//	Set(d.allocationManager.PendingCPUs().InexactFloat64())
+	//d.prometheusManager.CommittedCpuGauge.
+	//	Set(d.allocationManager.CommittedCPUs().InexactFloat64())
+	//d.prometheusManager.SpecCpuGauge.
+	//	Set(d.allocationManager.SpecCPUs().InexactFloat64())
+	//
+	//// Publish memory resource metrics.
+	//d.prometheusManager.IdleMemoryGauge.
+	//	Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
+	//d.prometheusManager.PendingMemoryGauge.
+	//	Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
+	//d.prometheusManager.CommittedMemoryGauge.
+	//	Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
+	//d.prometheusManager.SpecMemoryGauge.
+	//	Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
+	//
+	//d.prometheusManager.NumActiveKernelReplicasGauge.
+	//	Set(float64(d.kernels.Len()))
 
 	// We only call SetDone if we're creating the LocalDaemonPrometheusManager for the first time.
 	d.prometheusStarted.Done()
 
 	// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
-	d.allocationManager.RegisterMetricsManager(d.prometheusManager)
+	// d.allocationManager.RegisterMetricsManager(d.prometheusManager)
 	d.router.AssignPrometheusManager(d.prometheusManager)
 
 	return in, nil
@@ -818,34 +819,34 @@ func (d *LocalScheduler) publishPrometheusMetrics(wg *sync.WaitGroup) {
 			time.Sleep(d.prometheusInterval)
 
 			// Publish GPU resource metrics.
-			d.prometheusManager.IdleGpuGauge.
-				Set(d.allocationManager.IdleGPUs().InexactFloat64())
-			d.prometheusManager.PendingGpuGauge.
-				Set(d.allocationManager.PendingGPUs().InexactFloat64())
-			d.prometheusManager.CommittedGpuGauge.
-				Set(d.allocationManager.CommittedGPUs().InexactFloat64())
-			d.prometheusManager.SpecGpuGauge.
-				Set(d.allocationManager.SpecGPUs().InexactFloat64())
-
-			// Publish CPU resource metrics.
-			d.prometheusManager.IdleCpuGauge.
-				Set(d.allocationManager.IdleCPUs().InexactFloat64())
-			d.prometheusManager.PendingCpuGauge.
-				Set(d.allocationManager.PendingCPUs().InexactFloat64())
-			d.prometheusManager.CommittedCpuGauge.
-				Set(d.allocationManager.CommittedCPUs().InexactFloat64())
-			d.prometheusManager.SpecCpuGauge.
-				Set(d.allocationManager.SpecCPUs().InexactFloat64())
-
-			// Publish memory resource metrics.
-			d.prometheusManager.IdleMemoryGauge.
-				Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
-			d.prometheusManager.PendingMemoryGauge.
-				Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
-			d.prometheusManager.CommittedMemoryGauge.
-				Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
-			d.prometheusManager.SpecMemoryGauge.
-				Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
+			//d.prometheusManager.IdleGpuGauge.
+			//	Set(d.allocationManager.IdleGPUs().InexactFloat64())
+			//d.prometheusManager.PendingGpuGauge.
+			//	Set(d.allocationManager.PendingGPUs().InexactFloat64())
+			//d.prometheusManager.CommittedGpuGauge.
+			//	Set(d.allocationManager.CommittedGPUs().InexactFloat64())
+			//d.prometheusManager.SpecGpuGauge.
+			//	Set(d.allocationManager.SpecGPUs().InexactFloat64())
+			//
+			//// Publish CPU resource metrics.
+			//d.prometheusManager.IdleCpuGauge.
+			//	Set(d.allocationManager.IdleCPUs().InexactFloat64())
+			//d.prometheusManager.PendingCpuGauge.
+			//	Set(d.allocationManager.PendingCPUs().InexactFloat64())
+			//d.prometheusManager.CommittedCpuGauge.
+			//	Set(d.allocationManager.CommittedCPUs().InexactFloat64())
+			//d.prometheusManager.SpecCpuGauge.
+			//	Set(d.allocationManager.SpecCPUs().InexactFloat64())
+			//
+			//// Publish memory resource metrics.
+			//d.prometheusManager.IdleMemoryGauge.
+			//	Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
+			//d.prometheusManager.PendingMemoryGauge.
+			//	Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
+			//d.prometheusManager.CommittedMemoryGauge.
+			//	Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
+			//d.prometheusManager.SpecMemoryGauge.
+			//	Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
 
 			// TODO: This is somewhat imprecise insofar if we stop training RIGHT before this goroutine runs again,
 			// then we'll not add any of that training time.
@@ -1116,7 +1117,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		ForMigration:                         kernelReplicaSpec.GetForMigration(),
 	}
 
-	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, d.id, invokerOpts, d.prometheusManager)
 	d.kernelInvokers.Store(kernelReplicaSpec.Kernel.Id, dockerInvoker)
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
@@ -1659,8 +1660,8 @@ func (d *LocalScheduler) smrReadyCallback(kernelClient scheduling.KernelReplica)
 // its ID, etc.
 func (d *LocalScheduler) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*proto.LocalDaemonInfo, error) {
 	info := &proto.LocalDaemonInfo{
-		SpecResources:  proto.ResourceSpecFromSpec(d.allocationManager.SpecResources()),
-		GpuSchedulerId: d.allocationManager.Id,
+		SpecResources:  proto.ResourceSpecFromSpec(d.hostSpec),
+		GpuSchedulerId: "", // d.allocationManager.Id,
 		LocalDaemonId:  d.id,
 	}
 
@@ -1671,18 +1672,7 @@ func (d *LocalScheduler) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*
 //
 // Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 func (d *LocalScheduler) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
-	gpuInfo := &proto.GpuInfo{
-		SpecGPUs:              int32(d.allocationManager.SpecGPUs().InexactFloat64()),
-		IdleGPUs:              int32(d.allocationManager.IdleGPUs().InexactFloat64()),
-		CommittedGPUs:         int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
-		PendingGPUs:           int32(d.allocationManager.PendingGPUs().InexactFloat64()),
-		NumPendingAllocations: int32(d.allocationManager.NumAllocations()),
-		NumAllocations:        int32(d.allocationManager.NumPendingAllocations()),
-		GpuSchedulerID:        d.allocationManager.Id,
-		LocalDaemonID:         d.id,
-	}
-
-	return gpuInfo, nil
+	return nil, domain.ErrNotImplemented
 }
 
 func (d *LocalScheduler) PingKernel(_ context.Context, _ *proto.PingInstruction) (*proto.Pong, error) {
@@ -2377,7 +2367,9 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	wg.Wait()
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()
+		d.prometheusManager.TotalNumPrewarmContainersUsedVec.With(prometheus.Labels{
+			"node_id": d.id,
+		}).Inc()
 	}
 
 	d.log.Debug(
@@ -2423,7 +2415,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			LocalSchedulerNodeName:               d.nodeName,
 			ForMigration:                         in.GetForMigration(),
 		}
-		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.id, invokerOpts, d.prometheusManager)
 		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
 		// Note that we could pass d.prometheusManager directly in the call above.
 
@@ -2615,13 +2607,21 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	kernelClientCreationChannel <- info
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.TotalNumKernelsCounter.Inc()
-		d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
+		d.prometheusManager.TotalNumKernelsCounterVec.With(prometheus.Labels{
+			"node_id": d.id,
+		}).Inc()
+		d.prometheusManager.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{
+			"node_id": d.id,
+		}).Add(1)
 
 		if in.PrewarmContainer {
-			d.prometheusManager.TotalNumPrewarmContainersCreatedCounter.Inc()
+			d.prometheusManager.TotalNumPrewarmContainersCreatedCounterVec.With(prometheus.Labels{
+				"node_id": d.id,
+			}).Inc()
 		} else {
-			d.prometheusManager.TotalNumStandardContainersCreatedCounter.Inc()
+			d.prometheusManager.TotalNumStandardContainersCreatedCounterVec.With(prometheus.Labels{
+				"node_id": d.id,
+			}).Inc()
 		}
 	}
 
@@ -2683,7 +2683,9 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 	d.kernels.Delete(in.Id)
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
+		d.prometheusManager.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{
+			"node_id": d.id,
+		}).Sub(1)
 	}
 
 	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
@@ -3120,7 +3122,9 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	kernelClient.ReceivedExecuteReply(msg, true)
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
+		d.prometheusManager.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{
+			"node_id": d.id,
+		}).Inc()
 	}
 
 	return nil /* will be nil on success */
@@ -3398,29 +3402,29 @@ func (d *LocalScheduler) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetV
 	if d.KubernetesMode() {
 		return d.setTotalVirtualGPUsKubernetes(ctx, in)
 	} else {
-		return d.setTotalVirtualGPUsDocker(in)
+		return nil, domain.ErrNotImplemented
 	}
 }
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Docker mode.
-func (d *LocalScheduler) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	err := d.allocationManager.AdjustSpecGPUs(float64(in.GetValue()))
-	if err != nil {
-		response := &proto.VirtualGpuInfo{
-			TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
-			AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
-			FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
-		}
-		return response, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	response := &proto.VirtualGpuInfo{
-		TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
-		AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
-		FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
-	}
-	return response, nil
-}
+//func (d *LocalScheduler) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+//	err := d.allocationManager.AdjustSpecGPUs(float64(in.GetValue()))
+//	if err != nil {
+//		response := &proto.VirtualGpuInfo{
+//			TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
+//			AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
+//			FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
+//		}
+//		return response, status.Error(codes.InvalidArgument, err.Error())
+//	}
+//
+//	response := &proto.VirtualGpuInfo{
+//		TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
+//		AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
+//		FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
+//	}
+//	return response, nil
+//}
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Kubernetes mode.
 func (d *LocalScheduler) setTotalVirtualGPUsKubernetes(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
@@ -3453,29 +3457,31 @@ func (d *LocalScheduler) setTotalVirtualGPUsKubernetes(ctx context.Context, in *
 
 // ResourcesSnapshot returns a *proto.NodeResourcesSnapshot struct encoding a snapshot of the current resource quantities on the node.
 func (d *LocalScheduler) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshotWithContainers, error) {
-	resourceSnapshot := d.allocationManager.ProtoResourcesSnapshot()
+	// resourceSnapshot := d.allocationManager.ProtoResourcesSnapshot()
 
-	containers := make([]*proto.ReplicaInfo, 0)
+	//containers := make([]*proto.ReplicaInfo, 0)
+	//
+	//d.kernels.Range(func(kernelId string, replicaClient scheduling.KernelReplica) (contd bool) {
+	//	replicaInfo := &proto.ReplicaInfo{
+	//		ReplicaId:    replicaClient.ReplicaID(),
+	//		KernelId:     replicaClient.ID(),
+	//		PersistentId: replicaClient.PersistentID(), // Probably don't need to include this here.
+	//	}
+	//
+	//	containers = append(containers, replicaInfo)
+	//
+	//	return true
+	//})
+	//
+	//snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
+	//	Id:               uuid.NewString(),
+	//	ResourceSnapshot: resourceSnapshot,
+	//	Containers:       containers,
+	//}
+	//
+	//return snapshotWithContainers, nil
 
-	d.kernels.Range(func(kernelId string, replicaClient scheduling.KernelReplica) (contd bool) {
-		replicaInfo := &proto.ReplicaInfo{
-			ReplicaId:    replicaClient.ReplicaID(),
-			KernelId:     replicaClient.ID(),
-			PersistentId: replicaClient.PersistentID(), // Probably don't need to include this here.
-		}
-
-		containers = append(containers, replicaInfo)
-
-		return true
-	})
-
-	snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
-		Id:               uuid.NewString(),
-		ResourceSnapshot: resourceSnapshot,
-		Containers:       containers,
-	}
-
-	return snapshotWithContainers, nil
+	return nil, domain.ErrNotImplemented
 }
 
 func (d *LocalScheduler) kernelFromMsg(msg *messaging.JupyterMessage) (kernel scheduling.KernelReplica, err error) {

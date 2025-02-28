@@ -12073,7 +12073,7 @@ func (mr *MockAllocationManagerMockRecorder) ProtoResourcesSnapshot() *gomock.Ca
 }
 
 // RegisterMetricsManager mocks base method.
-func (m *MockAllocationManager) RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager) {
+func (m *MockAllocationManager) RegisterMetricsManager(metricsManager *metrics.ClusterMetricsProvider) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "RegisterMetricsManager", metricsManager)
 }

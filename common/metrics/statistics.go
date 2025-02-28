@@ -224,7 +224,7 @@ type ClusterStatistics struct {
 	CumulativeRequestProcessingTimeLocalDaemon types.StatInt64 `json:"cumulative_request_processing_time_local_daemon" csv:"cumulative_request_processing_time_local_daemon"`
 
 	// CumulativeRequestProcessingTimeKernel is calculated using the RequestTrace proto message.
-	CumulativeRequestProcessingTimeKernel types.StatInt64
+	CumulativeRequestProcessingTimeKernel types.StatInt64 `csv:"cumulative_request_processing_time_kernel" json:"cumulative_request_processing_time_kernel"`
 
 	// CumulativeRequestProcessingTimeClusterGateway is calculated using the RequestTrace proto message.
 	CumulativeResponseProcessingTimeClusterGateway types.StatInt64 `json:"cumulative_response_processing_time_cluster_gateway" csv:"cumulative_response_processing_time_cluster_gateway"`

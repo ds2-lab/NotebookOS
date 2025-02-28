@@ -94,7 +94,7 @@ type AllocationManager interface {
 	GetNodeId() string
 	ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot
 	DebugSetIdleGPUs(value float64)
-	RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager)
+	RegisterMetricsManager(metricsManager *metrics.ClusterMetricsProvider)
 	SpecGPUs() decimal.Decimal
 	SpecCPUs() decimal.Decimal
 	SpecMemoryMB() decimal.Decimal

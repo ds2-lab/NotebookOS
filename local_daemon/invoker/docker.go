@@ -282,7 +282,7 @@ type DockerInvokerOptions struct {
 	ForMigration bool
 }
 
-func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
+func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, nodeId string, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault
@@ -296,6 +296,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 
 	invoker := &DockerInvoker{
 		LocalInvoker: LocalInvoker{
+			nodeId:                               nodeId,
 			workloadId:                           opts.WorkloadId,
 			remoteStorageEndpoint:                opts.RemoteStorageEndpoint,
 			remoteStorage:                        opts.RemoteStorage,
@@ -928,7 +929,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 	ivk.log.Debug("Successfully launched container/kernel %s in %v. [DockerInvoker ID = \"%s\"]",
 		name, timeElapsed, ivk.id)
 
-	if err := ivk.containerMetricsProvider.AddContainerCreationLatencyObservation(timeElapsed); err != nil {
+	if err := ivk.containerMetricsProvider.AddContainerCreationLatencyObservation(timeElapsed, ivk.nodeId); err != nil {
 		ivk.log.Error("Failed to persist container creation latency metric because: %v", err)
 	}
 

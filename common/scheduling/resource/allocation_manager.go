@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
@@ -229,7 +230,7 @@ type AllocationManager struct {
 	// availableGpuDevices is a queue.ThreadsafeFifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
-	metricsManager *metrics.LocalDaemonPrometheusManager
+	metricsManager *metrics.ClusterMetricsProvider
 
 	updateIndex func(replicaId int32, kernelId string) error
 
@@ -457,7 +458,7 @@ func (m *AllocationManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapsho
 }
 
 // RegisterMetricsManager is used to set the metricsManager field of the AllocationManager.
-func (m *AllocationManager) RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager) {
+func (m *AllocationManager) RegisterMetricsManager(metricsManager *metrics.ClusterMetricsProvider) {
 	if m.metricsManager != nil {
 		m.log.Warn("AllocationManager already has metrics manager assigned... will replace existing metrics manager.")
 	}
@@ -2402,28 +2403,37 @@ func (m *AllocationManager) unsafeUpdatePrometheusResourceMetrics() {
 	}
 
 	// CPU resource metrics.
-	m.metricsManager.IdleCpuGauge.
-		Set(m.resourceManager.idleResources.Millicpus())
-	m.metricsManager.PendingCpuGauge.
-		Set(m.resourceManager.pendingResources.Millicpus())
-	m.metricsManager.CommittedCpuGauge.
-		Set(m.resourceManager.committedResources.Millicpus())
+	m.metricsManager.IdleCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.Millicpus())
+	m.metricsManager.PendingCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.Millicpus())
+	m.metricsManager.CommittedCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.Millicpus())
 
 	// Memory resource metrics.
-	m.metricsManager.IdleMemoryGauge.
-		Set(m.resourceManager.idleResources.MemoryMB())
-	m.metricsManager.PendingMemoryGauge.
-		Set(m.resourceManager.pendingResources.MemoryMB())
-	m.metricsManager.CommittedMemoryGauge.
-		Set(m.resourceManager.committedResources.MemoryMB())
+	m.metricsManager.IdleMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.MemoryMB())
+	m.metricsManager.PendingMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.MemoryMB())
+	m.metricsManager.CommittedMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.MemoryMB())
 
 	// GPU resource metrics.
-	m.metricsManager.IdleGpuGauge.
-		Set(m.resourceManager.idleResources.GPUs())
-	m.metricsManager.PendingGpuGauge.
-		Set(m.resourceManager.pendingResources.GPUs())
-	m.metricsManager.CommittedGpuGauge.
-		Set(m.resourceManager.committedResources.GPUs())
+	m.metricsManager.IdleGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.GPUs())
+	m.metricsManager.PendingGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.GPUs())
+	m.metricsManager.CommittedGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.GPUs())
 }
 
 // UnitTestingAllocationManager is a wrapper around AllocationManager with a few additional methods to facilitate

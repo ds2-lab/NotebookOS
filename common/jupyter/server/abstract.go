@@ -1028,8 +1028,8 @@ func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto
 	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
 
 	s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		s.Log.Debug("Updating RequestTrace for \"%s\" message \"%s\" targeting kernel \"%s\":",
-			trace.MessageType, trace.MessageId, trace.KernelId)
+		s.Log.Debug("Updating RequestTrace for \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+			trace.MessageType, trace.MessageId, trace.KernelId, trace)
 		s.Log.Debug("gatewayRequestProcessTime: %d", gatewayRequestProcessTime)
 		s.Log.Debug("localDaemonRequestProcessTime: %d", localDaemonRequestProcessTime)
 		s.Log.Debug("kernelProcessingTime: %d", kernelProcessingTime)
@@ -1348,7 +1348,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			// s.Log.Debug("[gid=%d] %v socket %s is waiting to be instructed to continue.", goroutineId, socket.Type, socket.Name)
 			proceed := <-contd
 			if !proceed {
-				s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping.",
+				s.Log.Debug("[gid=%d] Polling on %s socket %s is stopping.",
 					goroutineId, socket.Type.String(), socket.Name)
 				return
 			}

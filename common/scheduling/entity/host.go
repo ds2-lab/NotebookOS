@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/utils"
@@ -177,7 +178,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
 func NewHost(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
-	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient,
+	metricsProvider *metrics.ClusterMetricsProvider, localGatewayClient proto.LocalGatewayClient,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -241,6 +242,8 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		subscribedRatio:             decimal.Zero,
 	}
 
+	host.allocationManager.RegisterMetricsManager(metricsProvider)
+
 	host.log.Debug("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
@@ -267,7 +270,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 
 // NewHostWithConn creates and returns a new *Host.
 func NewHostWithConn(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier,
-	indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
+	indexUpdater IndexUpdater, metricsProvider *metrics.ClusterMetricsProvider, conn *grpc.ClientConn,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.

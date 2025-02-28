@@ -227,3 +227,51 @@ func (p *ClusterMetricsProvider) SentMessageUnique(nodeId string, nodeType NodeT
 
 	return p.gatewayPrometheusManager.SentMessageUnique(nodeId, nodeType, socketType, jupyterMessageType)
 }
+
+func (p *ClusterMetricsProvider) SpecGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.SpecGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) CommittedGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.CommittedGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) PendingGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.PendingGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) IdleGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.IdleGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) SpecCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.SpecCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) CommittedCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.CommittedCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) PendingCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.PendingCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) IdleCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.IdleCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) SpecMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.SpecMemoryGaugeVec
+}
+
+func (p *ClusterMetricsProvider) CommittedMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.CommittedMemoryGaugeVec
+}
+
+func (p *ClusterMetricsProvider) PendingMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.PendingMemoryGaugeVec
+}
+
+func (p *ClusterMetricsProvider) IdleMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.IdleMemoryGaugeVec
+}
