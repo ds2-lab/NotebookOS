@@ -1614,23 +1614,16 @@ class RaftLog(object):
                     synchronizedValue
                 )
             except Exception as ex:
-                self.log.error(
-                    f"Unexpected exception encountered while loading SynchronizedValue {synchronizedValue}: {ex}"
-                )
+                self.log.error(f"Unexpected exception while loading SynchronizedValue {synchronizedValue}: {ex}")
                 return GoError(ex)
 
             if loaded_value.id in restored_sync_values:
-                self.log.warning(
-                    f"Found duplicate SynchronizedValue during restoration process: {loaded_value}"
-                )
-                self.log.warning("Previously restored SynchronizedValues:")
-                for val in list(restored_sync_values):
-                    self.log.error(val)
+                self.log.warning(f"Found duplicate SynchronizedValue during restoration process: {loaded_value}")
+                self.log.warning(f"Previously restored SynchronizedValues: {list(restored_sync_values)}")
 
                 # For now, just stop here. I'm not sure why this loops.
-                self.log.debug(
-                    f"Restored state with aggregate size of {aggregate_size} bytes. Number of individual values restored: {restored}"
-                )
+                self.log.debug(f"Restored state with aggregate size of {aggregate_size} bytes. "
+                               f"Number of individual values restored: {restored}")
                 return GoNilError()
                 # return GoError(ValueError(f"Found duplicate SynchronizedValue during restoration process: {loaded_value}"))
             else:
@@ -1640,36 +1633,22 @@ class RaftLog(object):
                 self._change_handler(loaded_value)
                 restored = restored + 1
             except SyncError as se:
-                self.log.error(
-                    f"Error while restoring SynchronizedValue {loaded_value}: {se}"
-                )
+                self.log.error(f"Error while restoring SynchronizedValue {loaded_value}: {se}")
                 return GoError(se)
             except Exception as ex:
-                self.log.error(
-                    f"Unexpected exception encountered while restoring SynchronizedValue {loaded_value}: {ex}"
-                )
+                self.log.error(f"Unexpected exception while restoring SynchronizedValue {loaded_value}: {ex}")
                 # return GoError(ex)
 
             restored_sync_values.add(loaded_value.id)
-
-            synchronizedValue = None
-            loaded_value = None
-            # self.logger.debug(f"syncval before calling load: {syncval}")
             synchronizedValue = unpickler.load()
-            # self.logger.debug(f"syncval after calling load: {syncval}")
 
             if synchronizedValue is not None:
-                self.log.debug(
-                    f"Read next Synchronized Value from recovery data: {synchronizedValue}"
-                )
+                self.log.debug(f"Read next Synchronized Value from recovery data: {synchronizedValue}")
             else:
-                self.log.debug(
-                    "Got 'None' from recovery data. We're done processing recovered state."
-                )
+                self.log.debug("Got 'None' from recovery data. We're done processing recovered state.")
 
-        self.log.debug(
-            f"Restored state with aggregate size of {aggregate_size} bytes. Number of individual values restored: {restored}"
-        )
+        self.log.debug(f"Restored state. Aggregate size: {aggregate_size} bytes. "
+                       f"Number of individual values restored: {restored}")
         return GoNilError()
 
     def _load_value(self, val: SynchronizedValue) -> SynchronizedValue:
@@ -1715,42 +1694,30 @@ class RaftLog(object):
 
         # Add the resource request entry, if available.
         if last_resource_request is not None:
-            self.log.debug(
-                f"Adding 'last_resource_request' entry to data dictionary for serialized state: "
-                f"{last_resource_request}"
-            )
+            self.log.debug(f"Adding 'last_resource_request' entry to data dictionary for serialized state: "
+                           f"{last_resource_request}")
             data_dict["last_resource_request"] = last_resource_request
 
         # Add the remote storage definitions entry, if available.
         if remote_storage_definitions is not None:
-            self.log.debug(
-                f"Adding 'remote_storage_definitions' entry to data dictionary for serialized state: "
-                f"{remote_storage_definitions}"
-            )
+            self.log.debug(f"Adding 'remote_storage_definitions' entry to data dictionary for serialized state: "
+                           f"{remote_storage_definitions}")
             data_dict["remote_storage_definitions"] = remote_storage_definitions
 
-        self.log.debug(
-            f"RaftLog {self._node_id} returning state dictionary containing {len(data_dict)} entries:"
-        )
+        self.log.debug(f"RaftLog {self._node_id} returning state dictionary containing {len(data_dict)} entries:")
         for key, val in data_dict.items():
             self.log.debug(f'"{key}" ({type(val).__name__}): {val}')
 
         try:
             serialized_data: bytes = pickle.dumps(data_dict)
         except AttributeError as ex:
-            self.log.error(
-                "Failed to pickle data dictionary due to AttributeError: {ex}"
-            )
+            self.log.error(f"Failed to pickle data dictionary due to AttributeError: {ex}")
             raise ex
         except PickleError as ex:
-            self.log.error(
-                "Failed to pickle data dictionary due to PickleError: {ex}"
-            )
+            self.log.error(f"Failed to pickle data dictionary due to PickleError: {ex}")
             raise ex
         except Exception as ex:
-            self.log.error(
-                "Failed to pickle data dictionary due to unexpected exception: {ex}"
-            )
+            self.log.error(f"Failed to pickle data dictionary due to unexpected exception: {ex}")
             raise ex
 
         return serialized_data
@@ -1775,9 +1742,7 @@ class RaftLog(object):
             serialized_state_bytes: bytes = bytes(val)
             return serialized_state_bytes
         except Exception as ex:
-            self.log.error(
-                f"Failed to convert Golang Slice_bytes to Python bytes because: {ex}"
-            )
+            self.log.error(f"Failed to convert Golang Slice_bytes to Python bytes because: {ex}")
             sys.stderr.flush()
             sys.stdout.flush()
             raise ex

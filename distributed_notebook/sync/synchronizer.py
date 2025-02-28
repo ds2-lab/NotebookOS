@@ -2,6 +2,8 @@ import ast
 import asyncio
 import logging
 import os
+from collections import defaultdict
+
 import sys
 import time
 import traceback
@@ -79,12 +81,12 @@ class Synchronizer:
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._handled_sync_values = defaultdict(int)
+
         self.log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
 
         try:
-            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
-                asyncio.get_running_loop()
-            )
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
             self._async_loop.set_debug(True)
         except RuntimeError:
             self.log.warning("No asyncio Event Loop running...")
@@ -212,6 +214,14 @@ class Synchronizer:
             self.log.debug("<< exit execution syncing [1]")
             return
 
+        if val.id not in self._handled_sync_values:
+            self._handled_sync_values[val.id] = 1
+        else:
+            num_times: int = self._handled_sync_values[val.id] + 1
+            self._handled_sync_values[val.id] = num_times
+            self.log.warning(f'Received SyncVal "{val.id}" again (number of times: {num_times}). Discarding: {val}.')
+            return
+
         try:
             # self._log.debug("Updating: \"{}\", ended: {}".format(val.key, val.should_end_execution))
             # self._log.debug(f"Updating: {val}")
@@ -232,11 +242,9 @@ class Synchronizer:
             old_main_modules = sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
-            self.log.debug(f'Handling updated value of type '
-                           f'{type(val).__name__} with key="{val.key}": {val}')
+            self.log.debug(f'Handling updated value of type {type(val).__name__} with key="{val.key}": {val}')
             diff = existed.update(val)
-            self.log.debug(f"Variable \"{val.key}\" of type "
-                           f"{type(diff).__name__} has changed: {diff}")
+            self.log.debug(f"Variable \"{val.key}\" of type {type(diff).__name__} has changed: {diff}")
 
             sys.modules["__main__"] = old_main_modules
             # End of switch context

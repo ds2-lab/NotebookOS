@@ -60,7 +60,7 @@ const (
 )
 
 var (
-	ProposalDeadline          = 15 * time.Second
+	ProposalDeadline          = 60 * time.Second
 	ErrClosed                 = errors.New("node closed")
 	ErrEOF                    = io.EOF.Error() // For python module to check if io.EOF is returned
 	ErrRemoteStorageClientNil = errors.New("remote storage client is nil; cannot close it")

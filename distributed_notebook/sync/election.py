@@ -261,12 +261,16 @@ class Election(object):
         Override so that we can omit any non-pickle-able fields, such as the `_pick_and_propose_winner_future` field.
         """
         state = self.__dict__.copy()
-        del state["_pick_and_propose_winner_future"]
-        del state["election_finished_event"]
-        del state["election_finished_condition_waiter_loop"]
-        del state["log"]
-        del state["_future_io_loop"]
-        del state["_received_vote_future"]
+
+        keys_to_remove: List[str] = [
+            "_pick_and_propose_winner_future", "election_finished_event",
+            "log", "_future_io_loop", "_received_vote_future",
+            "election_finished_condition_waiter_loop",
+        ]
+
+        for key in keys_to_remove:
+            if key in state:
+                del state[key]
 
         self.log.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
