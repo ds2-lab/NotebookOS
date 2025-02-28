@@ -334,14 +334,26 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	defer m.mu.Unlock()
 
 	requestId := msg.JupyterMessageId()
-	if _, loaded := m.finishedExecutions[requestId]; loaded {
+	if completedExecution, loaded := m.finishedExecutions[requestId]; loaded {
 		m.log.Error("Attempt made to re-register completed execution \"%s\"", requestId)
+
+		err = m.encodeExecutionIndexInExecuteRequest(msg, completedExecution.GetExecutionIndex())
+		if err != nil {
+			return nil, err
+		}
+
 		return nil, fmt.Errorf("%w: execution ID=\"%s\"", ErrDuplicateExecution, requestId)
 	}
 
 	existingExecution, loaded := m.failedExecutions[requestId]
 	if loaded {
 		nextExecutionAttempt := m.registerExecutionAttempt(msg, existingExecution)
+
+		err = m.encodeExecutionIndexInExecuteRequest(msg, existingExecution.GetExecutionIndex())
+		if err != nil {
+			return nextExecutionAttempt, err
+		}
+
 		return nextExecutionAttempt, nil
 	}
 
@@ -356,7 +368,37 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	m.log.Debug("Registered new execution \"%s\" (idx=%d) for kernel \"%s\"",
 		requestId, executionIndex, m.Kernel.ID())
 
+	err = m.encodeExecutionIndexInExecuteRequest(msg, executionIndex)
+	if err != nil {
+		return newExecution, err
+	}
+
 	return newExecution, nil
+}
+
+// encodeExecutionIndexInExecuteRequest encodes the execution index that is or will be associated with the execution
+// in the given, associated messaging.JupyterMessage.
+func (m *ExecutionManager) encodeExecutionIndexInExecuteRequest(msg *messaging.JupyterMessage, index int32) error {
+	metadata, err := msg.DecodeMetadata()
+	if err != nil {
+		m.log.Error("Failed to decode metadata of \"execute_request\" message \"%s\": %v",
+			msg.JupyterMessageId(), err)
+		return err
+	}
+
+	metadata["execution_index"] = index
+
+	err = msg.EncodeMetadata(metadata)
+	if err != nil {
+		m.log.Error("Failed to re-encode metadata of \"execute_request\" message \"%s\" after adding execution index %d: %v",
+			msg.JupyterMessageId(), index, err)
+		return err
+	}
+
+	m.log.Debug("Successfully encoded execution index %d in \"execute_request\" message \"%s\" targeting kernel \"%s\".",
+		index, msg.JupyterMessageId(), m.Kernel.ID())
+
+	return nil
 }
 
 func (m *ExecutionManager) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {

@@ -585,6 +585,8 @@ type ExecuteRequestMetadata struct {
 	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
 
+	ExecutionIndex int32 `json:"execution_index" mapstructure:"execution_index"`
+
 	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
 	// checkpointing its state.
 	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"storage_definition" mapstructure:"remote_storage_definition"`
