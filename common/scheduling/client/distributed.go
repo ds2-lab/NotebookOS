@@ -195,8 +195,8 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		persistentId: persistentId,
 		debugMode:    debugMode,
 		server: server.New(ctx, &jupyter.ConnectionInfo{Transport: "tcp", SignatureScheme: connectionInfo.SignatureScheme, Key: connectionInfo.Key}, metrics.ClusterGateway, func(s *server.AbstractServer) {
-			s.Sockets.Shell = messaging.NewSocket(zmq4.NewRouter(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), 0, messaging.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
-			s.Sockets.IO = messaging.NewSocket(zmq4.NewPub(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500)), 0, messaging.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
+			s.Sockets.Shell = messaging.NewSocket(zmq4.NewRouter(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500), zmq4.WithDialerMaxRetries(3), zmq4.WithDialerRetry(time.Millisecond*500), zmq4.WithDialerTimeout(time.Millisecond*5000)), 0, messaging.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
+			s.Sockets.IO = messaging.NewSocket(zmq4.NewPub(s.Ctx, zmq4.WithTimeout(time.Millisecond*3500), zmq4.WithDialerMaxRetries(3), zmq4.WithDialerRetry(time.Millisecond*500), zmq4.WithDialerTimeout(time.Millisecond*5000)), 0, messaging.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
 			s.PrependId = true
 			/* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be acknowledged. */
 			s.ShouldAckMessages = false

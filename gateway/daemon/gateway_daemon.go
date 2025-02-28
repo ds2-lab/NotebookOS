@@ -3909,7 +3909,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 
 	// Check if the kernel is being descheduled. If so, then we'll wait for a bit for it to finish being descheduled.
 	_, removalAttempt := kernel.ReplicaContainersAreBeingRemoved()
-	if err := d.waitForDeschedulingToEnd(kernel, removalAttempt); err != nil {
+	if err = d.waitForDeschedulingToEnd(kernel, removalAttempt); err != nil {
 		return nil, false, err
 	}
 
@@ -3942,14 +3942,14 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 
 	// Create the kernel containers in another goroutine.
 	go func() {
-		err := d.scheduleReplicas(ctx, kernel, kernel.KernelSpec(), nil)
+		scheduleError := d.scheduleReplicas(ctx, kernel, kernel.KernelSpec(), nil)
 
-		if err == nil {
+		if scheduleError == nil {
 			// No error. Just send a struct{}{}.
 			notifyChan <- struct{}{}
 		} else {
 			// Send the error.
-			notifyChan <- err
+			notifyChan <- scheduleError
 		}
 	}()
 
@@ -3958,8 +3958,6 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 	select {
 	case <-ctx.Done():
 		{
-			var err error
-
 			// If there's an error attached to the context, then we'll return it.
 			if err = ctx.Err(); err != nil {
 				d.log.Error("Timed-out waiting for replica container(s) of kernel \"%s\" to be created after %v: %v",

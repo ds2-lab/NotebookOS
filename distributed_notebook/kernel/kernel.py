@@ -658,28 +658,20 @@ class DistributedKernel(IPythonKernel):
             )
         }
 
-        self.current_resource_request: Optional[
-            Dict[str, float | int | List[float] | List[int]]
-        ] = {
+        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = {
             "cpus": self.spec_cpus,
             "gpus": self.spec_gpus,
             "memory": self.spec_mem_mb,
             "vram": self.spec_vram_gb,
         }
-        self.resource_requests: list[Dict[str, Number | List[Number]]] = [
-            self.current_resource_request
-        ]
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = [self.current_resource_request]
 
         self.log.debug(f"Initial resource request: {self.current_resource_request}")
-        self.log.debug(
-            f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec"
-        )
+        self.log.debug(f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec")
 
         if "local_tcp_server_port" in kwargs:
-            self.log.warning(
-                f"Overwriting default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
-                f"value from keyword arguments: {kwargs['local_tcp_server_port']}"
-            )
+            self.log.warning(f"Overwriting default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                             f"value from keyword arguments: {kwargs['local_tcp_server_port']}")
             self.local_tcp_server_port = kwargs["local_tcp_server_port"]
 
         self.prometheus_enabled: bool = True
@@ -688,29 +680,22 @@ class DistributedKernel(IPythonKernel):
         try:
             self.prometheus_port: int = int(prometheus_port_str)
         except ValueError as ex:
-            self.log.error(
-                f'Failed to parse "PROMETHEUS_METRICS_PORT" environment variable value "{prometheus_port_str}": {ex}'
-            )
+            self.log.error(f'Failed to parse "PROMETHEUS_METRICS_PORT" environment '
+                           f'variable value "{prometheus_port_str}": {ex}')
             self.log.error("Will use default prometheus metrics port of 8089.")
             self.prometheus_port: int = 8089
 
         if self.prometheus_port > 0:
-            self.log.debug(
-                f"Starting Prometheus HTTP server on port {self.prometheus_port}."
-            )
+            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
             try:
-                self.prometheus_server, self.prometheus_thread = start_http_server(
-                    self.prometheus_port
-                )
+                self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
             except OSError as exc:
                 self.log.error(f"Failed to start Prometheus Server because: {exc}")
                 self.log.error("Disabling Prometheus.")
                 self.prometheus_enabled = False
         else:
-            self.log.warning(
-                f"Prometheus Port is configured as {self.prometheus_port}. "
-                f"Skipping creation of Prometheus HTTP server."
-            )
+            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
+                             f"Skipping creation of Prometheus HTTP server.")
             self.prometheus_enabled = False
 
         if self.prometheus_enabled:
@@ -1096,10 +1081,7 @@ class DistributedKernel(IPythonKernel):
             },
         }
 
-        self.log.info(
-            "Sending registration payload to local daemon: %s"
-            % str(registration_payload)
-        )
+        self.log.info("Sending registration payload to local daemon: %s"% str(registration_payload))
 
         bytes_sent: int = self.daemon_registration_socket.send(
             json.dumps(registration_payload).encode()
