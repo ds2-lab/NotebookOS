@@ -182,7 +182,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
-	migrator := newKernelMigrator(b.kernelProvider, cluster, clusterScheduler, int32(b.options.SMRPort))
+	migrator := newKernelMigrator(b.kernelProvider, b.cluster, clusterScheduler, int32(b.options.SMRPort))
 	clusterScheduler.kernelMigrator = migrator
 
 	b.buildPrewarmPolicy(clusterScheduler)
