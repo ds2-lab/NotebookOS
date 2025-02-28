@@ -2784,15 +2784,14 @@ class RaftLog(object):
 
             # Ensure the "election_finished_condition_waiter" loop is set.
             if not voting_done or not execution_done:
-                prior_election.set_election_finished_condition_waiter_loop(asyncio.get_running_loop())
+                assert self._shell_io_loop is not None
+                prior_election.set_election_finished_condition_waiter_loop(self._shell_io_loop)
 
         self.log.debug('Proposing & appending our "catch up" value now.')
 
         await self._append_catchup_value(self._catchup_value)
 
-        self.log.debug(
-            'We\'ve successfully proposed & appended our "catch up" value.'
-        )
+        self.log.debug('We have successfully proposed & appended our "catch up" value.')
 
         await self.wait_until_we_have_caught_up()
 

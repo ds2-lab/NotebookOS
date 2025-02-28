@@ -48,15 +48,21 @@ type ClusterMetricsProvider struct {
 	numActiveExecutions *atomic.Int32
 }
 
-func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNodeProvider,
-	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics)),
-	incrResHost func(Host), decrResHost func(Host), numActiveExecutions *atomic.Int32) *ClusterMetricsProvider {
+type CallbackProvider interface {
+	LocalDaemonNodeProvider
+
+	IncrementResourceCountsForNewHost(host Host)
+	DecrementResourceCountsForRemovedHost(host Host)
+	UpdateClusterStatistics(updater func(statistics *ClusterStatistics))
+}
+
+func NewClusterMetricsProvider(port int, callbackProvider CallbackProvider, numActiveExecutions *atomic.Int32) *ClusterMetricsProvider {
 	provider := &ClusterMetricsProvider{
 		gatewayPrometheusManager:                      nil,
 		prometheusMetricsEnabled:                      false,
-		updateClusterStatsCallback:                    updateClusterStatsCallback,
-		incrementResourceCountsForNewHostCallback:     incrResHost,
-		decrementResourceCountsForRemovedHostCallback: decrResHost,
+		updateClusterStatsCallback:                    callbackProvider.UpdateClusterStatistics,
+		incrementResourceCountsForNewHostCallback:     callbackProvider.IncrementResourceCountsForNewHost,
+		decrementResourceCountsForRemovedHostCallback: callbackProvider.DecrementResourceCountsForRemovedHost,
 		numActiveExecutions:                           numActiveExecutions,
 	}
 
@@ -64,7 +70,7 @@ func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNode
 
 	if port > 0 {
 		provider.log.Debug("Creating GatewayPrometheusManager with port=%d.", port)
-		provider.gatewayPrometheusManager = NewGatewayPrometheusManager(port, localDaemonNodeProvider, updateClusterStatsCallback)
+		provider.gatewayPrometheusManager = NewGatewayPrometheusManager(port, callbackProvider)
 		provider.prometheusMetricsEnabled = true
 	}
 

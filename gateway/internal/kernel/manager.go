@@ -20,6 +20,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
+	"github.com/scusemua/distributed-notebook/gateway/internal/kernel/execution_failed"
 	"github.com/scusemua/distributed-notebook/gateway/internal/kernel/provisioner"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -112,6 +113,8 @@ type Manager struct {
 
 	handlers map[messaging.MessageType]MessageHandler
 
+	failedExecutionHandler *execution_failed.Handler
+
 	// requestTracingEnabled controls whether we embed proto.RequestTrace structs within Jupyter requests and replies.
 	requestTracingEnabled bool
 
@@ -151,15 +154,16 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 	opts *domain.ClusterGatewayOptions) *Manager {
 
 	manager := &Manager{
-		id:                id,
-		kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		responseForwarder: responseForwarder,
-		handlers:          make(map[messaging.MessageType]MessageHandler),
-		cluster:           cluster,
-		requestLog:        requestLog,
-		debugMode:         opts.DebugMode,
-		metricsProvider:   metricsProvider,
+		id:                     id,
+		kernels:                hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		sessions:               hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		responseForwarder:      responseForwarder,
+		handlers:               make(map[messaging.MessageType]MessageHandler),
+		cluster:                cluster,
+		requestLog:             requestLog,
+		debugMode:              opts.DebugMode,
+		metricsProvider:        metricsProvider,
+		failedExecutionHandler: execution_failed.NewHandler(opts, notifier),
 	}
 
 	manager.handlers[messaging.ControlMessage] = manager.controlHandler
@@ -213,8 +217,7 @@ func (km *Manager) ExecutionLatencyCallback(latency time.Duration, workloadId st
 }
 
 func (km *Manager) ExecutionFailedCallback(c scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) error {
-	//TODO implement me
-	panic("implement me")
+	return km.failedExecutionHandler.HandleFailedExecution(c, executeRequestMsg)
 }
 
 func (km *Manager) NotificationCallback(title string, content string, notificationType messaging.NotificationType) {

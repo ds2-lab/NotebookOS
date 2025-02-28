@@ -643,9 +643,9 @@ var _ = Describe("cluster Gateway Tests", func() {
 				kernelRegisteredNotifications: hashmap.NewThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification](128),
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
+
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway,
 				&clusterGateway.numActiveTrainings)
 
 			config.InitLogger(&clusterGateway.log, clusterGateway)
@@ -1474,8 +1474,7 @@ var _ = Describe("cluster Gateway Tests", func() {
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway,
 				&clusterGateway.numActiveTrainings)
 
 			config.InitLogger(&clusterGateway.log, clusterGateway)

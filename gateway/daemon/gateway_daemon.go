@@ -441,9 +441,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.notifier.NotifyDashboard, nil)
 
 	clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(
-		clusterDaemonOptions.PrometheusPort, clusterGateway, clusterGateway.UpdateClusterStatistics,
-		clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
-		&clusterGateway.numActiveTrainings)
+		clusterDaemonOptions.PrometheusPort, clusterGateway, &clusterGateway.numActiveTrainings)
 
 	clusterGateway.router = router.New(context.Background(), clusterGateway.id, clusterGateway.connectionOptions, clusterGateway,
 		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,

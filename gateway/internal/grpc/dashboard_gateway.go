@@ -215,7 +215,7 @@ func (dg *DashboardGateway) GetClusterActualGpuInfo(ctx context.Context, in *pro
 
 // GetClusterVirtualGpuInfo returns the current vGPU (or "deflated GPU") resource metrics on the node.
 func (dg *DashboardGateway) GetClusterVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterVirtualGpuInfo, error) {
-	return dg.handler.getClusterVirtualGpuInfo(ctx, in)
+	return nil, ErrNotImplemented
 }
 
 // SetTotalVirtualGPUs adjusts the total number of virtual GPUs available on a particular node.
@@ -225,7 +225,7 @@ func (dg *DashboardGateway) GetClusterVirtualGpuInfo(ctx context.Context, in *pr
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), an ErrInvalidParameter is returned.
 func (dg *DashboardGateway) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	return dg.handler.setTotalVirtualGPUs(ctx, in)
+	return nil, ErrNotImplemented
 }
 
 // IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
