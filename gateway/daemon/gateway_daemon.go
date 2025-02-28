@@ -2828,6 +2828,13 @@ func (d *ClusterGatewayImpl) validateKernelReplicaSockets(replica scheduling.Ker
 		{
 			d.log.Error("Validation of sockets for new replica %d of kernel %s has timed out after %v.",
 				replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime))
+
+			err := notifyContext.Err()
+			if err == nil {
+				err = fmt.Errorf("socket validation timed out")
+			}
+
+			return err
 		}
 	case v := <-notifyChan:
 		{
