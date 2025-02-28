@@ -550,6 +550,8 @@ message RequestTrace {
   float e2eLatencyMilliseconds = 31;
   // Time spent tokenizing the dataset.
   float tokenizeDatasetMicroseconds = 32;
+  float tokenizeDatasetStart = 33;
+  float tokenizeDatasetEnd = 34;
 }
 
 message PingInstruction {

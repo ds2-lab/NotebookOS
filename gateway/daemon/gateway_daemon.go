@@ -221,6 +221,9 @@ type ClusterGatewayImpl struct {
 	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
 	kernels hashmap.HashMap[string, scheduling.Kernel]
 
+	// stoppedKernels keeps track of the kernels that we've stopped.
+	stoppedKernels hashmap.HashMap[string, time.Time]
+
 	// kernelIdToKernel is a map from kernel ID to client.DistributedKernelClient.
 	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
 
@@ -395,6 +398,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		ip:                              opts.IP,
 		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
 		kernels:                         hashmap.NewConcurrentMap[scheduling.Kernel](32),
+		stoppedKernels:                  hashmap.NewConcurrentMap[time.Time](32),
 		kernelIdToKernel:                hashmap.NewConcurrentMap[scheduling.Kernel](32),
 		kernelSpecs:                     hashmap.NewConcurrentMap[*proto.KernelSpec](32),
 		waitGroups:                      hashmap.NewConcurrentMap[*registrationWaitGroups](32),
@@ -3113,7 +3117,8 @@ func (d *ClusterGatewayImpl) GetId() string {
 func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
-		d.log.Error("Could not find kernel %s; cannot stop kernel.", in.GetId())
+		d.log.Error("Could not find kernel %s; cannot stop kernel.", in.Id)
+		d.logKernelNotFound(in.Id)
 		return nil, types.ErrKernelNotFound
 	}
 
@@ -3140,10 +3145,13 @@ func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.Kerne
 			return
 		}
 
+		stoppedAt := time.Now()
+
 		d.log.Debug("Clearing session records for kernel %s.", kernel)
 		// Clear session records.
 		for _, sess := range kernel.Sessions() {
 			d.kernels.Delete(sess)
+			d.stoppedKernels.Store(sess, stoppedAt)
 		}
 		d.log.Debug("Cleaned sessions %v after replicas stopped.", kernel.Sessions())
 		if restart {
@@ -3151,6 +3159,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(ctx context.Context, in *proto.Kerne
 			kernel.ClearSessions()
 		} else {
 			d.kernels.Delete(kernel.ID())
+			d.stoppedKernels.Store(kernel.ID(), stoppedAt)
 			d.kernelIdToKernel.Delete(kernel.ID())
 
 			d.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
@@ -3631,10 +3640,10 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 
 		err := fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, sessionId)
 
-		sendErr := d.sendErrorResponse(kernel, msg, err, messaging.ControlMessage)
+		sendErr := d.sendErrorResponse(nil, msg, err, messaging.ControlMessage)
 		if sendErr != nil {
 			d.log.Error("Failed to send error response for failed shutdown request for kernel \"%s\" because: %v",
-				kernel.ID(), sendErr)
+				sessionId, sendErr)
 		}
 
 		return err
@@ -4406,8 +4415,13 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 // sendErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
 // schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
 func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, errContent error, typ messaging.MessageType) error {
-	d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
-		request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), errContent)
+	if kernel != nil {
+		d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+			request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), errContent)
+	} else {
+		d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting unknown kernel: %v",
+			request.JupyterMessageType(), request.JupyterMessageId(), errContent)
+	}
 
 	// First, update the header to be a "_reply" message type.
 	header, err := request.GetHeader()
@@ -4461,7 +4475,7 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	}
 
 	// Regenerate the signature. Don't include the buffer frames as part of the signature.
-	if kernel.ConnectionInfo().SignatureScheme != "" && kernel.ConnectionInfo().Key != "" {
+	if kernel != nil && kernel.ConnectionInfo().SignatureScheme != "" && kernel.ConnectionInfo().Key != "" {
 		_, err = request.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 		if err != nil {
 			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
@@ -4475,7 +4489,7 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	}
 
 	// Finally, send the message back to the Jupyter client.
-	return d.forwardResponse(kernel, typ, request)
+	return d.forwardResponse(kernel /* may be nil */, typ, request)
 }
 
 // selectTargetReplicaForExecuteRequest selects a target scheduling.KernelReplica of the given scheduling.Kernel for
@@ -4924,25 +4938,27 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *messaging.JupyterMessage)
 	//
 	// When Jupyter clients connect for the first time, they send both a shell and a control "kernel_info_request" message.
 	// This message is used to bind the session to the kernel (specifically the shell message).
-	var kernelKey = msg.DestinationId
+	var kernelId = msg.DestinationId
 
 	// If there is no destination ID, then we'll try to use the session ID in the message's header instead.
-	if len(kernelKey) == 0 {
-		kernelKey = msg.JupyterSession()
-		d.log.Debug("Message does not have Destination ID. Using session ID \"%s\" from Jupyter header instead.", kernelKey)
+	if len(kernelId) == 0 {
+		kernelId = msg.JupyterSession()
+		d.log.Debug("Message does not have Destination ID. Using session ID \"%s\" from Jupyter header instead.", kernelId)
 
 		// Sanity check.
 		// Make sure we got a valid session ID out of the Jupyter message header.
 		// If we didn't, then we'll return an error.
-		if len(kernelKey) == 0 {
+		if len(kernelId) == 0 {
 			d.log.Error("Jupyter Session ID is invalid for message: %s", msg.String())
-			return nil, msg.JupyterMessageType(), fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)", types.ErrKernelNotFound)
+			err = fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)",
+				types.ErrKernelNotFound)
+			return nil, msg.JupyterMessageType(), err
 		}
 	}
 
-	kernel, ok := d.kernels.Load(kernelKey) // kernelId)
+	kernel, ok := d.kernels.Load(kernelId) // kernelId)
 	if !ok {
-		d.log.Error("Could not find kernel with ID \"%s\"", kernelKey)
+		d.logKernelNotFound(kernelId)
 		return nil, messageType, types.ErrKernelNotFound
 	}
 
@@ -4954,13 +4970,27 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *messaging.JupyterMessage)
 	return kernel, messageType, nil
 }
 
+// logKernelNotFound prints an error message about not being able to find a kernel with the given ID.
+//
+// Specifically, if the specified ID is for a kernel that previously existed but has been stopped, then we print
+// a message indicating as such. Otherwise, we print a more severe message about how the kernel simply doesn't
+// exist (and never existed).
+func (d *ClusterGatewayImpl) logKernelNotFound(kernelId string) {
+	if stoppedAt, loaded := d.stoppedKernels.Load(kernelId); loaded {
+		d.log.Warn("Could not find kernel with ID \"%s\" because that kernel was stopped %v ago at %v",
+			kernelId, time.Since(stoppedAt), stoppedAt)
+	} else {
+		d.log.Error("Could not find kernel with ID \"%s\"", kernelId)
+	}
+}
+
 // IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (d *ClusterGatewayImpl) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	kernel, loaded := d.kernels.Load(in.Id)
 
 	if !loaded {
 		d.log.Warn("Queried training status of unknown kernel \"%s\"", in.Id)
-
+		d.logKernelNotFound(in.Id)
 		return nil, d.errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.Id))
 	}
 
@@ -5211,15 +5241,23 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 
 func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	goroutineId := goid.Get()
-	socket := from.Socket(typ)
+
+	var socket *messaging.Socket
+
+	// If the message is targeting a kernel that was just removed, then from may be nil.
+	if from != nil {
+		socket = from.Socket(typ)
+	}
+
 	if socket == nil {
 		d.log.Debug("Using router's %s socket to forward Jupyter \"%s\" response message \"%s\"",
 			typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
 		socket = d.router.Socket(typ)
 	}
+
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
-		return nil
+		return fmt.Errorf("unable to forward %v response: socket unavailable", typ)
 	}
 
 	if d.DebugMode {
@@ -6335,6 +6373,7 @@ func (d *ClusterGatewayImpl) GetJupyterMessage(_ context.Context, in *proto.GetJ
 	kernel, loaded := d.kernels.Load(in.KernelId)
 	if !loaded {
 		d.log.Warn("GetJupyterMessage: unknown kernel \"%s\"", in.KernelId)
+		d.logKernelNotFound(in.KernelId)
 		return nil, d.errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.KernelId))
 	}
 

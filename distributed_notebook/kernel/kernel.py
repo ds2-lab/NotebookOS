@@ -1280,9 +1280,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell or process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
 
         msg = self.session.send(
             stream, "kernel_info_reply", content, parent, ident, buffers=buffers
@@ -3733,10 +3731,7 @@ class DistributedKernel(IPythonKernel):
         if self.execution_count is None:
             raise ValueError(f'Execution Count is None.')
 
-    async def extract_mem_copy_times(
-            self,
-            code: str = "",
-    ):
+    async def extract_mem_copy_times(self, code: str = ""):
         """
         Extract the latencies of copying memory from the CPU to the GPU and from the GPU to the CPU from the model
         variable that was used in the last user-executed code.
@@ -3750,33 +3745,23 @@ class DistributedKernel(IPythonKernel):
             return
 
         if "model" not in code:
-            self.log.debug(
-                "Found 'model' variable in user namespace; "
-                "however, 'model' was not referenced in last executed user-submitted code."
-            )
+            self.log.debug("Found 'model' variable in user namespace; "
+                           "however, 'model' was not referenced in last executed user-submitted code.")
             return
 
-        if cuda_available:
-            assert len(model.gpu_to_cpu_times) > 0
-            assert len(model.cpu_to_gpu_times) > 0
-
-            # Grab the most-recent copy time for both directions.
-            cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+        if len(model.gpu_to_cpu_times) > 0:
             gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
-
-            # Store the most recent copy times for both directions in the current ExecutionStats.
-            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
-
-            self.log.debug(f"Retrieved most recent CPU to GPU time from model "
-                           f"in shell user namespace: {cpu2gpu_micros} µs")
             self.log.debug(f"Retrieved most recent GPU to CPU time from model "
                            f"in shell user namespace: {gpu2cpu_micros} µs")
 
-    async def extract_dataset_tokenization_latency(
-            self,
-            code: str = "",
-    ):
+        if len(model.cpu_to_gpu_times) > 0:
+            cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
+            self.log.debug(f"Retrieved most recent CPU to GPU time from model "
+                           f"in shell user namespace: {cpu2gpu_micros} µs")
+
+    async def extract_dataset_tokenization_latency(self, code: str = ""):
         """
         Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
         latency for the execution request that we're currently processing.
@@ -3794,10 +3779,8 @@ class DistributedKernel(IPythonKernel):
             return
 
         if "dataset" not in code:
-            self.log.debug(
-                "Found 'dataset' variable in user namespace; "
-                "however, 'dataset' was not referenced in the last executed user-submitted code."
-            )
+            self.log.debug("Found 'dataset' variable in user namespace; "
+                           "however, 'dataset' was not referenced in the last executed user-submitted code.")
             return
 
         # TODO: Does this not ultimately get double-counted?
@@ -3817,10 +3800,7 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats.tokenize_training_data_start_unix_millis = dataset.tokenization_start
         self.current_execution_stats.tokenize_training_data_end_unix_millis = dataset.tokenization_end
 
-    async def extract_dataset_download_latency(
-            self,
-            code: str = "",
-    ):
+    async def extract_dataset_download_latency(self, code: str = ""):
         """
         Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
         latency for the execution request that we're currently processing.
@@ -3833,10 +3813,8 @@ class DistributedKernel(IPythonKernel):
             return
 
         if "dataset" not in code:
-            self.log.debug(
-                "Found 'dataset' variable in user namespace; "
-                "however, 'dataset' was not referenced in the last executed user-submitted code."
-            )
+            self.log.debug("Found 'dataset' variable in user namespace; "
+                           "however, 'dataset' was not referenced in the last executed user-submitted code.")
             return
 
         # TODO: Does this not ultimately get double-counted?
@@ -3868,24 +3846,19 @@ class DistributedKernel(IPythonKernel):
             copy_data_to_cpu_start: float = time.time()
             self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
             copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
-            self.log.debug(
-                f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms."
-            )
-            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = (
-                    copy_data_to_cpu_ms * 1.0e3
-            )  # it's already in milliseconds
+            self.log.debug(f"Copied {vram_size_gb} GB of data from GPU to main memory in {copy_data_to_cpu_ms} ms.")
+            # it's already in milliseconds
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3
 
             if (
                     remote_storage_name is not None
                     and self.simulate_write_after_execute
                     and self.simulate_write_after_execute_on_critical_path
             ):
-                self.log.debug(
-                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path."
-                )
-                duration_sec: float = await self.simulate_remote_checkpointing(
-                    remote_storage_name, io_type="upload"
-                )
+                self.log.debug(f"Performing post-execution simulated network "
+                               f"write operation to '{remote_storage_name}' on critical path.")
+
+                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
                 if duration_sec > 0 and self.prometheus_enabled:
                     self.remote_storage_write_latency_milliseconds.labels(
@@ -3896,10 +3869,8 @@ class DistributedKernel(IPythonKernel):
                         session_id=self.kernel_id, workload_id=self.workload_id
                     ).inc(duration_sec * 1e3)
 
-                self.current_execution_stats.upload_runtime_dependencies_microseconds = (
-                        duration_sec * 1.0e6
-                )
-        elif not self.simulate_training_using_sleep and performed_dl_training and cuda_available:
+                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+        elif not self.simulate_training_using_sleep and performed_dl_training:
             await self.extract_mem_copy_times(code=code)
             await self.extract_dataset_download_latency(code=code)
             await self.extract_dataset_tokenization_latency(code=code)
@@ -4505,81 +4476,58 @@ class DistributedKernel(IPythonKernel):
         request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(
             buffers, msg_id=msg_id, msg_type=msg_type
         )
-        if (
-                isinstance(request_trace_frame, dict)
-                and "request_trace" in request_trace_frame
-        ):
+        if isinstance(request_trace_frame, dict) and "request_trace" in request_trace_frame:
             request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
             if received_at > 0:
                 received_at = int(math.floor(received_at))
-                # self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
-                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
                 request_trace["requestReceivedByKernelReplica"] = received_at
             else:
-                reply_sent_by_kernel_replica: int = int(
-                    math.floor((time.time() * 1.0e3))
-                )
-                # self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
-                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
-                #                f"{reply_sent_by_kernel_replica} now.")
+                reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
                 request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace["replicaId"] = self.smr_node_id
 
             # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
             if execution_stats is not None:
-                request_trace["cudaInitMicroseconds"] = int(
-                    execution_stats.cuda_init_microseconds
-                )
-                request_trace["downloadModelMicroseconds"] = int(
-                    execution_stats.download_model_microseconds
-                )
-                request_trace["downloadDatasetMicroseconds"] = int(
-                    execution_stats.download_training_data_microseconds
-                )
+                request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
+
+                request_trace["downloadModelMicroseconds"] = int(execution_stats.download_model_microseconds)
+
+                request_trace["downloadDatasetMicroseconds"] = int(execution_stats.download_training_data_microseconds)
                 request_trace["downloadDatasetStartUnixMillis"] = int(
                     execution_stats.download_training_data_start_unix_millis
                 )
+
                 request_trace["downloadDatasetEndUnixMillis"] = int(
                     execution_stats.download_training_data_end_unix_millis
                 )
                 request_trace["uploadModelAndTrainingDataMicroseconds"] = int(
                     execution_stats.upload_model_and_training_data_microseconds
                 )
-                request_trace["executionTimeMicroseconds"] = int(
-                    execution_stats.execution_time_microseconds
-                )
-                request_trace["executionStartUnixMillis"] = int(
-                    execution_stats.execution_start_unix_millis
-                )
-                request_trace["executionEndUnixMillis"] = int(
-                    execution_stats.execution_end_unix_millis
-                )
-                request_trace["replayTimeMicroseconds"] = int(
-                    execution_stats.replay_time_microseconds
-                )
-                request_trace["replayTimeMicroseconds"] = int(
-                    execution_stats.replay_time_microseconds
-                )
+
+                request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
+                request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
+                request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
+
+                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+
                 request_trace["copyFromCpuToGpuMicroseconds"] = int(
                     execution_stats.copy_data_from_cpu_to_gpu_microseconds
                 )
                 request_trace["copyFromGpuToCpuMicroseconds"] = int(
                     execution_stats.copy_data_from_gpu_to_cpu_microseconds
                 )
-                request_trace["leaderElectionTimeMicroseconds"] = int(
-                    execution_stats.leader_election_microseconds
-                )
-                request_trace["syncStartUnixMillis"] = (
-                    execution_stats.sync_start_unix_millis
-                )
-                request_trace["syncEndUnixMillis"] = (
-                    execution_stats.sync_end_unix_millis
-                )
-                request_trace["syncDurationMillis"] = (
-                    execution_stats.sync_duration_millis
-                )
+                request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
+
+                request_trace["syncStartUnixMillis"] = execution_stats.sync_start_unix_millis
+                request_trace["syncEndUnixMillis"] = execution_stats.sync_end_unix_millis
+                request_trace["syncDurationMillis"] = execution_stats.sync_duration_millis
+
+                request_trace["tokenizeDatasetStart"] = execution_stats.tokenize_training_data_start_unix_millis
+                request_trace["tokenizeDatasetEnd"] = execution_stats.tokenize_training_data_end_unix_millis
+                request_trace["tokenizeDatasetMicroseconds"] = execution_stats.tokenize_dataset_microseconds
 
                 # We only want to embed election statistics if this request trace is being embedded in an
                 # "execute_request" or "yield_request" message (i.e., a code submission).

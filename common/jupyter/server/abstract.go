@@ -1028,6 +1028,14 @@ func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto
 	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
 
 	s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		s.Log.Debug("Updating RequestTrace for \"%s\" message \"%s\" targeting kernel \"%s\":",
+			trace.MessageType, trace.MessageId, trace.KernelId)
+		s.Log.Debug("gatewayRequestProcessTime: %d", gatewayRequestProcessTime)
+		s.Log.Debug("localDaemonRequestProcessTime: %d", localDaemonRequestProcessTime)
+		s.Log.Debug("kernelProcessingTime: %d", kernelProcessingTime)
+		s.Log.Debug("gatewayResponseProcessTime: %d", gatewayResponseProcessTime)
+		s.Log.Debug("localDaemonResponseProcessTime: %d", localDaemonResponseProcessTime)
+
 		statistics.CumulativeRequestProcessingTimeClusterGateway.Add(gatewayRequestProcessTime)
 		statistics.CumulativeRequestProcessingTimeLocalDaemon.Add(localDaemonRequestProcessTime)
 		statistics.CumulativeRequestProcessingTimeKernel.Add(kernelProcessingTime)
