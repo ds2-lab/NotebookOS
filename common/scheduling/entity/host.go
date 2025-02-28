@@ -722,7 +722,7 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 
 	err := h.allocationManager.ReleaseReservation(spec)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// No longer being considered.

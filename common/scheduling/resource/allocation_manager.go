@@ -1410,7 +1410,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	// Verify that there does not already exist an allocation associated with the specified kernel replica.
 	key = getKey(ReplicaIdForReservation, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found. (under key \"%s\").",
+		m.log.Warn("Cannot release reservation for replica %d of kernel %s: no reservation found. (under key \"%s\").",
 			ReplicaIdForReservation, kernelId, key)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}

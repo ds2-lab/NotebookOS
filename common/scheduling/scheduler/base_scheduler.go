@@ -1441,30 +1441,29 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	for numReleased < n {
 		idleHost := s.idleHosts.Peek().(*idleSortedHost)
 
+		excluded := idleHost.Host.ExcludeFromScheduling()
+		if !excluded {
+			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
+				idleHost.Host.GetNodeName(), idleHost.Host.GetID())
+			break
+		}
+
 		// If the host is not completely idle, then we'll break and stop looking.
-		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() {
+		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() || idleHost.CommittedGPUs() > 0 {
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}) // Re-include it in scheduling operations.
+			break
+		}
+
+		// If containers are only created for a single training event, then the fact that there are containers here
+		// indicates that they're going to be training. So, the host is not truly idle.
+		if s.schedulingPolicy.ContainerLifetime() == scheduling.SingleTrainingEvent && idleHost.NumContainers() > 0 {
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}) // Re-include it in scheduling operations.
 			break
 		}
 
 		// If there are too many containers on it, then it isn't necessarily worth the overhead of migrating the host.
 		if idleHost.NumContainers() > 4 {
-			break
-		}
-
-		excluded := idleHost.Host.ExcludeFromScheduling()
-		if excluded {
-			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
-
-			// RemoveHost the host so that we can get to the next host.
-			tmpHost := heap.Pop(s.idleHosts)
-
-			// Sanity check.
-			if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
-				panic("Host popped off of idleHosts heap does not equal host peeked from idleHosts.")
-			}
-		} else {
-			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
-				idleHost.Host.GetNodeName(), idleHost.Host.GetID())
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}) // Re-include it in scheduling operations.
 			break
 		}
 
