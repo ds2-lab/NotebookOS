@@ -154,16 +154,15 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 	opts *domain.ClusterGatewayOptions) *Manager {
 
 	manager := &Manager{
-		id:                     id,
-		kernels:                hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		sessions:               hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		responseForwarder:      responseForwarder,
-		handlers:               make(map[messaging.MessageType]MessageHandler),
-		cluster:                cluster,
-		requestLog:             requestLog,
-		debugMode:              opts.DebugMode,
-		metricsProvider:        metricsProvider,
-		failedExecutionHandler: execution_failed.NewHandler(opts, notifier),
+		id:                id,
+		kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		responseForwarder: responseForwarder,
+		handlers:          make(map[messaging.MessageType]MessageHandler),
+		cluster:           cluster,
+		requestLog:        requestLog,
+		debugMode:         opts.DebugMode,
+		metricsProvider:   metricsProvider,
 	}
 
 	manager.handlers[messaging.ControlMessage] = manager.controlHandler
@@ -171,9 +170,11 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 	manager.handlers[messaging.StdinMessage] = manager.stdinHandler
 	manager.handlers[messaging.HBMessage] = manager.heartbeatHandler
 
+	failedExecutionHandler := execution_failed.NewHandler(opts, manager, notifier)
+	manager.failedExecutionHandler = failedExecutionHandler
+
 	kernelProvisioner := provisioner.NewProvisioner(id, cluster, notifier, metricsProvider, networkProvider,
 		manager.shellHandlerWrapper, manager.CallbackProvider(), opts)
-
 	manager.kernelProvisioner = kernelProvisioner
 
 	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
@@ -216,8 +217,34 @@ func (km *Manager) ExecutionLatencyCallback(latency time.Duration, workloadId st
 	})
 }
 
-func (km *Manager) ExecutionFailedCallback(c scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) error {
-	return km.failedExecutionHandler.HandleFailedExecution(c, executeRequestMsg)
+func (km *Manager) ExecutionFailedCallback(kernel scheduling.Kernel, originalExecRequest *messaging.JupyterMessage) error {
+	msg, err := km.failedExecutionHandler.HandleFailedExecution(kernel, originalExecRequest)
+	if err != nil {
+		return err
+	}
+
+	km.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
+	err = km.ForwardRequestToKernel(kernel.ID(), msg, messaging.ShellMessage)
+
+	if errors.Is(err, types.ErrKernelNotFound) {
+		km.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
+
+		km.kernels.Store(msg.DestinationId, kernel)
+		km.kernels.Store(msg.JupyterSession(), kernel)
+		km.kernels.Store(kernel.ID(), kernel)
+
+		kernel.BindSession(msg.JupyterSession())
+
+		err = km.ForwardRequestToKernel(kernel.ID(), msg, messaging.ShellMessage)
+	}
+
+	if err != nil {
+		km.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
+		go km.notifier.NotifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
+		return err
+	}
+
+	return nil
 }
 
 func (km *Manager) NotificationCallback(title string, content string, notificationType messaging.NotificationType) {

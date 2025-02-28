@@ -1,15 +1,14 @@
 package execution_failed
 
 import (
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
 	"golang.org/x/net/context"
@@ -24,12 +23,18 @@ const (
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) (*messaging.JupyterMessage, error)
 
+type KernelMigrator interface {
+	MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error)
+}
+
 type Handler struct {
 	// executionFailedCallback is the ClusterGatewayImpl's scheduling.ExecutionFailedCallback (i.e., recovery callback for panics).
 	// The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
 	// This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
 	// visually of the panic in the cluster dashboard).
 	executionFailedCallback ExecutionFailedCallback
+
+	kernelMigrator KernelMigrator
 
 	notifier domain.Notifier
 
@@ -38,10 +43,11 @@ type Handler struct {
 	log logger.Logger
 }
 
-func NewHandler(opts *domain.ClusterGatewayOptions, notifier domain.Notifier) *Handler {
+func NewHandler(opts *domain.ClusterGatewayOptions, kernelMigrator KernelMigrator, notifier domain.Notifier) *Handler {
 	handler := &Handler{
-		opts:     opts,
-		notifier: notifier,
+		opts:           opts,
+		notifier:       notifier,
+		kernelMigrator: kernelMigrator,
 	}
 
 	config.InitLogger(&handler.log, handler)
@@ -127,7 +133,7 @@ func (h *Handler) staticSchedulingFailureHandler(kernel scheduling.Kernel, execu
 
 	// Start the migration operation in another thread so that we can do some stuff while we wait.
 	go func() {
-		resp, err := h.MigrateKernelReplica(context.TODO(), req)
+		resp, err := h.kernelMigrator.MigrateKernelReplica(context.TODO(), req)
 
 		if err != nil {
 			h.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
@@ -165,7 +171,7 @@ func (h *Handler) staticSchedulingFailureHandler(kernel scheduling.Kernel, execu
 	err = executeRequestMsg.EncodeMetadata(metadataDict)
 	if err != nil {
 		h.log.Error("Failed to encode metadata frame because: %v", err)
-		return err
+		return nil, err
 	}
 
 	// If this is a "yield_request" message, then we need to convert it to an "execute_request" before resubmission.
@@ -174,7 +180,7 @@ func (h *Handler) staticSchedulingFailureHandler(kernel scheduling.Kernel, execu
 		if err != nil {
 			h.log.Error("Failed to re-encode message header while converting \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it: %v",
 				executeRequestMsg.JupyterMessageId(), err)
-			return err
+			return nil, err
 		}
 
 		h.log.Debug("Successfully converted \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it.",
@@ -198,19 +204,19 @@ func (h *Handler) staticSchedulingFailureHandler(kernel scheduling.Kernel, execu
 		h.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
 			signatureScheme, kernel.ConnectionInfo().Key, err)
 		h.log.Error("This message will likely be rejected by the kernel:\n%v", executeRequestMsg)
-		return jupyter.ErrFailedToVerifyMessage
+		return nil, jupyter.ErrFailedToVerifyMessage
 	}
 
 	// Now, we wait for the migration operation to proceed.
 	waitGroup.Wait()
 	select {
-	case err := <-errorChan:
+	case err = <-errorChan:
 		{
 			// If there was an error during execution, then we'll return that error rather than proceed.
 			go h.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Migrate Replica of kernel \"%s\"",
 				kernel.ID()), err.Error())
 
-			return err
+			return nil, err
 		}
 	default:
 		{
@@ -218,27 +224,7 @@ func (h *Handler) staticSchedulingFailureHandler(kernel scheduling.Kernel, execu
 		}
 	}
 
-	h.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
-	err = h.ShellHandler(kernel, executeRequestMsg)
-
-	if errors.Is(err, types.ErrKernelNotFound) {
-		h.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
-
-		h.kernels.Store(executeRequestMsg.DestinationId, kernel)
-		h.kernels.Store(executeRequestMsg.JupyterSession(), kernel)
-
-		kernel.BindSession(executeRequestMsg.JupyterSession())
-
-		err = h.executeRequestHandler(kernel, executeRequestMsg)
-	}
-
-	if err != nil {
-		h.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
-		go h.notifier.NotifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
-		return err
-	}
-
-	return nil
+	return executeRequestMsg, nil
 }
 
 // dynamicV3FailureHandler is invoked when an "execute_request" cannot be processed when using the Dynamic v3
