@@ -1467,6 +1467,17 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 			break
 		}
 
+		s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.",
+			idleHost.GetNodeName(), idleHost.GetID())
+
+		// RemoveHost the host so that we can get to the next host.
+		tmpHost := heap.Pop(s.idleHosts)
+
+		// Sanity check.
+		if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
+			panic("Host popped off of idleHosts heap does not equal host peeked from idleHosts.")
+		}
+
 		s.log.Debug("Releasing idle host %d/%d: host %s. NumContainers: %d.",
 			numReleased+1, n, idleHost.Host.GetNodeName(), idleHost.Host.NumContainers())
 

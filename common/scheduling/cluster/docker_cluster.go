@@ -390,19 +390,17 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 
 		disabledHosts := make([]string, 0, len(targetHosts))
 		errs := make([]error, 0)
-		for _, id := range targetHosts {
+
+		var scaleInDuration time.Duration
+		for i, id := range targetHosts {
 			err := c.unsafeDisableHost(id)
 			if err != nil {
 				c.log.Error("Could not remove host \"%s\" from Docker Compose Cluster because: %v", id, err)
 				errs = append(errs, err)
 				break
-			} else {
-				disabledHosts = append(disabledHosts, id)
 			}
-		}
 
-		var scaleInDuration time.Duration
-		for i := 0; i < int(numAffectedNodes); i++ {
+			disabledHosts = append(disabledHosts, id)
 			scaleInForHost := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
 			c.log.Debug("Simulated scale-in duration for target host #%d (%s): %v",
 				i+1, targetHosts[i], scaleInForHost)
@@ -414,12 +412,9 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			}
 		}
 
-		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
-		time.Sleep(scaleInDuration)
-
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {
-			c.log.Warn("Could not identify all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
+			c.log.Warn("Could not disable all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
 				len(targetHosts), len(disabledHosts))
 			for _, disabledHostId := range disabledHosts {
 				enableErr := c.unsafeEnableHost(disabledHostId)
@@ -434,6 +429,9 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			coreLogicDoneChan <- err
 			return
 		}
+
+		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
+		time.Sleep(scaleInDuration)
 
 		coreLogicDoneChan <- struct{}{}
 	}, nil
