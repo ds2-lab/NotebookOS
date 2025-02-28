@@ -5171,11 +5171,6 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 		}
 	}
 
-	//if trace.DownloadDependencyMicroseconds > 0 {
-	//	d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += float64(trace.DownloadDependencyMicroseconds)
-	//	d.ClusterStatistics.NumTimesDownloadedDependencies.AddHost(1)
-	//}
-
 	if trace.DownloadModelMicroseconds > 0 {
 		d.ClusterStatistics.CumulativeTimeDownloadModelMicroseconds.Add(float64(trace.DownloadDatasetMicroseconds))
 		d.ClusterStatistics.NumTimesDownloadModelMicroseconds.Add(1)
@@ -5230,6 +5225,11 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	if trace.ReplySentByKernelReplica > 0 && trace.ExecutionEndUnixMillis > 0 {
 		postprocessDuration := trace.ReplySentByKernelReplica - trace.ExecutionEndUnixMillis
 		d.ClusterStatistics.CumulativeKernelPostprocessMillis.Add(float64(postprocessDuration))
+	}
+
+	if trace.RequestReceivedByKernelReplica > 0 && trace.ReplySentByKernelReplica > 0 {
+		kernelProcessRequestDuration := trace.ReplySentByKernelReplica - trace.RequestReceivedByKernelReplica
+		d.ClusterStatistics.CumulativeRequestProcessingTimeKernel.Add(kernelProcessRequestDuration)
 	}
 
 	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds.Add(float64(trace.ExecutionTimeMicroseconds))

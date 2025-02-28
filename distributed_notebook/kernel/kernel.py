@@ -3153,12 +3153,10 @@ class DistributedKernel(IPythonKernel):
             copy_data_to_gpu_start: float = time.time()
             self.copy_data_from_cpu_to_gpu(size_gb=vram_size_gb)
             copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
-            self.log.debug(
-                f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms."
-            )
-            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = (
-                    copy_data_to_gpu_ms * 1.0e3
-            )  # it's already in milliseconds
+            self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
+
+            # it's already in milliseconds
+            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3
 
     @property
     def get_creation_code_called(self) -> int:
