@@ -2755,13 +2755,10 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 
 	d.log.Debug("Validating new kernel for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	if val := ctx.Value(SkipValidationKey); val == nil {
-		err := replica.Validate()
+		err := d.validateKernelReplicaSockets(replica)
 		if err != nil {
-			d.log.Error("kernel::Validate call failed: %v", err)
 			go d.notifier.NotifyDashboardOfError(fmt.Sprintf("kernel::Validate call failed for replica %d of kernel %s",
 				replica.ReplicaID(), in.KernelId), err.Error())
-
-			// TODO: Handle this more gracefully.
 			return nil, err
 		}
 	} else {
@@ -2805,6 +2802,47 @@ func (d *ClusterGatewayImpl) handleStandardKernelReplicaRegistration(ctx context
 
 	waitGroup.Notify()
 	return response, nil
+}
+
+func (d *ClusterGatewayImpl) validateKernelReplicaSockets(replica scheduling.KernelReplica) error {
+	notifyChan := make(chan interface{}, 1)
+
+	startTime := time.Now()
+
+	go func() {
+		err := replica.Validate()
+
+		if err != nil {
+			notifyChan <- err
+			return
+		}
+
+		notifyChan <- struct{}{}
+	}()
+
+	notifyContext, cancel := context.WithTimeout(context.Background(), time.Second*180)
+	defer cancel()
+
+	select {
+	case <-notifyContext.Done():
+		{
+			d.log.Error("Validation of sockets for new replica %d of kernel %s has timed out after %v.",
+				replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime))
+		}
+	case v := <-notifyChan:
+		{
+			if err, ok := v.(error); ok {
+				d.log.Error("Validation of sockets for new replica %d of kernel %s has failed after %v: %v",
+					replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime), err)
+				return err
+			}
+
+			d.log.Debug("Successfully validated sockets of new replica %d of kernel %s in %v.",
+				replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime))
+		}
+	}
+
+	return nil
 }
 
 // shouldKernelReplicaReadStateFromRemoteStorage is called by NotifyKernelRegistered and is used to determine whether
