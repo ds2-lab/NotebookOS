@@ -1342,7 +1342,7 @@ func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forT
 // ExcludedFromScheduling field to false.
 //
 // includeHostsInScheduling then pushes the host back into the idleHosts heap.
-func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
+func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host, addBackToIdleHostsHeap bool) {
 	for _, host := range hosts {
 		err := host.IncludeForScheduling()
 		if err != nil {
@@ -1351,11 +1351,13 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 			continue
 		}
 
-		heap.Push(s.idleHosts, &idleSortedHost{
-			Host: host,
-		})
+		if addBackToIdleHostsHeap {
+			heap.Push(s.idleHosts, &idleSortedHost{
+				Host: host,
+			})
 
-		s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
+			s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
+		}
 	}
 }
 
@@ -1450,20 +1452,20 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// If the host is not completely idle, then we'll break and stop looking.
 		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() || idleHost.CommittedGPUs() > 0 {
-			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}) // Re-include it in scheduling operations.
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, false) // Re-include it in scheduling operations.
 			break
 		}
 
 		// If containers are only created for a single training event, then the fact that there are containers here
 		// indicates that they're going to be training. So, the host is not truly idle.
 		if s.schedulingPolicy.ContainerLifetime() == scheduling.SingleTrainingEvent && idleHost.NumContainers() > 0 {
-			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}) // Re-include it in scheduling operations.
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, false) // Re-include it in scheduling operations.
 			break
 		}
 
 		// If there are too many containers on it, then it isn't necessarily worth the overhead of migrating the host.
 		if idleHost.NumContainers() > 4 {
-			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}) // Re-include it in scheduling operations.
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, false) // Re-include it in scheduling operations.
 			break
 		}
 
@@ -1484,7 +1486,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		err = s.releaseIdleHost(idleHost.Host)
 		if err != nil {
 			s.log.Warn("Could not release idle host \"%s\" because: %v", idleHost.Host.GetNodeName(), err)
-			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host})
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, true)
 			break
 		}
 
