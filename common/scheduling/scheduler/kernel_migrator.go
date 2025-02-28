@@ -1111,11 +1111,12 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 
 	// Issue the 'update-replica' request. We panic if there was an error.
 	if _, err := host.UpdateReplicaAddr(context.Background(), replicaInfo); err != nil {
-		km.log.Debug("Failed to add replica %d of kernel %s to SMR cluster because: %v", targetReplicaId, readyReplica.ID(), err)
-		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", targetReplicaId, readyReplica.ID()))
+		km.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
+			targetReplicaId, readyReplica.ID(), err)
+		return err
 	}
 
-	km.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.", targetReplicaId, readyReplica.ID(), newAddress)
-
+	km.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.",
+		targetReplicaId, readyReplica.ID(), newAddress)
 	return nil
 }

@@ -125,7 +125,7 @@ func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) 
 	panic("Not implemented")
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(_ context.Context, args *scheduling.ScheduleReplicaArgs) (err error) {
+func (s *KubernetesScheduler) ScheduleKernelReplica(_ context.Context, args *scheduling.ScheduleReplicaArgs) error {
 	replicaSpec := args.ReplicaSpec
 
 	if err := s.kubeClient.ScaleOutCloneSet(replicaSpec.Kernel.Id); err != nil {
