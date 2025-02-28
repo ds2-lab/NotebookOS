@@ -2728,26 +2728,52 @@ class DistributedKernel(IPythonKernel):
         if not self.smr_enabled:
             return -1
 
-        existing_election: Optional[Election] = self.synclog.get_election(-1, msg_id)
+        term: int = -1
+        existing_election: Optional[Election] = self.synclog.get_election(term, msg_id)
+
+        # If we did not recover an existing election using the term, then we'll check if we've received any
+        # synchronized values via the RaftLog for the Jupyter msg ID of the code submission message.
         if existing_election is None:
             term = self.synclog.check_for_term_with_jupyter_id(msg_id)
 
-            if term != -1:
-                self.log.debug(f'Found mapping from Jupyter message ID "{msg_id}" to '
-                               f'term number {term} in Synchronizer.')
+            # If the term is negative, then we can just return -1. We've come up dry.
+            if term < 0:
+                return -1
 
-            return term # Return -1 if not found, or the term if we did find it.
+            self.log.debug(f'Found mapping from Jupyter message ID "{msg_id}" to '
+                           f'term number {term} in Synchronizer.')
 
-        if not existing_election.is_in_failed_state and existing_election.voting_phase_completed_successfully:
-            self.log.warning(f'At a minimum, the voting phase for existing election associated with Jupyter '
-                             f'message "{msg_id}" has already completed. No need for us to participate.')
-            raise ElectionAbortedException(f'election associated with Jupyter message "{msg_id}" '
-                                           f'is already voting-complete')
+            # Since we found the term, we'll just double-check -- try to recover the election again,
+            # this time using the term number.
+            existing_election = self.synclog.get_election(term, msg_id)
 
-        self.log.debug(f'Found existing election in state {existing_election.state.get_name()} with term number '
-                       f'{existing_election.term_number} associated with Jupyter message "{msg_id}"')
+        # If the existing election is non-null at this point...
+        if existing_election is not None:
 
-        return existing_election.term_number
+            # Then let's check if it's (a) not failed and (b) past the voting phase.
+            # If so, then we'll just abort -- the winner has already been chosen.
+            vote_done: bool = existing_election.voting_phase_completed_successfully
+            election_failed: bool = existing_election.is_in_failed_state
+
+            if not election_failed and vote_done and existing_election.winner_id == self.smr_node_id:
+                self.log.debug(f'Found voting-complete existing election in state {existing_election.state.get_name()} '
+                               f'with term number {existing_election.term_number} associated with Jupyter '
+                               f'message "{msg_id}" -- and I was the winner!')
+                return existing_election.term_number
+
+            if not election_failed and vote_done:
+                self.log.warning(f'At a minimum, the voting phase for existing election associated with Jupyter '
+                                 f'message "{msg_id}" has already completed. No need for us to participate.')
+                raise ElectionAbortedException(f'election associated with Jupyter message "{msg_id}" '
+                                               f'is already voting-complete')
+
+            self.log.debug(f'Found existing election in state {existing_election.state.get_name()} with term number '
+                           f'{existing_election.term_number} associated with Jupyter message "{msg_id}"')
+
+            return existing_election.term_number
+
+        # The term number may be valid at this point, or it may be -1.
+        return term
 
     async def yield_request(self, stream, ident, parent):
         """

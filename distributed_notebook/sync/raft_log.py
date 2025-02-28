@@ -2382,9 +2382,10 @@ class RaftLog(object):
                                    f"{target_election.election_state.get_name()}.")
 
             if target_election is not None:
-                if target_election.was_skipped:
+                if target_election.was_skipped or target_election.code_execution_completed_successfully:
                     self.log.warning(f"Requested preparation of election {target_term_number}; "
-                                     f"however, that election was skipped.")
+                                     f"however, that election was skipped or is already fully completed "
+                                     f"(state={target_election.state.get_name()}).")
                     return False
                 else:
                     raise ValueError(f"Attempting to prepare election {target_term_number}, "
@@ -2612,7 +2613,8 @@ class RaftLog(object):
         
         if isinstance(proposalOrVote, LeaderElectionVote):
             self.log.debug(f"RaftLog {self._node_id} short-circuiting election in term {target_term_number}, "
-                        f"attempt #{proposalOrVote.attempt_number}. Will be voting for node {target_term_number}.")
+                           f"attempt #{proposalOrVote.attempt_number}. "
+                           f"Will be voting for node {proposalOrVote.proposed_node_id}.")
         elif isinstance(proposalOrVote, LeaderElectionProposal):
             self.log.debug(f"RaftLog {self._node_id} handling election in term {target_term_number}, "
                         f"attempt #{proposalOrVote.attempt_number}. Will be proposing {proposalOrVote.key}.")
