@@ -5323,7 +5323,7 @@ class DistributedKernel(IPythonKernel):
                     deployment_mode=self.deployment_mode,
                     election_timeout_seconds=self.election_timeout_seconds,
                     loaded_serialized_state_callback=self.loaded_serialized_state_callback,
-                    shell_io_loop=self.io_loop,
+                    shell_io_loop=self.io_loop.asyncio_loop,
                     send_iopub_notification=self.send_iopub_notification,
                 )
             except Exception as exc:
