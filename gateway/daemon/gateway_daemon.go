@@ -5237,6 +5237,20 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	if trace.MessageType == messaging.ShellExecuteRequest || trace.MessageType == messaging.ShellExecuteReply || trace.MessageType == messaging.ShellYieldRequest {
 		d.ClusterStatistics.ExecuteRequestTraces = append(d.ClusterStatistics.ExecuteRequestTraces, trace)
 	}
+
+	gatewayRequestProcessTime := trace.RequestSentByGateway - trace.RequestReceivedByGateway
+	localDaemonRequestProcessTime := trace.RequestSentByLocalDaemon - trace.RequestReceivedByLocalDaemon
+	kernelProcessingTime := trace.ReplySentByKernelReplica - trace.RequestReceivedByKernelReplica
+
+	gatewayResponseProcessTime := trace.ReplySentByGateway - trace.ReplyReceivedByGateway
+	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
+
+	d.ClusterStatistics.CumulativeRequestProcessingTimeClusterGateway.Add(gatewayRequestProcessTime)
+	d.ClusterStatistics.CumulativeRequestProcessingTimeLocalDaemon.Add(localDaemonRequestProcessTime)
+	d.ClusterStatistics.CumulativeRequestProcessingTimeKernel.Add(kernelProcessingTime)
+
+	d.ClusterStatistics.CumulativeResponseProcessingTimeClusterGateway.Add(gatewayResponseProcessTime)
+	d.ClusterStatistics.CumulativeResponseProcessingTimeLocalDaemon.Add(localDaemonResponseProcessTime)
 }
 
 func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
