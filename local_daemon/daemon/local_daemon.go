@@ -2608,10 +2608,10 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.TotalNumKernelsCounterVec.With(prometheus.Labels{
-			"node_id": d.id,
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
 		}).Inc()
 		d.prometheusManager.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{
-			"node_id": d.id,
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
 		}).Add(1)
 
 		if in.PrewarmContainer {
@@ -2684,7 +2684,7 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{
-			"node_id": d.id,
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
 		}).Sub(1)
 	}
 
@@ -3123,7 +3123,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
 		d.prometheusManager.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{
-			"node_id": d.id,
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
 		}).Inc()
 	}
 
