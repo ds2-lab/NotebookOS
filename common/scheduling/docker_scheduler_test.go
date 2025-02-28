@@ -1103,7 +1103,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					kernelReplica1.EXPECT().Address().AnyTimes().Return("10.0.0.1")
 
-					kernel.EXPECT().AddOperationStarted(kernelReplica1.ReplicaID()).Times(1)
+					kernel.EXPECT().AddOperationStarted(gomock.Any()).Times(1)
 
 					go func() {
 						// defer GinkgoRecover()

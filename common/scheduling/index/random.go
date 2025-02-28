@@ -93,7 +93,7 @@ func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 
 	if index.freeStart < int32(len(index.hosts)) && index.hosts[index.freeStart] != nil {
 		index.log.Error("FreeStart is %d; however, host %s is stored at index %d...",
-			index.freeStart, index.hosts[index.freeStart].GetNodeName())
+			index.freeStart, index.hosts[index.freeStart].GetNodeName(), index.freeStart)
 
 		oldFreeStart := index.freeStart
 		freeStart := int32(-1)
@@ -123,12 +123,31 @@ func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 	if i < int32(len(index.hosts)) {
 		index.hosts[i] = host
 		index.log.Debug("Inserting new host %s at position %d of RandomClusterIndex.", host.GetNodeName(), i)
+
+		updatedFreeStart := false
+
+		// Attempt to set freeStart to the next nil slot in the index.
 		for j := i + 1; j < int32(len(index.hosts)); j++ {
 			if index.hosts[j] == nil {
 				index.freeStart = j
+				updatedFreeStart = true
 				break
 			}
 		}
+
+		// If there were no nil slots after i, then search for a free slot before the i-th index.
+		if !updatedFreeStart {
+			for j := int32(0); j < i; j++ {
+				if index.hosts[j] == nil {
+					index.freeStart = j
+					updatedFreeStart = true
+					break
+				}
+			}
+		}
+
+		// If we still didn't find one, then we'll set free start to the length of the index.
+		index.freeStart = int32(len(index.hosts))
 	} else {
 		i = int32(len(index.hosts))
 		index.log.Debug("Appending new host %s to end of RandomClusterIndex (pos=%d).", host.GetNodeName(), i)
