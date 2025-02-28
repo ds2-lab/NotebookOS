@@ -14,6 +14,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sync"
 	"time"
 )
@@ -44,12 +45,15 @@ type kernelMigrator struct {
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
+
+	cluster scheduling.Cluster
 }
 
-func newKernelMigrator(kernelProvider KernelProvider, scheduler clusterSchedulerInternal, smrPort int32) *kernelMigrator {
+func newKernelMigrator(kernelProvider KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal, smrPort int32) *kernelMigrator {
 	return &kernelMigrator{
 		kernelProvider:                        kernelProvider,
 		scheduler:                             scheduler,
+		cluster:                               cluster,
 		log:                                   config.GetLogger("KernelMigrator "),
 		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
@@ -115,14 +119,54 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	// Step 2: Find viable target host (or validate provided/specified target host)
 	//
 
-	var targetHost scheduling.Host
-	targetHost, resp, reason, err = km.validateAndGetTargetHost(args, originalHost)
-	if reason != nil || err != nil {
-		return resp, reason, err
+	maxAttempts := 5
+	retryParameters := wait.Backoff{
+		Duration: time.Duration(float64(km.cluster.MeanScaleOutTime()) * 0.5),
+		Factor:   1.25,
+		Jitter:   1.125,
+		Steps:    maxAttempts,
+		Cap:      time.Duration(float64(km.cluster.MeanScaleOutTime()) * 1.50),
 	}
 
-	km.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
+	var targetHost scheduling.Host
+	for retryParameters.Steps > 0 {
+		targetHost, resp, reason, err = km.validateAndGetTargetHost(args, originalHost)
+
+		// If we simply cannot scale-out due to an ongoing scaling operation, then we'll wait before trying again.
+		if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(reason, scheduling.ErrScalingActive) {
+			sleepInterval := retryParameters.Step()
+
+			km.log.Debug("Sleeping for %v before retrying to find a candidate host for replica %d of kernel %s.",
+				sleepInterval, args.kernelReplica.ReplicaID(), args.kernelReplica.ID())
+
+			time.Sleep(sleepInterval)
+
+			continue
+		}
+
+		// If the error/reason is something other than there being an active scaling operation, then we'll give up.
+		if reason != nil || err != nil {
+			return resp, reason, err
+		}
+
+		// If we found a host, then break out of the loop.
+		if targetHost != nil {
+			km.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
+			break
+		}
+
+		sleepInterval := retryParameters.Step()
+
+		km.log.Debug("Sleeping for %v before retrying to find a candidate host for replica %d of kernel %s.",
+			sleepInterval, args.kernelReplica.ReplicaID(), args.kernelReplica.ID())
+
+		time.Sleep(sleepInterval)
+	}
+
+	if targetHost == nil {
+		return resp, reason, err
+	}
 
 	//
 	// Step 3: Start new replica on viable target host

@@ -950,16 +950,21 @@ func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error 
 		PrewarmContainer:          true,
 	}
 
-	p.log.Debug("Calling StartKernelReplica on host %s...", host.GetNodeName())
+	p.log.Debug("provisionContainer:: calling StartKernelReplica on host %s", host.GetNodeName())
+	startTime := time.Now()
 
 	resp, err := host.StartKernelReplica(ctx, spec)
 	if err != nil {
-		p.log.Error("Failed to provision pre-warmed container on host %s because: %v", host.GetNodeName(), err)
+		p.log.Error("Failed to provision pre-warmed container on host %s after %v because: %v",
+			host.GetNodeName(), time.Since(startTime), err)
 
 		p.decrementProvisioning(1, host)
 
 		return err
 	}
+
+	p.log.Debug("provisionContainer:: successfully called StartKernelReplica on host %s in %v",
+		host.GetNodeName(), time.Since(startTime))
 
 	prewarmedContainer := NewPrewarmedContainerBuilder().
 		WithHost(host).

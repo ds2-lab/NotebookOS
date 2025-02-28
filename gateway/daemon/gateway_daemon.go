@@ -3439,6 +3439,58 @@ func (d *ClusterGatewayImpl) GetKubernetesNodes() ([]corev1.Node, error) {
 	return d.kubeClient.GetKubernetesNodes()
 }
 
+func (d *ClusterGatewayImpl) migrationFailed(in *proto.MigrationRequest, resp *proto.MigrateKernelResponse, reason error,
+	err error, duration time.Duration) error {
+
+	replicaInfo := in.TargetReplica
+	targetNodeId := in.GetTargetNodeId()
+
+	targetNodeIdForLogging := "unspecified"
+	if resp != nil && resp.NewNodeId != "" && resp.NewNodeId != " " {
+		targetNodeIdForLogging = resp.NewNodeId
+	} else if targetNodeId != "" {
+		targetNodeIdForLogging = targetNodeId
+	} else {
+		targetNodeId = in.GetTargetNodeId()
+	}
+
+	if reason != nil { // simply couldn't migrate the container, presumably due to insufficient resources available
+		d.log.Warn("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, reason.Error())
+	} else { // actual error
+		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
+			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, err)
+	}
+
+	if d.MetricsProvider.PrometheusMetricsEnabled() {
+		d.MetricsProvider.GetGatewayPrometheusManager().NumFailedMigrations.Inc()
+	}
+
+	d.clusterStatisticsMutex.Lock()
+
+	d.ClusterStatistics.NumFailedMigrations.Add(1)
+
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelMigrationComplete,
+		KernelId:            replicaInfo.KernelId,
+		ReplicaId:           replicaInfo.ReplicaId,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+		Duration:            duration,
+		DurationMillis:      duration.Milliseconds(),
+		Metadata:            map[string]interface{}{"target_node_id": targetNodeIdForLogging, "succeeded": "true"},
+	})
+	d.clusterStatisticsMutex.Unlock()
+
+	if !errors.Is(reason, scheduling.ErrMigrationFailed) {
+		reason = errors.Join(scheduling.ErrMigrationFailed, reason)
+	}
+
+	return reason
+}
+
 func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
 	startTime := time.Now()
 	replicaInfo := in.TargetReplica
@@ -3479,76 +3531,33 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 
 	duration := time.Since(startTime)
 	if err != nil || reason != nil {
-		targetNodeIdForLogging := "unspecified"
-		if resp != nil && resp.NewNodeId != "" && resp.NewNodeId != " " {
-			targetNodeIdForLogging = resp.NewNodeId
-		} else if targetNodeId != "" {
-			targetNodeIdForLogging = targetNodeId
-		} else {
-			targetNodeId = in.GetTargetNodeId()
-		}
-
-		if reason != nil { // simply couldn't migrate the container, presumably due to insufficient resources available
-			d.log.Warn("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
-				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, reason.Error())
-		} else { // actual error
-			d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
-				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, err)
-		}
-
-		if d.MetricsProvider.PrometheusMetricsEnabled() {
-			d.MetricsProvider.GetGatewayPrometheusManager().NumFailedMigrations.Inc()
-		}
-
-		d.clusterStatisticsMutex.Lock()
-
-		d.ClusterStatistics.NumFailedMigrations.Add(1)
-
-		now := time.Now()
-		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
-			EventId:             uuid.NewString(),
-			Name:                metrics.KernelMigrationComplete,
-			KernelId:            replicaInfo.KernelId,
-			ReplicaId:           replicaInfo.ReplicaId,
-			Timestamp:           now,
-			TimestampUnixMillis: now.UnixMilli(),
-			Duration:            duration,
-			DurationMillis:      duration.Milliseconds(),
-			Metadata:            map[string]interface{}{"target_node_id": targetNodeIdForLogging, "succeeded": "true"},
-		})
-		d.clusterStatisticsMutex.Unlock()
-
-		if !errors.Is(reason, scheduling.ErrMigrationFailed) {
-			reason = errors.Join(scheduling.ErrMigrationFailed, reason)
-		}
-
-		return nil, reason
-	} else {
-		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
-			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)
-
-		if d.MetricsProvider.PrometheusMetricsEnabled() {
-			d.MetricsProvider.GetGatewayPrometheusManager().NumSuccessfulMigrations.Inc()
-		}
-
-		d.clusterStatisticsMutex.Lock()
-
-		d.ClusterStatistics.NumSuccessfulMigrations.Add(1)
-
-		now := time.Now()
-		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
-			EventId:             uuid.NewString(),
-			Name:                metrics.KernelMigrationComplete,
-			KernelId:            replicaInfo.KernelId,
-			ReplicaId:           replicaInfo.ReplicaId,
-			Timestamp:           now,
-			TimestampUnixMillis: now.UnixMilli(),
-			Duration:            duration,
-			DurationMillis:      duration.Milliseconds(),
-			Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "false"},
-		})
-		d.clusterStatisticsMutex.Unlock()
+		return nil, d.migrationFailed(in, resp, reason, err, duration)
 	}
+
+	d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
+		replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)
+
+	if d.MetricsProvider.PrometheusMetricsEnabled() {
+		d.MetricsProvider.GetGatewayPrometheusManager().NumSuccessfulMigrations.Inc()
+	}
+
+	d.clusterStatisticsMutex.Lock()
+
+	d.ClusterStatistics.NumSuccessfulMigrations.Add(1)
+
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelMigrationComplete,
+		KernelId:            replicaInfo.KernelId,
+		ReplicaId:           replicaInfo.ReplicaId,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+		Duration:            duration,
+		DurationMillis:      duration.Milliseconds(),
+		Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "false"},
+	})
+	d.clusterStatisticsMutex.Unlock()
 
 	if d.MetricsProvider.PrometheusMetricsEnabled() {
 		d.MetricsProvider.GetGatewayPrometheusManager().KernelMigrationLatencyHistogram.Observe(float64(duration.Milliseconds()))
