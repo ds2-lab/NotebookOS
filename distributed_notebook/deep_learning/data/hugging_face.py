@@ -55,8 +55,8 @@ class HuggingFaceDataset(CustomDataset, ABC):
 
         if not self._dataset_already_downloaded:
             self._download_duration_sec = self._download_end - self._download_start
-            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" in "
-                  f"{self._download_duration_sec} seconds.")
+            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" from "
+                  f"HuggingFace's servers in {self._download_duration_sec} seconds.")
         else:
             self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
