@@ -1437,6 +1437,13 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host, addBac
 			})
 
 			s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
+
+			updateIndexErr := s.UpdateIndex(host)
+
+			if updateIndexErr != nil {
+				s.log.Error("Error while attempting to update index of host %s of replica %d of kernel \"%s\": %v",
+					host.GetNodeName(), replica.ReplicaID(), replica.ID(), err)
+			}
 		}
 	}
 }
