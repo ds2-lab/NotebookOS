@@ -97,7 +97,7 @@ type Provisioner struct {
 	kernelSpecs hashmap.HashMap[string, *proto.KernelSpec]
 
 	// waitGroups hashmap.HashMap[string, *sync.primarSemaphore]
-	waitGroups hashmap.HashMap[string, *registrationWaitGroups]
+	waitGroups hashmap.HashMap[string, *RegistrationWaitGroups]
 
 	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
 	// to keep track of the notifications that we've received so we can discard duplicates.
@@ -138,7 +138,7 @@ func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notif
 		kernelShellHandler:            kernelShellHandler,
 		kernelCallbackProvider:        kernelCallbackProvider,
 		kernelSpecs:                   hashmap.NewConcurrentMap[*proto.KernelSpec](32),
-		waitGroups:                    hashmap.NewConcurrentMap[*registrationWaitGroups](32),
+		waitGroups:                    hashmap.NewConcurrentMap[*RegistrationWaitGroups](32),
 		kernelRegisteredNotifications: hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](64),
 	}
 
@@ -440,7 +440,7 @@ func (p *Provisioner) sendStartingStatusIoPub(kernel scheduling.Kernel) error {
 	}
 
 	// Send the "starting" status now.
-	msg, err := p.sendStatusMessage(kernel, "starting")
+	msg, err := p.SendStatusMessage(kernel, "starting")
 	if err != nil {
 		p.log.Error("Failed to send 'starting' IOPub status message during creation of kernel \"%s\": %v",
 			kernel.ID(), err)
@@ -452,7 +452,7 @@ func (p *Provisioner) sendStartingStatusIoPub(kernel scheduling.Kernel) error {
 	return nil
 }
 
-func (p *Provisioner) sendStatusMessage(kernel scheduling.Kernel, executionState string) (*messaging.JupyterMessage, error) {
+func (p *Provisioner) SendStatusMessage(kernel scheduling.Kernel, executionState string) (*messaging.JupyterMessage, error) {
 	var (
 		msg   zmq4.Msg
 		err   error
@@ -545,7 +545,7 @@ func (p *Provisioner) startLongRunningKernel(ctx context.Context, kernel schedul
 		// We pass a new/separate context, because if we end up returning all the way back to the gRPC handler (and
 		// then return from there), then the scheduling operation will fail, as the context will be cancelled (when we
 		// return from the gRPC handler).
-		err := p.scheduleReplicas(context.Background(), kernel, in, attemptChan)
+		err := p.ScheduleReplicas(context.Background(), kernel, in, attemptChan)
 
 		if err == nil {
 			notifyChan <- struct{}{}
@@ -668,12 +668,12 @@ func (p *Provisioner) startLongRunningKernel(ctx context.Context, kernel schedul
 	//return nil
 }
 
-// scheduleReplicas actually scheduled the replicas of the specified kernel.
+// ScheduleReplicas actually scheduled the replicas of the specified kernel.
 //
 // Important: if the attemptChan argument is non-nil, then it should be a buffered channel so that the operation
 // to place the scheduling.CreateReplicaContainersAttempt into it will not block. (We don't want to get stuck
 // there forever in case the caller goes away for whatever reason.)
-func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec,
+func (p *Provisioner) ScheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec,
 	attemptChan chan<- scheduling.CreateReplicaContainersAttempt) error {
 
 	// Check if any replicas are being migrated and, if so, then wait for them to finish being migrated.
@@ -744,7 +744,7 @@ func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Ke
 		// If we did not start a new attempt, then a previous attempt must still be active.
 		// We'll just wait for the attempt to conclude.
 		// If the scheduling is successful, then this will eventually return nil.
-		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
+		// If the context passed to ScheduleReplicas has a time-out, and we time out, then this will return an error.
 		p.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. Waiting for operation to complete.",
 			kernel.ID(), attempt.TimeElapsed())
 		return attempt.Wait(ctx)
@@ -785,7 +785,7 @@ func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Ke
 	// Record that this kernel is starting.
 	kernelStartedChan := make(chan struct{})
 	p.kernelsStarting.Store(in.Id, kernelStartedChan)
-	created := newRegistrationWaitGroups(numReplicasToSchedule)
+	created := NewRegistrationWaitGroups(numReplicasToSchedule)
 	created.AddOnReplicaRegisteredCallback(func(replicaId int32) {
 		replicaRegisteredEventsMutex.Lock()
 		defer replicaRegisteredEventsMutex.Unlock()

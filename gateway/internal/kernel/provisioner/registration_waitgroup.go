@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-type registrationWaitGroups struct {
+type RegistrationWaitGroups struct {
 
 	// The SMR node replicas in order according to their registration IDs.
 	replicas map[int32]string
@@ -26,12 +26,12 @@ type registrationWaitGroups struct {
 	replicasMutex sync.Mutex
 }
 
-// Create and return a pointer to a new registrationWaitGroups struct.
+// NewRegistrationWaitGroups creates and return a pointer to a new RegistrationWaitGroups struct.
 //
 // Parameters:
-// - numReplicas (int): Value to be added to the "notified" and "registered" sync.WaitGroups of the registrationWaitGroups.
-func newRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
-	wg := &registrationWaitGroups{
+// - numReplicas (int): Value to be added to the "notified" and "registered" sync.WaitGroups of the RegistrationWaitGroups.
+func NewRegistrationWaitGroups(numReplicas int) *RegistrationWaitGroups {
+	wg := &RegistrationWaitGroups{
 		replicas:                     make(map[int32]string),
 		onReplicaRegisteredCallbacks: make([]func(replicaId int32), 0),
 	}
@@ -42,21 +42,21 @@ func newRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
 	return wg
 }
 
-func (wg *registrationWaitGroups) AddOnReplicaRegisteredCallback(f func(int32)) {
+func (wg *RegistrationWaitGroups) AddOnReplicaRegisteredCallback(f func(int32)) {
 	wg.onReplicaRegisteredCallbacksMutex.Lock()
 	defer wg.onReplicaRegisteredCallbacksMutex.Unlock()
 
 	wg.onReplicaRegisteredCallbacks = append(wg.onReplicaRegisteredCallbacks, f)
 }
 
-func (wg *registrationWaitGroups) String() string {
+func (wg *RegistrationWaitGroups) String() string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 	return fmt.Sprintf("RegistrationWaitGroups[NumRegistered=%d, NumNotified=%d]", wg.numRegistered, wg.numNotified)
 }
 
 // Notify calls `SetDone()` on the "notified" sync.primarSemaphore.
-func (wg *registrationWaitGroups) Notify() {
+func (wg *RegistrationWaitGroups) Notify() {
 	wg.notified.Done()
 
 	wg.replicasMutex.Lock()
@@ -65,7 +65,7 @@ func (wg *registrationWaitGroups) Notify() {
 }
 
 // Register calls `SetDone()` on the "registered" sync.primarSemaphore.
-func (wg *registrationWaitGroups) Register(replicaId int32) {
+func (wg *RegistrationWaitGroups) Register(replicaId int32) {
 	wg.registered.Done()
 
 	wg.replicasMutex.Lock()
@@ -79,24 +79,24 @@ func (wg *registrationWaitGroups) Register(replicaId int32) {
 	wg.onReplicaRegisteredCallbacksMutex.Unlock()
 }
 
-func (wg *registrationWaitGroups) SetReplica(idx int32, hostname string) {
+func (wg *RegistrationWaitGroups) SetReplica(idx int32, hostname string) {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 
 	wg.replicas[idx] = hostname
 }
 
-func (wg *registrationWaitGroups) GetReplicas() map[int32]string {
+func (wg *RegistrationWaitGroups) GetReplicas() map[int32]string {
 	return wg.replicas
 }
 
-func (wg *registrationWaitGroups) NumReplicas() int {
+func (wg *RegistrationWaitGroups) NumReplicas() int {
 	return len(wg.replicas)
 }
 
 // RemoveReplica returns true if the node with the given ID was actually removed.
 // If the node with the given ID was not present in the primarSemaphore, then returns false.
-func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
+func (wg *RegistrationWaitGroups) RemoveReplica(nodeId int32) bool {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 
@@ -109,7 +109,7 @@ func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
 	return true
 }
 
-func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[int32]string {
+func (wg *RegistrationWaitGroups) AddReplica(nodeId int32, hostname string) map[int32]string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
 
@@ -123,28 +123,28 @@ func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[
 }
 
 // GetNotified returns the "notified" sync.primarSemaphore.
-func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
+func (wg *RegistrationWaitGroups) GetNotified() *sync.WaitGroup {
 	return &wg.notified
 }
 
 // GetRegistered returns the "registered" sync.primarSemaphore.
-func (wg *registrationWaitGroups) GetRegistered() *sync.WaitGroup {
+func (wg *RegistrationWaitGroups) GetRegistered() *sync.WaitGroup {
 	return &wg.registered
 }
 
 // WaitNotified calls `Wait()` on the "notified" sync.primarSemaphore.
-func (wg *registrationWaitGroups) WaitNotified() {
+func (wg *RegistrationWaitGroups) WaitNotified() {
 	wg.notified.Wait()
 }
 
 // WaitRegistered calls `Wait()` on the "registered" sync.primarSemaphore.
-func (wg *registrationWaitGroups) WaitRegistered() {
+func (wg *RegistrationWaitGroups) WaitRegistered() {
 	wg.registered.Wait()
 }
 
 // Wait first calls `Wait()` on the "registered" sync.primarSemaphore.
 // Then, Wait calls `Wait()` on the "notified" sync.primarSemaphore.
-func (wg *registrationWaitGroups) Wait() {
+func (wg *RegistrationWaitGroups) Wait() {
 	wg.WaitRegistered()
 	wg.WaitNotified()
 }
