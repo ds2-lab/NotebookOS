@@ -231,7 +231,7 @@ func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan inte
 			c.log.Warn("❗ Cannot scale-out from %d → %d nodes as there are no disabled hosts.",
 				initialScale, targetScale)
 
-			doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+			doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by Docker clusters",
 				scheduling.ErrUnsupportedOperation)
 			return
 		}
@@ -270,7 +270,7 @@ func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan inte
 				"❗ Could not satisfy scale-out request to %d nodes using disabled nodes."), targetScale)
 		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
 			len(hostsToEnable), targetScale-int32(initialScale))
-		doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+		doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by Docker clusters",
 			scheduling.ErrUnsupportedOperation)
 	}
 }
