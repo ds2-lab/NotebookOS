@@ -345,9 +345,7 @@ func (p *BaseContainerPrewarmer) Run() error {
 		default:
 		}
 
-		if p.instance != nil {
-			p.ValidatePoolCapacity()
-		}
+		p.ValidatePoolCapacity()
 
 		if p.GuardChannel != nil {
 			p.log.Debug("Polling on GuardChannel")
