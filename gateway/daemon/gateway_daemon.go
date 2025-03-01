@@ -4314,7 +4314,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequestOneAtATime(jupyterMessages []*
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*6)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*8)
 	defer cancel()
 
 	handleRes := func(res interface{}) error {
@@ -4336,9 +4336,15 @@ func (d *ClusterGatewayImpl) forwardExecuteRequestOneAtATime(jupyterMessages []*
 		}
 	case <-ctx.Done():
 		{
-			err = ctx.Err()
+			ctxErr := ctx.Err()
 			d.log.Error("Timed-out waiting for response to \"%s\" message \"%s\" targeting kernel \"%s\": %v.",
-				messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID(), err)
+				messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID(), ctxErr)
+
+			if kernel.IsTraining() {
+				d.log.Warn("Kernel \"%s\" is still training, supposedly.", kernel.ID())
+			} else {
+				d.log.Error("Kernel \"%s\" is not even training.", kernel.ID())
+			}
 
 			// Record that we're giving up, so if a result comes later, the execute request forwarder won't get
 			// stuck trying to send it over the channel when we're never going to be around to receive it.
@@ -4350,7 +4356,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequestOneAtATime(jupyterMessages []*
 				return handleRes(res)
 			}
 
-			return err
+			return ctxErr
 		}
 	}
 }

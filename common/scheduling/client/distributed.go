@@ -1957,7 +1957,7 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if typ == messaging.ShellMessage {
-		ctx, cancel = context.WithTimeout(context.Background(), time.Second*300)
+		ctx, cancel = context.WithTimeout(context.Background(), time.Second*480)
 	} else {
 		ctx, cancel = context.WithTimeout(context.Background(), time.Second*60)
 	}
