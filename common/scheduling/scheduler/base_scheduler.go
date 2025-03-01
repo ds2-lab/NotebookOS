@@ -1441,8 +1441,7 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host, addBac
 			updateIndexErr := s.UpdateIndex(host)
 
 			if updateIndexErr != nil {
-				s.log.Error("Error while attempting to update index of host %s of replica %d of kernel \"%s\": %v",
-					host.GetNodeName(), replica.ReplicaID(), replica.ID(), err)
+				s.log.Error("Error while attempting to update index of host %s: %v", host.GetNodeName(), err)
 			}
 		}
 	}
@@ -1677,4 +1676,6 @@ func (s *BaseScheduler) ScheduleKernelReplica(ctx context.Context, args *schedul
 				args.TargetHost.GetNodeName(), err)
 		}
 	}
+
+	return err
 }
