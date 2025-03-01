@@ -3555,6 +3555,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(ctx context.Context, in *proto
 		DurationMillis:      duration.Milliseconds(),
 		Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "false"},
 	})
+	d.ClusterStatistics.Migrated.Add(1)
 	d.clusterStatisticsMutex.Unlock()
 
 	if d.MetricsProvider.PrometheusMetricsEnabled() {
@@ -4423,10 +4424,10 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 // schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
 func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, errContent error, typ messaging.MessageType) error {
 	if kernel != nil {
-		d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+		d.log.Warn("Sending error reply in response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
 			request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), errContent)
 	} else {
-		d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting unknown kernel: %v",
+		d.log.Warn("Sending error reply in response to shell \"%s\" message \"%s\" targeting unknown kernel: %v",
 			request.JupyterMessageType(), request.JupyterMessageId(), errContent)
 	}
 
@@ -4991,6 +4992,42 @@ func (d *ClusterGatewayImpl) logKernelNotFound(kernelId string) {
 	}
 }
 
+// IsKernelActivelyMigrating is used to query whether a particular kernel is actively training.
+func (d *ClusterGatewayImpl) IsKernelActivelyMigrating(_ context.Context, in *proto.KernelId) (*proto.IsKernelMigratingReply, error) {
+	kernel, loaded := d.kernels.Load(in.Id)
+
+	if !loaded {
+		d.log.Warn("Queried training status of unknown kernel \"%s\"", in.Id)
+		d.logKernelNotFound(in.Id)
+		return nil, d.errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.Id))
+	}
+
+	resp := &proto.IsKernelMigratingReply{
+		KernelId:    in.Id,
+		IsMigrating: kernel.IsActivelyMigratingAnyReplica(),
+	}
+
+	return resp, nil
+}
+
+func (d *ClusterGatewayImpl) IsKernelActivelyTrainingOrMigrating(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingOrMigratingReply, error) {
+	kernel, loaded := d.kernels.Load(in.Id)
+
+	if !loaded {
+		d.log.Warn("Queried training status of unknown kernel \"%s\"", in.Id)
+		d.logKernelNotFound(in.Id)
+		return nil, d.errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.Id))
+	}
+
+	resp := &proto.IsKernelTrainingOrMigratingReply{
+		KernelId:    in.Id,
+		IsTraining:  kernel.IsTraining(),
+		IsMigrating: kernel.IsActivelyMigratingAnyReplica(),
+	}
+
+	return resp, nil
+}
+
 // IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (d *ClusterGatewayImpl) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
 	kernel, loaded := d.kernels.Load(in.Id)
@@ -5301,8 +5338,13 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		}
 	}
 
+	senderId := "N/A"
+	if from != nil {
+		senderId = from.ID()
+	}
+
 	d.log.Debug(utils.LightBlueStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel \"%s\" via %s:\n%v"),
-		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg.StringFormatted())
+		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, socket.Name, msg.StringFormatted())
 
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
@@ -5311,7 +5353,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		d.cleanUpBeforeForwardingExecuteReply(from, msg)
 	}
 
-	sendError := d.sendZmqMessage(msg, socket, from.ID())
+	sendError := d.sendZmqMessage(msg, socket, senderId)
 	if sendError == nil {
 		d.clusterStatisticsMutex.Lock()
 		d.ClusterStatistics.NumJupyterRepliesSentByClusterGateway.Add(1)

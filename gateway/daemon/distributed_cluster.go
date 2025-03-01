@@ -311,6 +311,16 @@ func (dc *DistributedCluster) IsKernelActivelyTraining(ctx context.Context, in *
 	return dc.gatewayDaemon.IsKernelActivelyTraining(ctx, in)
 }
 
+// IsKernelActivelyMigrating is used to query whether a particular kernel is actively migrating.
+func (dc *DistributedCluster) IsKernelActivelyMigrating(ctx context.Context, in *proto.KernelId) (*proto.IsKernelMigratingReply, error) {
+	return dc.gatewayDaemon.IsKernelActivelyMigrating(ctx, in)
+}
+
+// IsKernelActivelyTrainingOrMigrating is used to query whether a particular kernel is actively training or migrating.
+func (dc *DistributedCluster) IsKernelActivelyTrainingOrMigrating(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingOrMigratingReply, error) {
+	return dc.gatewayDaemon.IsKernelActivelyTrainingOrMigrating(ctx, in)
+}
+
 // GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
 // the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
 func (dc *DistributedCluster) GetJupyterMessage(ctx context.Context, in *proto.GetJupyterMessageRequest) (*proto.GetJupyterMessageResponse, error) {

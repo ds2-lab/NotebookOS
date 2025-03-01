@@ -456,6 +456,16 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.IsKernelTrainingReply.FromString,
                 _registered_method=True)
+        self.IsKernelActivelyMigrating = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelActivelyMigrating',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.IsKernelMigratingReply.FromString,
+                _registered_method=True)
+        self.IsKernelActivelyTrainingOrMigrating = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelActivelyTrainingOrMigrating',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.IsKernelTrainingOrMigratingReply.FromString,
+                _registered_method=True)
         self.ListKernels = channel.unary_unary(
                 '/gateway.DistributedCluster/ListKernels',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -605,6 +615,21 @@ class DistributedClusterServicer(object):
 
     def IsKernelActivelyTraining(self, request, context):
         """IsKernelTraining is used to query whether or not a particular kernel is actively training.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IsKernelActivelyMigrating(self, request, context):
+        """IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IsKernelActivelyTrainingOrMigrating(self, request, context):
+        """IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated
+        or if it is actively training.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -825,6 +850,16 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.IsKernelActivelyTraining,
                     request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.IsKernelTrainingReply.SerializeToString,
+            ),
+            'IsKernelActivelyMigrating': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelActivelyMigrating,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.IsKernelMigratingReply.SerializeToString,
+            ),
+            'IsKernelActivelyTrainingOrMigrating': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelActivelyTrainingOrMigrating,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.IsKernelTrainingOrMigratingReply.SerializeToString,
             ),
             'ListKernels': grpc.unary_unary_rpc_method_handler(
                     servicer.ListKernels,
@@ -1096,6 +1131,60 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/IsKernelActivelyTraining',
             gateway__pb2.KernelId.SerializeToString,
             gateway__pb2.IsKernelTrainingReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IsKernelActivelyMigrating(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/IsKernelActivelyMigrating',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.IsKernelMigratingReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IsKernelActivelyTrainingOrMigrating(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/IsKernelActivelyTrainingOrMigrating',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.IsKernelTrainingOrMigratingReply.FromString,
             options,
             channel_credentials,
             insecure,

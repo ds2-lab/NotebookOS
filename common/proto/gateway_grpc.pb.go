@@ -415,33 +415,35 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	DistributedCluster_InducePanic_FullMethodName                 = "/gateway.DistributedCluster/InducePanic"
-	DistributedCluster_ClusterAge_FullMethodName                  = "/gateway.DistributedCluster/ClusterAge"
-	DistributedCluster_SpoofNotifications_FullMethodName          = "/gateway.DistributedCluster/SpoofNotifications"
-	DistributedCluster_Ping_FullMethodName                        = "/gateway.DistributedCluster/Ping"
-	DistributedCluster_PingKernel_FullMethodName                  = "/gateway.DistributedCluster/PingKernel"
-	DistributedCluster_IsKernelActivelyTraining_FullMethodName    = "/gateway.DistributedCluster/IsKernelActivelyTraining"
-	DistributedCluster_ListKernels_FullMethodName                 = "/gateway.DistributedCluster/ListKernels"
-	DistributedCluster_SetTotalVirtualGPUs_FullMethodName         = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
-	DistributedCluster_GetClusterActualGpuInfo_FullMethodName     = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
-	DistributedCluster_GetJupyterMessage_FullMethodName           = "/gateway.DistributedCluster/GetJupyterMessage"
-	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName    = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
-	DistributedCluster_MigrateKernelReplica_FullMethodName        = "/gateway.DistributedCluster/MigrateKernelReplica"
-	DistributedCluster_FailNextExecution_FullMethodName           = "/gateway.DistributedCluster/FailNextExecution"
-	DistributedCluster_RegisterDashboard_FullMethodName           = "/gateway.DistributedCluster/RegisterDashboard"
-	DistributedCluster_GetVirtualDockerNodes_FullMethodName       = "/gateway.DistributedCluster/GetVirtualDockerNodes"
-	DistributedCluster_GetDockerSwarmNodes_FullMethodName         = "/gateway.DistributedCluster/GetDockerSwarmNodes"
-	DistributedCluster_GetNumNodes_FullMethodName                 = "/gateway.DistributedCluster/GetNumNodes"
-	DistributedCluster_SetNumClusterNodes_FullMethodName          = "/gateway.DistributedCluster/SetNumClusterNodes"
-	DistributedCluster_AddClusterNodes_FullMethodName             = "/gateway.DistributedCluster/AddClusterNodes"
-	DistributedCluster_RemoveSpecificClusterNodes_FullMethodName  = "/gateway.DistributedCluster/RemoveSpecificClusterNodes"
-	DistributedCluster_RemoveClusterNodes_FullMethodName          = "/gateway.DistributedCluster/RemoveClusterNodes"
-	DistributedCluster_ModifyClusterNodes_FullMethodName          = "/gateway.DistributedCluster/ModifyClusterNodes"
-	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName       = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
-	DistributedCluster_QueryMessage_FullMethodName                = "/gateway.DistributedCluster/QueryMessage"
-	DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName = "/gateway.DistributedCluster/ForceLocalDaemonToReconnect"
-	DistributedCluster_ClusterStatistics_FullMethodName           = "/gateway.DistributedCluster/ClusterStatistics"
-	DistributedCluster_ClearClusterStatistics_FullMethodName      = "/gateway.DistributedCluster/ClearClusterStatistics"
+	DistributedCluster_InducePanic_FullMethodName                         = "/gateway.DistributedCluster/InducePanic"
+	DistributedCluster_ClusterAge_FullMethodName                          = "/gateway.DistributedCluster/ClusterAge"
+	DistributedCluster_SpoofNotifications_FullMethodName                  = "/gateway.DistributedCluster/SpoofNotifications"
+	DistributedCluster_Ping_FullMethodName                                = "/gateway.DistributedCluster/Ping"
+	DistributedCluster_PingKernel_FullMethodName                          = "/gateway.DistributedCluster/PingKernel"
+	DistributedCluster_IsKernelActivelyTraining_FullMethodName            = "/gateway.DistributedCluster/IsKernelActivelyTraining"
+	DistributedCluster_IsKernelActivelyMigrating_FullMethodName           = "/gateway.DistributedCluster/IsKernelActivelyMigrating"
+	DistributedCluster_IsKernelActivelyTrainingOrMigrating_FullMethodName = "/gateway.DistributedCluster/IsKernelActivelyTrainingOrMigrating"
+	DistributedCluster_ListKernels_FullMethodName                         = "/gateway.DistributedCluster/ListKernels"
+	DistributedCluster_SetTotalVirtualGPUs_FullMethodName                 = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
+	DistributedCluster_GetClusterActualGpuInfo_FullMethodName             = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
+	DistributedCluster_GetJupyterMessage_FullMethodName                   = "/gateway.DistributedCluster/GetJupyterMessage"
+	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName            = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
+	DistributedCluster_MigrateKernelReplica_FullMethodName                = "/gateway.DistributedCluster/MigrateKernelReplica"
+	DistributedCluster_FailNextExecution_FullMethodName                   = "/gateway.DistributedCluster/FailNextExecution"
+	DistributedCluster_RegisterDashboard_FullMethodName                   = "/gateway.DistributedCluster/RegisterDashboard"
+	DistributedCluster_GetVirtualDockerNodes_FullMethodName               = "/gateway.DistributedCluster/GetVirtualDockerNodes"
+	DistributedCluster_GetDockerSwarmNodes_FullMethodName                 = "/gateway.DistributedCluster/GetDockerSwarmNodes"
+	DistributedCluster_GetNumNodes_FullMethodName                         = "/gateway.DistributedCluster/GetNumNodes"
+	DistributedCluster_SetNumClusterNodes_FullMethodName                  = "/gateway.DistributedCluster/SetNumClusterNodes"
+	DistributedCluster_AddClusterNodes_FullMethodName                     = "/gateway.DistributedCluster/AddClusterNodes"
+	DistributedCluster_RemoveSpecificClusterNodes_FullMethodName          = "/gateway.DistributedCluster/RemoveSpecificClusterNodes"
+	DistributedCluster_RemoveClusterNodes_FullMethodName                  = "/gateway.DistributedCluster/RemoveClusterNodes"
+	DistributedCluster_ModifyClusterNodes_FullMethodName                  = "/gateway.DistributedCluster/ModifyClusterNodes"
+	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName               = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
+	DistributedCluster_QueryMessage_FullMethodName                        = "/gateway.DistributedCluster/QueryMessage"
+	DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName         = "/gateway.DistributedCluster/ForceLocalDaemonToReconnect"
+	DistributedCluster_ClusterStatistics_FullMethodName                   = "/gateway.DistributedCluster/ClusterStatistics"
+	DistributedCluster_ClearClusterStatistics_FullMethodName              = "/gateway.DistributedCluster/ClearClusterStatistics"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -463,6 +465,11 @@ type DistributedClusterClient interface {
 	PingKernel(ctx context.Context, in *PingInstruction, opts ...grpc.CallOption) (*Pong, error)
 	// IsKernelTraining is used to query whether or not a particular kernel is actively training.
 	IsKernelActivelyTraining(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingReply, error)
+	// IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated.
+	IsKernelActivelyMigrating(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelMigratingReply, error)
+	// IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated
+	// or if it is actively training.
+	IsKernelActivelyTrainingOrMigrating(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingOrMigratingReply, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ListKernelsResponse, error)
 	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
@@ -605,6 +612,26 @@ func (c *distributedClusterClient) IsKernelActivelyTraining(ctx context.Context,
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(IsKernelTrainingReply)
 	err := c.cc.Invoke(ctx, DistributedCluster_IsKernelActivelyTraining_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) IsKernelActivelyMigrating(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelMigratingReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsKernelMigratingReply)
+	err := c.cc.Invoke(ctx, DistributedCluster_IsKernelActivelyMigrating_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) IsKernelActivelyTrainingOrMigrating(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*IsKernelTrainingOrMigratingReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IsKernelTrainingOrMigratingReply)
+	err := c.cc.Invoke(ctx, DistributedCluster_IsKernelActivelyTrainingOrMigrating_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -840,6 +867,11 @@ type DistributedClusterServer interface {
 	PingKernel(context.Context, *PingInstruction) (*Pong, error)
 	// IsKernelTraining is used to query whether or not a particular kernel is actively training.
 	IsKernelActivelyTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error)
+	// IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated.
+	IsKernelActivelyMigrating(context.Context, *KernelId) (*IsKernelMigratingReply, error)
+	// IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated
+	// or if it is actively training.
+	IsKernelActivelyTrainingOrMigrating(context.Context, *KernelId) (*IsKernelTrainingOrMigratingReply, error)
 	// Return a list of all of the current kernel IDs.
 	ListKernels(context.Context, *Void) (*ListKernelsResponse, error)
 	// Set the maximum number of vGPU resources available on a particular node (identified by the local daemon).
@@ -945,6 +977,12 @@ func (UnimplementedDistributedClusterServer) PingKernel(context.Context, *PingIn
 }
 func (UnimplementedDistributedClusterServer) IsKernelActivelyTraining(context.Context, *KernelId) (*IsKernelTrainingReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsKernelActivelyTraining not implemented")
+}
+func (UnimplementedDistributedClusterServer) IsKernelActivelyMigrating(context.Context, *KernelId) (*IsKernelMigratingReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IsKernelActivelyMigrating not implemented")
+}
+func (UnimplementedDistributedClusterServer) IsKernelActivelyTrainingOrMigrating(context.Context, *KernelId) (*IsKernelTrainingOrMigratingReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IsKernelActivelyTrainingOrMigrating not implemented")
 }
 func (UnimplementedDistributedClusterServer) ListKernels(context.Context, *Void) (*ListKernelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListKernels not implemented")
@@ -1134,6 +1172,42 @@ func _DistributedCluster_IsKernelActivelyTraining_Handler(srv interface{}, ctx c
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DistributedClusterServer).IsKernelActivelyTraining(ctx, req.(*KernelId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_IsKernelActivelyMigrating_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).IsKernelActivelyMigrating(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_IsKernelActivelyMigrating_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).IsKernelActivelyMigrating(ctx, req.(*KernelId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_IsKernelActivelyTrainingOrMigrating_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).IsKernelActivelyTrainingOrMigrating(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_IsKernelActivelyTrainingOrMigrating_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).IsKernelActivelyTrainingOrMigrating(ctx, req.(*KernelId))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1546,6 +1620,14 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IsKernelActivelyTraining",
 			Handler:    _DistributedCluster_IsKernelActivelyTraining_Handler,
+		},
+		{
+			MethodName: "IsKernelActivelyMigrating",
+			Handler:    _DistributedCluster_IsKernelActivelyMigrating_Handler,
+		},
+		{
+			MethodName: "IsKernelActivelyTrainingOrMigrating",
+			Handler:    _DistributedCluster_IsKernelActivelyTrainingOrMigrating_Handler,
 		},
 		{
 			MethodName: "ListKernels",

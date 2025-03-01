@@ -401,6 +401,10 @@ type Kernel interface {
 	// IsActivelyMigratingReplica returns true if the specified replica of the target DistributedKernelClient
 	// is actively being migrated right now.
 	IsActivelyMigratingReplica(replicaId int32) bool
+
+	// IsActivelyMigratingAnyReplica returns true if any replica of the target DistributedKernelClient
+	// is actively being migrated right now.
+	IsActivelyMigratingAnyReplica() bool
 }
 
 type KernelReplica interface {

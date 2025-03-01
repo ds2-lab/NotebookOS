@@ -61,6 +61,13 @@ service DistributedCluster {
   // IsKernelTraining is used to query whether or not a particular kernel is actively training.
   rpc IsKernelActivelyTraining(KernelId) returns (IsKernelTrainingReply) {}
 
+  // IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated.
+  rpc IsKernelActivelyMigrating(KernelId) returns (IsKernelMigratingReply) {}
+
+  // IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated
+  // or if it is actively training.
+  rpc IsKernelActivelyTrainingOrMigrating(KernelId) returns (IsKernelTrainingOrMigratingReply) {}
+
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
@@ -193,9 +200,20 @@ message JupyterMessage {
     repeated bytes buffers = 5;
 }
 
+message IsKernelMigratingReply {
+  string kernelId = 1;
+  bool isMigrating = 2;
+}
+
 message IsKernelTrainingReply {
   string kernelId = 1;
   bool isTraining = 2;
+}
+
+message IsKernelTrainingOrMigratingReply {
+  string kernelId = 1;
+  bool isMigrating = 2;
+  bool isTraining = 3;
 }
 
 message ClusterStatisticsRequest {

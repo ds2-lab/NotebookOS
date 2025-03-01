@@ -133,7 +133,7 @@ func (h *Handler) staticSchedulingFailureHandler(kernel scheduling.Kernel, execu
 
 	// Start the migration operation in another thread so that we can do some stuff while we wait.
 	go func() {
-		resp, err := h.kernelMigrator.MigrateKernelReplica(context.TODO(), req)
+		resp, err := h.kernelMigrator.MigrateKernelReplica(context.Background(), req)
 
 		if err != nil {
 			h.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),

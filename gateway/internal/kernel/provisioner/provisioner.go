@@ -69,6 +69,7 @@ type NetworkProvider interface {
 }
 
 type KernelProvider interface {
+	domain.KernelProvider
 	GetKernels() hashmap.HashMap[string, scheduling.Kernel]
 	GetKernelsByKernelId() hashmap.HashMap[string, scheduling.Kernel]
 }
@@ -1151,7 +1152,13 @@ func (p *Provisioner) handleMigratedReplicaRegistered(in *proto.KernelRegistrati
 
 	host, loaded := p.cluster.GetHost(in.HostId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", in.HostId)) // TODO(Ben): Handle gracefully.
+		errorMessage := fmt.Sprintf("Could not find host with ID \"%s\" while handling registration of migrated replica %d of kernel %s.",
+			in.HostId, in.ReplicaId, in.KernelId)
+		p.log.Error(errorMessage)
+
+		go p.notifier.NotifyDashboardOfError("Unknown Host During Migrated Replica Registration", errorMessage)
+
+		return nil, fmt.Errorf("%w: host \"%s\"", scheduling.ErrHostNotFound, in.HostId)
 	}
 
 	// The replica spec that was specifically prepared for the new replica during the initiation of the migration operation.
@@ -1257,7 +1264,7 @@ func (p *Provisioner) handleMigratedReplicaRegistered(in *proto.KernelRegistrati
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
 func (p *Provisioner) kernelRequestResubmissionFailedAfterReconnection(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, resubmissionError error) {
-	_, messageType, err := p.kernelAndTypeFromMsg(msg)
+	_, messageType, err := domain.KernelAndTypeFromMsg(msg, p.kernelProvider)
 	if err != nil {
 		p.log.Error("Failed to extract message type from ZMQ message because: %v", err)
 		p.log.Error("ZMQ message in question: %v", msg)
@@ -1329,7 +1336,7 @@ func (p *Provisioner) shouldKernelReplicaReadStateFromRemoteStorage(kernel sched
 //
 // If we do not reconnect successfully, then this method is called.
 func (p *Provisioner) kernelReconnectionFailed(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, reconnectionError error) { /* client scheduling.kernel,  */
-	_, messageType, err := p.kernelAndTypeFromMsg(msg)
+	_, messageType, err := domain.KernelAndTypeFromMsg(msg, p.kernelProvider)
 	if err != nil {
 		p.log.Error("Failed to extract message type from ZMQ message because: %v", err)
 		p.log.Error("ZMQ message in question: %v", msg)
@@ -1341,46 +1348,6 @@ func (p *Provisioner) kernelReconnectionFailed(kernel scheduling.KernelReplica, 
 	p.log.Error(errorMessage)
 
 	go p.notifier.NotifyDashboardOfError("Connection to kernel Lost & Reconnection Failed", errorMessage)
-}
-
-// kernelAndTypeFromMsg extracts the kernel ID and the message type from the given ZMQ message.
-func (p *Provisioner) kernelAndTypeFromMsg(msg *messaging.JupyterMessage) (kernel scheduling.Kernel, messageType string, err error) {
-	// This is initially the kernel's ID, which is the DestID field of the message.
-	// But we may not have set a destination ID field within the message yet.
-	// In this case, we'll fall back to the session ID within the message's Jupyter header.
-	// This may not work either, though, if that session has not been bound to the kernel yet.
-	//
-	// When Jupyter clients connect for the first time, they send both a shell and a control "kernel_info_request" message.
-	// This message is used to bind the session to the kernel (specifically the shell message).
-	var kernelId = msg.DestinationId
-
-	// If there is no destination ID, then we'll try to use the session ID in the message's header instead.
-	if len(kernelId) == 0 {
-		kernelId = msg.JupyterSession()
-		p.log.Debug("Message does not have Destination ID. Using session ID \"%s\" from Jupyter header instead.", kernelId)
-
-		// Sanity check.
-		// Make sure we got a valid session ID out of the Jupyter message header.
-		// If we didn't, then we'll return an error.
-		if len(kernelId) == 0 {
-			p.log.Error("Jupyter Session ID is invalid for message: %s", msg.String())
-			err = fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)",
-				types.ErrKernelNotFound)
-			return nil, msg.JupyterMessageType(), err
-		}
-	}
-
-	kernel, ok := p.kernelProvider.GetKernels().Load(kernelId) // kernelId)
-	if !ok {
-		logKernelNotFound(p.log, kernelId, nil) // TODO: Supply the 'stopped kernels' mapping here.
-		return nil, messageType, types.ErrKernelNotFound
-	}
-
-	if kernel.Status() != jupyter.KernelStatusRunning && p.shouldReplicasBeRunning(kernel) {
-		return kernel, messageType, jupyter.ErrKernelNotReady
-	}
-
-	return kernel, messageType, nil
 }
 
 // shouldReplicasBeRunning returns a flag indicating whether the containers of kernels should be running already.

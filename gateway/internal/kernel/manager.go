@@ -8,6 +8,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
+	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
@@ -27,6 +28,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"math/rand"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 )
@@ -47,6 +49,7 @@ var (
 	// Internal Errrors
 
 	ErrKernelNotReady                          = errors.New("kernel not ready")
+	ErrKernelIDRequired                        = errors.New("kernel id frame is required for kernel_info_request")
 	ErrUnsupportedMsgTypeForArtificialResponse = errors.New("unsupported message type for artificial response")
 )
 
@@ -100,6 +103,10 @@ type ResponseForwarder interface {
 	// ForwardResponse forwards a response from a scheduling.Kernel / scheduling.KernelReplica
 	// back to the Jupyter client.
 	ForwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error
+
+	// SendErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
+	// schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
+	SendErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, errContent error, typ messaging.MessageType) error
 }
 
 // Manager is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
@@ -894,7 +901,7 @@ func (km *Manager) cleanUpBeforeForwardingExecuteReply(from router.Info, execRep
 	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
 	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
 	// the execution failed.
-	kernel, loaded := km.provider.GetKernels().Load(from.ID())
+	kernel, loaded := km.provider.GetKernel(from.ID())
 	if !loaded {
 		km.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
 		return
@@ -960,28 +967,165 @@ func (km *Manager) tryGetKernel(kernelOrSessionId string) (scheduling.Kernel, bo
 // the appropriate/targeted scheduling.Kernel.
 func (km *Manager) controlHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
 	if socketTyp != messaging.ControlMessage {
-		panic(fmt.Sprintf("Manager::heartbeatHandler: invalid socket type '%d'", socketTyp))
+		panic(fmt.Sprintf("Manager::controlHandler: invalid socket type '%d'", socketTyp))
 	}
 
 	km.log.Debug("Forwarding CONTROL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
-	// TODO: Implement this
-	panic("Implement me")
+	goroutineId := goid.Get()
+
+	var err error
+	if kernel == nil {
+		kernel, _ /* messageType */, err = domain.KernelAndTypeFromMsg(msg, km.provider)
+
+		if kernel == nil {
+			return types.ErrKernelNotFound
+		}
+	}
+
+	if err != nil {
+		km.log.Error("[gid=%d] Failed to extract kernel and/or message type from %v message. Error: %v. Message: %v.",
+			goroutineId, socketTyp, err, msg)
+		return err
+	}
+
+	if kernel.Status() != jupyter.KernelStatusRunning && km.shouldReplicasBeRunning(kernel) {
+		return ErrKernelNotReady
+	}
+
+	resp, _, err := km.ensureKernelReplicasAreScheduled(kernel, msg, socketTyp)
+	if err != nil {
+		km.log.Warn("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+			kernel.ID(), msg.JupyterMessageType(), err)
+		_ = km.responseForwarder.SendErrorResponse(kernel, msg, err, messaging.ShellMessage)
+		return err
+	}
+
+	if connInfo := kernel.ConnectionInfo(); connInfo != nil {
+		msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+		msg.SetKeyIfNotSet(connInfo.Key)
+	}
+
+	if km.debugMode && km.requestLog != nil && msg.RequestTrace != nil {
+		// If we added a RequestTrace for the first time, then let's also add an entry to our RequestLog.
+		err = km.requestLog.AddEntry(msg, socketTyp, msg.RequestTrace)
+		if err != nil {
+			km.log.Warn("Failed to add entry to RequestLog for Jupyter %s \"%s\" message %s (JupyterID=%s) because: %v",
+				socketTyp.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+		}
+	}
+
+	// If resp is non-nil, then one or more replicas are not scheduled.
+	if resp != nil {
+		km.log.Debug("Replying with artificial \"%s\" response for Jupyter %s \"%s\" message \"%s\" (JupyterID=\"%s\") for kernel \"%s\".",
+			resp.JupyterMessageType(), socketTyp.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID())
+
+		err = km.forwardResponseFromKernel(kernel.TemporaryKernelReplicaClient(), socketTyp, resp)
+		if err != nil {
+			km.log.Error(utils.RedStyle.Render("Failed to forward %v \"%s\" response \"%s\" (JupyterID=\"%s\") to client of kernel %s: %v"),
+				socketTyp, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID(), resp)
+			return err
+		}
+
+		return nil
+	}
+
+	return kernel.RequestWithHandler(context.Background(), "Forwarding", socketTyp, msg, km.forwardResponseFromKernel, nil)
 }
 
 // ShellHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
 func (km *Manager) shellHandler(kernel scheduling.Kernel, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
 	if socketTyp != messaging.ShellMessage {
-		panic(fmt.Sprintf("Manager::heartbeatHandler: invalid socket type '%d'", socketTyp))
+		panic(fmt.Sprintf("Manager::shellHandler: invalid socket type '%d'", socketTyp))
 	}
 
 	km.log.Debug("Forwarding SHELL [MsgId='%s', MsgTyp='%s'].",
 		msg.JupyterMessageId(), msg.JupyterMessageType())
 
-	// TODO: Implement this
-	panic("Implement me")
+	kernel, ok := km.provider.GetKernel(msg.JupyterSession())
+
+	// Couldn't load the kernel. Let's check if we've registered the kernel under a different ID that
+	// is also encoded within the Jupyter message.
+	if !ok && (msg.JupyterMessageType() == messaging.KernelInfoRequest || msg.JupyterMessageType() == messaging.ShellExecuteRequest) {
+		// Register kernel on KernelInfoRequest
+		if msg.DestinationId == "" {
+			km.log.Error("Shell '%s' message '%s' does not contain a destination ID:\n%s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), msg.StringFormatted())
+
+			// We don't know which kernel this came from, so we can't really send an error message in response.
+			return ErrKernelIDRequired
+		}
+
+		kernel, ok = km.provider.GetKernel(msg.DestinationId)
+		if !ok {
+			km.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
+				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
+
+			km.log.Error("Valid kernels/sessions are (%d):", km.provider.NumKernels())
+			km.provider.GetKernels().Range(func(id string, kernel scheduling.Kernel) (contd bool) {
+				km.log.Error("%s (kernel \"%s\")", id, kernel.ID())
+				return true
+			})
+
+			// We don't know which kernel this came from, so we can't really send an error message in response.
+			return fmt.Errorf("%w: could not find kernel associated with session \"%s\" or destination \"%s\"",
+				types.ErrKernelNotFound, msg.JupyterSession(), msg.DestinationId)
+		}
+
+		kernel.BindSession(msg.JupyterSession())
+		km.provider.StoreKernelBySessionId(msg.JupyterSession(), kernel)
+	}
+
+	// If the kernel is still nil, then that's a bug.
+	if kernel == nil {
+		km.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
+			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
+
+		km.log.Error("Valid kernels/sessions are (%d):", km.provider.NumKernels())
+		km.provider.GetKernels().Range(func(id string, kernel scheduling.Kernel) (contd bool) {
+			km.log.Error("%s (kernel \"%s\")", id, kernel.ID())
+			return true
+		})
+
+		// If there's no message ID, then something is really wrong.
+		// We'll print the stack so we can better trace through what happened while handling this message.
+		if len(msg.DestinationId) == 0 {
+			km.log.Error("Extracted empty kernel ID from ZMQ \"%s\" message: %v", msg.JupyterMessageType(), msg)
+			debug.PrintStack()
+		}
+
+		// We don't know which kernel this came from, so we can't really send an error message in response.
+		return fmt.Errorf("%w: could not find kernel associated with session \"%s\" or destination \"%s\"",
+			types.ErrKernelNotFound, msg.JupyterSession(), msg.DestinationId)
+	}
+
+	connInfo := kernel.ConnectionInfo()
+	if connInfo != nil {
+		msg.SetSignatureSchemeIfNotSet(connInfo.SignatureScheme)
+		msg.SetKeyIfNotSet(connInfo.Key)
+	}
+
+	if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
+		// executeRequestHandler handles sending an error response if it encounters an error.
+		return km.executeRequestHandler(kernel, msg)
+	}
+
+	km.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
+	err := km.forwardRequest(kernel, messaging.ShellMessage, msg)
+	if err != nil {
+		km.log.Error("Error while handling/forwarding shell \"%s\" message \"%s\" (JupyterID=\"%s\"): %v.",
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+
+		// We'll send an error message to the associated client here, though it's possible that we were able to
+		// send a reply, and the error came from something that occurred after sending our response (I think?).
+		_ = km.responseForwarder.SendErrorResponse(kernel, msg, err, messaging.ShellMessage)
+
+		return err
+	}
+
+	return nil
 }
 
 // ShellHandler is responsible for forwarding a message received on the CONTROL socket to
@@ -1444,7 +1588,6 @@ func (km *Manager) waitForDeschedulingToEnd(kernel scheduling.Kernel, removalAtt
 
 		// But if the error is NOT a context.DeadlineExceeded error, then something went wrong.
 		if !errors.Is(err, context.DeadlineExceeded) {
-			// TODO: How to handle?
 			km.log.Error("Attempt to remove replicas of kernel %s resulted in an error: %v",
 				kernel.ID(), err)
 

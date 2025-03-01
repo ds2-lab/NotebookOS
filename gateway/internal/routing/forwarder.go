@@ -1,6 +1,9 @@
 package routing
 
 import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"strings"
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
@@ -12,7 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/utils"
-	"github.com/scusemua/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
 	"golang.org/x/net/context"
 )
 
@@ -55,6 +58,8 @@ type Forwarder struct {
 	// MetricsProvider provides all metrics to the members of the scheduling package.
 	MetricsProvider *metrics.ClusterMetricsProvider
 
+	Notifier domain.Notifier
+
 	// RequestLog is used to track the status/progress of requests when in DebugMode.
 	RequestLog *metrics.RequestLog
 
@@ -67,11 +72,14 @@ type Forwarder struct {
 }
 
 // NewForwarder creates a new Forwarder struct and returns a pointer to it.
-func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder KernelForwarder, opts *domain.ClusterGatewayOptions) *Forwarder {
+func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder KernelForwarder, notifier domain.Notifier,
+	opts *domain.ClusterGatewayOptions) *Forwarder {
+
 	forwarder := &Forwarder{
 		GatewayId:         uuid.NewString(),
 		connectionOptions: connectionOptions,
 		KernelManager:     kernelForwarder,
+		Notifier:          notifier,
 	}
 
 	config.InitLogger(&forwarder.log, forwarder)
@@ -277,4 +285,84 @@ func (f *Forwarder) extractRequestMetadata(msg *messaging.JupyterMessage) (strin
 	}
 
 	return kernelOrSessionId, msgType, nil
+}
+
+// SendErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
+// schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
+func (f *Forwarder) SendErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, errContent error, typ messaging.MessageType) error {
+	if kernel != nil {
+		f.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+			request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), errContent)
+	} else {
+		f.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting unknown kernel: %v",
+			request.JupyterMessageType(), request.JupyterMessageId(), errContent)
+	}
+
+	// First, update the header to be a "_reply" message type.
+	header, err := request.GetHeader()
+	if err != nil {
+		f.log.Error("Failed to extract header from shell \"%s\" message \"%s\": %v",
+			request.JupyterMessageType(), request.JupyterMessageId(), err)
+		go f.Notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Extract Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	err = request.JupyterFrames.EncodeParentHeader(&header)
+	if err != nil {
+		go f.Notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Encode Parent Header for Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	requestType := request.JupyterMessageType()
+	replyType := fmt.Sprintf("%s_reply", requestType[0:strings.Index(requestType, "_request")])
+	_ = request.SetMessageType(messaging.JupyterMessageType(replyType), false)
+	_ = request.SetMessageId(fmt.Sprintf("%s_1", request.JupyterMessageId()), false)
+	_ = request.SetDate(time.Now().Format(time.RFC3339Nano), false)
+
+	// Re-encode the header.
+	header, err = request.GetHeader()
+	if err != nil {
+		go f.Notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Get Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	err = request.EncodeMessageHeader(header)
+	if err != nil {
+		go f.Notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Re-Encode Header of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	// Second, embed the error in the response content.
+	errorContent := messaging.MessageError{
+		Status:   messaging.MessageStatusError,
+		ErrName:  fmt.Sprintf("Failed to Handle \"%s\" Message", requestType),
+		ErrValue: errContent.Error(),
+	}
+	err = request.JupyterFrames.EncodeContent(&errorContent)
+	if err != nil {
+		go f.Notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Encode Error Content of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	// Regenerate the signature. Don't include the buffer frames as part of the signature.
+	if kernel != nil && kernel.ConnectionInfo().SignatureScheme != "" && kernel.ConnectionInfo().Key != "" {
+		_, err = request.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
+		if err != nil {
+			go f.Notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+				request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+			return err
+		}
+	}
+
+	if typ == messaging.ShellMessage && requestType == messaging.ShellExecuteRequest {
+		request.IsFailedExecuteRequest = true
+	}
+
+	// Finally, send the message back to the Jupyter client.
+	return f.ForwardResponse(kernel /* may be nil */, typ, request)
 }

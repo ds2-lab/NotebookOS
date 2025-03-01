@@ -14,6 +14,23 @@ type Provider struct {
 	KernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
 }
 
+func (p Provider) NumKernels() int {
+	return p.KernelIdToKernel.Len()
+}
+
+func (p Provider) StoreKernelBySessionId(sessionId string, kernel scheduling.Kernel) {
+	p.Kernels.Store(sessionId, kernel)
+}
+
+func (p Provider) StoreKernelByKernelId(kernelId string, kernel scheduling.Kernel) {
+	p.Kernels.Store(kernelId, kernel)
+	p.KernelIdToKernel.Store(kernelId, kernel)
+}
+
+func (p Provider) GetKernel(kernelId string) (scheduling.Kernel, bool) {
+	return p.Kernels.Load(kernelId)
+}
+
 func (p Provider) GetKernels() hashmap.HashMap[string, scheduling.Kernel] {
 	return p.Kernels
 }

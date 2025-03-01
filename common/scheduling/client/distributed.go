@@ -873,6 +873,18 @@ func (c *DistributedKernelClient) IsActivelyMigratingReplica(replicaId int32) bo
 	return isMigrating
 }
 
+// IsActivelyMigratingAnyReplica returns true if any replica of the target DistributedKernelClient
+// is actively being migrated right now.
+func (c *DistributedKernelClient) IsActivelyMigratingAnyReplica() bool {
+	for i := int32(1); i < c.targetNumReplicas+1; i++ {
+		if c.IsActivelyMigratingReplica(i) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (c *DistributedKernelClient) AddOperationStarted(replicaId int32) {
 	c.numActiveAddOperations.Add(1)
 	c.activeMigrationMap.Store(replicaId, true)
