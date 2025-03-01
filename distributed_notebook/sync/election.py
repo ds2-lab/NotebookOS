@@ -84,6 +84,7 @@ class Election(object):
             num_replicas: int,
             jupyter_message_id: str,
             timeout_seconds: float = 10,
+            future_io_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self._jupyter_message_id: str = jupyter_message_id
 
@@ -124,7 +125,11 @@ class Election(object):
         # The current state/status of the election.
         self._election_state: ElectionState = ElectionState.INACTIVE
 
-        self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        if future_io_loop is None:
+            self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        else:
+            self._future_io_loop: asyncio.AbstractEventLoop = future_io_loop
+
         self._received_vote_future: asyncio.Future[Any] = self._future_io_loop.create_future()
 
         # Flag mostly used for debugging/sanity-checking.

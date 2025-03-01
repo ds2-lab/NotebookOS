@@ -101,13 +101,6 @@ type Manager struct {
 	// debugMode causes more information to be included in Jupyter requests, among other things.
 	debugMode bool
 
-	// kernels is a mapping from kernel ID to scheduling.Kernel.
-	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
-	kernels hashmap.HashMap[string, scheduling.Kernel]
-
-	// kernelIdToKernel is a map from kernel ID to client.DistributedKernelClient.
-	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
-
 	// sessions is a mapping from Jupyter session ID to scheduling.Kernel.
 	sessions hashmap.HashMap[string, scheduling.Kernel]
 
@@ -127,16 +120,16 @@ type Manager struct {
 	// instances back to the associated Jupyter client.
 	responseForwarder ResponseForwarder
 
-	// idleSessionReclaimer reclaims idle kernels.
+	// idleSessionReclaimer reclaims idle Kernels.
 	idleSessionReclaimer *IdleSessionReclaimer
 
-	// kernelProvisioner handles the creation of kernels.
+	// kernelProvisioner handles the creation of Kernels.
 	kernelProvisioner *provisioner.Provisioner
 
-	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to Kernels one-at-a-time.
 	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
 
-	// numActiveKernels is the number of actively-running kernels.
+	// numActiveKernels is the number of actively-running Kernels.
 	numActiveKernels atomic.Int32
 
 	// numActiveTrainings is the cluster-wide number of active training events.
@@ -146,6 +139,8 @@ type Manager struct {
 
 	// notifier is used to send notifications to the cluster dashboard.
 	notifier domain.Notifier
+
+	provider *Provider
 }
 
 // NewManager creates a new Manager struct and returns a pointer to it.
@@ -155,8 +150,8 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 
 	manager := &Manager{
 		id:                id,
-		kernels:           hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
-		sessions:          hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](initialMapSize),
+		provider:          NewProvider(),
+		sessions:          hashmap.NewConcurrentMap[scheduling.Kernel](32),
 		responseForwarder: responseForwarder,
 		handlers:          make(map[messaging.MessageType]MessageHandler),
 		cluster:           cluster,
@@ -174,14 +169,15 @@ func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.Reque
 	manager.failedExecutionHandler = failedExecutionHandler
 
 	kernelProvisioner := provisioner.NewProvisioner(id, cluster, notifier, metricsProvider, networkProvider,
-		manager.shellHandlerWrapper, manager.CallbackProvider(), opts)
+		manager.shellHandlerWrapper, manager.provider, manager.CallbackProvider(), opts)
 	manager.kernelProvisioner = kernelProvisioner
 
 	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
 		interval := time.Duration(opts.IdleSessionReclamationIntervalSec) * time.Second
 		numReplicasPerKernel := manager.cluster.Scheduler().Policy().NumReplicas()
 
-		manager.idleSessionReclaimer = NewIdleSessionReclaimer(manager.kernels, interval, numReplicasPerKernel, nil)
+		manager.idleSessionReclaimer = NewIdleSessionReclaimer(
+			manager.provider.Kernels, interval, numReplicasPerKernel, nil)
 
 		manager.idleSessionReclaimer.Start()
 	}
@@ -229,9 +225,9 @@ func (km *Manager) ExecutionFailedCallback(kernel scheduling.Kernel, originalExe
 	if errors.Is(err, types.ErrKernelNotFound) {
 		km.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
 
-		km.kernels.Store(msg.DestinationId, kernel)
-		km.kernels.Store(msg.JupyterSession(), kernel)
-		km.kernels.Store(kernel.ID(), kernel)
+		km.provider.Kernels.Store(msg.DestinationId, kernel)
+		km.provider.Kernels.Store(msg.JupyterSession(), kernel)
+		km.provider.Kernels.Store(kernel.ID(), kernel)
 
 		kernel.BindSession(msg.JupyterSession())
 
@@ -303,24 +299,24 @@ func (km *Manager) StartKernel(ctx context.Context, in *proto.KernelSpec) (*prot
 
 	// Try to find existing kernel by session id first.
 	// The kernel that associated with the session id will not be clear during restart.
-	existingKernel, _ := km.kernels.Load(in.Id)
+	existingKernel, _ := km.provider.Kernels.Load(in.Id)
 
 	kernel, resp, err := km.kernelProvisioner.StartKernel(ctx, in, existingKernel)
 	if err != nil {
 		return nil, errorf(err)
 	}
 
-	km.kernelIdToKernel.Store(in.Id, kernel)
-	km.kernels.Store(in.Id, kernel)
+	km.provider.KernelIdToKernel.Store(in.Id, kernel)
+	km.provider.Kernels.Store(in.Id, kernel)
 
 	// Make sure to associate the Jupyter Session with the kernel.
 	kernel.BindSession(in.Session)
-	km.kernels.Store(in.Session, kernel)
+	km.provider.Kernels.Store(in.Session, kernel)
 
 	// Map all the sessions to the kernel client.
 	for _, sess := range kernel.Sessions() {
 		km.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
-		km.kernels.Store(sess, kernel)
+		km.provider.Kernels.Store(sess, kernel)
 	}
 
 	km.newKernelCreated(startTime, in.Id)
@@ -332,7 +328,7 @@ func (km *Manager) StartKernel(ctx context.Context, in *proto.KernelSpec) (*prot
 
 // GetKernelStatus returns the status of a particular kernel as specified in the proto.KernelId parameter.
 func (km *Manager) GetKernelStatus(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
-	kernel, ok := km.kernels.Load(in.Id)
+	kernel, ok := km.provider.Kernels.Load(in.Id)
 	if !ok {
 		km.log.Warn("GetKernelStatus: unknown kernel \"%s\". Returning KernelStatusExited (%v).",
 			in.Id, jupyter.KernelStatusExited)
@@ -387,7 +383,7 @@ func (km *Manager) MigrateKernelReplica(ctx context.Context, in *proto.Migration
 		})
 	})
 
-	kernel, loaded := km.kernels.Load(replicaInfo.KernelId)
+	kernel, loaded := km.provider.Kernels.Load(replicaInfo.KernelId)
 	if !loaded {
 		km.log.Error("Could not find target of migration, kernel \"%s\"", replicaInfo.KernelId)
 		go km.notifier.NotifyDashboardOfError("Cannot Migrate kernel.",
@@ -489,8 +485,7 @@ func (km *Manager) MigrateKernelReplica(ctx context.Context, in *proto.Migration
 }
 
 func (km *Manager) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return km.kernelProvisioner.NotifyKernelRegistered(ctx, in)
 }
 
 func (km *Manager) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
@@ -503,7 +498,7 @@ func (km *Manager) PingKernel(ctx context.Context, in *proto.PingInstruction) (*
 		return &proto.Pong{Id: kernelId, Success: false, RequestTraces: nil}, errorf(types.ErrInvalidSocketType)
 	}
 
-	kernel, loaded := km.kernels.Load(kernelId)
+	kernel, loaded := km.provider.Kernels.Load(kernelId)
 	if !loaded {
 		km.log.Error("Received 'ping-kernel' request for unknown kernel \"%s\"...", kernelId)
 		return &proto.Pong{
@@ -686,7 +681,7 @@ func (km *Manager) SmrReady(_ context.Context, in *proto.SmrReadyNotification) (
 
 // IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (km *Manager) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
-	kernel, loaded := km.kernels.Load(in.Id)
+	kernel, loaded := km.provider.Kernels.Load(in.Id)
 
 	if !loaded {
 		km.log.Warn("IsKernelActivelyTraining: queried training status of unknown kernel \"%s\"", in.Id)
@@ -711,7 +706,7 @@ func (km *Manager) SmrNodeAdded(_ context.Context, _ *proto.ReplicaInfo) (*proto
 }
 
 func (km *Manager) stopKernel(ctx context.Context, in *proto.KernelId) error {
-	kernel, ok := km.kernels.Load(in.Id)
+	kernel, ok := km.provider.Kernels.Load(in.Id)
 	if !ok {
 		km.log.Error("Could not find kernel %s; cannot stop kernel.", in.GetId())
 		return types.ErrKernelNotFound
@@ -742,7 +737,7 @@ func (km *Manager) stopKernel(ctx context.Context, in *proto.KernelId) error {
 
 		// Clear session records.
 		for _, sess := range kernel.Sessions() {
-			km.kernels.Delete(sess)
+			km.provider.Kernels.Delete(sess)
 		}
 
 		km.log.Debug("Cleaned sessions %v after replicas stopped.", kernel.Sessions())
@@ -750,8 +745,8 @@ func (km *Manager) stopKernel(ctx context.Context, in *proto.KernelId) error {
 			// Keep kernel records if restart is requested.
 			kernel.ClearSessions()
 		} else {
-			km.kernels.Delete(kernel.ID())
-			km.kernelIdToKernel.Delete(kernel.ID())
+			km.provider.Kernels.Delete(kernel.ID())
+			km.provider.KernelIdToKernel.Delete(kernel.ID())
 
 			km.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
 		}
@@ -895,8 +890,8 @@ func (km *Manager) updateRequestTraceReplicaId(from scheduling.KernelReplicaInfo
 //
 // If the target scheduling.Kernel is not found, then nil is returned, along with false.
 func (km *Manager) tryGetKernel(kernelOrSessionId string) (scheduling.Kernel, bool) {
-	// First, search in the kernels mapping.
-	kernel, ok := km.kernels.Load(kernelOrSessionId)
+	// First, search in the Kernels mapping.
+	kernel, ok := km.provider.Kernels.Load(kernelOrSessionId)
 	if ok {
 		return kernel, true
 	}
@@ -962,7 +957,7 @@ func (km *Manager) numReplicasPerKernel() int {
 	return km.cluster.Scheduler().Policy().NumReplicas()
 }
 
-// shouldReplicasBeRunning returns a flag indicating whether the containers of kernels should be running already.
+// shouldReplicasBeRunning returns a flag indicating whether the containers of Kernels should be running already.
 //
 // For scheduling policies in which the ContainerLifetime is scheduling.LongRunning, this is true.
 func (km *Manager) shouldReplicasBeRunning(kernel scheduling.Kernel) bool {

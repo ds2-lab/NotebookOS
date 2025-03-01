@@ -298,6 +298,7 @@ class RaftLog(object):
         self._restoration_time_seconds: float = 0.0
         if hasattr(self, "_log_node"):
             # This will just do nothing if there's no serialized state to be loaded.
+            assert shell_io_loop is not None
             self._needs_to_catch_up: bool = self.load_and_apply_serialized_state(shell_io_loop = shell_io_loop)
         else:
             self._needs_to_catch_up: bool = False
@@ -782,11 +783,13 @@ class RaftLog(object):
                            f"set_election_complete={set_election_complete}, jupyter_message_id={jupyter_message_id}")
 
             # Create a new election.
+            assert self._shell_io_loop is not None
             election: Election = Election(
                 election_term,
                 self._num_replicas,
                 jupyter_message_id,
                 timeout_seconds=self._election_timeout_sec,
+                future_io_loop=self._shell_io_loop,
             )
             self._elections[election_term] = election
 
@@ -1817,6 +1820,7 @@ class RaftLog(object):
 
         # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
         # (a) already know about and (b) aren't finished yet in some capacity.
+        assert shell_io_loop is not None
         for term_number, prior_election in self._elections.items():
             voting_done: bool = prior_election.voting_phase_completed_successfully
             execution_done: bool = prior_election.code_execution_completed_successfully
@@ -2154,13 +2158,14 @@ class RaftLog(object):
             self.log.warning("Previous election has not yet completed. Making educated guess about term number...")
             term_number = self._current_election.term_number + 1
 
-
+        assert self._shell_io_loop is not None
         # Create a new election. We don't have an existing election to restart/use.
         election: Election = Election(
             term_number,
             self._num_replicas,
             jupyter_message_id,
             timeout_seconds=self._election_timeout_sec,
+            future_io_loop=self._shell_io_loop,
         )
         self._elections[term_number] = election
 

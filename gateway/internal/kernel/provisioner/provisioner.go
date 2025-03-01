@@ -28,6 +28,31 @@ import (
 	"time"
 )
 
+const (
+	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
+	SkipValidationKey contextKey = "SkipValidationKey"
+)
+
+type contextKey string
+
+// logKernelNotFound prints an error message about not being able to find a kernel with the given ID.
+//
+// Specifically, if the specified ID is for a kernel that previously existed but has been stopped, then we print
+// a message indicating as such. Otherwise, we print a more severe message about how the kernel simply doesn't
+// exist (and never existed).
+func logKernelNotFound(log logger.Logger, kernelId string, stoppedKernels hashmap.HashMap[string, time.Time]) {
+	if stoppedKernels != nil {
+		if stoppedAt, loaded := stoppedKernels.Load(kernelId); loaded {
+			log.Warn("Could not find kernel with ID \"%s\" because that kernel was stopped %v ago at %v",
+				kernelId, time.Since(stoppedAt), stoppedAt)
+
+			return
+		}
+	}
+
+	log.Error("Could not find kernel with ID \"%s\"", kernelId)
+}
+
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
@@ -43,8 +68,15 @@ type NetworkProvider interface {
 	ConnectionInfo() *jupyter.ConnectionInfo
 }
 
+type KernelProvider interface {
+	GetKernels() hashmap.HashMap[string, scheduling.Kernel]
+	GetKernelsByKernelId() hashmap.HashMap[string, scheduling.Kernel]
+}
+
 type Provisioner struct {
 	id string
+
+	kernelProvider KernelProvider
 
 	// kernelsStarting is a map of kernels that are starting for the first time.
 	//
@@ -92,12 +124,13 @@ type Provisioner struct {
 }
 
 func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider *metrics.ClusterMetricsProvider,
-	networkProvider NetworkProvider, kernelShellHandler scheduling.KernelMessageHandler,
+	networkProvider NetworkProvider, kernelShellHandler scheduling.KernelMessageHandler, provider KernelProvider,
 	kernelCallbackProvider scheduling.CallbackProvider, opts *domain.ClusterGatewayOptions) *Provisioner {
 
 	provisioner := &Provisioner{
 		id:                            id,
 		cluster:                       cluster,
+		kernelProvider:                provider,
 		notifier:                      notifier,
 		metricsProvider:               metricsProvider,
 		opts:                          opts,
@@ -833,5 +866,589 @@ func (p *Provisioner) scheduleReplicas(ctx context.Context, kernel scheduling.Ke
 
 	// Record that the container creation attempt has completed successfully.
 	attempt.SetDone(nil)
+	return nil
+}
+
+func (p *Provisioner) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+	p.log.Info("Received kernel registration notification for replica %d of kernel %s from host %s (ID=%s).",
+		in.ReplicaId, in.KernelId, in.NodeName, in.HostId)
+
+	kernelId := in.KernelId
+
+	p.log.Info("Connection info: %v", in.ConnectionInfo)
+	p.log.Info("Session ID: %v", in.SessionId)
+	p.log.Info("kernel ID: %v", kernelId)
+	p.log.Info("Replica ID: %v", in.ReplicaId)
+	p.log.Info("kernel IP: %v", in.KernelIp)
+	p.log.Info("Node ID: %v", in.HostId)
+	p.log.Info("Node Name: %v", in.NodeName)
+	p.log.Info("Notification ID: %v", in.NotificationId)
+	p.log.Info("Container name: %v", in.PodOrContainerName)
+
+	p.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		now := time.Now()
+		statistics.ClusterEvents = append(statistics.ClusterEvents, &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.KernelReplicaRegistered,
+			KernelId:            kernelId,
+			ReplicaId:           -1,
+			Timestamp:           now,
+			TimestampUnixMillis: now.UnixMilli(),
+		})
+	})
+
+	_, loaded := p.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
+	if loaded {
+		p.log.Warn("Received duplicate \"kernel Registered\" notification with ID=%s", in.NotificationId)
+
+		go p.notifier.NotifyDashboardOfWarning("Received Duplicate \"Kernel Registered\" Notification",
+			fmt.Sprintf("NotificationID=\"%s\", KernelID=\"%s\"", in.NotificationId, in.KernelId))
+
+		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
+	}
+
+	// p.mu.Lock()
+
+	kernel, loaded := p.kernelProvider.GetKernels().Load(kernelId)
+	if !loaded {
+		p.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
+
+		title := fmt.Sprintf("Unknown Kernel \"%s\" Specified by 'Kernel Registered' Notification", kernelId)
+		go p.notifier.NotifyDashboardOfError(title, "The cluster Gateway has no record of the referenced kernel.")
+
+		// p.mu.Unlock()
+		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
+	}
+
+	numActiveMigrationOperations := kernel.NumActiveMigrationOperations()
+	if numActiveMigrationOperations >= 1 && kernel.IsActivelyMigratingReplica(in.ReplicaId) {
+		p.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. "+
+			"Assuming currently-registering replica is for an add-replica operation.",
+			numActiveMigrationOperations, kernel.ID())
+
+		// Must be holding the main mutex before calling handleMigratedReplicaRegistered.
+		// It will release the lock.
+		result, err := p.handleMigratedReplicaRegistered(in, kernel)
+
+		if _, ok := status.FromError(err); !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
+
+		return result, err
+	}
+
+	return p.handleStandardKernelReplicaRegistration(ctx, kernel, in)
+}
+
+// handleStandardKernelReplicaRegistration is called to handle the registration of a scheduling.KernelReplica that is
+// either being created for the very first time or as an on-demand replica to handle a single training event.
+//
+// The alternative to the scenarios described above is when the scheduling.KernelReplica that is registering was
+// created by/during a migration operation, in which case the registration is handled by the
+// handleMigratedReplicaRegistered function.
+func (p *Provisioner) handleStandardKernelReplicaRegistration(ctx context.Context, kernel scheduling.Kernel,
+	in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+
+	// Load the 'registrationWaitGroup' struct created for this kernel's creation.
+	waitGroup, loaded := p.waitGroups.Load(in.KernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing primarSemaphore associated with kernel with ID %s", in.KernelId))
+	}
+
+	connectionInfo := in.ConnectionInfo
+	kernelId := in.KernelId
+	hostId := in.HostId
+	kernelIp := in.KernelIp
+	replicaId := in.ReplicaId
+
+	kernelSpec, loaded := p.kernelSpecs.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing kernel spec for kernel with ID %s", kernelId))
+	}
+
+	host, loaded := p.cluster.GetHost(hostId)
+	if !loaded {
+		host, enabled, err := p.cluster.GetHostEvenIfDisabled(hostId)
+		if err != nil {
+			p.log.Error("Expected to find existing Host (enabled or disabled) with ID \"%v\": %v", hostId, err)
+			panic(err)
+		}
+
+		if !enabled {
+			p.log.Error("Registering replica %d of kernel %s on disabled host %s (ID=%s)...",
+				replicaId, kernelId, host.GetNodeName(), hostId)
+		} else {
+			panic("what is going on")
+		}
+
+		errorTitle := fmt.Sprintf("Received Registration from Replica %d of Kernel \"%s\" On DISABLED Host %s (ID=%s)",
+			replicaId, kernelId, host.GetNodeName(), hostId)
+		p.notifier.NotifyDashboardOfError(errorTitle, "")
+
+		return nil, status.Error(codes.Internal, fmt.Errorf("%w: cannot register kernel replica", scheduling.ErrHostDisabled).Error())
+	}
+
+	// If this is the first replica we're registering, then its ID should be 1.
+	// The size will be 0, so we'll assign it a replica ID of 0 + 1 = 1.
+	if replicaId == -1 {
+		replicaId = int32(kernel.Size()) + 1
+		p.log.Debug("kernel does not already have a replica ID assigned to it. Assigning ID: %p.", replicaId)
+	}
+
+	// We're registering a new replica, so the number of replicas is based on the cluster configuration.
+	replicaSpec := &proto.KernelReplicaSpec{
+		Kernel:      kernelSpec,
+		ReplicaId:   replicaId,
+		NumReplicas: int32(p.scheduler().Policy().NumReplicas()),
+		WorkloadId:  kernelSpec.WorkloadId,
+	}
+
+	nodeName := in.NodeName
+
+	if nodeName == "" || nodeName == types.DockerNode {
+		if !p.opts.IsDockerMode() {
+			log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid node name.\n"),
+				replicaSpec.ReplicaId, in.KernelId)
+		}
+
+		// In Docker mode, we'll just use the Host ID as the node name.
+		nodeName = host.GetID()
+	}
+
+	p.log.Debug("Creating new KernelReplicaClient for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
+
+	// Initialize kernel client
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
+		jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), p.id,
+		p.opts.NumResendAttempts, in.PodOrContainerName, nodeName, nil,
+		nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
+		true, true, p.opts.DebugMode, p.metricsProvider, p.kernelReconnectionFailed,
+		p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics,
+		p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
+
+	session, ok := p.cluster.GetSession(kernelId)
+	if !ok {
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)
+		p.log.Error(errorMessage)
+		p.notifier.NotifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		panic(errorMessage)
+	}
+
+	// Create the new Container.
+	container := entity.NewContainer(session, replica, host, in.KernelIp)
+
+	// Assign the Container to the kernel.
+	replica.SetContainer(container)
+
+	// Register the Container with the Session.
+	if err := session.AddReplica(container); err != nil {
+		p.log.Error("Error while registering container %v with session %v: %v", container, session, err)
+		go p.notifier.NotifyDashboardOfError("Failed to Register Container with Session", err.Error())
+
+		// TODO: Handle this more gracefully.
+		return nil, err
+	}
+
+	// p.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
+
+	// AddHost the Container to the Host.
+	if err := host.ContainerStartedRunningOnHost(container); err != nil {
+		p.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
+		go p.notifier.NotifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+
+		// TODO: Handle this more gracefully.
+		return nil, err
+	}
+
+	p.log.Debug("Validating new kernel for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	if val := ctx.Value(SkipValidationKey); val == nil {
+		err := p.validateKernelReplicaSockets(replica)
+		if err != nil {
+			go p.notifier.NotifyDashboardOfError(fmt.Sprintf("kernel::Validate call failed for replica %d of kernel %s",
+				replica.ReplicaID(), in.KernelId), err.Error())
+			return nil, err
+		}
+	} else {
+		p.log.Warn("Skipping validation and establishment of actual network connections with newly-registered replica %d of kernel %s.",
+			replica.ReplicaID(), in.KernelId)
+	}
+
+	p.log.Debug("Adding Replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	err := kernel.AddReplica(replica, host)
+	if err != nil {
+		p.log.Error("kernel::AddReplica call failed: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// The replica is fully operational at this point, so record that it is ready.
+	replica.SetReady()
+
+	waitGroup.SetReplica(replicaId, kernelIp)
+
+	waitGroup.Register(replicaId)
+	p.log.Debug("SetDone registering kernel for kernel %s, replica %d on host %s. Resource spec: %v",
+		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
+	// Wait until all replicas have registered before continuing, as we need all of their IDs.
+	waitGroup.WaitRegistered()
+
+	persistentId := kernel.PersistentID()
+	response := &proto.KernelRegistrationNotificationResponse{
+		Id:                              replicaId,
+		Replicas:                        waitGroup.GetReplicas(),
+		PersistentId:                    &persistentId,
+		ResourceSpec:                    kernelSpec.ResourceSpec,
+		SmrPort:                         int32(p.opts.SMRPort), // The kernel should already have this info, but we'll send it anyway.
+		ShouldReadDataFromRemoteStorage: p.shouldKernelReplicaReadStateFromRemoteStorage(kernel, false),
+		Ok:                              true,
+	}
+
+	p.log.Debug("Sending response to associated LocalDaemon for kernel %s, replica %d: %v",
+		kernelId, replicaId, response)
+
+	kernel.RecordContainerCreated(in.WasPrewarmContainer)
+
+	waitGroup.Notify()
+	return response, nil
+}
+
+// handleMigratedReplicaRegistered is called by NotifyKernelRegistered to handle the registration of a
+// scheduling.KernelReplica that was created during a migration operation. as opposed to the scheduling.KernelReplica
+//
+// The alternative(s) to the scenarios described above is/are when the scheduling.KernelReplica that is registering is
+// being created for the first time or as an on-demand replica to serve a single training event when using scheduling
+// policies that are configured to use this approach. In either of these alternative scenarios, the registration of the
+// scheduling.KernelReplica is handled by the handleStandardKernelReplicaRegistration function.
+func (p *Provisioner) handleMigratedReplicaRegistered(in *proto.KernelRegistrationNotification, kernel scheduling.Kernel) (*proto.KernelRegistrationNotificationResponse, error) {
+	waitGroup, loaded := p.waitGroups.Load(in.KernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing primarSemaphore associated with kernel with ID %s", in.KernelId))
+	}
+
+	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
+	// the old AddReplicaOperation struct...
+	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
+	addReplicaOp, ok := p.scheduler().GetAddReplicaOperationManager().LoadAndDelete(key)
+
+	if !ok {
+		errorMessage := fmt.Errorf("could not find AddReplicaOperation struct under key \"%s\"", key)
+		p.log.Error(errorMessage.Error())
+		p.notifier.NotifyDashboardOfError("kernel Registration Error", errorMessage.Error())
+
+		return nil, errorMessage
+	}
+
+	if p.opts.IsDockerMode() {
+		dockerContainerId := in.DockerContainerId
+		if dockerContainerId == "" {
+			p.log.Error("kernel registration notification did not contain docker container ID: %v", in)
+			go p.notifier.NotifyDashboardOfError("Missing Docker Container ID in kernel Registration Notification",
+				fmt.Sprintf("kernel registration notification for replica %d of kernel \"%s\" did not contain a valid Docker container ID",
+					in.ReplicaId, in.KernelId))
+		}
+
+		addReplicaOp.SetContainerName(dockerContainerId)
+	}
+
+	host, loaded := p.cluster.GetHost(in.HostId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", in.HostId)) // TODO(Ben): Handle gracefully.
+	}
+
+	// The replica spec that was specifically prepared for the new replica during the initiation of the migration operation.
+	replicaSpec := addReplicaOp.KernelSpec()
+	addReplicaOp.SetReplicaHostname(in.KernelIp)
+	addReplicaOp.SetReplicaStarted()
+
+	if in.NodeName == "" {
+		if !p.opts.IsDockerMode() {
+			log.Fatalf(utils.RedStyle.Render("Replica %d of kernel %s does not have a valid node name.\n"),
+				replicaSpec.ReplicaId, in.KernelId)
+		}
+
+		// In Docker mode, we'll just use the Host ID as the node name.
+		in.NodeName = host.GetID()
+	}
+
+	// Initialize kernel client
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
+		jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
+		p.id, p.opts.NumResendAttempts, in.PodOrContainerName, in.NodeName,
+		nil, nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
+		host, metrics.ClusterGateway, true, true, p.opts.DebugMode, p.metricsProvider,
+		p.kernelReconnectionFailed, p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics,
+		p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
+
+	err := replica.Validate()
+	if err != nil {
+		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
+	}
+
+	session, ok := p.cluster.GetSession(in.KernelId)
+	if !ok {
+		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
+		p.log.Error(errorMessage)
+		p.notifier.NotifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		panic(errorMessage)
+	}
+
+	// Create the new Container.
+	container := entity.NewContainer(session, replica, host, in.KernelIp)
+
+	// Assign the Container to the kernel.
+	replica.SetContainer(container)
+
+	// AddHost the Container to the Host.
+	p.log.Debug("Adding scheduling.Container for replica %d of kernel %s onto Host %s",
+		replicaSpec.ReplicaId, addReplicaOp.KernelId(), host.GetID())
+	if err = host.ContainerStartedRunningOnHost(container); err != nil {
+		p.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
+		p.notifier.NotifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		panic(err)
+	}
+
+	// p.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaID, in.kernelId, waitGroup.NumReplicas())
+
+	// Store the new replica in the list of replicas for the kernel (at the correct position, based on the SMR node ID).
+	// Then, return the list of replicas so that we can pass it to the new replica.
+	// updatedReplicas := waitGroup.UpdateAndGetReplicasAfterMigration(migrationOperation.OriginalSMRNodeID()-1, in.KernelIp)
+	updatedReplicas := waitGroup.AddReplica(replicaSpec.ReplicaId, in.KernelIp)
+
+	persistentId := addReplicaOp.PersistentID()
+	// dataDirectory := addReplicaOp.DataDirectory()
+	response := &proto.KernelRegistrationNotificationResponse{
+		Id:                              replicaSpec.ReplicaId,
+		Replicas:                        updatedReplicas,
+		PersistentId:                    &persistentId,
+		ShouldReadDataFromRemoteStorage: p.shouldKernelReplicaReadStateFromRemoteStorage(kernel, true),
+		ResourceSpec:                    replicaSpec.Kernel.ResourceSpec,
+		SmrPort:                         int32(p.opts.SMRPort),
+	}
+
+	// p.mu.Unlock()
+
+	p.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during migration \"%s\".",
+		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
+
+	err = addReplicaOp.SetReplicaRegistered(replica)
+	if err != nil {
+		errorMessage := fmt.Sprintf("We're using the WRONG AddReplicaOperation... AddReplicaOperation \"%s\" has already recorded that its replica has registered: %v",
+			addReplicaOp.OperationID(), addReplicaOp.String())
+		p.log.Error(errorMessage)
+		p.notifier.NotifyDashboardOfError("Using Incorrect AddReplicaOperation", errorMessage)
+		panic(err)
+	}
+
+	//p.log.Debug("About to issue 'update replica' request for replica %d of kernel %s. Client ready: %v", replicaSpec.ReplicaId, in.KernelId, replica.IsReady())
+	//
+	//if p.cluster.Scheduler().Policy().NumReplicas() > 1 {
+	//	p.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+	//}
+
+	kernel.RecordContainerCreated(in.WasPrewarmContainer)
+
+	p.log.Debug("SetDone handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)
+
+	return response, nil
+}
+
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
+// then this method is called.
+func (p *Provisioner) kernelRequestResubmissionFailedAfterReconnection(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, resubmissionError error) {
+	_, messageType, err := p.kernelAndTypeFromMsg(msg)
+	if err != nil {
+		p.log.Error("Failed to extract message type from ZMQ message because: %v", err)
+		p.log.Error("ZMQ message in question: %v", msg)
+		messageType = "N/A"
+	}
+
+	errorMessage := fmt.Sprintf("Failed to forward \"'%s'\" request to replica %d of kernel %s following successful connection re-establishment because: %v",
+		messageType, kernel.ReplicaID(), kernel.ID(), resubmissionError)
+	p.log.Error(errorMessage)
+
+	p.notifier.NotifyDashboardOfError("Connection to kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
+}
+
+// shouldKernelReplicaReadStateFromRemoteStorage is called by NotifyKernelRegistered and is used to determine whether
+// the scheduling.KernelReplica that is registering should read/restore state from remote storage or not.
+//
+// The basis for this decision depends on several factors.
+//
+// First of all, if the scheduling policy uses short-lived containers that are created on-demand for each training
+// event, then they should always restore state from intermediate remote_storage.
+//
+// Next, for policies that use long-lived containers (regardless of the number of replicas), the kernel should restore
+// state if the kernel replicas are being recreated following an idle kernel/session reclamation.
+//
+// Finally, when using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from
+// remote storage if this is not the very first time that they're being created.
+func (p *Provisioner) shouldKernelReplicaReadStateFromRemoteStorage(kernel scheduling.Kernel, forMigration bool) bool {
+	policy := p.scheduler().Policy()
+
+	// If the scheduling policy uses short-lived containers that are created on-demand for each training event,
+	// then they should always restore state from intermediate remote_storage.
+	if policy.ContainerLifetime() == scheduling.SingleTrainingEvent {
+		return true
+	}
+
+	// If the kernel replica that is registering was created for a migration operation, then it should read and
+	// restore its state from intermediate remote_storage.
+	if forMigration {
+		return true
+	}
+
+	// For policies that use long-lived containers (regardless of the number of replicas), the kernel should restore
+	// state if the kernel replicas are being recreated following an idle kernel/session reclamation.
+	if kernel.IsIdleReclaimed() {
+		return true
+	}
+
+	// When using policy.WarmContainerPoolPolicy, scheduling.KernelReplica instances should retrieve state from remote
+	// remote_storage if this is not the very first time that they're being created. We can test for this by checking if the
+	// total number of containers created for this kernel is greater than zero.
+	//
+	// We also need to check if the number of containers created for this kernel is greater than or equal to the number
+	// of replicas mandated by the scheduling policy. Although this isn't supported at the time of writing this, if we
+	// enable warm container reuse by (e.g.,) the Static policy, then we'll be creating 3 containers when the kernel is
+	// first created. We don't want the second or third replica to attempt to read state from remote storage when they
+	// are being created for the first time. So, it's only once we've created at least as many containers as there are
+	// replicas of an individual kernel that a new kernel replica should attempt to read state from remote storage.
+	//
+	// For single-replica policies, like the WarmContainerPoolPolicy, this logic will still work appropriately.
+	if policy.ReuseWarmContainers() && kernel.NumContainersCreated() > 0 && kernel.NumContainersCreated() >= int32(policy.NumReplicas()) {
+		return true
+	}
+
+	return false
+}
+
+// When we fail to forward a request to a kernel (in that we did not receive an ACK after the maximum number of attempts),
+// we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
+//
+// If we do not reconnect successfully, then this method is called.
+func (p *Provisioner) kernelReconnectionFailed(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, reconnectionError error) { /* client scheduling.kernel,  */
+	_, messageType, err := p.kernelAndTypeFromMsg(msg)
+	if err != nil {
+		p.log.Error("Failed to extract message type from ZMQ message because: %v", err)
+		p.log.Error("ZMQ message in question: %v", msg)
+		messageType = "N/A"
+	}
+
+	errorMessage := fmt.Sprintf("Failed to reconnect to replica %d of kernel %s while sending \"%s\" message: %v",
+		kernel.ReplicaID(), kernel.ID(), messageType, reconnectionError)
+	p.log.Error(errorMessage)
+
+	go p.notifier.NotifyDashboardOfError("Connection to kernel Lost & Reconnection Failed", errorMessage)
+}
+
+// kernelAndTypeFromMsg extracts the kernel ID and the message type from the given ZMQ message.
+func (p *Provisioner) kernelAndTypeFromMsg(msg *messaging.JupyterMessage) (kernel scheduling.Kernel, messageType string, err error) {
+	// This is initially the kernel's ID, which is the DestID field of the message.
+	// But we may not have set a destination ID field within the message yet.
+	// In this case, we'll fall back to the session ID within the message's Jupyter header.
+	// This may not work either, though, if that session has not been bound to the kernel yet.
+	//
+	// When Jupyter clients connect for the first time, they send both a shell and a control "kernel_info_request" message.
+	// This message is used to bind the session to the kernel (specifically the shell message).
+	var kernelId = msg.DestinationId
+
+	// If there is no destination ID, then we'll try to use the session ID in the message's header instead.
+	if len(kernelId) == 0 {
+		kernelId = msg.JupyterSession()
+		p.log.Debug("Message does not have Destination ID. Using session ID \"%s\" from Jupyter header instead.", kernelId)
+
+		// Sanity check.
+		// Make sure we got a valid session ID out of the Jupyter message header.
+		// If we didn't, then we'll return an error.
+		if len(kernelId) == 0 {
+			p.log.Error("Jupyter Session ID is invalid for message: %s", msg.String())
+			err = fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)",
+				types.ErrKernelNotFound)
+			return nil, msg.JupyterMessageType(), err
+		}
+	}
+
+	kernel, ok := p.kernelProvider.GetKernels().Load(kernelId) // kernelId)
+	if !ok {
+		logKernelNotFound(p.log, kernelId, nil) // TODO: Supply the 'stopped kernels' mapping here.
+		return nil, messageType, types.ErrKernelNotFound
+	}
+
+	if kernel.Status() != jupyter.KernelStatusRunning && p.shouldReplicasBeRunning(kernel) {
+		return kernel, messageType, jupyter.ErrKernelNotReady
+	}
+
+	return kernel, messageType, nil
+}
+
+// shouldReplicasBeRunning returns a flag indicating whether the containers of kernels should be running already.
+//
+// For scheduling policies in which the ContainerLifetime is scheduling.LongRunning, this is true.
+func (p *Provisioner) shouldReplicasBeRunning(kernel scheduling.Kernel) bool {
+	// If the kernel has been idle-reclaimed, then its replicas should not be running.
+	if kernel.IsIdleReclaimed() {
+		return false
+	}
+
+	// If the containers are in the process of being scheduled, then it's OK that they aren't running yet.
+	//
+	// If the caller is handling a message that can be spoofed, then it'll be spoofed.
+	//
+	// If the caller is handling something like an "execute_request", then the "execute_request" handler will end
+	// up waiting for the container creation operation to complete.
+	if kernel.ReplicaContainersAreBeingScheduled() {
+		return false
+	}
+
+	return p.scheduler().Policy().ContainerLifetime() == scheduling.LongRunning
+}
+
+func (p *Provisioner) validateKernelReplicaSockets(replica scheduling.KernelReplica) error {
+	notifyChan := make(chan interface{}, 1)
+
+	startTime := time.Now()
+
+	go func() {
+		err := replica.Validate()
+
+		if err != nil {
+			notifyChan <- err
+			return
+		}
+
+		notifyChan <- struct{}{}
+	}()
+
+	notifyContext, cancel := context.WithTimeout(context.Background(), time.Second*180)
+	defer cancel()
+
+	select {
+	case <-notifyContext.Done():
+		{
+			p.log.Error("Validation of sockets for new replica %d of kernel %s has timed out after %v.",
+				replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime))
+
+			err := notifyContext.Err()
+			if err == nil {
+				err = fmt.Errorf("socket validation timed out")
+			}
+
+			return err
+		}
+	case v := <-notifyChan:
+		{
+			if err, ok := v.(error); ok {
+				p.log.Error("Validation of sockets for new replica %d of kernel %s has failed after %v: %v",
+					replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime), err)
+				return err
+			}
+
+			p.log.Debug("Successfully validated sockets of new replica %d of kernel %s in %v.",
+				replica.ReplicaID(), replica.KernelSpec(), time.Since(startTime))
+		}
+	}
+
 	return nil
 }
