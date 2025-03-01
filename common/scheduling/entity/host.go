@@ -762,6 +762,16 @@ func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelRepli
 	return true, nil
 }
 
+func (h *Host) ForceReleaseResources(container scheduling.KernelContainer, executionId string) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	kernelId := container.KernelID()
+	replicaId := container.ReplicaId()
+
+	return h.allocationManager.ReleaseCommittedResources(replicaId, kernelId, executionId)
+}
+
 // ReserveResources attempts to reserve the resources required by the specified kernel, returning
 // a boolean flag indicating whether the resource reservation was completed successfully.
 //

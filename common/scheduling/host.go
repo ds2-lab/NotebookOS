@@ -186,6 +186,8 @@ type Host interface {
 	GetMeta(key types.HeapElementMetadataKey) interface{}
 	Priority(session UserSession) float64
 
+	ForceReleaseResources(container KernelContainer, execRequestId string) error
+
 	IdleGPUs() float64
 	PendingGPUs() float64
 	CommittedGPUs() float64

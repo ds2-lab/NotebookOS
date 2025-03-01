@@ -4344,6 +4344,28 @@ func (d *ClusterGatewayImpl) forwardExecuteRequestOneAtATime(jupyterMessages []*
 				d.log.Warn("Kernel \"%s\" is still training, supposedly.", kernel.ID())
 			} else {
 				d.log.Error("Kernel \"%s\" is not even training.", kernel.ID())
+
+				// TODO: Release resources from that replica.
+				// TODO: Fix this
+				activeExecution := kernel.GetExecutionManager().GetActiveExecution(jupyterMessageId)
+
+				if activeExecution != nil {
+					targetReplicaId := activeExecution.GetTargetReplicaId()
+					replica, _ := kernel.GetReplicaByID(targetReplicaId)
+
+					if replica != nil {
+						host := replica.Host()
+
+						if host != nil {
+							releaseResErr := host.ForceReleaseResources(replica.Container(), jupyterMessageId)
+
+							if releaseResErr != nil {
+								d.log.Error("Failed to forcibly release resources for replcia %d of kernel %s from host %s: %v",
+									replica.ReplicaID(), replica.ID(), host.GetNodeName(), releaseResErr)
+							}
+						}
+					}
+				}
 			}
 
 			// Record that we're giving up, so if a result comes later, the execute request forwarder won't get

@@ -2351,6 +2351,20 @@ func (mr *MockHostMockRecorder) ExcludeFromScheduling() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExcludeFromScheduling", reflect.TypeOf((*MockHost)(nil).ExcludeFromScheduling))
 }
 
+// ForceReleaseResources mocks base method.
+func (m *MockHost) ForceReleaseResources(container scheduling.KernelContainer, execRequestId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ForceReleaseResources", container, execRequestId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ForceReleaseResources indicates an expected call of ForceReleaseResources.
+func (mr *MockHostMockRecorder) ForceReleaseResources(container, execRequestId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForceReleaseResources", reflect.TypeOf((*MockHost)(nil).ForceReleaseResources), container, execRequestId)
+}
+
 // GetActualGpuInfo mocks base method.
 func (m *MockHost) GetActualGpuInfo(ctx context.Context, in *proto.Void, opts ...grpc.CallOption) (*proto.GpuInfo, error) {
 	m.ctrl.T.Helper()
@@ -4153,6 +4167,20 @@ func (m *MockUnitTestingHost) ExcludeFromScheduling() bool {
 func (mr *MockUnitTestingHostMockRecorder) ExcludeFromScheduling() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExcludeFromScheduling", reflect.TypeOf((*MockUnitTestingHost)(nil).ExcludeFromScheduling))
+}
+
+// ForceReleaseResources mocks base method.
+func (m *MockUnitTestingHost) ForceReleaseResources(container scheduling.KernelContainer, execRequestId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ForceReleaseResources", container, execRequestId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ForceReleaseResources indicates an expected call of ForceReleaseResources.
+func (mr *MockUnitTestingHostMockRecorder) ForceReleaseResources(container, execRequestId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForceReleaseResources", reflect.TypeOf((*MockUnitTestingHost)(nil).ForceReleaseResources), container, execRequestId)
 }
 
 // GetActualGpuInfo mocks base method.
