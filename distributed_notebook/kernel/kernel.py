@@ -2897,9 +2897,7 @@ class DistributedKernel(IPythonKernel):
         except ElectionAbortedException as e:
             self.log.warning(e)
             # We intentionally raise ElectionAbortedException to abort early if we determine we can/should.
-            reply_content: dict[str, Any] = gen_error_response(
-                err_failed_to_lead_execution
-            )
+            reply_content: dict[str, Any] = gen_error_response(err_failed_to_lead_execution)
         except Exception as e:
             self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
             reply_content = gen_error_response(e)
@@ -3390,6 +3388,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param parent: the parent message in its entirety
             :param target_replica_id: smr node ID of target, pre-selected primary replica, or -1 if none pre-selected
             :param parent_header: header of execute_request message.
             :param execute_request_metadata: the metadata of the execute request.
@@ -3450,7 +3449,15 @@ class DistributedKernel(IPythonKernel):
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
         # Check the status of the last election before proceeding.
-        await self.check_previous_election()
+        try:
+            await self.check_previous_election()
+        except Exception as ex:
+            self.log.error(f"Error while checking previous election: {ex}")
+            self.log.error(traceback.format_exc())
+
+            title: str = f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Erred While Checking Prev. Election"
+            content: str = f'"execute_request" ID="{self.next_execute_request_msg_id}", error: {ex}'
+            self.report_error(error_title=title, error_message=content)
 
         current_term_number: int = -1
         try:
@@ -3534,17 +3541,17 @@ class DistributedKernel(IPythonKernel):
             reply_content = gen_error_response(eye)
             reply_content["yielded"] = True
         except DiscardMessageError as dme:
-            self.log.warning(
-                f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
-                f"as election for term {current_term_number} was skipped: {dme}"
-            )
+            self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
+                             f"as election for term {current_term_number} was skipped: {dme}")
 
-            self.send_notification(
-                notification_title=f"Election {current_term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
-                notification_body=f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
-                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={current_term_number}) was skipped.",
-                notification_type=WarningNotification,
-            )
+            title: str = (f"Election {current_term_number} Skipped by Replica {self.smr_node_id} "
+                          f"of Kernel {self.kernel_id}")
+            body:str = (f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
+                        f'{self.smr_node_id} of kernel {self.kernel_id}, as associated election '
+                        f'(term={current_term_number}) was skipped.')
+            typ: int = WarningNotification
+
+            self.send_notification(notification_title=title, notification_body=body, notification_type=typ)
 
             reply_content = gen_error_response(dme)
         except Exception as e:
