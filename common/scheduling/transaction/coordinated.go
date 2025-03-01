@@ -195,7 +195,7 @@ func NewCoordinatedTransaction(numParticipants int, kernelId string) *Coordinate
 	coordinatedTransaction.succeeded.Store(false)
 	coordinatedTransaction.started.Store(false)
 
-	config.InitLogger(&coordinatedTransaction.log, coordinatedTransaction)
+	coordinatedTransaction.log = config.GetLogger(fmt.Sprintf("CoordTX %s ", coordinatedTransaction.id))
 
 	return coordinatedTransaction
 }
@@ -261,11 +261,16 @@ func (t *CoordinatedTransaction) Abort(err error) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// In case multiple participants attempt to abort the election, we only allow one of them to succeed.
+	// This will prevent us from unnecessarily decrementing the initGroup multiple times.
+	if !t.shouldAbort.CompareAndSwap(false, true) {
+		t.log.Debug("Already aborted.")
+		return t.locksAcquired.Load()
+	}
+
 	if t.failureReason == nil {
 		t.failureReason = err
 	}
-
-	t.shouldAbort.Store(true)
 
 	defer func() {
 		if r := recover(); r != nil {

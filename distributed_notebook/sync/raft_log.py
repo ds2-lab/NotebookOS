@@ -1085,7 +1085,7 @@ class RaftLog(object):
                                                 f'notification proposer ID: {notification.proposer_id}. '
                                                 f"Notification term number: {notification.election_term}. "
                                                 f"Our local election term: {self.current_election_term}. "
-                                                f"Leader term: {self.leader_term}.")
+                                                f"Leader term: {self.leader_term}. [Report Only]")
                 else:
                     raise ValueError(f'Inconsistency detected between our local leader ID '
                                      f'and the proposer ID of "election finished" notification. '
@@ -1093,7 +1093,7 @@ class RaftLog(object):
                                      f"{notification.proposer_id}. "
                                      f"Notification term number: {notification.election_term}. "
                                      f"Our local election term: {self.current_election_term}. "
-                                     f"Leader term: {self.leader_term}.")
+                                     f"Leader term: {self.leader_term}. [ValueError]")
 
             self.current_election.set_execution_complete(
                 fast_forwarding=fast_forwarding,
