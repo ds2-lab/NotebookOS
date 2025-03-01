@@ -16,6 +16,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -25,6 +26,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"math/rand"
 	"sync/atomic"
 	"time"
 )
@@ -79,6 +81,14 @@ func getMessageAndSocketTypeForPing(in *proto.PingInstruction) (msgTyp string, s
 	}
 
 	return
+}
+
+// resetKernelReply is used by the ClusterGatewayImpl's resetKernel and processResetKernelReplies methods.
+//
+// resetKernelReply associates a particular scheduling.KernelReplica with a "reset_kernel_reply" message.
+type resetKernelReply struct {
+	KernelReplica scheduling.KernelReplica
+	Reply         *messaging.JupyterMessage
 }
 
 type MessageHandler func(kernel scheduling.Kernel, socketType messaging.MessageType, msg *messaging.JupyterMessage) error
@@ -867,6 +877,51 @@ func (km *Manager) forwardResponseFromKernel(from scheduling.KernelReplicaInfo, 
 	return km.responseForwarder.ForwardResponse(from, typ, msg)
 }
 
+// cleanUpBeforeForwardingExecuteReply is called when forwarding an "execute_reply" message back to the client.
+//
+// cleanUpBeforeForwardingExecuteReply performs any necessary "clean up" steps. The steps that are required ultimately
+// depend upon the configured scheduling.Policy.
+//
+// For example, scheduling.Policy instances in which the scheduling.ContainerLifetime is scheduling.SingleTrainingEvent
+// will either terminate the scheduling.KernelContainer instance(s) or return them to the warm container pool.
+func (km *Manager) cleanUpBeforeForwardingExecuteReply(from router.Info, execReplyMsg *messaging.JupyterMessage) {
+	// If the scheduling policy isn't a single-training-event policy, then we can just return immediately.
+	if km.cluster.Scheduler().Policy().ContainerLifetime() != scheduling.SingleTrainingEvent {
+		return
+	}
+
+	// Attempt to load the kernel. If we do, and we find that the kernel has no replicas and the message is designated
+	// as being a failed "execute_request" message, then we can just return. There are no replicas to clean up, and
+	// the execution failed.
+	kernel, loaded := km.provider.GetKernels().Load(from.ID())
+	if !loaded {
+		km.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
+		return
+	}
+
+	if kernel.Size() == 0 && execReplyMsg.IsFailedExecuteRequest {
+		return
+	}
+
+	km.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
+
+	if !km.cluster.Scheduler().Policy().ReuseWarmContainers() {
+		_ = km.removeAllReplicasOfKernel(kernel, true, false, false)
+		return
+	}
+
+	// For the "middle ground" policy, we return the kernel's container to the warm container pool.
+	if km.cluster.Scheduler().Policy().ReuseWarmContainers() {
+		km.log.Debug("Reusing warm kernel container.")
+
+		// Send 'reset' request.
+		err := km.resetKernel(kernel, true)
+		if err != nil {
+			km.log.Error("Failed to reset kernel \"%s\": %v", kernel.ID(), err)
+		}
+	}
+}
+
 // updateRequestTraceReplicaId updates the ReplicaId field of the proto.RequestTrace embedded in the given *messaging.JupyterMessage.
 func (km *Manager) updateRequestTraceReplicaId(from scheduling.KernelReplicaInfo, msg *messaging.JupyterMessage) {
 	if !km.requestTracingEnabled {
@@ -1115,4 +1170,363 @@ func (km *Manager) updateStatisticsFromShellExecuteReply(trace *proto.RequestTra
 			statistics.ExecuteRequestTraces = append(statistics.ExecuteRequestTraces, trace)
 		}
 	})
+}
+
+// resetKernel sends a "reset_kernel_request" to the specified kernel. This message instructs the kernel to, at a
+// minimum, completely wipe its user namespace, removing all user-defined data/variables.
+//
+// The "reset_kernel_request" may also instruct the kernel replica to revert to a scheduling.PrewarmContainer (or to
+// become a scheduling.PrewarmContainer, if it had never been one before).
+func (km *Manager) resetKernel(kernel scheduling.Kernel, revertToPrewarm bool) error {
+	km.log.Debug("Preparing to send \"%s\" to kernel \"%s\" with revertToPrewarm=%v.",
+		messaging.ControlResetKernelRequest, kernel.ID(), revertToPrewarm)
+
+	msgId := uuid.NewString()
+	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messaging.ControlResetKernelRequest, kernel.ID())
+
+	content := map[string]interface{}{
+		"revert_to_prewarm": revertToPrewarm,
+	}
+
+	err := frames.EncodeContent(&content)
+	if err != nil {
+		km.log.Error("Failed to encode content of IOPub status message for kernel \"%s\": %v", kernel.ID(), err)
+		return err
+	}
+
+	var msg zmq4.Msg
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	if err != nil {
+		km.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
+			kernel.ID(), kernel.ConnectionInfo().SignatureScheme, err)
+		return jupyter.ErrFailedToVerifyMessage
+	}
+
+	respChan := make(chan *resetKernelReply, km.cluster.Scheduler().Policy().NumReplicas())
+	startTime := time.Now()
+	numRepliesReceived := atomic.Int32{}
+
+	responseHandler := func(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+		latestNumRepliesReceived := numRepliesReceived.Add(1)
+
+		// Notify that all replies have been received.
+		km.log.Debug("Received %s \"%s\" from %s for message \"%s\". Received %d/%d replies. Time elapsed: %v.",
+			typ.String(), messaging.ControlResetKernelReply, from.String(), msgId, latestNumRepliesReceived, kernel.Size(),
+			time.Since(startTime))
+
+		var replica scheduling.KernelReplica
+
+		id := from.ReplicaID()
+		if id >= 1 {
+			replica, _ = kernel.GetReplicaByID(id)
+		}
+
+		resp := &resetKernelReply{
+			KernelReplica: replica,
+			Reply:         msg,
+		}
+
+		respChan <- resp
+
+		return nil
+	}
+
+	jMsg := messaging.NewJupyterMessage(&msg)
+	msgTyp := messaging.ControlMessage
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	err = kernel.RequestWithHandler(ctx, "Forwarding", msgTyp, jMsg, responseHandler, nil)
+	if err != nil {
+		km.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v",
+			msgTyp.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
+		return err
+	}
+
+	replies := make([]*resetKernelReply, 0, kernel.Size())
+	for numRepliesReceived.Load() < int32(km.cluster.Scheduler().Policy().NumReplicas()) {
+		select {
+		case <-ctx.Done():
+			{
+				ctxError := ctx.Err()
+
+				nRepliesReceived := numRepliesReceived.Load()
+
+				var errorMessage string
+				if ctxError != nil {
+					errorMessage = fmt.Sprintf("%v '%s' request for kernel '%s' failed after receiving %d/%d replies: %v",
+						msgTyp.String(), jMsg.JupyterMessageId(), kernel.ID(), nRepliesReceived, kernel.Size(), ctxError)
+				} else {
+					errorMessage = fmt.Sprintf("%v '%s' request for kernel '%s' timed-out after receiving %d/%d replies.",
+						msgTyp.String(), jMsg.JupyterMessageId(), kernel.ID(), nRepliesReceived, kernel.Size())
+				}
+				km.log.Error(errorMessage)
+
+				err = types.ErrRequestTimedOut
+
+				// If we received any replies, then we'll process the ones that we did receive.
+				if len(replies) > 0 {
+					processReplyErr := km.processResetKernelReplies(kernel, replies)
+					if processReplyErr != nil {
+						km.log.Error("Error while processing the %d reply/replies we did receive while resetting kernel \"%s\": %v",
+							nRepliesReceived, kernel.ID(), processReplyErr)
+						err = errors.Join(err, processReplyErr)
+					}
+				}
+
+				return err
+			}
+		case resp := <-respChan:
+			{
+				replies = append(replies, resp)
+			}
+		}
+	}
+
+	return km.processResetKernelReplies(kernel, replies)
+}
+
+// removeAllReplicasOfKernel is used to de-schedule the replicas of the given kernel without removing the kernel itself.
+//
+// This does not remove the kernel itself.
+func (km *Manager) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparateGoroutine bool,
+	isIdleReclaim bool, noop bool) error {
+
+	var (
+		startedRemoving   bool
+		descheduleAttempt scheduling.RemoveReplicaContainersAttempt
+	)
+
+	// We'll keep executing this loop as long as the replicas of the target kernel are not removed.
+	// We break from the loop internally if (a) we claim ownership over a container removal descheduleAttempt, in which
+	// case we  break out so that we can orchestrate the container removal descheduleAttempt, or (b) if we find that the
+	// replicas are in fact removed. This may occur if, for example, a previous descheduleAttempt concludes.
+	for {
+		// Try to start a new descheduleAttempt at scheduling the replica container(s) of this kernel.
+		startedRemoving, descheduleAttempt = kernel.InitRemoveReplicaContainersOperation()
+
+		// If we started a new descheduleAttempt, then we'll break out of the loop and orchestrate the removal of the
+		// containers of the replicas of the target kernel.
+		if startedRemoving {
+			km.log.Debug(
+				utils.LightBlueStyle.Render(
+					"Started 'descheduling' attempt to remove %d replica container(s) for kernel \"%s\"."),
+				km.cluster.Scheduler().Policy().NumReplicas(), kernel.ID())
+			break
+		}
+
+		// We didn't start a new removal descheduleAttempt.
+		// If the returned descheduleAttempt is also nil, then that means that there was also not an active
+		// descheduleAttempt. So, the replicas are apparently already removed.
+		if descheduleAttempt == nil {
+			km.log.Debug("Tried to start descheduleAttempt to remove replica container(s) for kernel \"%s\", "+
+				"but apparently they're already removed.", kernel.ID())
+
+			// Double-check that the kernel's replicas are removed. If they are, then we'll just return entirely.
+			kernelSize := kernel.Size()
+			if kernelSize == 0 {
+				return nil
+			}
+
+			// This would be truly bizarre, but if this occurs, then we'll just sleep briefly and then try again...
+			km.log.Error("Thought kernel \"%s\" was fully descheduled, but kernel has %d replica(s).",
+				kernel.ID(), kernelSize)
+
+			time.Sleep(time.Millisecond * (5 + time.Duration(rand.Intn(25))))
+			continue
+		}
+
+		// If we did not start a new descheduleAttempt, then a previous descheduleAttempt must still be active.
+		// We'll just wait for the descheduleAttempt to conclude.
+		// If the scheduling is successful, then this will eventually return nil.
+		// If the context passed to scheduleReplicas has a time-out, and we time out, then this will return an error.
+		km.log.Debug("Found existing 'create replica containers' operation for kernel %s that began %v ago. "+
+			"Waiting for operation to complete.", kernel.ID(), descheduleAttempt.TimeElapsed())
+
+		return km.waitForDeschedulingToEnd(kernel, descheduleAttempt)
+	}
+
+	// doRemoveReplicas removes the kernel's replicas and returns an error if one occurs.
+	doRemoveReplicas := func() error {
+		err := kernel.RemoveAllReplicas(km.cluster.Placer().Reclaim, noop, isIdleReclaim)
+		if err != nil {
+			km.log.Error("Failed to remove all replicas of kernel \"%s\" because: %v", kernel.ID(), err)
+		}
+
+		setDoneErr := descheduleAttempt.SetDone(err /* will be nil on success */)
+		if setDoneErr != nil {
+			km.log.Error("Error while calling SetDone on deschedule attempt for kernel \"%s\": %v",
+				kernel.ID(), setDoneErr)
+		}
+
+		return err // Will be nil on success.
+	}
+
+	// Spawn a separate goroutine to execute the doRemoveReplicas function if we've been instructed to do so.
+	if inSeparateGoroutine {
+		go func() {
+			// RemoveHost the replicas.
+			_ = doRemoveReplicas()
+		}()
+
+		return nil
+	}
+
+	// RemoveHost the replicas.
+	err := doRemoveReplicas()
+
+	// This will be nil if de-schedule was successful,
+	// or if the caller specified that we should use a separate goroutine for the replica removal.
+	if err != nil {
+		go km.notifier.NotifyDashboardOfError(fmt.Sprintf("Failed to RemoveHost One or More Replicas of kernel \"%s\"",
+			kernel.ID()), err.Error())
+
+		return err
+	}
+
+	return nil
+}
+
+// waitForDeschedulingToEnd is called while handling an "execute_request" if it is found that there is a "descheduling
+// attempt" in progress for the target scheduling.Kernel.
+//
+// waitForDeschedulingToEnd first checks if the attempt has finished. If so, then waitForDeschedulingToEnd will simply
+// delete the record of it and return.
+//
+// If the attempt is not finished, then waitForDeschedulingToEnd will wait for (as of the time of writing this
+// comment) 7.5 minutes. If after 6 minutes, the attempt has not completed, then waitForDeschedulingToEnd will return
+// an error.
+//
+// It's possible that there is simply a large network I/O occurring or something like that, so the fact that the attempt
+// has not resolved is not necessarily indicative that something is wrong.
+func (km *Manager) waitForDeschedulingToEnd(kernel scheduling.Kernel, removalAttempt scheduling.RemoveReplicaContainersAttempt) error {
+	// If the removal attempt is nil, then there is nothing to wait for.
+	if removalAttempt == nil {
+		km.log.Debug("Nil removal attempt passed for kernel \"%s\". Nothing to wait for.", kernel.ID())
+		return nil
+	}
+
+	// First, check if this attempt has finished. If so, then we'll simply delete the record of it and return.
+	if removalAttempt.IsComplete() {
+		return nil
+	}
+
+	km.log.Debug("Target kernel \"%s\" is being descheduled as of %v ago.",
+		kernel.ID(), removalAttempt.TimeElapsed())
+
+	startTime := time.Now()
+
+	// We do this in a loop so we can incrementally print warning messages after we've been waiting for a while,
+	// in the event that the descheduling operation does not resolve quickly.
+	for i := 0; i < 3; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*150 /* 2.5 minutes */)
+
+		// Wait for the replicas to finish being descheduled.
+		err := removalAttempt.Wait(ctx)
+		cancel()
+
+		// No error means that the descheduling attempt concluded successfully.
+		if err == nil {
+			km.log.Debug("Descheduling complete for kernel \"%s\". Waited: %v. Time to reschedule.",
+				kernel.ID(), time.Since(startTime))
+			return nil
+		}
+
+		// Not necessarily an error. Context timeout is set to a low value so that we can incrementally print
+		// warning messages after we've been waiting for a while, in the event that the descheduling operation
+		// does not resolve quickly.
+		km.log.Warn("Awaiting the completion of replica descheduling for kernel \"%s\". Time elapsed: %v.",
+			kernel.ID(), time.Since(startTime))
+
+		// But if the error is NOT a context.DeadlineExceeded error, then something went wrong.
+		if !errors.Is(err, context.DeadlineExceeded) {
+			// TODO: How to handle?
+			km.log.Error("Attempt to remove replicas of kernel %s resulted in an error: %v",
+				kernel.ID(), err)
+
+			errorTitle := fmt.Sprintf("Failed to RemoveHost Replicas of Kernel \"%s\"", kernel.ID())
+			go km.notifier.NotifyDashboardOfError(errorTitle, err.Error())
+
+			return err
+		}
+	}
+
+	return fmt.Errorf("%w: kernel \"%s\" has been stuck in a state of being de-scheduled for %v",
+		ErrKernelNotReady, kernel.ID(), time.Since(removalAttempt.StartedAt()))
+}
+
+// processResetKernelReplies is called by resetKernel to process the replies send by the kernel replicas.
+func (km *Manager) processResetKernelReplies(kernel scheduling.Kernel, replies []*resetKernelReply) error {
+	prewarmer := km.cluster.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		km.log.Warn("Container Prewarmer is nil...")
+		return nil
+	}
+
+	// First, remove the replicas from the kernel.
+	_ = km.removeAllReplicasOfKernel(kernel, true, false, true)
+
+	errs := make([]error, 0, len(replies))
+	for _, reply := range replies {
+		msg := reply.Reply
+		replica := reply.KernelReplica
+
+		host := replica.Host()
+		if host == nil {
+			km.log.Error("Replica %d of kernel \"%s\" has a nil Host...", replica.ReplicaID(), replica.ID())
+			errs = append(errs, scheduling.ErrNilHost)
+			continue
+		}
+
+		var content map[string]interface{}
+		err := msg.JupyterFrames.DecodeContent(&content)
+		if err != nil {
+			km.log.Error("Failed to decode content of \"%s\" message from replica %d of kernel \"%s\": %v",
+				msg.JupyterMessageType(), replica.ReplicaID(), replica.ID(), err)
+			errs = append(errs, err)
+			continue
+		}
+
+		var kernelId string
+		val, loaded := content["kernel_id"]
+		if loaded {
+			kernelId = val.(string)
+		} else {
+			kernelId = replica.ID()
+		}
+
+		kernelReplicaSpec := replica.KernelReplicaSpec().Clone()
+		kernelReplicaSpec.Kernel.Id = kernelId
+
+		prewarmedContainer := prewarm.NewPrewarmedContainerBuilder().
+			WithHost(host).
+			WithKernelConnectionInfo(jupyter.KernelConnectionInfoFromJupyterConnectionInfo(replica.ConnectionInfo())).
+			WithKernelReplicaSpec(kernelReplicaSpec).
+			WithPrewarmedContainerUsedCallback(nil).
+			Build()
+
+		err = prewarmer.ReturnPrewarmContainer(prewarmedContainer)
+		if err != nil {
+			km.log.Error("Failed to return container to pre-warm pool after resetting: %v.", err)
+			errs = append(errs, err)
+		}
+
+		err = replica.Close()
+		if err != nil {
+			km.log.Error("Failed to close replica %d of kernel \"%s\" after demoting it to a %v container: %v",
+				replica.ReplicaID(), replica.ID(), scheduling.PrewarmContainer, err)
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) == 1 {
+		return errs[0]
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
