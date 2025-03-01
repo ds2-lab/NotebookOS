@@ -464,6 +464,12 @@ func (h *Host) Compare(h2 interface{}) float64 {
 			return diff
 		}
 
+		// Compare pending GPUs.
+		ret = h2.(scheduling.Host).PendingGPUs() - h.PendingGPUs()
+		if ret != 0.0 {
+			return ret
+		}
+
 		// For otherwise equal hosts, compare their IDs for stable ordering
 		return float64(strings.Compare(h.ID, host2.GetID()))
 	default:
@@ -477,6 +483,12 @@ func (h *Host) Compare(h2 interface{}) float64 {
 		diff := h.subscribedRatio.Sub(h2.(scheduling.Host).SubscribedRatioAsDecimal()).InexactFloat64()
 		if diff != 0 {
 			return diff
+		}
+
+		// Compare pending GPUs.
+		ret := h.PendingGPUs() - h2.(scheduling.Host).PendingGPUs()
+		if ret != 0.0 {
+			return ret
 		}
 
 		// For otherwise equal hosts, compare their IDs for stable ordering
@@ -776,8 +788,14 @@ func (h *Host) reserveResources(replicaId int32, kernelId string, resourceReques
 	h.log.Debug("Creating resource reservation for new replica %d of kernel \"%s\". UsePending=%v. Request=%s. Current resources on host: %v.",
 		replicaId, kernelId, usePending, resourceRequest.String(), h.GetResourceCountsAsString())
 
-	if h.WillBecomeTooOversubscribed(resourceRequest) {
+	if !usePending && !h.CanCommitResources(resourceRequest) {
 		h.log.Debug("Cannot commit resources for a replica of kernel %s; insufficient idle resources available.",
+			kernelId)
+		return scheduling.ErrInsufficientIdleResourcesAvailable
+	}
+
+	if h.WillBecomeTooOversubscribed(resourceRequest) {
+		h.log.Debug("Cannot commit resources for a replica of kernel %s; host will become too oversubscribed.",
 			kernelId)
 		return ErrWillOversubscribe
 	}

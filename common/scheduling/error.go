@@ -11,6 +11,7 @@ var (
 	ErrUnsupportedOperation                = errors.New("the requested operation is not supported")
 	ErrInvalidTargetNumHosts               = status.Error(codes.InvalidArgument, "requested operation would result in an invalid or illegal number of nodes")
 	ErrInsufficientHostsAvailable          = status.Error(codes.Internal, "insufficient hosts available")
+	ErrInsufficientIdleResourcesAvailable  = status.Error(codes.Internal, "insufficient idle resources available")
 	ErrHostNotFound                        = status.Error(codes.Internal, "host not found")
 	ErrReplicaNotFound                     = fmt.Errorf("replica not found")
 	ErrResourcesAlreadyCommitted           = errors.New("cannot pre-commit resources to specified kernel replica as resources are already (fully) committed")

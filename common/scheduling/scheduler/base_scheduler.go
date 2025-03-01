@@ -419,6 +419,33 @@ func (s *BaseScheduler) FindReadyContainer(_ scheduling.UserSession) scheduling.
 // UpdateIndex is used to update a Host's position in its index.
 // It also updates the "idle hosts" heap.
 func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
+	s.validate()
+
+	old := s.loadPool(host)
+	target, t := s.getPool(host)
+
+	var meta types.HeapElementMetadataKey
+	if old == s.oversubscribed {
+		meta = OversubscribedIndexKey
+	} else {
+		meta = UndersubscribedIndexKey
+	}
+
+	if old == target {
+		s.log.Debug("Updating host %v(%v of %d) in %v(%d)",
+			host.GetNodeName(), host.GetMeta(meta), old.Len(), host.SchedulerPoolType())
+
+		heap.Fix(old, host.GetMeta(meta).(int))
+	} else {
+
+		s.log.Debug("Moving host %v(%d of %d) from %v(%d) to %v(%d)",
+			host.GetNodeName(), host.GetMeta(meta), old.Len(), host.SchedulerPoolType())
+
+		heap.Remove(old, host.GetMeta(meta).(int))
+
+		s.moveToPool(host, target, t)
+	}
+
 	heap.Fix(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
 
 	s.placer.UpdateIndex(host)
@@ -762,6 +789,13 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 		if host != nil {
 			s.log.Debug("Found viable host for replica %d of kernel %s: host %s",
 				replicaSpec.ReplicaID(), replicaSpec.ID(), host.GetNodeName())
+
+			err := s.UpdateIndex(host)
+			if err != nil {
+				s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
+					host.GetNodeName(), host.GetID(), err)
+			}
+
 			return host, nil
 		}
 
@@ -826,11 +860,40 @@ func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
 func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
 	s.instance.HostRemoved(host)
+
+	s.validate()
+	old := s.loadPool(host)
+
+	var meta types.HeapElementMetadataKey
+	if old == s.oversubscribed {
+		meta = OversubscribedIndexKey
+	} else {
+		meta = UndersubscribedIndexKey
+	}
+
+	s.log.Trace("Removing host %v(%v of %d) from %v",
+		host.GetNodeName(), host.GetMeta(meta), old.Len(), host.SchedulerPoolType())
+
+	heap.Remove(old, host.GetMeta(meta).(int))
 }
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *BaseScheduler) HostAdded(host scheduling.Host) {
 	s.instance.HostAdded(host)
+
+	s.validate()
+	target, t := s.getPool(host)
+	s.moveToPool(host, target, t)
+
+	s.log.Trace("Added host %s (%v of %d) to %v",
+		host.GetNodeName(), host.GetMeta(OversubscribedIndexKey), target.Len(), t)
+}
+
+func (s *BaseScheduler) moveToPool(host scheduling.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
+	host.SetSchedulerPoolType(t)
+	s.log.Debug("Moving host %s to pool with type %d. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
+		host.GetNodeName(), t, host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+	heap.Push(pool, host)
 }
 
 // SetLastCapacityValidation is used to record that a capacity validation has occurred.
@@ -853,14 +916,14 @@ func (s *BaseScheduler) designateSubscriptionPoolType(host scheduling.Host, pool
 func (s *BaseScheduler) validate() {
 	if s.invalidated > InvalidationThreshold {
 		// StaticPlacerMaxSubscribedRatio increase, release oversubscribed hosts to under-subscribed hosts.
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
-				s.lastSubscribedRatio, s.pendingSubscribedRatio)
-		}
+		s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
+			s.lastSubscribedRatio, s.pendingSubscribedRatio)
 
 		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(scheduling.Host).OversubscriptionFactor().LessThan(decimal.Zero) {
 			host := s.oversubscribed.Peek()
 			heap.Pop(s.oversubscribed)
+
+			s.log.Debug("Designating host %s as 'undersubscribed'", host.(scheduling.Host).GetNodeName())
 			s.designateSubscriptionPoolType(host.(scheduling.Host), s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
 		}
 
@@ -869,6 +932,23 @@ func (s *BaseScheduler) validate() {
 	} else if s.invalidated < (-1 * InvalidationThreshold) {
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
 		s.invalidated = 0.0
+	}
+}
+
+func (s *BaseScheduler) getPool(host scheduling.Host) (heap.Interface, scheduling.SchedulerPoolType) {
+	if host.OversubscriptionFactor().GreaterThan(decimal.Zero) {
+		return s.oversubscribed, scheduling.SchedulerPoolTypeOversubscribed
+	} else {
+		return s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed
+	}
+}
+
+func (s *BaseScheduler) loadPool(host scheduling.Host) heap.Interface {
+	switch host.SchedulerPoolType() {
+	case scheduling.SchedulerPoolTypeUndersubscribed:
+		return s.undersubscribed
+	default:
+		return s.oversubscribed
 	}
 }
 
@@ -1527,7 +1607,22 @@ func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (sch
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
 func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
-	return s.schedulingPolicy.FindReadyReplica(kernel, executionId)
+	replica, err := s.schedulingPolicy.FindReadyReplica(kernel, executionId)
+
+	if replica != nil && err == nil {
+		host := replica.Host()
+
+		if host != nil {
+			updateIndexErr := s.UpdateIndex(host)
+
+			if updateIndexErr != nil {
+				s.log.Error("Error while attempting to update index of host %s of replica %d of kernel \"%s\": %v",
+					host.GetNodeName(), replica.ReplicaID(), replica.ID(), err)
+			}
+		}
+	}
+
+	return replica, err
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
@@ -1550,9 +1645,29 @@ func (s *BaseScheduler) postScheduleKernelReplica(kernelId string, addReplicaOp 
 //
 // Important: selectViableHostForReplica will reserve resources on the Host.
 func (s *BaseScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
-	return s.instance.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining)
+	host, err := s.instance.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining)
+
+	if host != nil && err == nil {
+		updateIndexErr := s.UpdateIndex(host)
+
+		if updateIndexErr != nil {
+			s.log.Error("Error while attempting to update index of host %s: %v",
+				host.GetNodeName(), err)
+		}
+	}
+
+	return host, err
 }
 
-func (s *BaseScheduler) ScheduleKernelReplica(ctx context.Context, args *scheduling.ScheduleReplicaArgs) (err error) {
-	return s.instance.ScheduleKernelReplica(ctx, args)
+func (s *BaseScheduler) ScheduleKernelReplica(ctx context.Context, args *scheduling.ScheduleReplicaArgs) error {
+	err := s.instance.ScheduleKernelReplica(ctx, args)
+
+	if err == nil && args.TargetHost != nil {
+		updateIndexErr := s.UpdateIndex(args.TargetHost)
+
+		if updateIndexErr != nil {
+			s.log.Error("Error while attempting to update index of host %s: %v",
+				args.TargetHost.GetNodeName(), err)
+		}
+	}
 }

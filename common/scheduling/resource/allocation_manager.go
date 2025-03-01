@@ -1515,6 +1515,12 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 			ErrInvalidAllocationRequest, kernelId)
 	}
 
+	if !usePending && !m.unsafeCanCommitResources(spec) {
+		m.log.Debug("Cannot create committed reservation for replica of kernel %s: insufficient idle resources available",
+			kernelId)
+		return scheduling.ErrInsufficientIdleResourcesAvailable
+	}
+
 	// Construct the new Allocation using the resource quantities specified in the spec argument.
 	allocation = NewResourceAllocationBuilder().
 		WithAllocationType(allocationType).
@@ -1879,7 +1885,11 @@ func (m *AllocationManager) CanCommitResources(resourceRequest types.Spec) bool 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
+	return m.unsafeCanCommitResources(resourceRequest)
+}
+
+func (m *AllocationManager) unsafeCanCommitResources(resourceRequest types.Spec) bool {
+	return m.resourceManager.IdleResources().Validate(resourceRequest)
 }
 
 // CurrentResourcesToString returns all the current resource counts of the AllocationManager as a string and is
