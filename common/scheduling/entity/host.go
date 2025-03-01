@@ -750,8 +750,11 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 // returning a boolean flag indicating whether the resource reservation was completed successfully.
 //
 // If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
-func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
-	err := h.reserveResources(replicaSpec.ReplicaId, replicaSpec.Kernel.Id, replicaSpec.ResourceSpec().ToDecimalSpec(), usePendingResources)
+func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool, ignoreOversubscriptionRisk bool) (bool, error) {
+
+	err := h.reserveResources(replicaSpec.ReplicaId, replicaSpec.Kernel.Id, replicaSpec.ResourceSpec().ToDecimalSpec(),
+		usePendingResources, ignoreOversubscriptionRisk)
+
 	if err != nil {
 		return false, err
 	}
@@ -764,7 +767,9 @@ func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelRepli
 //
 // If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error) {
-	err := h.reserveResources(resource.ReplicaIdForReservation, spec.Id, spec.ResourceSpec.ToDecimalSpec(), usePendingResources)
+	err := h.reserveResources(resource.ReplicaIdForReservation, spec.Id, spec.ResourceSpec.ToDecimalSpec(),
+		usePendingResources, false)
+
 	if err != nil {
 		return false, err
 	}
@@ -772,7 +777,9 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	return true, nil
 }
 
-func (h *Host) reserveResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec, usePending bool) error {
+func (h *Host) reserveResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec, usePending bool,
+	ignoreOversubscriptionRisk bool) error {
+
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -794,7 +801,7 @@ func (h *Host) reserveResources(replicaId int32, kernelId string, resourceReques
 		return scheduling.ErrInsufficientIdleResourcesAvailable
 	}
 
-	if h.WillBecomeTooOversubscribed(resourceRequest) {
+	if !ignoreOversubscriptionRisk && h.WillBecomeTooOversubscribed(resourceRequest) {
 		h.log.Debug("Cannot commit resources for a replica of kernel %s; host will become too oversubscribed.",
 			kernelId)
 		return ErrWillOversubscribe

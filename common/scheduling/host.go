@@ -101,7 +101,7 @@ type Host interface {
 	// returning a boolean flag indicating whether the resource reservation was completed successfully.
 	//
 	// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
-	ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error)
+	ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool, ignoreOversubscriptionRisk bool) (bool, error)
 
 	// PreCommitResources pre-commits resources to the given KernelContainer.
 	//

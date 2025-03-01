@@ -17,7 +17,8 @@ type internalPlacer interface {
 
 	// findHost returns a host that can satisfy the resourceSpec.
 	// This is the Placer-implementation-specific logic of the Placer.FindHost method.
-	findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool, metrics ...[]float64) (scheduling.Host, error)
+	findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
+		ignoreOversubscriptionRisk bool, metrics ...[]float64) (scheduling.Host, error)
 
 	// findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
 	// on each Host until either the requested number of Host instances has been found, or until all Host

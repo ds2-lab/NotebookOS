@@ -566,8 +566,24 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 //
 // PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
 // on which the resources are to be reserved.
-func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
-	return s.placer.ReserveResourcesForReplica(kernel, replica, commitResources)
+func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool,
+	ignoreOversubscriptionRisk bool) error {
+
+	err := s.placer.ReserveResourcesForReplica(kernel, replica, commitResources, ignoreOversubscriptionRisk)
+
+	if err != nil {
+		host := replica.Host()
+
+		if host != nil {
+			updateIndexErr := s.UpdateIndex(host)
+
+			if updateIndexErr != nil {
+				s.log.Error("Error updating index of host %s (ID=%s): %v")
+			}
+		}
+	}
+
+	return err
 }
 
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
@@ -783,9 +799,13 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 		blacklistedHosts = make([]scheduling.Host, 0)
 	}
 
+	ignoreOversubscriptionRisk := false
+
 	// We'll try a few times if we keep scaling-out successfully but somehow manage to fail again and again.
 	for numTries < 5 {
-		host, failureReason = s.instance.selectViableHostForReplica(replicaSpec.KernelReplicaSpec(), blacklistedHosts, forTraining)
+		host, failureReason = s.instance.selectViableHostForReplica(replicaSpec.KernelReplicaSpec(), blacklistedHosts,
+			forTraining, ignoreOversubscriptionRisk)
+
 		if host != nil {
 			s.log.Debug("Found viable host for replica %d of kernel %s: host %s",
 				replicaSpec.ReplicaID(), replicaSpec.ID(), host.GetNodeName())
@@ -825,6 +845,17 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 			if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(err, scheduling.ErrUnsupportedOperation) {
 				s.log.Warn("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
 					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+
+				// We failed to scale out because we CAN'T scale-out.
+				// Let's try one more time, this time ignoring the risk of over-subscribing the hosts, because
+				// we literally have no other options, and there may be some hosts with idle GPUs available
+				// that we skipped over because we didn't want to oversubscribe them too much.
+				if errors.Is(err, scheduling.ErrUnsupportedOperation) && !ignoreOversubscriptionRisk {
+					// Try again, this time ignoring the risk of oversubscribing the host(s).
+					ignoreOversubscriptionRisk = true
+					numTries += 1
+					continue
+				}
 			} else {
 				s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
 					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
@@ -1650,8 +1681,10 @@ func (s *BaseScheduler) postScheduleKernelReplica(kernelId string, addReplicaOp 
 // selectViableHostForReplica is most often called for kernels that need to begin training immediately.
 //
 // Important: selectViableHostForReplica will reserve resources on the Host.
-func (s *BaseScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
-	host, err := s.instance.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining)
+func (s *BaseScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host,
+	forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
+
+	host, err := s.instance.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining, ignoreOversubscriptionRisk)
 
 	if host != nil && err == nil {
 		updateIndexErr := s.UpdateIndex(host)

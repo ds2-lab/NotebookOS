@@ -1123,17 +1123,17 @@ func (mr *MockSchedulerMockRecorder) RequestNewHost() *gomock.Call {
 }
 
 // ReserveResourcesForReplica mocks base method.
-func (m *MockScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+func (m *MockScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources, ignoreOversubscriptionRisk bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReserveResourcesForReplica", kernel, replica, commitResources)
+	ret := m.ctrl.Call(m, "ReserveResourcesForReplica", kernel, replica, commitResources, ignoreOversubscriptionRisk)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReserveResourcesForReplica indicates an expected call of ReserveResourcesForReplica.
-func (mr *MockSchedulerMockRecorder) ReserveResourcesForReplica(kernel, replica, commitResources any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) ReserveResourcesForReplica(kernel, replica, commitResources, ignoreOversubscriptionRisk any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForReplica", reflect.TypeOf((*MockScheduler)(nil).ReserveResourcesForReplica), kernel, replica, commitResources)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForReplica", reflect.TypeOf((*MockScheduler)(nil).ReserveResourcesForReplica), kernel, replica, commitResources, ignoreOversubscriptionRisk)
 }
 
 // ScheduleKernelReplica mocks base method.
@@ -1860,18 +1860,18 @@ func (m *MockPlacer) EXPECT() *MockPlacerMockRecorder {
 }
 
 // FindHost mocks base method.
-func (m *MockPlacer) FindHost(blacklist []any, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (scheduling.Host, error) {
+func (m *MockPlacer) FindHost(blacklist []any, replicaSpec *proto.KernelReplicaSpec, forTraining, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindHost", blacklist, replicaSpec, forTraining)
+	ret := m.ctrl.Call(m, "FindHost", blacklist, replicaSpec, forTraining, ignoreOversubscriptionRisk)
 	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindHost indicates an expected call of FindHost.
-func (mr *MockPlacerMockRecorder) FindHost(blacklist, replicaSpec, forTraining any) *gomock.Call {
+func (mr *MockPlacerMockRecorder) FindHost(blacklist, replicaSpec, forTraining, ignoreOversubscriptionRisk any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, replicaSpec, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, replicaSpec, forTraining, ignoreOversubscriptionRisk)
 }
 
 // FindHosts mocks base method.
@@ -1947,17 +1947,17 @@ func (mr *MockPlacerMockRecorder) Reclaim(host, sess, noop any) *gomock.Call {
 }
 
 // ReserveResourcesForReplica mocks base method.
-func (m *MockPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+func (m *MockPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources, ignoreOversubscriptionRisk bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReserveResourcesForReplica", kernel, replica, commitResources)
+	ret := m.ctrl.Call(m, "ReserveResourcesForReplica", kernel, replica, commitResources, ignoreOversubscriptionRisk)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReserveResourcesForReplica indicates an expected call of ReserveResourcesForReplica.
-func (mr *MockPlacerMockRecorder) ReserveResourcesForReplica(kernel, replica, commitResources any) *gomock.Call {
+func (mr *MockPlacerMockRecorder) ReserveResourcesForReplica(kernel, replica, commitResources, ignoreOversubscriptionRisk any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForReplica", reflect.TypeOf((*MockPlacer)(nil).ReserveResourcesForReplica), kernel, replica, commitResources)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForReplica", reflect.TypeOf((*MockPlacer)(nil).ReserveResourcesForReplica), kernel, replica, commitResources, ignoreOversubscriptionRisk)
 }
 
 // UpdateIndex mocks base method.
@@ -3272,18 +3272,18 @@ func (mr *MockHostMockRecorder) ReserveResources(spec, usePendingResources any) 
 }
 
 // ReserveResourcesForSpecificReplica mocks base method.
-func (m *MockHost) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
+func (m *MockHost) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources, ignoreOversubscriptionRisk bool) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReserveResourcesForSpecificReplica", replicaSpec, usePendingResources)
+	ret := m.ctrl.Call(m, "ReserveResourcesForSpecificReplica", replicaSpec, usePendingResources, ignoreOversubscriptionRisk)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ReserveResourcesForSpecificReplica indicates an expected call of ReserveResourcesForSpecificReplica.
-func (mr *MockHostMockRecorder) ReserveResourcesForSpecificReplica(replicaSpec, usePendingResources any) *gomock.Call {
+func (mr *MockHostMockRecorder) ReserveResourcesForSpecificReplica(replicaSpec, usePendingResources, ignoreOversubscriptionRisk any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForSpecificReplica", reflect.TypeOf((*MockHost)(nil).ReserveResourcesForSpecificReplica), replicaSpec, usePendingResources)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForSpecificReplica", reflect.TypeOf((*MockHost)(nil).ReserveResourcesForSpecificReplica), replicaSpec, usePendingResources, ignoreOversubscriptionRisk)
 }
 
 // ResourceSpec mocks base method.
@@ -5076,18 +5076,18 @@ func (mr *MockUnitTestingHostMockRecorder) ReserveResources(spec, usePendingReso
 }
 
 // ReserveResourcesForSpecificReplica mocks base method.
-func (m *MockUnitTestingHost) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
+func (m *MockUnitTestingHost) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources, ignoreOversubscriptionRisk bool) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReserveResourcesForSpecificReplica", replicaSpec, usePendingResources)
+	ret := m.ctrl.Call(m, "ReserveResourcesForSpecificReplica", replicaSpec, usePendingResources, ignoreOversubscriptionRisk)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ReserveResourcesForSpecificReplica indicates an expected call of ReserveResourcesForSpecificReplica.
-func (mr *MockUnitTestingHostMockRecorder) ReserveResourcesForSpecificReplica(replicaSpec, usePendingResources any) *gomock.Call {
+func (mr *MockUnitTestingHostMockRecorder) ReserveResourcesForSpecificReplica(replicaSpec, usePendingResources, ignoreOversubscriptionRisk any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForSpecificReplica", reflect.TypeOf((*MockUnitTestingHost)(nil).ReserveResourcesForSpecificReplica), replicaSpec, usePendingResources)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForSpecificReplica", reflect.TypeOf((*MockUnitTestingHost)(nil).ReserveResourcesForSpecificReplica), replicaSpec, usePendingResources, ignoreOversubscriptionRisk)
 }
 
 // ResourceSpec mocks base method.
@@ -6792,6 +6792,20 @@ func (m *MockKernel) InitializeShellForwarder(handler scheduling.KernelMessageHa
 func (mr *MockKernelMockRecorder) InitializeShellForwarder(handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitializeShellForwarder", reflect.TypeOf((*MockKernel)(nil).InitializeShellForwarder), handler)
+}
+
+// IsActivelyMigratingAnyReplica mocks base method.
+func (m *MockKernel) IsActivelyMigratingAnyReplica() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsActivelyMigratingAnyReplica")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsActivelyMigratingAnyReplica indicates an expected call of IsActivelyMigratingAnyReplica.
+func (mr *MockKernelMockRecorder) IsActivelyMigratingAnyReplica() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsActivelyMigratingAnyReplica", reflect.TypeOf((*MockKernel)(nil).IsActivelyMigratingAnyReplica))
 }
 
 // IsActivelyMigratingReplica mocks base method.

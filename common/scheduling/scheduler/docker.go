@@ -115,7 +115,7 @@ func (s *DockerScheduler) setInstance(instance clusterSchedulerInternal) {
 // selectViableHostForReplica searches for a viable host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
 func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec,
-	blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	blacklistedHosts []scheduling.Host, forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
 
 	kernelId := replicaSpec.ID()
 
@@ -140,7 +140,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host)
 	}
 
-	host, err := s.placer.FindHost(blacklist, replicaSpec, forTraining)
+	host, err := s.placer.FindHost(blacklist, replicaSpec, forTraining, ignoreOversubscriptionRisk)
 	if err != nil {
 		s.log.Error("Error while finding host for replica %d of kernel %s: %v",
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)
@@ -245,6 +245,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 	targetHost := args.TargetHost
 	blacklistedHosts := args.BlacklistedHosts
 	forTraining := args.ForTraining
+	ignoreOversubscriptionRisk := args.IgnoreOversubscriptionRisk
 
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
@@ -252,7 +253,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 		s.log.Debug("No target host specified when scheduling replica %d of kernel %s. Searching for one now...",
 			replicaSpec.ReplicaId, kernelId)
 
-		targetHost, err = s.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining)
+		targetHost, err = s.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining, ignoreOversubscriptionRisk)
 		if err != nil {
 			s.log.Warn("Could not find viable targetHost for replica %d of kernel %s: %v",
 				replicaSpec.ReplicaId, kernelId, err)

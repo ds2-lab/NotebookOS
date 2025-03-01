@@ -203,7 +203,7 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
-func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
 	panic("Not implemented")
 }
 

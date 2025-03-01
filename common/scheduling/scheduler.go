@@ -57,6 +57,8 @@ type ScheduleReplicaArgs struct {
 	// on a new Host.
 	ForTraining bool
 
+	IgnoreOversubscriptionRisk bool
+
 	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
 	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
 	// existing KernelReplica.
@@ -101,7 +103,7 @@ type KernelScheduler interface {
 	//
 	// PRECONDITION: The specified KernelReplica should already be scheduled on the Host on which the resources are to
 	// be reserved.
-	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool) error
+	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool, ignoreOversubscriptionRisk bool) error
 
 	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
 	// pre-designated as the leader of a code execution.
