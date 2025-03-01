@@ -34,6 +34,9 @@ class IMDbLargeMovieReview(NLPDataset):
             text_feature_column_name: str = text_feature_column_name,
             simulate_tokenization_overhead: float = 60.0,
             postprocess_tokenized_dataset: Callable[[Any, str], Any] = imdb_postprocess_tokenized_dataset,
+            force_s3_download_tokenized_dataset: bool = True,
+            aws_region:str = "us-east-1",
+            s3_bucket_name:str = "distributed-notebook-public",
             **kwargs
     ):
         model_name = model_name.lower()
@@ -52,10 +55,16 @@ class IMDbLargeMovieReview(NLPDataset):
             max_token_length=max_token_length,
             tokenized_dataset_directory=IMDbLargeMovieReview.get_tokenized_dataset_directory(model_name),
             batch_size=batch_size,
-            force_s3_download=True,
+            force_s3_download_tokenized_dataset=force_s3_download_tokenized_dataset,
             simulate_tokenization_overhead=simulate_tokenization_overhead,
+            aws_region=aws_region,
+            s3_bucket_name=s3_bucket_name,
             **kwargs
         )
+
+    @property
+    def supports_aws_s3_download(self)->bool:
+        return True
 
     @staticmethod
     def category() -> str:

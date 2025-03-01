@@ -49,7 +49,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             batch_size=16,
             aws_region: str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
-            force_s3_download:bool = False,
+            force_s3_download_tokenized_dataset:bool = False,
             simulate_tokenization_overhead: float = 0.0,
             **kwargs
     ):
@@ -76,6 +76,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
             hugging_face_dataset_name=hugging_face_dataset_name,
             hugging_face_dataset_config_name=hugging_face_dataset_config_name,
             model_name=model_name,
+            aws_region=aws_region,
+            s3_bucket_name=s3_bucket_name,
             **kwargs,
         )
 
@@ -92,7 +94,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_padding=token_padding,
             aws_region=aws_region,
             s3_bucket_name=s3_bucket_name,
-            force_s3_download=force_s3_download,
+            force_s3_download=force_s3_download_tokenized_dataset,
             simulate_tokenization_overhead=simulate_tokenization_overhead,
         )
 
@@ -133,11 +135,6 @@ class NLPDataset(HuggingFaceDataset, ABC):
         else:
             self.log.warning(f"Failed to create test loader for dataset '{self.name}'.")
             self._test_loader = None
-
-    @staticmethod
-    @abstractmethod
-    def dataset_shortname()->str:
-        pass
 
     @staticmethod
     @abstractmethod

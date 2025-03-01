@@ -67,18 +67,10 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             image_size: int = 224,  # 224 x 224 for ResNet-18, 299 x 299 for Inception v3.
             aws_region:str = "us-east-1",
             s3_bucket_name:str = "distributed-notebook-public",
-            force_s3_download:bool = True,
             **kwargs
     ):
         assert image_size > 0
         assert batch_size > 0
-
-        if force_s3_download:
-            self.__retrieve_dataset_from_s3(
-                s3_bucket_name = s3_bucket_name,
-                aws_region = aws_region,
-                root_dir = root_dir
-            )
 
         super().__init__(
             root_dir=root_dir,
@@ -87,6 +79,8 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             hugging_face_dataset_name=TinyImageNet.hugging_face_dataset_name,
             hugging_face_dataset_config_name=TinyImageNet.hugging_face_dataset_config_name,
             batch_size=batch_size,
+            aws_region=aws_region,
+            s3_bucket_name=s3_bucket_name,
             **kwargs
         )
 
@@ -114,67 +108,9 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
         self._test_loader = WrappedLoader(self._test_dataset, batch_size=batch_size,
                                           shuffle=False, dataset_name=self.dataset_name())
 
-    def __retrieve_dataset_from_s3(
-            self,
-            root_dir: str = default_root_directory,
-            s3_bucket_name:str = "distributed-notebook-public",
-            aws_region:str = "us-east-1",
-    ):
-        # Check if it already exists.
-        if os.path.exists(root_dir):
-            self.log.debug(f'"{self.dataset_name()}" dataset is already downloaded. '
-                           f'No need to retrieve it from AWS S3.')
-            return
-
-        # Download the dataset, or load it from the cache.
-        self._download_start: float = time.time()
-
-        datasets_directory:str = os.path.expanduser("~/.cache/huggingface/datasets/")
-        extract_path:str = os.path.join(datasets_directory, self.dataset_root_directory)
-
-        filename:str = f"{self.dataset_shortname()}.tar.gz"
-        download_path:str = os.path.join(datasets_directory, filename)
-
-        s3_key:str = f"datasets/{filename}"
-
-        # Ensure the download directory exists
-        os.makedirs(os.path.dirname(download_path), exist_ok=True)
-
-        # Initialize the S3 client
-        s3_client = boto3.client('s3', region_name=aws_region)
-
-        # Download the file from S3
-        self.log.debug(f'Downloading object with key "{s3_key}" from S3 bucket "{s3_bucket_name}"...')
-        download_start: float = time.time()
-
-        s3_client.download_file(s3_bucket_name, s3_key, download_path)
-
-        self.log.debug(f'Downloaded object with key "{s3_key}" from S3 bucket "{s3_bucket_name}" '
-                       f'in {time.time() - download_start:,} seconds.')
-
-        # Extract the tar.gz file
-        self.log.debug(f'Extracting downloaded file "{download_path}" to path "{extract_path}"...')
-        extract_start_time: float = time.time()
-        with tarfile.open(download_path, 'r:gz') as tar:
-            tar.extractall(path=extract_path)
-
-        extract_duration: float = time.time() - extract_start_time
-        self.log.debug(f'Extracted downloaded file "{download_path}" to path '
-                       f'"{extract_path}" in {extract_duration:,} seconds.')
-
-        # Optionally, remove the downloaded tar.gz file after extraction
-        os.remove(download_path)
-        self.log.debug(f'Removed downloaded file "{download_path}".')
-
-        self._download_end: float = time.time()
-        self._download_duration_sec = self._download_end - self._download_start
-
-        self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" "
-                       f"from AWS S3 in {self._download_duration_sec} seconds.")
-
     @property
-    def dataset_root_directory(self)->str:
-        return "zh-plus___tiny-imagenet"
+    def supports_aws_s3_download(self)->bool:
+        return True
 
     @staticmethod
     def category() -> str:
