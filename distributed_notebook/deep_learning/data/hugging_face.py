@@ -66,7 +66,6 @@ class HuggingFaceDataset(CustomDataset, ABC):
         self._download_start: float = time.time()
 
         if self.supports_aws_s3_download and not self._dataset_already_downloaded:
-            #_ = input("\n\nDownload dataset from AWS S3\n\n")
 
             self.retrieve_dataset_from_s3(
                 aws_region = aws_region,
@@ -75,8 +74,6 @@ class HuggingFaceDataset(CustomDataset, ABC):
             )
 
             assert os.path.exists(root_dir)
-
-        #_ = input("\n\nLoad dataset\n\n")
 
         self._dataset = load_dataset(
             path=self._hugging_face_dataset_name,
