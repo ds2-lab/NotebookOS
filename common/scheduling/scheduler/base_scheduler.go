@@ -432,16 +432,17 @@ func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 	}
 
 	if old == target {
-		s.log.Debug("Updating host %v(%v of %d) in %v(%d)",
-			host.GetNodeName(), host.GetMeta(meta), old.Len(), host.SchedulerPoolType())
+		s.log.Debug("Updating host %v(%v of %d) in %v(len=%d)",
+			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len())
 
-		heap.Fix(old, host.GetMeta(meta).(int))
+		heap.Fix(old, host.GetIdx(meta))
 	} else {
 
-		s.log.Debug("Moving host %v(%d of %d) from %v(%d) to %v(%d)",
-			host.GetNodeName(), host.GetMeta(meta), old.Len(), host.SchedulerPoolType())
+		s.log.Debug("Moving host %v(%d of %d) from %v(len=%d) to %v(len=%d)",
+			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len(),
+			t.String(), target.Len())
 
-		heap.Remove(old, host.GetMeta(meta).(int))
+		heap.Remove(old, host.GetIdx(meta))
 
 		s.moveToPool(host, target, t)
 	}
@@ -903,27 +904,36 @@ func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
 	}
 
 	s.log.Trace("Removing host %v(%v of %d) from %v",
-		host.GetNodeName(), host.GetMeta(meta), old.Len(), host.SchedulerPoolType())
+		host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType())
 
-	heap.Remove(old, host.GetMeta(meta).(int))
+	heap.Remove(old, host.GetIdx(meta))
 }
 
-// HostAdded is called by the Cluster when a new Host connects to the Cluster.
-func (s *BaseScheduler) HostAdded(host scheduling.Host) {
-	s.instance.HostAdded(host)
+// baseHostAdded should be called by HostAdded in classes that promote a *BaseScheduler.
+func (s *BaseScheduler) baseHostAdded(host scheduling.Host) {
+	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
+	heap.Push(s.idleHosts, &idleSortedHost{
+		Host: host,
+	})
+	s.log.Debug("Length of idle hosts: %d", s.idleHosts.Len())
 
 	s.validate()
 	target, t := s.getPool(host)
 	s.moveToPool(host, target, t)
 
-	s.log.Trace("Added host %s (%v of %d) to %v",
-		host.GetNodeName(), host.GetMeta(OversubscribedIndexKey), target.Len(), t)
+	s.log.Debug("Added host %s (%v of %d) to %v",
+		host.GetNodeName(), host.GetIdx(OversubscribedIndexKey), target.Len(), t.String())
+}
+
+// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+func (s *BaseScheduler) HostAdded(host scheduling.Host) {
+	s.instance.HostAdded(host)
 }
 
 func (s *BaseScheduler) moveToPool(host scheduling.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
 	host.SetSchedulerPoolType(t)
-	s.log.Debug("Moving host %s to pool with type %d. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
-		host.GetNodeName(), t, host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+	s.log.Debug("Moving host %s to pool with type %s. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
+		host.GetNodeName(), t.String(), host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 	heap.Push(pool, host)
 }
 

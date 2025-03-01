@@ -19,6 +19,18 @@ const (
 
 type SchedulerPoolType int
 
+func (t SchedulerPoolType) String() string {
+	if t == SchedulerPoolTypeUndersubscribed {
+		return "Undersubscribed"
+	}
+	
+	if t == SchedulerPoolTypeOversubscribed {
+		return "Oversubscribed"
+	}
+
+	return fmt.Sprintf("UnknownSchedulerPoolType(%d)", t)
+}
+
 // ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
 type ErrorDuringScheduling struct {
 	// UnderlyingError is the underlying error.

@@ -72,9 +72,7 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
-	heap.Push(s.idleHosts, host)
-	s.log.Debug("Host %s (ID=%s) has been added. Cluster size: %d. Length of idle hosts: %d",
-		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
+	s.baseHostAdded(host)
 }
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
