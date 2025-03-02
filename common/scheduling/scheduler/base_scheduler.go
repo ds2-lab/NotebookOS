@@ -1649,11 +1649,13 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		numReleased += 1
 	}
 
+	var logMethod func(format string, args ...interface{})
 	if numReleased > 0 {
-		s.log.Debug("Released %d/%d idle host(s).", numReleased, n)
+		logMethod = s.log.Debug
 	} else {
-		s.log.Warn("Released %d/%d idle host(s).", numReleased, n)
+		logMethod = s.log.Warn
 	}
+	logMethod("Released %d/%d idle host(s).", numReleased, n)
 
 	return int(numReleased), err
 }

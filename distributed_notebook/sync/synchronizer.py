@@ -650,9 +650,8 @@ class Synchronizer:
         if key in self._tags:
             existed = self._tags[key]
             self.log.debug(f'SyncObjectWrapper already exists for variable "{key}" of type {type(val).__name__}')
-        else:
-            if checkpointing:
-                self.log.error(f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False...")
+        elif checkpointing:
+            self.log.warning(f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False...")
 
             # TODO: Add support to SyncObject factory
             existed = SyncObjectWrapper(self._referer)
