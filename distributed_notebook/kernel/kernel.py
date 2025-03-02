@@ -2656,7 +2656,7 @@ class DistributedKernel(IPythonKernel):
         )
         self.log.debug(f"Sent ping_reply (shell): {str(reply_msg)}")
 
-    async def check_previous_election(self):
+    async def check_status_of_previous_election(self):
         """
         Check the status of the previous election, and wait for it to complete if it isn't done yet.
         """
@@ -2828,7 +2828,7 @@ class DistributedKernel(IPythonKernel):
 
         target_replica_id: int = parent["metadata"].get("target_replica_id", -1)
 
-        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], parent["metadata"])
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -2849,6 +2849,13 @@ class DistributedKernel(IPythonKernel):
 
             if current_term_number < 0:
                 current_term_number = self.synchronizer.execution_count + 1
+
+                execution_index: int = parent["metadata"].get("execution_index", -1)
+                if execution_index >= 1 and execution_index != current_term_number:
+                    self.log.warning(f'Computed term number {current_term_number} != "execution_index" entry '
+                                     f'in metadata ({execution_index}). Will use {execution_index} instead.')
+
+                    current_term_number = execution_index
 
             self.log.info(f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal.")
 
@@ -3344,14 +3351,10 @@ class DistributedKernel(IPythonKernel):
             jupyter_message_id, term_number, lead=True, target_replica_id=target_replica_id
         )
 
-        self.current_execution_stats.leader_election_microseconds = int(
-            (time.time() - election_start) * 1.0e6
-        )
+        self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
-        self.log.info(
-            f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
-            f"shell.execution_count: {self.shell.execution_count}"
-        )
+        self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+                      f"shell.execution_count: {self.shell.execution_count}")
 
         if self.prometheus_enabled:
             self.num_lead_proposals.inc()
@@ -3450,7 +3453,7 @@ class DistributedKernel(IPythonKernel):
 
         # Check the status of the last election before proceeding.
         try:
-            await self.check_previous_election()
+            await self.check_status_of_previous_election()
         except Exception as ex:
             self.log.error(f"Error while checking previous election: {ex}")
             self.log.error(traceback.format_exc())
@@ -3470,6 +3473,13 @@ class DistributedKernel(IPythonKernel):
             current_term_number = self.__check_for_existing_election(parent_header["msg_id"])
             if current_term_number < 0:
                 current_term_number = self.synchronizer.execution_count + 1
+
+                execution_index: int = execute_request_metadata.get("execution_index", -1)
+                if execution_index >= 1 and current_term_number != execution_index:
+                    self.log.warning(f'Computed term number {current_term_number} != "execution_index" entry '
+                                     f'in metadata ({execution_index}). Will use {execution_index} instead.')
+
+                    current_term_number = execution_index
 
             self.log.info(f"Calling synchronizer.ready({current_term_number}) now with LEAD proposal.")
 

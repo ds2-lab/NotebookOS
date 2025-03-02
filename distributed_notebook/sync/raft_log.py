@@ -450,6 +450,12 @@ class RaftLog(object):
     def __buffer_vote(
             self, vote: LeaderElectionVote, received_at: float = time.time()
     ) -> bytes:
+        if vote.jupyter_message_id not in self._jupyter_id_to_term:
+            self._jupyter_id_to_term[vote.jupyter_message_id] = vote.election_term
+
+        if vote.election_term not in self._term_to_jupyter_id:
+            self._term_to_jupyter_id[vote.election_term] = vote.jupyter_message_id
+
         # Save the vote in the "buffered votes" dictionary.
         with self._buffered_votes_lock:
             buffered_votes: List[BufferedLeaderElectionVote] = self._buffered_votes.get(vote.election_term, [])
@@ -557,6 +563,8 @@ class RaftLog(object):
         :param received_at: the time at which we received the vote proposal.
         :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
         """
+        self.log.debug(f"Handling committed LeaderElectionVote: {vote}, buffered_vote={buffered_vote}")
+
         if self.needs_to_catch_up:
             return self.__handle_vote_while_catching_up(vote, received_at, buffered_vote)
 
@@ -1484,10 +1492,14 @@ class RaftLog(object):
             self.log.warning(f"Committed value has election term {committedValue.election_term} < "
                              f"our leader term of {self._leader_term}...")
 
-        self.log.debug(
-            f"Updating self._leader_term from {self._leader_term} to {committedValue.election_term}, "
-            f"the leader term of the committed non-proposal SynchronizedValue."
-        )
+        if committedValue.jupyter_message_id not in self._jupyter_id_to_term:
+            self._jupyter_id_to_term[committedValue.jupyter_message_id] = committedValue.election_term
+
+        if committedValue.election_term not in self._term_to_jupyter_id:
+            self._term_to_jupyter_id[committedValue.election_term] = committedValue.jupyter_message_id
+
+        self.log.debug(f"Updating self._leader_term from {self._leader_term} to {committedValue.election_term}, "
+                       f"the leader term of the committed non-proposal SynchronizedValue.")
         self._leader_term = committedValue.election_term
 
         # For values synchronized from other replicas or replayed, count _ignore_changes

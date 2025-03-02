@@ -242,6 +242,10 @@ class Synchronizer:
             old_main_modules = sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
+            if isinstance(existed, SyncAST) and existed.execution_count == val.tag and val.proposer_id == self._node_id:
+                self.log.debug(f"Received own SyncAST with execution count {existed.execution_count}. Skipping.")
+                return
+
             self.log.debug(f'Handling updated value of type {type(val).__name__} with key="{val.key}": {val}')
             diff = existed.update(val)
             self.log.debug(f"Variable \"{val.key}\" of type {type(diff).__name__} has changed: {diff}")
@@ -262,16 +266,14 @@ class Synchronizer:
         except Exception as e:
             # print_trace(limit = 10)
             self.log.error("Exception encountered in change handler for synchronizer: %s" % str(e))
-            tb: list[str] = traceback.format_exception(e)
-            for frame in tb:
-                self.log.error(frame)
+            self.log.error(traceback.format_exc())
+        finally:
+            local_election: Election = self.current_election
+            if local_election is not None and local_election.term_number < self.execution_count:
+                self.log.warning(f"Current local election has term number {local_election.term_number}, "
+                                 f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
 
-        local_election: Election = self.current_election
-        if local_election is not None and local_election.term_number < self.execution_count:
-            self.log.warning(f"Current local election has term number {local_election.term_number}, "
-                             f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
-
-        self._synclog.update_term_msg_id_mappings(val)
+            self._synclog.update_term_msg_id_mappings(val)
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
@@ -566,9 +568,7 @@ class Synchronizer:
             synced = 0
 
             self._syncing = True
-            self.log.debug(
-                f"Setting sync_ast.term to term of AST: {self._ast.execution_count}"
-            )
+            self.log.debug(f"Setting sync_ast.term to term of AST: {self._ast.execution_count}")
             sync_ast.set_election_term(self._ast.execution_count)
             sync_ast.set_key(KEY_SYNC_AST)
             if expected == 0:

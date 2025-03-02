@@ -1,9 +1,9 @@
 # This playbook is used to deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
 ---
 
-- name: Print HDFS NameNode endpoint
-  debug:
-    msg: "HDFS NameNode endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}"
+#- name: Print HDFS NameNode endpoint
+#  debug:
+#    msg: "HDFS NameNode endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}"
 
 - name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
   git:
@@ -64,7 +64,7 @@
 
 - name: Copy the 'dashboard_workload_templates.yaml.j2' file if it exists locally
   copy: "src='{{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2' dest='{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2'"
-  when: dashboard_template_check.stat.exists
+  when: "dashboard_template_check.stat.exists and inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -75,6 +75,7 @@
     workload_template_template_file: >-
       {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
          else 'default_dashboard_workload_templates.yaml.j2' }}
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -86,6 +87,7 @@
     workload_template_template_file: >-
       {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
          else 'default_dashboard_workload_templates.yaml.j2' }}
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -94,6 +96,7 @@
 - name: Print the dashboard backend 'workloads template' template file that will be used
   debug:
     msg: "Will use the following file to template the workload-template-file.yaml config file: {{ workload_template_template_file }}"
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -106,6 +109,7 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -118,6 +122,7 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
   become: true
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -130,6 +135,7 @@
     mode: push
   become: true
   become_user: "{{ remote_username }}"
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
