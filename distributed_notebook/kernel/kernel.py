@@ -4984,7 +4984,7 @@ class DistributedKernel(IPythonKernel):
         """
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
-        if (len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0):
+        if len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0:
             self.log.debug("There were no models or data committed during catch-up phase.")
             return
 
