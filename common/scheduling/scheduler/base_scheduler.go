@@ -309,9 +309,12 @@ type BaseScheduler struct {
 
 	opts *scheduling.SchedulerOptions // Configuration options.
 
+	overUnderMutex  sync.Mutex
 	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
 	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       *types.Heap
+
+	idleHostMutex sync.Mutex
+	idleHosts     *types.Heap
 
 	stRatio *types.MovingStat // session/training ratio
 
@@ -435,19 +438,27 @@ func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 		s.log.Debug("Updating host %v(%v of %d) in %v(len=%d)",
 			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len())
 
+		s.overUnderMutex.Lock()
 		heap.Fix(old, host.GetIdx(meta))
-	} else {
+		s.overUnderMutex.Unlock()
 
+		s.log.Debug("Updated host %v (now %v of %d) in %v(len=%d)",
+			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len())
+	} else {
 		s.log.Debug("Moving host %v(%d of %d) from %v(len=%d) to %v(len=%d)",
 			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len(),
 			t.String(), target.Len())
 
+		s.overUnderMutex.Lock()
 		heap.Remove(old, host.GetIdx(meta))
+		s.overUnderMutex.Unlock()
 
 		s.moveToPool(host, target, t)
 	}
 
+	s.idleHostMutex.Lock()
 	heap.Fix(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	s.idleHostMutex.Unlock()
 
 	s.placer.UpdateIndex(host)
 
@@ -903,6 +914,9 @@ func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
 		meta = UndersubscribedIndexKey
 	}
 
+	s.overUnderMutex.Lock()
+	defer s.overUnderMutex.Unlock()
+
 	s.log.Trace("Removing host %v(%v of %d) from %v",
 		host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType())
 
@@ -912,9 +926,9 @@ func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
 // baseHostAdded should be called by HostAdded in classes that promote a *BaseScheduler.
 func (s *BaseScheduler) baseHostAdded(host scheduling.Host) {
 	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
-	heap.Push(s.idleHosts, &idleSortedHost{
-		Host: host,
-	})
+	s.idleHostMutex.Lock()
+	heap.Push(s.idleHosts, &idleSortedHost{Host: host})
+	s.idleHostMutex.Unlock()
 	s.log.Debug("Length of idle hosts: %d", s.idleHosts.Len())
 
 	s.validate()
@@ -931,10 +945,15 @@ func (s *BaseScheduler) HostAdded(host scheduling.Host) {
 }
 
 func (s *BaseScheduler) moveToPool(host scheduling.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
+	s.overUnderMutex.Lock()
+	defer s.overUnderMutex.Unlock()
+
 	host.SetSchedulerPoolType(t)
 	s.log.Debug("Moving host %s to pool with type %s. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
 		host.GetNodeName(), t.String(), host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 	heap.Push(pool, host)
+	s.log.Debug("Moved host %s to pool with type %s. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
+		host.GetNodeName(), t.String(), host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 }
 
 // SetLastCapacityValidation is used to record that a capacity validation has occurred.
@@ -951,7 +970,10 @@ func (s *BaseScheduler) CanScaleIn() bool {
 // or undersubscribed).
 func (s *BaseScheduler) designateSubscriptionPoolType(host scheduling.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
 	host.SetSchedulerPoolType(t)
+
+	s.overUnderMutex.Lock()
 	heap.Push(pool, host)
+	s.overUnderMutex.Unlock()
 }
 
 func (s *BaseScheduler) validate() {
@@ -961,8 +983,9 @@ func (s *BaseScheduler) validate() {
 			s.lastSubscribedRatio, s.pendingSubscribedRatio)
 
 		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(scheduling.Host).OversubscriptionFactor().LessThan(decimal.Zero) {
-			host := s.oversubscribed.Peek()
-			heap.Pop(s.oversubscribed)
+			s.overUnderMutex.Lock()
+			host := heap.Pop(s.oversubscribed)
+			s.overUnderMutex.Unlock()
 
 			s.log.Debug("Designating host %s as 'undersubscribed'", host.(scheduling.Host).GetNodeName())
 			s.designateSubscriptionPoolType(host.(scheduling.Host), s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
@@ -1473,9 +1496,9 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host, addBac
 		}
 
 		if addBackToIdleHostsHeap {
-			heap.Push(s.idleHosts, &idleSortedHost{
-				Host: host,
-			})
+			s.idleHostMutex.Lock()
+			heap.Push(s.idleHosts, &idleSortedHost{Host: host})
+			s.idleHostMutex.Unlock()
 
 			s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
 
@@ -1556,8 +1579,10 @@ func (s *BaseScheduler) releaseIdleHost(host scheduling.Host) error {
 func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	s.validate()
 
+	s.idleHostMutex.Lock()
 	// For now, just ensure the heap is in a valid order.
 	heap.Init(s.idleHosts)
+	s.idleHostMutex.Unlock()
 
 	s.log.Debug("Attempting to release %d idle host(s). Currently %d host(s) in the Cluster. Length of idle hosts: %d.",
 		n, s.cluster.Len(), s.idleHosts.Len())
@@ -1600,7 +1625,9 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 			idleHost.GetNodeName(), idleHost.GetID())
 
 		// RemoveHost the host so that we can get to the next host.
+		s.idleHostMutex.Lock()
 		tmpHost := heap.Pop(s.idleHosts)
+		s.idleHostMutex.Unlock()
 
 		// Sanity check.
 		if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
