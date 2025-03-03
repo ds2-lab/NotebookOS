@@ -16,6 +16,8 @@ try:
 
     fakeredis_imported: bool = True
 except ImportError:
+    fakeredis = None
+
     fakeredis_imported: bool = False
 
 
@@ -73,7 +75,7 @@ class RedisProvider(RemoteStorageProvider):
         #         if io_loop != self._loop and id(io_loop) != id(self._loop):
         #             self.io_loops[id(io_loop)] = io_loop
 
-        self.log.debug(f"We've registered a total of {len(self.io_loops)} IO loop(s).")
+        # self.log.debug(f"We've registered a total of {len(self.io_loops)} IO loop(s).")
 
         # Cached. Just used for logging.
         self._size_limit_mb: float = RedisProvider.size_limit_bytes / 1.0e6
