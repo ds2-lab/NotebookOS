@@ -200,6 +200,8 @@ class RedisProvider(RemoteStorageProvider):
         :param size_mb: the size of the value to be written in megabytes.
         :return:
         """
+        await self.__ensure_async_redis()
+
         if size_bytes <= 0:
             size_bytes = len(value)
 
@@ -296,7 +298,7 @@ class RedisProvider(RemoteStorageProvider):
         :param key: the key at which to store the value in Redis.
         :param value: the value to be written.
         """
-        self.__ensure_async_redis()
+        await self.__ensure_async_redis()
 
         if size_bytes <= 0:
             if isinstance(value, bytes):
@@ -403,7 +405,7 @@ class RedisProvider(RemoteStorageProvider):
 
         :return: the value read from Redis.
         """
-        self.__ensure_async_redis()
+        await self.__ensure_async_redis()
 
         start_time: float = time.time()
 
@@ -571,7 +573,7 @@ class RedisProvider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
-        self.__ensure_async_redis()
+        await self.__ensure_async_redis()
 
         start_time: float = time.time()
 
