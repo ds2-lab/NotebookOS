@@ -2012,10 +2012,14 @@ class DistributedKernel(IPythonKernel):
 
         This method should only be called within the Control thread's IO loop.
         """
+        self.log.debug(f"Setting value of 'Checkpointing State' flag from {self.checkpointing_state} to {val}.")
+
         async with self.checkpointing_state_cv:
             self.checkpointing_state = val
+            self.log.debug(f"Set value of 'Checkpointing State' flag to {val}.")
 
             if not self.checkpointing_state:
+                self.log.debug(f"Notifying any waiters of the 'Checkpointing State' CV.")
                 self.checkpointing_state_cv.notify_all()
 
             resolve(self.checkpointing_state, None)
@@ -4215,8 +4219,9 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
 
         async with self.checkpointing_state_cv:
-            if self.checkpointing_state:
+            while self.checkpointing_state:
                 self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+
                 await self.checkpointing_state_cv.wait()
 
         if hasattr(self, "synchronizer"):
@@ -4448,8 +4453,9 @@ class DistributedKernel(IPythonKernel):
             await self.__close_synclog_remote_storage_client()
 
         async with self.checkpointing_state_cv:
-            if self.checkpointing_state:
+            while self.checkpointing_state:
                 self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+                
                 await self.checkpointing_state_cv.wait()
 
         return {
