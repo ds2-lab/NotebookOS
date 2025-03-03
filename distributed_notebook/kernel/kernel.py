@@ -16,7 +16,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Tuple, Awaitable
+from typing import Union, Optional, Dict, Any, Tuple, Awaitable, Callable
 
 import debugpy
 import faulthandler
@@ -43,6 +43,7 @@ from distributed_notebook.gateway.gateway_pb2_grpc import KernelErrorReporterStu
 from distributed_notebook.kernel.iopub_notifier import IOPubNotification
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+from distributed_notebook.sync.future import Future
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.checkpointer_factory import get_checkpointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
@@ -928,6 +929,9 @@ class DistributedKernel(IPythonKernel):
         # preparing_to_migrate is a flag indicating that the kernel is preparing to migrate and should not
         # be shutdown, as important state needs to be checkpointed first.
         self.preparing_to_migrate: bool = False
+
+        self.checkpointing_state_cv: asyncio.Condition = asyncio.Condition()
+        self.checkpointing_state: bool = False
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
@@ -2002,6 +2006,15 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name, gpu_device_ids
 
+    async def set_checkpointing_state(self, val: bool, future: Future, resolve: Callable[[Any, Any]]) -> None:
+        async with self.checkpointing_state_cv:
+            self.checkpointing_state = val
+
+            if not self.checkpointing_state:
+                self.checkpointing_state_cv.notify_all()
+
+            resolve("done", None)
+
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
@@ -2171,6 +2184,16 @@ class DistributedKernel(IPythonKernel):
         if was_primary_replica:
             self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
 
+            future: Future = Future(loop=self.control_thread.io_loop.asyncio_loop)
+
+            def resolve(key, err):
+                # must use local variable
+                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.control_thread.io_loop.asyncio_loop)  # type: ignore
+
+            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(self.set_checkpointing_state, (True, future, resolve))
+
+            await future.result()
+
             # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
             # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
             # or Redis, depending on the system's configuration.
@@ -2187,6 +2210,16 @@ class DistributedKernel(IPythonKernel):
             # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
             # runtime state.
             await self.schedule_notify_execution_complete(term_number)
+
+            future = Future(loop=self.control_thread.io_loop.asyncio_loop)
+
+            def resolve(key, err):
+                # must use local variable
+                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.control_thread.io_loop.asyncio_loop)  # type: ignore
+
+            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(self.set_checkpointing_state, (False, future, resolve))
+
+            await future.result()
         else:
             self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronizion step.")
 
@@ -3514,7 +3547,7 @@ class DistributedKernel(IPythonKernel):
                 current_term_number = self.synchronizer.execution_count + 1
 
                 execution_index: int = execute_request_metadata.get("execution_index", -1)
-                if execution_index >= 1 and current_term_number != execution_index:
+                if 1 <= execution_index and execution_index != current_term_number:
                     self.log.warning(f'Computed term number {current_term_number} != "execution_index" entry '
                                      f'in metadata ({execution_index}). Will use {execution_index} instead.')
 
@@ -4144,6 +4177,11 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
 
+        async with self.checkpointing_state_cv:
+            if self.checkpointing_state:
+                self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+                await self.checkpointing_state_cv.wait()
+
         if hasattr(self, "synchronizer"):
             self.log.info("Closing the Synchronizer.")
             self.synchronizer.close()
@@ -4371,6 +4409,11 @@ class DistributedKernel(IPythonKernel):
         if isinstance(self.synclog, RaftLog):
             # We'll ignore any errors at this stage.
             await self.__close_synclog_remote_storage_client()
+
+        async with self.checkpointing_state_cv:
+            if self.checkpointing_state:
+                self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+                await self.checkpointing_state_cv.wait()
 
         return {
             "status": "ok",
