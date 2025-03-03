@@ -4,8 +4,6 @@ from typing import Union
 
 from transformers import GPT2Tokenizer, BertTokenizer
 
-from distributed_notebook.deep_learning import Bert, GPT2
-
 
 def get_tokenizer(model_name: str = "")->Union[BertTokenizer, GPT2Tokenizer]:
     model_name = model_name.lower()
