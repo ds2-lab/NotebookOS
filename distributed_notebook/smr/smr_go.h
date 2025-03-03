@@ -399,8 +399,8 @@ extern char* smr_SMRContext_ID(long long int _handle);
 extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
 extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
 extern long long int smr_NewConfig();
-extern long long int smr_CreateBytes(char len);
 extern void smr_PrintTestMessage(char goRun);
+extern long long int smr_CreateBytes(char len);
 extern long long int smr_NewBytes(char* bytes, GoInt len);
 
 #ifdef __cplusplus

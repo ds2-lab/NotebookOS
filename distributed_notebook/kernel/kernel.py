@@ -380,7 +380,6 @@ class DistributedKernel(IPythonKernel):
     # The path to each dataset would be: "s3://<bucket_name>/datasets/<dataset_filename>"
     # Each dataset would be stored downloaded as a tar.gz file.
     retrieve_datasets_from_s3: Bool = Bool(default_value=False).tag(
-        default_value=False,
         config=True,
     )
 
@@ -389,7 +388,7 @@ class DistributedKernel(IPythonKernel):
     # Each dataset would be stored downloaded as a tar.gz file.
     datasets_s3_bucket: Union[str, Unicode] = Unicode(
         default_value="distributed-notebook-storage"
-    ).tag(config=True, default_value="distributed-notebook-storage")
+    ).tag(config=True)
 
     prewarm_container: Bool = Bool(False,
                                    help="Indicates whether this Kernel was created to serve as a pre-warm container, "
@@ -427,6 +426,8 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        start_time: float = time.time()
+
         faulthandler.enable()
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
@@ -467,6 +468,8 @@ class DistributedKernel(IPythonKernel):
 
         for handler in self.log.handlers:
             handler.setLevel(logging.DEBUG)
+
+        self.log.info("DistributedKernel initializing.")
 
         # self.log.info("INFO")
         # self.log.debug("DEBUG")
@@ -955,6 +958,8 @@ class DistributedKernel(IPythonKernel):
             self.register_with_local_daemon(self.connection_info, session_id)
             registration_duration: float = (time.time() - registration_start) * 1.0e3
 
+            self.log.debug(f"Finished registration procedure in {round(registration_duration, 3):,} ms.")
+
             if self.prometheus_enabled:
                 self.registration_time_milliseconds.observe(registration_duration)
 
@@ -1050,10 +1055,7 @@ class DistributedKernel(IPythonKernel):
         except ValueError:
             server_port = 8075
 
-        self.log.info(
-            'Local Daemon network address: "%s:%d"'
-            % (local_daemon_service_name, server_port)
-        )
+        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port) )
 
         self.daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -1065,31 +1067,36 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Reason: %s" % str(ex))
             raise ex
 
-        registration_payload = {
-            "op": "register",
-            "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
-            "key": connection_info["key"],
-            "replicaId": self.smr_node_id,
-            "numReplicas": len(self.smr_nodes_map),
-            "join": self.smr_join,
-            "podName": self.docker_container_name,
-            "nodeName": self.node_name,
-            "connection-info": connection_info,
-            "workload_id": self.workload_id,
-            "prewarm_container": self.prewarm_container,
-            "kernel": {
-                "id": self.kernel_id,
-                "session": session_id,
-                "signature_scheme": connection_info["signature_scheme"],
-                "key": connection_info["key"],
-            },
-        }
+        self.log.info(f"Successfully connected to Local Daemon at {local_daemon_service_name}:{server_port} "
+                      f"in {round((time.time() - start_time) * 1.0e3, 3):,} ms.")
+
+        try:
+            registration_payload = {
+                "op": "register",
+                "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                "key": connection_info.get("key", ""),
+                "replicaId": self.smr_node_id,
+                "numReplicas": len(self.smr_nodes_map),
+                "join": self.smr_join,
+                "podName": self.docker_container_name,
+                "nodeName": self.node_name,
+                "connection-info": connection_info,
+                "workload_id": self.workload_id,
+                "prewarm_container": self.prewarm_container,
+                "kernel": {
+                    "id": self.kernel_id,
+                    "session": session_id,
+                    "signature_scheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                    "key": connection_info.get("key", ""),
+                },
+            }
+        except Exception as ex:
+            self.log.error(f"Failed to create registration payload: {ex}")
+            raise ex # Re-raise
 
         self.log.info("Sending registration payload to local daemon: %s"% str(registration_payload))
 
-        bytes_sent: int = self.daemon_registration_socket.send(
-            json.dumps(registration_payload).encode()
-        )
+        bytes_sent: int = self.daemon_registration_socket.send(json.dumps(registration_payload).encode())
 
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
 
@@ -1145,10 +1152,16 @@ class DistributedKernel(IPythonKernel):
             raise ValueError('registration response from local daemon did not contained a "replicas" entry')
 
         self.num_replicas: int = len(replicas)
-        self.smr_nodes_map = {
-            int(node_id_str): (node_addr + ":" + str(self.smr_port))
-            for node_id_str, node_addr in replicas.items()
-        }
+        if "smr_port" in response_dict: # Only occurs during testing.
+            self.smr_port = int(response_dict["smr_port"])
+            self.log.debug(f"Set SMR port to value from Local Daemon registration response: {self.smr_port}")
+
+            self.smr_nodes_map = { int(node_id_str): node_addr for node_id_str, node_addr in replicas.items() }
+        else:
+            self.smr_nodes_map = {
+                int(node_id_str): (node_addr + ":" + str(self.smr_port))
+                for node_id_str, node_addr in replicas.items()
+            }
 
         # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
@@ -1188,16 +1201,22 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
-        assert self.smr_nodes_map[self.smr_node_id] == (self.hostname + ":" + str(self.smr_port))
+        if self.smr_nodes_map[self.smr_node_id] != (self.hostname + ":" + str(self.smr_port)):
+            expected_hostname:str = self.hostname + ":" + str(self.smr_port)
+            self.log.error("Invalid Configuration")
+            self.log.error(f'Expected our entry in SMR nodes map to equal "{expected_hostname}".')
+            self.log.error(f'Instead, entry {self.smr_node_id} is equal to "{self.smr_nodes_map[self.smr_node_id]}"')
+            raise ValueError(f'Invalid configuration: SMR node map entry {self.smr_node_id} '
+                             f'has unexpected value "{expected_hostname}"')
 
         grpc_port: int = response_dict.get("grpc_port", -1)
         if grpc_port == -1:
-            self.log.error("Received -1 for gRPC port from registration payload.")
-            exit(1)
-
-        # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
-        self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
-        self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
+            self.log.warning("Received -1 for gRPC port from registration payload.")
+        else:
+            self.log.debug(f'Creating gRPC connection to Local Daemon at "{local_daemon_service_name}:{grpc_port}"')
+            # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
+            self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
+            self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
 
         self.daemon_registration_socket.close()
 
@@ -2233,6 +2252,13 @@ class DistributedKernel(IPythonKernel):
                 self.log.error(traceback.format_exc())
                 self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
                                   f'for Execution "{execute_request_id}"', str(ex))
+
+            self.log.debug("Sleeping for 30 seconds before flipping value of 'Checkpointing State' flag to False...")
+            await asyncio.sleep(10)
+            self.log.debug("Sleeping for 20 seconds before flipping value of 'Checkpointing State' flag to False...")
+            await asyncio.sleep(10)
+            self.log.debug("Sleeping for 10 seconds before flipping value of 'Checkpointing State' flag to False...")
+            await asyncio.sleep(10)
 
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.

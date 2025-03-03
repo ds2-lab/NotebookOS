@@ -3622,6 +3622,29 @@ PyObject * _wrap__smr_smr_NewConfig(PyObject *PYBINDGEN_UNUSED(_args), PyObject 
 
 
 PyObject *
+_wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "O", (char **) keywords, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_PrintTestMessage(goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
 _wrap__smr_smr_CreateBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -3644,29 +3667,6 @@ _wrap__smr_smr_CreateBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, P
     return py_retval;
 }
 PyObject * _wrap__smr_smr_CreateBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "O", (char **) keywords, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_PrintTestMessage(goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -3879,8 +3879,8 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_SMRContext_Cancel", (PyCFunction) _wrap__smr_smr_SMRContext_Cancel, METH_KEYWORDS|METH_VARARGS, "smr_SMRContext_Cancel(_handle, goRun)\n\ntype: _handle: int64_t\ntype: goRun: bool" },
     {(char *) "smr_NewLogNode", (PyCFunction) _wrap__smr_smr_NewLogNode, METH_KEYWORDS|METH_VARARGS, "smr_NewLogNode(storePath, id, remoteStorageHostname, remoteStorage, shouldLoadDataFromRemoteStorage, peerAddresses, peerIDs, join, httpDebugPort, deploymentMode)\n\ntype: storePath: char *\ntype: id: int64_t\ntype: remoteStorageHostname: char *\ntype: remoteStorage: char *\ntype: shouldLoadDataFromRemoteStorage: bool\ntype: peerAddresses: int64_t\ntype: peerIDs: int64_t\ntype: join: bool\ntype: httpDebugPort: int64_t\ntype: deploymentMode: char *" },
     {(char *) "smr_NewConfig", (PyCFunction) _wrap__smr_smr_NewConfig, METH_NOARGS, "smr_NewConfig()\n\n" },
-    {(char *) "smr_CreateBytes", (PyCFunction) _wrap__smr_smr_CreateBytes, METH_KEYWORDS|METH_VARARGS, "smr_CreateBytes(len)\n\ntype: len: uint8_t" },
     {(char *) "smr_PrintTestMessage", (PyCFunction) _wrap__smr_smr_PrintTestMessage, METH_KEYWORDS|METH_VARARGS, "smr_PrintTestMessage(goRun)\n\ntype: goRun: bool" },
+    {(char *) "smr_CreateBytes", (PyCFunction) _wrap__smr_smr_CreateBytes, METH_KEYWORDS|METH_VARARGS, "smr_CreateBytes(len)\n\ntype: len: uint8_t" },
     {(char *) "smr_NewBytes", (PyCFunction) _wrap__smr_smr_NewBytes, METH_KEYWORDS|METH_VARARGS, "smr_NewBytes(bytes, len)\n\ntype: bytes: char *\ntype: len: int" },
     {NULL, NULL, 0, NULL}
 };

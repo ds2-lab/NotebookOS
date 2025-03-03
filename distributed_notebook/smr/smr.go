@@ -2619,15 +2619,6 @@ func smr_NewConfig() CGoHandle {
 
 // ---- Functions ---
 
-//export smr_CreateBytes
-func smr_CreateBytes(len C.char) CGoHandle {
-	_saved_thread := C.PyEval_SaveThread()      // Release GIL
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	cret := smr.CreateBytes(byte(len))
-
-	return handleFromPtr_Slice_byte(&cret)
-}
-
 //export smr_PrintTestMessage
 func smr_PrintTestMessage(goRun C.char) {
 	_saved_thread := C.PyEval_SaveThread()      // Release GIL
@@ -2637,4 +2628,13 @@ func smr_PrintTestMessage(goRun C.char) {
 	} else {
 		smr.PrintTestMessage()
 	}
+}
+
+//export smr_CreateBytes
+func smr_CreateBytes(len C.char) CGoHandle {
+	_saved_thread := C.PyEval_SaveThread()      // Release GIL
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	cret := smr.CreateBytes(byte(len))
+
+	return handleFromPtr_Slice_byte(&cret)
 }

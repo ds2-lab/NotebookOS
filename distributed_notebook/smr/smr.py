@@ -856,12 +856,12 @@ def NewConfig():
 
 
 # ---- Functions ---
-def CreateBytes(len):
-	"""CreateBytes(int len) []int"""
-	return go.Slice_byte(handle=_smr.smr_CreateBytes(len))
 def PrintTestMessage(goRun=False):
 	"""PrintTestMessage() """
 	_smr.smr_PrintTestMessage(goRun)
+def CreateBytes(len):
+	"""CreateBytes(int len) []int"""
+	return go.Slice_byte(handle=_smr.smr_CreateBytes(len))
 
 
 def NewBytes(b):

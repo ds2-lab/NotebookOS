@@ -227,8 +227,8 @@ add_checked_string_function(mod, 'smr_SMRContext_ID', retval('char*'), [param('i
 add_checked_function(mod, 'smr_SMRContext_Cancel', None, [param('int64_t', '_handle'), param('bool', 'goRun')])
 add_checked_function(mod, 'smr_NewLogNode', retval('int64_t'), [param('char*', 'storePath'), param('int64_t', 'id'), param('char*', 'remoteStorageHostname'), param('char*', 'remoteStorage'), param('bool', 'shouldLoadDataFromRemoteStorage'), param('int64_t', 'peerAddresses'), param('int64_t', 'peerIDs'), param('bool', 'join'), param('int64_t', 'httpDebugPort'), param('char*', 'deploymentMode')])
 add_checked_function(mod, 'smr_NewConfig', retval('int64_t'), [])
-add_checked_function(mod, 'smr_CreateBytes', retval('int64_t'), [param('uint8_t', 'len')])
 add_checked_function(mod, 'smr_PrintTestMessage', None, [param('bool', 'goRun')])
+add_checked_function(mod, 'smr_CreateBytes', retval('int64_t'), [param('uint8_t', 'len')])
 
 
 add_checked_function(mod, 'smr_NewBytes', retval('uint64_t'), [param('char*', 'bytes', transfer_ownership=False), param('int', 'len')])
