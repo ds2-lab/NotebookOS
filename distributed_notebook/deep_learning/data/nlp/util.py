@@ -11,12 +11,12 @@ def get_tokenizer(model_name: str = "")->Union[BertTokenizer, GPT2Tokenizer]:
     model_name = model_name.lower()
 
     if model_name == "gpt2" or model_name == "gpt-2":
-        GPT2.static_download_from_s3()
+        # GPT2.static_download_from_s3()
         tokenizer: GPT2Tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
         tokenizer.pad_token = tokenizer.eos_token  # GPT-2 doesn't have a pad token
         return tokenizer
     elif model_name == "bert":
-        Bert.static_download_from_s3()
+        # Bert.static_download_from_s3()
         return BertTokenizer.from_pretrained("bert-base-uncased")
     else:
         raise ValueError(f'Unknown or unsupported model name: "{model_name}"')
