@@ -1249,19 +1249,15 @@ class DistributedKernel(IPythonKernel):
         self.init_debugpy()
 
         # Arguments not relevant to the specified remote storage will be ignored.
-        future = asyncio.run_coroutine_threadsafe(get_checkpointer(
+
+        self._remote_checkpointer: Optional[Checkpointer] = get_checkpointer(
             remote_storage_name=self.remote_storage,
             host=self.remote_storage_hostname,
             aws_region=self.aws_region,
             redis_port=self.redis_port,
             redis_database=self.redis_database,
             redis_password=self.redis_password,
-            io_loops = [self.control_thread.io_loop.asyncio_loop],
-        ), loop = self.control_thread.io_loop.asyncio_loop)
-
-        self._remote_checkpointer: Optional[Checkpointer] = future.result()
-
-        self.log.debug(f"Created remote checkpointer: {self._remote_checkpointer}")
+        )
 
         persistent_id_defined: bool = self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None
 
