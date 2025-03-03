@@ -1769,6 +1769,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Error whilst catching up with peer replicas: %s" % str(ex))
                 self.log.error(traceback.format_exc())
                 self.report_error("Error While Catching Up with Peer Replicas", str(ex))
+                raise ex # Re-raise
 
             try:
                 await self.__download_pointers_committed_while_catching_up()
@@ -1776,6 +1777,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Error whilst downloading pointers committed while catching up: %s" % str(ex))
                 self.log.error(traceback.format_exc())
                 self.report_error("Error While Downloading Committed Pointers", str(ex))
+                raise ex # Re-raise 
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
