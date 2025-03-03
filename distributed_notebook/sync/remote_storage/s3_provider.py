@@ -31,11 +31,11 @@ class S3Provider(RemoteStorageProvider):
         self._s3_client = boto3.client('s3')
         self._bucket_name: str = bucket_name
         self._aws_region: str = aws_region
-        self._io_loops: List[asyncio.AbstractEventLoop] = io_loops or [asyncio.get_running_loop()]
+        # self._io_loops: List[asyncio.AbstractEventLoop] = io_loops or [asyncio.get_running_loop()]
 
         self.init_bucket(bucket_name = bucket_name, aws_region= aws_region)
 
-        self._aio_session: aioboto3.session.Session = aioboto3.Session()
+        # self._aio_session: aioboto3.session.Session = aioboto3.Session()
 
     def init_bucket(self, bucket_name:str = DEFAULT_S3_BUCKET_NAME, aws_region:str = DEFAULT_AWS_S3_REGION):
         """
@@ -102,47 +102,49 @@ class S3Provider(RemoteStorageProvider):
 
         :return: True if the write operation is successful, otherwise False.
         """
-        if isinstance(value, io.BytesIO):
-            value.seek(0)
+        return self.write_value(key, value, size_bytes)
 
-        if size_bytes <= 0:
-            if isinstance(value, str):
-                value = value.encode('utf-8')
-                size_bytes = len(value)
-            elif isinstance(value, io.BytesIO):
-                value = value.getbuffer()
-                size_bytes = value.nbytes
-            else:
-                size_bytes = sys.getsizeof(value)
-
-        if self._loop is None or self._loop != asyncio.get_running_loop():
-            self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
-                             f'Will use sync AWS/S3 client for '
-                             f'upload_fileobj("s3://{self._bucket_name}/{key}") operation...')
-            return self.write_value(key, value, size_bytes)
-
-        async with self._aio_session.client('s3') as s3:
-            try:
-                start_time: float = time.time()
-                await s3.upload_fileobj(Fileobj=io.BytesIO(value), Bucket=self._bucket_name, Key=key)
-                time_elapsed: float = time.time() - start_time
-            except Exception as e:
-                self.log.error(f'Error uploading data of size {size_bytes} bytes '
-                               f'to AWS S3 bucket/key "{self._bucket_name}/{key}": {e}')
-                self.log.error(traceback.format_exc())
-                raise e # re-raise
-
-        self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
-                       f'in {round(time_elapsed, 3):,}ms.')
-
-        # Update internal metrics.
-        self.update_write_stats(
-            time_elapsed_ms=time_elapsed,
-            size_bytes=size_bytes,
-            num_values=1
-        )
-
-        return True
+        # if isinstance(value, io.BytesIO):
+        #     value.seek(0)
+        #
+        # if size_bytes <= 0:
+        #     if isinstance(value, str):
+        #         value = value.encode('utf-8')
+        #         size_bytes = len(value)
+        #     elif isinstance(value, io.BytesIO):
+        #         value = value.getbuffer()
+        #         size_bytes = value.nbytes
+        #     else:
+        #         size_bytes = sys.getsizeof(value)
+        #
+        # if self._loop is None or self._loop != asyncio.get_running_loop():
+        #     self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
+        #                      f'Will use sync AWS/S3 client for '
+        #                      f'upload_fileobj("s3://{self._bucket_name}/{key}") operation...')
+        #     return self.write_value(key, value, size_bytes)
+        #
+        # async with self._aio_session.client('s3') as s3:
+        #     try:
+        #         start_time: float = time.time()
+        #         await s3.upload_fileobj(Fileobj=io.BytesIO(value), Bucket=self._bucket_name, Key=key)
+        #         time_elapsed: float = time.time() - start_time
+        #     except Exception as e:
+        #         self.log.error(f'Error uploading data of size {size_bytes} bytes '
+        #                        f'to AWS S3 bucket/key "{self._bucket_name}/{key}": {e}')
+        #         self.log.error(traceback.format_exc())
+        #         raise e # re-raise
+        #
+        # self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
+        #                f'in {round(time_elapsed, 3):,}ms.')
+        #
+        # # Update internal metrics.
+        # self.update_write_stats(
+        #     time_elapsed_ms=time_elapsed,
+        #     size_bytes=size_bytes,
+        #     num_values=1
+        # )
+        #
+        # return True
 
     def write_value(self, key: str, value: Any, size_bytes:int = -1)->bool:
         """
@@ -197,43 +199,45 @@ class S3Provider(RemoteStorageProvider):
         :return: the value read from AWS S3.
         """
 
-        if self._loop is None or self._loop != asyncio.get_running_loop():
-            self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
-                             f'Will use sync AWS/S3 client for '
-                             f'download_fileobj("s3://{self._bucket_name}/{key}") operation...')
+        return self.read_value(key)
 
-        start_time: float = time.time()
-
-        async with self._aio_session.client('s3') as s3:
-            buffer: io.BytesIO = io.BytesIO()
-            try:
-                await s3.download_fileobj(self._bucket_name, key, buffer)
-                buffer.seek(0) # Need to move pointer back to beginning of buffer.
-            except ClientError as ce:
-                response_error = ce.response['Error']
-                if response_error['Code'] == 'InvalidAccessKeyId' or response_error['Code'] == '404':
-                    raise InvalidKeyError(f'No object with key "{key}" in S3 bucket "{self._bucket_name}"', key = key)
-                raise ce # re-raise
-            except Exception as e:
-                self.log.error(f"Error downloading file: {e}")
-                raise e  # re-raise
-
-        end_time: float = time.time()
-        time_elapsed: float = end_time - start_time
-        time_elapsed_ms: float = round(time_elapsed * 1.0e3)
-        value_size = buffer.getbuffer().nbytes
-
-        # Update internal metrics.
-        self.update_read_stats(
-            time_elapsed_ms=time_elapsed,
-            size_bytes=value_size,
-            num_values=1
-        )
-
-        self.log.debug(f'Read {buffer.getbuffer().nbytes:,} bytes from AWS S3 bucket/key '
-                       f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
-
-        return buffer
+        # if self._loop is None or self._loop != asyncio.get_running_loop():
+        #     self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
+        #                      f'Will use sync AWS/S3 client for '
+        #                      f'download_fileobj("s3://{self._bucket_name}/{key}") operation...')
+        #
+        # start_time: float = time.time()
+        #
+        # async with self._aio_session.client('s3') as s3:
+        #     buffer: io.BytesIO = io.BytesIO()
+        #     try:
+        #         await s3.download_fileobj(self._bucket_name, key, buffer)
+        #         buffer.seek(0) # Need to move pointer back to beginning of buffer.
+        #     except ClientError as ce:
+        #         response_error = ce.response['Error']
+        #         if response_error['Code'] == 'InvalidAccessKeyId' or response_error['Code'] == '404':
+        #             raise InvalidKeyError(f'No object with key "{key}" in S3 bucket "{self._bucket_name}"', key = key)
+        #         raise ce # re-raise
+        #     except Exception as e:
+        #         self.log.error(f"Error downloading file: {e}")
+        #         raise e  # re-raise
+        #
+        # end_time: float = time.time()
+        # time_elapsed: float = end_time - start_time
+        # time_elapsed_ms: float = round(time_elapsed * 1.0e3)
+        # value_size = buffer.getbuffer().nbytes
+        #
+        # # Update internal metrics.
+        # self.update_read_stats(
+        #     time_elapsed_ms=time_elapsed,
+        #     size_bytes=value_size,
+        #     num_values=1
+        # )
+        #
+        # self.log.debug(f'Read {buffer.getbuffer().nbytes:,} bytes from AWS S3 bucket/key '
+        #                f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
+        #
+        # return buffer
 
     def read_value(self, key: str)->Any:
         """
@@ -280,29 +284,31 @@ class S3Provider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
-        if self._loop is None or self._loop != asyncio.get_running_loop():
-            self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
-                             f'Will use sync AWS/S3 client for '
-                             f'delete_object("s3://{self._bucket_name}/{key}") operation...')
+        return self.delete_value(key)
 
-        start_time: float = time.time()
-
-        async with self._aio_session.client('s3') as s3:
-            try:
-                await s3.delete_object(Bucket=self._bucket_name, Key=key)
-            except Exception as e:
-                self.log.error(f"Error deleting object \"{key}\": {e}")
-                self.log.error(traceback.format_exc())
-                return False
-
-        end_time: float = time.time()
-        time_elapsed: float = end_time - start_time
-        time_elapsed_ms: float = round(time_elapsed * 1.0e3)
-
-        self.update_delete_stats(time_elapsed, 1)
-
-        self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
-        return True
+        # if self._loop is None or self._loop != asyncio.get_running_loop():
+        #     self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
+        #                      f'Will use sync AWS/S3 client for '
+        #                      f'delete_object("s3://{self._bucket_name}/{key}") operation...')
+        #
+        # start_time: float = time.time()
+        #
+        # async with self._aio_session.client('s3') as s3:
+        #     try:
+        #         await s3.delete_object(Bucket=self._bucket_name, Key=key)
+        #     except Exception as e:
+        #         self.log.error(f"Error deleting object \"{key}\": {e}")
+        #         self.log.error(traceback.format_exc())
+        #         return False
+        #
+        # end_time: float = time.time()
+        # time_elapsed: float = end_time - start_time
+        # time_elapsed_ms: float = round(time_elapsed * 1.0e3)
+        #
+        # self.update_delete_stats(time_elapsed, 1)
+        #
+        # self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
+        # return True
 
     def delete_value(self, key: str)->bool:
         """
