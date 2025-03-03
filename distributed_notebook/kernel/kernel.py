@@ -2007,13 +2007,18 @@ class DistributedKernel(IPythonKernel):
         return remote_storage_name, gpu_device_ids
 
     async def set_checkpointing_state(self, val: bool, resolve: Callable[[Any, Any], None]) -> None:
+        """
+        This method updates the value of the 'checkpoint_state' field.
+
+        This method should only be called within the Control thread's IO loop.
+        """
         async with self.checkpointing_state_cv:
             self.checkpointing_state = val
 
             if not self.checkpointing_state:
                 self.checkpointing_state_cv.notify_all()
 
-            resolve("done", None)
+            resolve(self.checkpointing_state, None)
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -2184,14 +2189,20 @@ class DistributedKernel(IPythonKernel):
         if was_primary_replica:
             self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
 
-            future: Future = Future(loop=self.io_loop.asyncio_loop)
+            # Create a Future for the running IO loop.
+            future: Future = Future(loop=asyncio.get_running_loop())
 
+            # Create a 'resolve' callback that will set the result of the future in a thread-safe manner.
             def resolve(key, err):
                 # must use local variable
-                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.io_loop.asyncio_loop)  # type: ignore
+                asyncio.run_coroutine_threadsafe(future.resolve(key, err), asyncio.get_running_loop())  # type: ignore
 
-            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(self.set_checkpointing_state, (True, future, resolve))
+            # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
+            # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
+            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(
+                self.set_checkpointing_state, (True, future, resolve))
 
+            # Wait for the above to finish.
             await future.result()
 
             # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
@@ -2211,14 +2222,20 @@ class DistributedKernel(IPythonKernel):
             # runtime state.
             await self.schedule_notify_execution_complete(term_number)
 
-            future = Future(loop=self.io_loop.asyncio_loop)
+            # Create a Future for the running IO loop.
+            future = Future(loop=asyncio.get_running_loop())
 
+            # Create a 'resolve' callback that will set the result of the future in a thread-safe manner.
             def resolve(key, err):
                 # must use local variable
-                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.io_loop.asyncio_loop)  # type: ignore
+                asyncio.run_coroutine_threadsafe(future.resolve(key, err), asyncio.get_running_loop())  # type: ignore
 
-            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(self.set_checkpointing_state, (False, future, resolve))
+            # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
+            # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
+            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(
+                self.set_checkpointing_state, (False, future, resolve))
 
+            # Wait for the above to finish.
             await future.result()
         else:
             self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronizion step.")
