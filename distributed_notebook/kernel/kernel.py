@@ -1256,8 +1256,8 @@ class DistributedKernel(IPythonKernel):
             redis_port=self.redis_port,
             redis_database=self.redis_database,
             redis_password=self.redis_password,
-            io_loops = [self.io_loop.asyncio_loop, self.control_thread.io_loop.asyncio_loop],
-        ), loop = self.io_loop.asyncio_loop)
+            io_loops = [self.control_thread.io_loop.asyncio_loop],
+        ), loop = self.control_thread.io_loop.asyncio_loop)
 
         self._remote_checkpointer: Optional[Checkpointer] = future.result()
 
