@@ -46,7 +46,7 @@ remote_checkpointer_factory: dict[str, Any] = {
     "local": get_local_checkpointer,
 }
 
-def get_checkpointer(remote_storage_name: str, **kwargs)->Checkpointer:
+async def get_checkpointer(remote_storage_name: str, **kwargs)->Checkpointer:
     if remote_storage_name is None:
         raise ValueError("remote storage cannot be null")
 

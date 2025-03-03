@@ -490,6 +490,7 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
         self.synclog: Optional[SyncLog] = None
+        self._remote_checkpointer: Optional[Checkpointer] = None # created in start method.
 
         # Normally, we start the SyncLog in DistributedKernel::start.
         #
@@ -1248,7 +1249,7 @@ class DistributedKernel(IPythonKernel):
         self.init_debugpy()
 
         # Arguments not relevant to the specified remote storage will be ignored.
-        self._remote_checkpointer: Checkpointer = get_checkpointer(
+        future = asyncio.run_coroutine_threadsafe(get_checkpointer(
             remote_storage_name=self.remote_storage,
             host=self.remote_storage_hostname,
             aws_region=self.aws_region,
@@ -1256,7 +1257,9 @@ class DistributedKernel(IPythonKernel):
             redis_database=self.redis_database,
             redis_password=self.redis_password,
             io_loops = [self.io_loop.asyncio_loop, self.control_thread.io_loop.asyncio_loop],
-        )
+        ), loop = self.io_loop.asyncio_loop)
+
+        self._remote_checkpointer: Optional[Checkpointer] = future.result()
 
         persistent_id_defined: bool = self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None
 
