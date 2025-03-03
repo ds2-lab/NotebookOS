@@ -16,7 +16,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Tuple, Awaitable, Callable
+from typing import Union, Optional, Dict, Any, Tuple, Awaitable
 
 import debugpy
 import faulthandler
@@ -43,7 +43,6 @@ from distributed_notebook.gateway.gateway_pb2_grpc import KernelErrorReporterStu
 from distributed_notebook.kernel.iopub_notifier import IOPubNotification
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
-from distributed_notebook.sync.future import Future
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.checkpointer_factory import get_checkpointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
@@ -1055,7 +1054,7 @@ class DistributedKernel(IPythonKernel):
         except ValueError:
             server_port = 8075
 
-        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port) )
+        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port))
 
         self.daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -1092,9 +1091,9 @@ class DistributedKernel(IPythonKernel):
             }
         except Exception as ex:
             self.log.error(f"Failed to create registration payload: {ex}")
-            raise ex # Re-raise
+            raise ex  # Re-raise
 
-        self.log.info("Sending registration payload to local daemon: %s"% str(registration_payload))
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
 
         bytes_sent: int = self.daemon_registration_socket.send(json.dumps(registration_payload).encode())
 
@@ -1152,11 +1151,11 @@ class DistributedKernel(IPythonKernel):
             raise ValueError('registration response from local daemon did not contained a "replicas" entry')
 
         self.num_replicas: int = len(replicas)
-        if "smr_port" in response_dict: # Only occurs during testing.
+        if "smr_port" in response_dict:  # Only occurs during testing.
             self.smr_port = int(response_dict["smr_port"])
             self.log.debug(f"Set SMR port to value from Local Daemon registration response: {self.smr_port}")
 
-            self.smr_nodes_map = { int(node_id_str): node_addr for node_id_str, node_addr in replicas.items() }
+            self.smr_nodes_map = {int(node_id_str): node_addr for node_id_str, node_addr in replicas.items()}
         else:
             self.smr_nodes_map = {
                 int(node_id_str): (node_addr + ":" + str(self.smr_port))
@@ -1202,7 +1201,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
         if self.smr_nodes_map[self.smr_node_id] != (self.hostname + ":" + str(self.smr_port)):
-            expected_hostname:str = self.hostname + ":" + str(self.smr_port)
+            expected_hostname: str = self.hostname + ":" + str(self.smr_port)
             self.log.error("Invalid Configuration")
             self.log.error(f'Expected our entry in SMR nodes map to equal "{expected_hostname}".')
             self.log.error(f'Instead, entry {self.smr_node_id} is equal to "{self.smr_nodes_map[self.smr_node_id]}"')
@@ -1805,7 +1804,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Error whilst catching up with peer replicas: %s" % str(ex))
                 self.log.error(traceback.format_exc())
                 self.report_error("Error While Catching Up with Peer Replicas", str(ex))
-                raise ex # Re-raise
+                raise ex  # Re-raise
 
             try:
                 await self.__download_pointers_committed_while_catching_up()
@@ -1813,7 +1812,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Error whilst downloading pointers committed while catching up: %s" % str(ex))
                 self.log.error(traceback.format_exc())
                 self.report_error("Error While Downloading Committed Pointers", str(ex))
-                raise ex # Re-raise
+                raise ex  # Re-raise
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
@@ -2214,7 +2213,7 @@ class DistributedKernel(IPythonKernel):
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
             future = asyncio.run_coroutine_threadsafe(
                 self.set_checkpointing_state(True),
-                loop = self.control_thread.io_loop.asyncio_loop
+                loop=self.control_thread.io_loop.asyncio_loop
             )
 
             # Wait for the above to finish.
@@ -2253,18 +2252,11 @@ class DistributedKernel(IPythonKernel):
                 self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
                                   f'for Execution "{execute_request_id}"', str(ex))
 
-            self.log.debug("Sleeping for 30 seconds before flipping value of 'Checkpointing State' flag to False...")
-            await asyncio.sleep(10)
-            self.log.debug("Sleeping for 20 seconds before flipping value of 'Checkpointing State' flag to False...")
-            await asyncio.sleep(10)
-            self.log.debug("Sleeping for 10 seconds before flipping value of 'Checkpointing State' flag to False...")
-            await asyncio.sleep(10)
-
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
             future = asyncio.run_coroutine_threadsafe(
                 self.set_checkpointing_state(False),
-                loop = self.control_thread.io_loop.asyncio_loop
+                loop=self.control_thread.io_loop.asyncio_loop
             )
 
             future.result()
@@ -2948,7 +2940,8 @@ class DistributedKernel(IPythonKernel):
 
         target_replica_id: int = parent["metadata"].get("target_replica_id", -1)
 
-        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], parent["metadata"])
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"],
+                                                    parent["metadata"])
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -3500,7 +3493,7 @@ class DistributedKernel(IPythonKernel):
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
             parent_header: Dict[str, Any] = None,
-            parent = None,
+            parent=None,
             target_replica_id: int = -1,
             *,
             cell_meta=None,
@@ -3676,9 +3669,9 @@ class DistributedKernel(IPythonKernel):
 
             title: str = (f"Election {current_term_number} Skipped by Replica {self.smr_node_id} "
                           f"of Kernel {self.kernel_id}")
-            body:str = (f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
-                        f'{self.smr_node_id} of kernel {self.kernel_id}, as associated election '
-                        f'(term={current_term_number}) was skipped.')
+            body: str = (f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
+                         f'{self.smr_node_id} of kernel {self.kernel_id}, as associated election '
+                         f'(term={current_term_number}) was skipped.')
             typ: int = WarningNotification
 
             self.send_notification(notification_title=title, notification_body=body, notification_type=typ)
@@ -3753,7 +3746,7 @@ class DistributedKernel(IPythonKernel):
             dataset: Optional[str] = None,
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
-            execute_request_msg_id:str = "",
+            execute_request_msg_id: str = "",
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3829,7 +3822,7 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content, performed_dl_training, code
 
-    async def synchronize_updated_state(self, term_number: int, jupyter_message_id:str):
+    async def synchronize_updated_state(self, term_number: int, jupyter_message_id: str):
         """
         Synchronize any state updated during the last execution with peer replicas.
 
@@ -3853,9 +3846,9 @@ class DistributedKernel(IPythonKernel):
         try:
             # Do the synchronization
             synchronized_successfully: bool = await self.synchronizer.sync(
-                execution_ast = self.execution_ast,
-                source = self.source,
-                jupyter_message_id = jupyter_message_id
+                execution_ast=self.execution_ast,
+                source=self.source,
+                jupyter_message_id=jupyter_message_id
             )
         except Exception as exc:
             self.log.error(f"Synchronization failed: {exc}")
