@@ -1522,39 +1522,28 @@ class RaftLog(object):
         """
         Handler for when the 'catchup' value is committed, indicating that we've fully caught-up to our peers.
         """
-        self.log.debug(
-            f"Received our catch-up value (ID={catchupValue.id}, timestamp={catchupValue.timestamp}, "
-            f"election term={catchupValue.election_term}). We must be caught up!\n\n"
-        )
+        self.log.debug(f"Received our catch-up value (ID={catchupValue.id}, timestamp={catchupValue.timestamp}, "
+                       f"election term={catchupValue.election_term}). We must be caught up!\n\n")
         sys.stderr.flush()
         sys.stdout.flush()
 
         if self._leader_term_before_migration != catchupValue.election_term:
-            self.log.error(
-                f"The leader term before migration was {self._leader_term_before_migration}, "
-                f'while the committed "catch-up" value has term {catchupValue.election_term}. '
-                f'The term of the "catch-up" value should be equal to last leader term.'
-            )
-            # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
+            self.log.error(f"The leader term before migration was {self._leader_term_before_migration}, "
+                           f'while the committed "catch-up" value has term {catchupValue.election_term}. '
+                           f'The term of the "catch-up" value should be equal to last leader term.')
+
             sys.stderr.flush()
             sys.stdout.flush()
-            raise ValueError(
-                f"The leader term before migration was {self._leader_term_before_migration}, "
-                f'while the committed "catch-up" value has term {catchupValue.election_term}. '
-                f'The term of the "catch-up" value should be equal to last leader term.'
-            )
-            # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
+            raise ValueError(f"The leader term before migration was {self._leader_term_before_migration}, "
+                             f'while the committed "catch-up" value has term {catchupValue.election_term}. '
+                             f'The term of the "catch-up" value should be equal to last leader term.')
 
         self._needs_to_catch_up = False
 
-        self._catchup_io_loop.call_soon_threadsafe(
-            self._catchup_future.set_result, catchupValue
-        )
+        self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, catchupValue)
         self._catchup_value = None
 
-        self.log.debug(
-            "Scheduled setting of result of catch-up value on catchup future."
-        )
+        self.log.debug("Scheduled setting of result of catch-up value on catchup future.")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -2821,11 +2810,9 @@ class RaftLog(object):
         await self._catchup_future  # Wait for the value to be committed.
 
         if self._send_notification_func is not None:
-            self._send_notification_func(
-                "Caught Up After Migration",
-                f"Replica {self._node_id} of Kernel {self._kernel_id} has caught-up to its peers following a migration operation.",
-                2,
-            )
+            self._send_notification_func("Caught Up After Migration",
+                                         f"Replica {self._node_id} of Kernel {self._kernel_id} has caught-up to its peers following a migration operation.",
+                                         2)
 
         self.log.debug("We've successfully caught up to our peer replicas.")
 

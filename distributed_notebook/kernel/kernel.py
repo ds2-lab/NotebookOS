@@ -1763,9 +1763,19 @@ class DistributedKernel(IPythonKernel):
         if self.synclog.needs_to_catch_up:
             self.log.debug('Need to restore user namespace via the SyncLog.')
 
-            await self.synclog.catchup_with_peers()
+            try:
+                await self.synclog.catchup_with_peers()
+            except Exception as ex:
+                self.log.error("Error whilst catching up with peer replicas: %s" % str(ex))
+                self.log.error(traceback.format_exc())
+                self.report_error("Error While Catching Up with Peer Replicas", str(ex))
 
-            await self.__download_pointers_committed_while_catching_up()
+            try:
+                await self.__download_pointers_committed_while_catching_up()
+            except Exception as ex:
+                self.log.error("Error whilst downloading pointers committed while catching up: %s" % str(ex))
+                self.log.error(traceback.format_exc())
+                self.report_error("Error While Downloading Committed Pointers", str(ex))
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
