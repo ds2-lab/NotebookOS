@@ -1258,18 +1258,22 @@ class DistributedKernel(IPythonKernel):
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
 
+        rsp = None
+        
         try:
             self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
             self.log.info(f"Persistent store confirmed on start: {self.store}")
+            rsp = self.gen_simple_response()
+            self.log.info("Persistent store confirmed: " + self.store)
+            return True
         except Exception as ex:
             self.log.error(f'Failed to initialize persistent store with ID "{persistent_id}" because: {ex}')
             self.log.error(traceback.format_exc())
+            rsp = gen_error_response(ex)
+            future.set_result(rsp)
             return False
-
-        rsp = self.gen_simple_response()
-        future.set_result(rsp)
-        self.log.info("Persistent store confirmed: " + self.store)
-        return True
+        finally:
+            future.set_result(rsp)
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""
@@ -1637,11 +1641,18 @@ class DistributedKernel(IPythonKernel):
                 self.persistent_id = self.shell.user_ns[key_persistent_id]
 
             self.log.info('Persistent ID set: "%s"' % self.persistent_id)
+
             # Initialize persistent store
-            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+            try:
+                self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+                self.log.info(f"Persistent store confirmed on start: {self.store}")
+                rsp = self.gen_simple_response()
+            except Exception as ex:
+                self.log.error(f'Failed to initialize persistent store with ID "{self.persistent_id}" because: {ex}')
+                self.log.error(traceback.format_exc())
+                rsp = gen_error_response(ex)
 
             # Resolve future
-            rsp = self.gen_simple_response()
             future.set_result(rsp)
             self.log.info("Persistent store confirmed: " + self.store)
 
@@ -1777,7 +1788,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Error whilst downloading pointers committed while catching up: %s" % str(ex))
                 self.log.error(traceback.format_exc())
                 self.report_error("Error While Downloading Committed Pointers", str(ex))
-                raise ex # Re-raise 
+                raise ex # Re-raise
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
@@ -2449,9 +2460,16 @@ class DistributedKernel(IPythonKernel):
         # Create future to avoid duplicate initialization
         future: asyncio.Future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
-        self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
-        rsp = self.gen_simple_response()
+        try:
+            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+            rsp = self.gen_simple_response()
+        except Exception as ex:
+            self.log.error(f"Failed to initialize persistent store during start-synclog request: {ex}")
+            self.log.error(traceback.format_exc())
+            self.report_error("Failed to Init Persistent Store While Handling 'Start SyncLog' Request", str(ex))
+            rsp = gen_error_response(ex)
+
         future.set_result(rsp)
         self.log.info("Persistent store confirmed: " + self.store)
 
@@ -2585,9 +2603,16 @@ class DistributedKernel(IPythonKernel):
             # Create future to avoid duplicate initialization
             future: asyncio.Future = asyncio.Future(loop=asyncio.get_running_loop())
             self.store = future
-            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
-            rsp = self.gen_simple_response()
+            try:
+                self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+                rsp = self.gen_simple_response()
+            except Exception as ex:
+                self.log.error(f"Failed to initialize persistent store during prewarm promotion: {ex}")
+                self.log.error(traceback.format_exc())
+                self.report_error("Failed to Init Persistent Store During Prewarm Promotion", str(ex))
+                rsp = gen_error_response(ex)
+
             future.set_result(rsp)
             self.log.info("Persistent store confirmed: " + self.store)
         else:
