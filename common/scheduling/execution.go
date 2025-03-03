@@ -119,6 +119,10 @@ type ExecutionManager interface {
 	// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
 	ExecutionIndexIsLarger(executionIndex int32) bool
 
+	// NumExecutionsByReplica returns the number of times that the specified replica served as the primary replica
+	// and successfully executed user-submitted code.
+	NumExecutionsByReplica(replicaId int32) int
+
 	// HasActiveTraining returns true if the target DistributedKernelClient has an active training -- meaning that the
 	// Kernel has submitted an "execute_request" and is still awaiting a response.
 	//

@@ -5750,14 +5750,24 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 			KernelSpec:          kernel.KernelSpec(),
 		}
 
+		executionManager := kernel.GetExecutionManager()
+
+		lastPrimaryReplicaId := int32(-1)
+		lastPrimaryReplica := executionManager.LastPrimaryReplica()
+		if lastPrimaryReplica != nil {
+			lastPrimaryReplicaId = lastPrimaryReplica.ReplicaID()
+		}
+
 		replicas := make([]*proto.JupyterKernelReplica, 0, len(kernel.Replicas()))
 		kernelReplicas := kernel.Replicas()
 		for _, replica := range kernelReplicas {
 			kernelReplica := &proto.JupyterKernelReplica{
-				KernelId:  kernel.ID(),
-				ReplicaId: replica.ReplicaID(),
-				PodId:     replica.GetPodOrContainerId(),
-				NodeId:    replica.NodeName(),
+				KernelId:              kernel.ID(),
+				ReplicaId:             replica.ReplicaID(),
+				PodId:                 replica.GetPodOrContainerId(),
+				NodeId:                replica.NodeName(),
+				WasLastPrimaryReplica: replica.ReplicaID() == lastPrimaryReplicaId,
+				NumExecutions:         executionManager.NumExecutionsByReplica(replica.ReplicaID()),
 			}
 			replicas = append(replicas, kernelReplica)
 		}

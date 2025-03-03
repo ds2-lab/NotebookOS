@@ -51,6 +51,10 @@ type ExecutionManager struct {
 	// for updating Prometheus metrics.
 	statisticsProvider scheduling.StatisticsProvider
 
+	// numTimesAsPrimaryReplicaMap keeps track of the number of times that each replica served as the primary
+	// replica and successfully executed user-submitted code.
+	numTimesAsPrimaryReplicaMap map[int32]int
+
 	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
 	// the code submission with the aforementioned ID.
 	//
@@ -203,6 +207,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 		failedExecutions:             make(map[string]*Execution),
 		smrLeadTaskMessages:          make(map[string]*messaging.JupyterMessage),
 		executeReplyMessages:         make(map[string]*messaging.JupyterMessage),
+		numTimesAsPrimaryReplicaMap:  make(map[int32]int),
 		NumReplicas:                  numReplicas,
 		Kernel:                       kernel,
 		submittedExecutionIndex:      -1,
@@ -242,6 +247,17 @@ func (m *ExecutionManager) GetExecuteReplyMessage(executeRequestId string) (*mes
 // fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
 func (m *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
 	return executionIndex > m.submittedExecutionIndex && executionIndex > m.activeExecutionIndex && executionIndex > m.completedExecutionIndex
+}
+
+// NumExecutionsByReplica returns the number of times that the specified replica served as the primary replica
+// and successfully executed user-submitted code.
+func (m *ExecutionManager) NumExecutionsByReplica(replicaId int32) int {
+	numTimes, loaded := m.numTimesAsPrimaryReplicaMap[replicaId]
+	if !loaded {
+		return 0
+	}
+
+	return numTimes
 }
 
 // SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
@@ -695,6 +711,12 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// Store the execution in the "finished" map.
 	m.finishedExecutions[executeRequestId] = activeExecution
 	m.executeReplyMessages[executeRequestId] = msg
+
+	if numTimes, loadedNumTimes := m.numTimesAsPrimaryReplicaMap[replica.ReplicaID()]; loadedNumTimes {
+		m.numTimesAsPrimaryReplicaMap[replica.ReplicaID()] = numTimes + 1
+	} else {
+		m.numTimesAsPrimaryReplicaMap[replica.ReplicaID()] = 1
+	}
 
 	// If our statistics provider field is non-nil, then we'll update some statistics.
 	if m.statisticsProvider != nil {

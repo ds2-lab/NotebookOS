@@ -608,6 +608,8 @@ message JupyterKernelReplica {
   int32 replicaId = 2;
   string podId = 3;
   string nodeId = 4;
+  bool wasLastPrimaryReplica = 5;
+  int32 numExecutions = 6;
 }
 
 message DistributedJupyterKernel {
