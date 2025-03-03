@@ -2205,22 +2205,38 @@ class DistributedKernel(IPythonKernel):
             # Wait for the above to finish.
             await future.result()
 
-            # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
-            # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
-            # or Redis, depending on the system's configuration.
-            await self.synchronize_updated_state(term_number, parent_header["msg_id"])
+            execute_request_id: str = parent_header["msg_id"]
 
-            # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
-            #
-            # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
-            # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
-            #
-            # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
-            # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
-            # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
-            # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
-            # runtime state.
-            await self.schedule_notify_execution_complete(term_number)
+            try:
+                # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
+                # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
+                # or Redis, depending on the system's configuration.
+                await self.synchronize_updated_state(term_number, execute_request_id)
+            except Exception as ex:
+                self.log.error(f'Error while synchronizing updated state for term {term_number} '
+                               f'and execution "{execute_request_id}": {ex}')
+                self.log.error(traceback.format_exc())
+                self.report_error(f'Failed to Synchronize Updated State in Term {term_number} '
+                                  f'for Execution "{execute_request_id}"', str(ex))
+
+            try:
+                # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+                #
+                # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
+                # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
+                #
+                # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
+                # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
+                # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
+                # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
+                # runtime state.
+                await self.schedule_notify_execution_complete(term_number)
+            except Exception as ex:
+                self.log.error(f'Error while scheduling "Execution Complete" notification for term {term_number} '
+                               f'and execution "{execute_request_id}": {ex}')
+                self.log.error(traceback.format_exc())
+                self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
+                                  f'for Execution "{execute_request_id}"', str(ex))
 
             # Create a Future for the running IO loop.
             future = Future(loop=asyncio.get_running_loop())
