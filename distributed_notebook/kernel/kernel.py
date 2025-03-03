@@ -2006,7 +2006,7 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name, gpu_device_ids
 
-    async def set_checkpointing_state(self, val: bool, future: Future, resolve: Callable[[Any, Any], None]) -> None:
+    async def set_checkpointing_state(self, val: bool, resolve: Callable[[Any, Any], None]) -> None:
         async with self.checkpointing_state_cv:
             self.checkpointing_state = val
 
@@ -2184,7 +2184,7 @@ class DistributedKernel(IPythonKernel):
         if was_primary_replica:
             self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
 
-            future: Future = Future(loop=self.control_thread.io_loop.asyncio_loop)
+            future: Future = Future(loop=self.io_loop.asyncio_loop)
 
             def resolve(key, err):
                 # must use local variable
@@ -2211,7 +2211,7 @@ class DistributedKernel(IPythonKernel):
             # runtime state.
             await self.schedule_notify_execution_complete(term_number)
 
-            future = Future(loop=self.control_thread.io_loop.asyncio_loop)
+            future = Future(loop=self.io_loop.asyncio_loop)
 
             def resolve(key, err):
                 # must use local variable
