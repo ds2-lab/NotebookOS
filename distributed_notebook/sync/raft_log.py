@@ -3078,7 +3078,14 @@ class RaftLog(object):
         sys.stdout.flush()
 
         self.log.debug("RaftLog::start: starting LogNode now.")
-        startSuccessful: bool = self._log_node.Start(config)
+
+        try:
+            startSuccessful: bool = self._log_node.Start(config)
+        except Exception as ex:
+            self.log.error(f"Exception whilst starting LogNode: {ex}")
+            self.log.error(traceback.format_exc())
+            self._report_error_callback("Failed to Start LogNode", str(ex))
+            startSuccessful: bool = False
 
         # self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
         sys.stderr.flush()

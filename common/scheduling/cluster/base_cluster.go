@@ -266,7 +266,7 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 		return
 	}
 
-	c.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	c.log.Info("✓ Successfully created %d/%d pre-warm containers. ✓", created, target)
 	// We deferred `prewarmer.Run()`, so that'll run when we return.
 }
 

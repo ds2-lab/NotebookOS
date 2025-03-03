@@ -90,6 +90,6 @@ print("\n[docker_swarm:children]")
 print("docker_swarm_manager")
 print("docker_swarm_worker")
 
-print("\n\n\n\n\n\n\n\n\n\n\n\nFollower IPs:")
-for ip in follower_public_ips:
-    print('{"hostname": "%s", "username": "ubuntu"}, ' % ip)
+# print("\n\n\n\n\n\n\n\n\n\n\n\nFollower IPs:")
+# for ip in follower_public_ips:
+#     print('{"hostname": "%s", "username": "ubuntu"}, ' % ip)

@@ -1020,12 +1020,14 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 
 		node.logger.Debug("Creating the WAL now.", zap.String("waldir", node.waldir))
 
-		// Create creates a WAL ready for appending records.
+		notifyChan := make(chan interface{})
+
 		w, err := wal.Create(zap.NewExample(), node.waldir, nil)
 		if err != nil {
 			node.logger.Error("Failed to create WAL.", zap.Error(err))
 			time.Sleep(time.Millisecond * 50)
 			node.logFatalf("LogNode: create WAL error (%v)", err)
+			notifyChan <- err
 			return nil
 		}
 
