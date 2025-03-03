@@ -1261,6 +1261,8 @@ class DistributedKernel(IPythonKernel):
 
         self._remote_checkpointer: Optional[Checkpointer] = future.result()
 
+        self.log.debug(f"Created remote checkpointer: {self._remote_checkpointer}")
+
         persistent_id_defined: bool = self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None
 
         if persistent_id_defined and self.start_synclog_immediately:
