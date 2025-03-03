@@ -1259,7 +1259,7 @@ class DistributedKernel(IPythonKernel):
         self.store = future
 
         rsp = None
-        
+
         try:
             self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
             self.log.info(f"Persistent store confirmed on start: {self.store}")
@@ -1269,6 +1269,7 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error(f'Failed to initialize persistent store with ID "{persistent_id}" because: {ex}')
             self.log.error(traceback.format_exc())
+            self.report_error("Failed to Init Persistent Store During Start", str(ex))
             rsp = gen_error_response(ex)
             future.set_result(rsp)
             return False
@@ -1650,6 +1651,7 @@ class DistributedKernel(IPythonKernel):
             except Exception as ex:
                 self.log.error(f'Failed to initialize persistent store with ID "{self.persistent_id}" because: {ex}')
                 self.log.error(traceback.format_exc())
+                self.report_error("Failed to Init Persistent Store", str(ex))
                 rsp = gen_error_response(ex)
 
             # Resolve future
