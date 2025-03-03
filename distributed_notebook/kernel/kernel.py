@@ -2006,7 +2006,7 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name, gpu_device_ids
 
-    async def set_checkpointing_state(self, val: bool, future: Future, resolve: Callable[[Any, Any]]) -> None:
+    async def set_checkpointing_state(self, val: bool, future: Future, resolve: Callable[[Any, Any], None]) -> None:
         async with self.checkpointing_state_cv:
             self.checkpointing_state = val
 
