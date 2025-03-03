@@ -2188,7 +2188,7 @@ class DistributedKernel(IPythonKernel):
 
             def resolve(key, err):
                 # must use local variable
-                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.control_thread.io_loop.asyncio_loop)  # type: ignore
+                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.io_loop.asyncio_loop)  # type: ignore
 
             self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(self.set_checkpointing_state, (True, future, resolve))
 
@@ -2215,7 +2215,7 @@ class DistributedKernel(IPythonKernel):
 
             def resolve(key, err):
                 # must use local variable
-                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.control_thread.io_loop.asyncio_loop)  # type: ignore
+                asyncio.run_coroutine_threadsafe(future.resolve(key, err), self.io_loop.asyncio_loop)  # type: ignore
 
             self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(self.set_checkpointing_state, (False, future, resolve))
 
