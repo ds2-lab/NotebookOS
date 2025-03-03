@@ -117,7 +117,7 @@ class RedisProvider(RemoteStorageProvider):
                     async_redis_client: async_redis.Redis = async_redis.Redis(host=host, port=port, db=db,
                                                                               password=password,
                                                                               **additional_redis_args)
-                    
+
                 self.async_redis_clients[id(io_loop)] = async_redis_client
 
         self.log.debug(f"Successfully connected to Redis server at {host}:{port} (db={db}).")
@@ -141,6 +141,7 @@ class RedisProvider(RemoteStorageProvider):
         if id(io_loop) in self.async_redis_clients:
             return True
 
+        self.log.debug(f"Creating new async Redis client for current IO loop ({id(io_loop)}).")
         self.async_redis_clients[id(io_loop)] = async_redis.Redis(
             host=self._redis_host,
             port=self._redis_port,
