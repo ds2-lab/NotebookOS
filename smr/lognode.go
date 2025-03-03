@@ -637,9 +637,9 @@ func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, re
 	}
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
-		node.logger.Info("Calling `resolve` callback.", zap.Any("resolve-callback", resolve),
-			zap.String("msg", msg))
+		node.logger.Info("Calling `resolve` callback.", zap.String("msg", msg))
 		resolve(msg, toCError(nil))
+		node.logger.Info("Finished call to `resolve` callback.", zap.String("msg", msg))
 	} else {
 		node.logger.Info("There is no `resolve` callback to invoke.", zap.String("msg", msg))
 	}

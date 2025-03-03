@@ -311,7 +311,7 @@ class RaftLog(object):
         def caught_up_callback(f: Any):
             self._restore_namespace_time_seconds = time.time() - catchup_start_time
             self.log.debug(f"We're caught up. "
-                           f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds.")
+                           f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds. f='{f}'")
 
         if self._needs_to_catch_up:
             # We pass the last election term, as we don't want to win the current election.
@@ -1560,7 +1560,11 @@ class RaftLog(object):
             self._report_error_callback("'Catchup' Future is None.",
                                         f"Cannot handle committed 'Catchup' value: {catchupValue}")
 
-        self._catchup_io_loop.call_soon_threadsafe(_catchup_future.set_result, catchupValue)
+        def set_catchup_result():
+            self.log.debug(f"Setting result on 'Catchup' future now: {catchupValue}")
+            _catchup_future.set_result(catchupValue)
+
+        self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
         self._catchup_value = None
 
         self.log.debug("Scheduled setting of result of catch-up value on catchup future.")
@@ -1890,9 +1894,7 @@ class RaftLog(object):
 
         return True
 
-    def _get_callback(
-            self, future_name: str = ""
-    ) -> Tuple[Future, Callable[[str, Exception], Any]]:
+    def _get_callback(self, future_name: str = "") -> Tuple[Future, Callable[[str, Exception], Any]]:
         """Get the future object for the specified key."""
         # Prepare callback settings.
         # Callback can be called from a different thread. Schedule the result of the future object to the await thread.
@@ -1900,20 +1902,14 @@ class RaftLog(object):
         loop.set_debug(True)
 
         if loop == self._async_loop:
-            self.log.debug(
-                "Registering callback future on _async_loop. _async_loop.is_running: %s"
-                % str(self._async_loop.is_running())
-            )  # type: ignore
+            self.log.debug(f"Registering callback future on _async_loop. "
+                           f"_async_loop.is_running: {self._async_loop.is_running()}") # type: ignore
         elif loop == self._start_loop:
-            self.log.debug(
-                "Registering callback future on _start_loop. _start_loop.is_running: %s"
-                % str(self._start_loop.is_running())
-            )  # type: ignore
+            # type: ignore
+            self.log.debug(f"Registering callback future on _start_loop. "
+                           f"_start_loop.is_running: {self._start_loop.is_running()}")
         else:
-            self.log.debug(
-                "Registering callback future on unknown loop. loop.is_running: %s"
-                % str(loop.is_running())
-            )
+            self.log.debug(f"Registering callback future on unknown loop. loop.is_running: {loop.is_running()}")
 
         self._async_loop = loop
 
@@ -1921,6 +1917,8 @@ class RaftLog(object):
         self._async_loop = loop
 
         def resolve(key, err):
+            self.log.debug(f'Python-level resolve callback called with key="{key}", err="{err}"')
+
             # must use local variable
             asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop)  # type: ignore
 
