@@ -2199,8 +2199,10 @@ class DistributedKernel(IPythonKernel):
 
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
-            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(
-                self.set_checkpointing_state, (True, resolve))
+            asyncio.run_coroutine_threadsafe(
+                self.set_checkpointing_state(True, resolve),
+                loop = self.control_thread.io_loop.asyncio_loop
+            )
 
             # Wait for the above to finish.
             await future.result()
@@ -2248,13 +2250,15 @@ class DistributedKernel(IPythonKernel):
 
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
-            self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(
-                self.set_checkpointing_state, (False, resolve))
+            asyncio.run_coroutine_threadsafe(
+                self.set_checkpointing_state(False, resolve),
+                loop = self.control_thread.io_loop.asyncio_loop
+            )
 
             # Wait for the above to finish.
             await future.result()
         else:
-            self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronizion step.")
+            self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronization step.")
 
         # Record synchronization and checkpointing overhead.
         # For replica-based approaches, this won't be included in what is sent back to the client.
