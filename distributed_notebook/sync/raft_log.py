@@ -310,7 +310,8 @@ class RaftLog(object):
 
         def caught_up_callback(f: Any):
             self._restore_namespace_time_seconds = time.time() - catchup_start_time
-            self.log.debug(f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds.")
+            self.log.debug(f"We're caught up. "
+                           f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds.")
 
         if self._needs_to_catch_up:
             # We pass the last election term, as we don't want to win the current election.
@@ -1539,6 +1540,11 @@ class RaftLog(object):
                              f'The term of the "catch-up" value should be equal to last leader term.')
 
         self._needs_to_catch_up = False
+
+        if self._catchup_future is None:
+            self.log.error(f"'Catchup' Future is None. Cannot handle committed 'Catchup' value: {catchupValue}")
+            self._report_error_callback("'Catchup' Future is None.",
+                                        f"Cannot handle committed 'Catchup' value: {catchupValue}")
 
         self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, catchupValue)
         self._catchup_value = None

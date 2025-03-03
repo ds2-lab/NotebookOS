@@ -3736,18 +3736,15 @@ class DistributedKernel(IPythonKernel):
                 self.current_execution_stats.execution_end_unix_millis
                 - self.current_execution_stats.execution_start_unix_millis
         )
-        self.current_execution_stats.execution_time_microseconds = (
-                exec_duration_millis * 1.0e3
-        )
-        reply_content["execution_start_unix_millis"] = (
-            self.current_execution_stats.execution_start_unix_millis
-        )
-        reply_content["execution_finished_unix_millis"] = (
-            self.current_execution_stats.execution_end_unix_millis
-        )
+        self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
+        reply_content["execution_start_unix_millis"] = self.current_execution_stats.execution_start_unix_millis
+        reply_content["execution_finished_unix_millis"] = self.current_execution_stats.execution_end_unix_millis
 
-        self.log.info(f"Finished executing user-submitted code in {exec_duration_millis:,} ms. "
-                      f"Returning the following content: {reply_content}")
+        if 'status' in reply_content and reply_content['status'] == 'error':
+            self.log.error(f"Error while executing user-submitted code: {reply_content}")
+        else:
+            self.log.info(f"Finished executing user-submitted code in {exec_duration_millis:,} ms. "
+                          f"Returning the following content: {reply_content}")
 
         return reply_content, performed_dl_training, code
 

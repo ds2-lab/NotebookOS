@@ -70,6 +70,34 @@ class GPT2(DeepLearningModel):
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
 
+    @staticmethod
+    def static_download_from_s3(s3_bucket_name:str = "distributed-notebook-public", aws_region = "us-east-1"):
+        # Check if already downloaded.
+        if os.path.exists(os.path.join(GPT2.download_directory_path, GPT2.model_directory_name)):
+           return
+
+        download_path:str = os.path.join(GPT2.download_directory_path, GPT2.s3_key)
+
+        # Ensure the download directory exists
+        os.makedirs(os.path.dirname(download_path), exist_ok=True)
+
+        # Initialize the S3 client
+        s3_client = boto3.client('s3', region_name=aws_region)
+
+        # Download the file from S3
+        s3_client.download_file(s3_bucket_name, GPT2.s3_key, download_path)
+
+        # Extract the tar.gz file
+        with tarfile.open(download_path, 'r:gz') as tar:
+            tar.extractall(path=GPT2.download_directory_path)
+
+        assert os.path.exists(download_path)
+
+        # Optionally, remove the downloaded tar.gz file after extraction
+        os.remove(download_path)
+
+        assert not os.path.exists(download_path)
+
     def download_from_s3(self, s3_bucket_name:str = "distributed-notebook-public", aws_region = "us-east-1"):
         # Check if already downloaded.
         if os.path.exists(os.path.join(self.download_directory_path, self.model_directory_name)):
