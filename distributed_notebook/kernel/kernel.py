@@ -2006,7 +2006,7 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name, gpu_device_ids
 
-    async def set_checkpointing_state(self, val: bool, resolve: Callable[[Any, Any], None]) -> None:
+    async def set_checkpointing_state(self, val: bool) -> None:
         """
         This method updates the value of the 'checkpoint_state' field.
 
@@ -2021,8 +2021,6 @@ class DistributedKernel(IPythonKernel):
             if not self.checkpointing_state:
                 self.log.debug(f"Notifying any waiters of the 'Checkpointing State' CV.")
                 self.checkpointing_state_cv.notify_all()
-
-            resolve(self.checkpointing_state, None)
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -2193,23 +2191,15 @@ class DistributedKernel(IPythonKernel):
         if was_primary_replica:
             self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
 
-            # Create a Future for the running IO loop.
-            future: Future = Future(loop=asyncio.get_running_loop())
-
-            # Create a 'resolve' callback that will set the result of the future in a thread-safe manner.
-            def resolve(key, err):
-                # must use local variable
-                asyncio.run_coroutine_threadsafe(future.resolve(key, err), asyncio.get_running_loop())  # type: ignore
-
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
-            asyncio.run_coroutine_threadsafe(
-                self.set_checkpointing_state(True, resolve),
+            future = asyncio.run_coroutine_threadsafe(
+                self.set_checkpointing_state(True),
                 loop = self.control_thread.io_loop.asyncio_loop
             )
 
             # Wait for the above to finish.
-            await future.result()
+            future.result()
 
             execute_request_id: str = parent_header["msg_id"]
 
@@ -2244,23 +2234,14 @@ class DistributedKernel(IPythonKernel):
                 self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
                                   f'for Execution "{execute_request_id}"', str(ex))
 
-            # Create a Future for the running IO loop.
-            future = Future(loop=asyncio.get_running_loop())
-
-            # Create a 'resolve' callback that will set the result of the future in a thread-safe manner.
-            def resolve(key, err):
-                # must use local variable
-                asyncio.run_coroutine_threadsafe(future.resolve(key, err), asyncio.get_running_loop())  # type: ignore
-
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
-            asyncio.run_coroutine_threadsafe(
-                self.set_checkpointing_state(False, resolve),
+            future = asyncio.run_coroutine_threadsafe(
+                self.set_checkpointing_state(False),
                 loop = self.control_thread.io_loop.asyncio_loop
             )
 
-            # Wait for the above to finish.
-            await future.result()
+            future.result()
         else:
             self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronization step.")
 
@@ -4455,7 +4436,7 @@ class DistributedKernel(IPythonKernel):
         async with self.checkpointing_state_cv:
             while self.checkpointing_state:
                 self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
-                
+
                 await self.checkpointing_state_cv.wait()
 
         return {
