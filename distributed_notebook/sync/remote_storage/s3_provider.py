@@ -119,7 +119,7 @@ class S3Provider(RemoteStorageProvider):
             else:
                 size_bytes = sys.getsizeof(value)
 
-        if self._loop is not None and self._loop != asyncio.get_running_loop():
+        if self._loop is None or self._loop != asyncio.get_running_loop():
             self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
                              f'Will use sync AWS/S3 client for '
                              f'upload_fileobj("s3://{self._bucket_name}/{key}") operation...')
@@ -201,7 +201,7 @@ class S3Provider(RemoteStorageProvider):
         :return: the value read from AWS S3.
         """
 
-        if self._loop is not None and self._loop != asyncio.get_running_loop():
+        if self._loop is None or self._loop != asyncio.get_running_loop():
             self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
                              f'Will use sync AWS/S3 client for '
                              f'download_fileobj("s3://{self._bucket_name}/{key}") operation...')
@@ -284,7 +284,7 @@ class S3Provider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
-        if self._loop is not None and self._loop != asyncio.get_running_loop():
+        if self._loop is None or self._loop != asyncio.get_running_loop():
             self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
                              f'Will use sync AWS/S3 client for '
                              f'delete_object("s3://{self._bucket_name}/{key}") operation...')

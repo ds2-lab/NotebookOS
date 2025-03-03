@@ -184,7 +184,7 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is not None and running_loop != self._loop:
+        if self._loop is None or running_loop != self._loop:
             self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
                              f'Will use sync Redis client for lpush("{key}") operation...')
             self._redis.lpush(key, *chunks[::-1])
@@ -287,7 +287,7 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is not None and running_loop != self._loop:
+        if self._loop is None or running_loop != self._loop:
             self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
                              f'Will use sync Redis client for set("{key}", <value>) operation...')
             self._redis.set(key, value)
@@ -372,7 +372,7 @@ class RedisProvider(RemoteStorageProvider):
 
         # Get the type of the data.
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is not None and running_loop != self._loop:
+        if self._loop is None or running_loop != self._loop:
             self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
                              f'Will use sync Redis client for type("{key}") operation...')
             value_type: str | bytes = self._redis.type(key)
@@ -399,7 +399,7 @@ class RedisProvider(RemoteStorageProvider):
         num_values_read: int = 1
         if value_type == "list":
             # Read the entire list.
-            if self._loop is not None and running_loop != self._loop:
+            if self._loop is None or running_loop != self._loop:
                 self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
                                  f'Will use sync Redis client for lrange("{key}", 0, -1) operation...')
                 values: Optional[List[str | bytes | memoryview]] = self._redis.lrange(key, 0, -1)
@@ -417,7 +417,7 @@ class RedisProvider(RemoteStorageProvider):
             # Concatenate all the items in the list together.
             value: str | bytes | memoryview = b''.join(values)
         else:
-            if self._loop is not None and running_loop != self._loop:
+            if self._loop is None or running_loop != self._loop:
                 self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
                                  f'Will use sync Redis client for get("{key}") operation...')
                 value: Optional[str | bytes | memoryview] = self._redis.get(key)
@@ -537,7 +537,7 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is not None and running_loop != self._loop:
+        if self._loop is None or running_loop != self._loop:
             self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
                              f'Will use sync Redis client for delete("{key}", 0, -1) operation...')
             self._redis.delete(key)
@@ -582,7 +582,7 @@ class RedisProvider(RemoteStorageProvider):
         self._redis.close()
 
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is not None and running_loop != self._loop:
+        if self._loop is None or running_loop != self._loop:
             self._loop.call_soon_threadsafe(self._async_redis.close)
 
     def close(self):
