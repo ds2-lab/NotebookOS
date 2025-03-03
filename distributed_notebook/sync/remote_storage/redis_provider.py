@@ -108,10 +108,16 @@ class RedisProvider(RemoteStorageProvider):
             self.async_redis_clients: Dict[int, Any] = {}
 
             for _, io_loop in self.io_loops.items():
-                future = asyncio.run_coroutine_threadsafe(
-                    coro=create_async_redis_client(host, port, db, password, additional_redis_args, ),
-                    loop=io_loop)
-                async_redis_client: async_redis.Redis = future.result()
+                if io_loop != asyncio.get_running_loop():
+                    future = asyncio.run_coroutine_threadsafe(
+                        coro=create_async_redis_client(host, port, db, password, additional_redis_args, ),
+                        loop=io_loop)
+                    async_redis_client: async_redis.Redis = future.result()
+                else:
+                    async_redis_client: async_redis.Redis = async_redis.Redis(host=host, port=port, db=db,
+                                                                              password=password,
+                                                                              **additional_redis_args)
+                    
                 self.async_redis_clients[id(io_loop)] = async_redis_client
 
         self.log.debug(f"Successfully connected to Redis server at {host}:{port} (db={db}).")
@@ -226,7 +232,6 @@ class RedisProvider(RemoteStorageProvider):
             self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
                              f'Will use sync Redis client for lpush("{key}") operation...')
             self._redis.lpush(key, *chunks[::-1])
-
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
