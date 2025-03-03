@@ -45,7 +45,8 @@ type ExecutionManager struct {
 
 	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
 	// code execution. It will be nil if no code executions have occurred.
-	lastPrimaryReplica scheduling.KernelReplica
+	lastPrimaryReplica   scheduling.KernelReplica
+	lastPrimaryReplicaId int32
 
 	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
 	// for updating Prometheus metrics.
@@ -215,6 +216,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 		completedExecutionIndex:      -1,
 		callbackProvider:             callbackProvider,
 		statisticsProvider:           statsProvider,
+		lastPrimaryReplicaId:         -1,
 	}
 
 	config.InitLogger(&manager.log, manager)
@@ -429,6 +431,14 @@ func (m *ExecutionManager) ExecutionFailedCallback() scheduling.ExecutionFailedC
 // code execution, or nil if no code executions have occurred.
 func (m *ExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
 	return m.lastPrimaryReplica
+}
+
+// LastPrimaryReplicaId returns the SMR node ID of the KernelReplica that served as the primary replica for the
+// previous code execution, or nil if no code executions have occurred.
+//
+// LastPrimaryReplicaId is preserved even if the last primary replica is removed/migrated.
+func (m *ExecutionManager) LastPrimaryReplicaId() int32 {
+	return m.lastPrimaryReplicaId
 }
 
 // YieldProposalReceived is called when we receive a YieldProposal from a replica of a kernel.
@@ -796,6 +806,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 		activeExecution.SetActiveReplica(replica)
 		m.lastPrimaryReplica = replica
+		m.lastPrimaryReplicaId = replica.ReplicaID()
 	}
 
 	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {

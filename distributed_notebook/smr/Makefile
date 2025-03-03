@@ -10,7 +10,7 @@ LIBEXT=.so
 
 # get the CC and flags used to build python:
 GCC = $(shell $(GOCMD) env CC)
-CFLAGS = "-I/usr/local/include/python3.12d -ggdb3 -Wall -O0"
+CFLAGS = "-I/usr/local/include/python3.12d"
 LDFLAGS = "-L/usr/local/lib" "-lpython3.12d" -ldl -lm
 
 all: gen build
@@ -36,13 +36,3 @@ build:
 	
 
 
-
-include ../env.mk
-
-build-smr-linux-amd64:
-	@echo "Building '_smr.cpython-312-x86_64-linux-gnu.so' for Linux AMD64"
-	@echo "PYTHON3_INCLUDES_PATH: \"$(PYTHON3_INCLUDES_PATH)\""
-	@echo "PYTHON3_LIB_PATH: \"$(PYTHON3_LIB_PATH)\""
-	export CGO_CFLAGS="-I$(PYTHON3_INCLUDES_PATH) -ggdb3 -fPIC -Wall -O0"
-	export CGO_LDFLAGS="-L$(PYTHON3_LIB_PATH) -ggdb3 -lpython3.12d -lcrypt -lpthread -ldl -lutil -lm"
-	go build -mod=mod -buildmode=c-shared -buildvcs=false -gcflags=all="-N -l" -o _smr.cpython-312-x86_64-linux-gnu.so .

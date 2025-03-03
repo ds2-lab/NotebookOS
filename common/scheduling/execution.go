@@ -119,6 +119,12 @@ type ExecutionManager interface {
 	// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
 	ExecutionIndexIsLarger(executionIndex int32) bool
 
+	// LastPrimaryReplicaId returns the SMR node ID of the KernelReplica that served as the primary replica for the
+	// previous code execution, or nil if no code executions have occurred.
+	//
+	// LastPrimaryReplicaId is preserved even if the last primary replica is removed/migrated.
+	LastPrimaryReplicaId() int32
+
 	// NumExecutionsByReplica returns the number of times that the specified replica served as the primary replica
 	// and successfully executed user-submitted code.
 	NumExecutionsByReplica(replicaId int32) int

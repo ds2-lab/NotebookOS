@@ -60,6 +60,8 @@ const (
 var (
 	ProposalDeadline           = 60 * time.Second
 	UpdateNodeProposalDeadline = 15 * time.Second
+	RemoveNodeProposalDeadline = 30 * time.Second
+	AddNodeProposalDeadline    = 30 * time.Second
 	ErrClosed                  = errors.New("node closed")
 	ErrEOF                     = io.EOF.Error() // For python module to check if io.EOF is returned
 	ErrRemoteStorageClientNil  = errors.New("remote storage client is nil; cannot close it")
@@ -575,7 +577,7 @@ func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
 		Type:    raftpb.ConfChangeAddNode,
 		NodeID:  uint64(id),
 		Context: []byte(addr),
-	}, ProposalDeadline)
+	}, AddNodeProposalDeadline)
 	go node.propose(ctx, node.manageNode, resolve, "add node")
 }
 
@@ -585,7 +587,7 @@ func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
 	ctx := node.generateConfChange(&raftpb.ConfChange{
 		Type:   raftpb.ConfChangeRemoveNode,
 		NodeID: uint64(id),
-	}, ProposalDeadline)
+	}, RemoveNodeProposalDeadline)
 	go node.propose(ctx, node.manageNode, resolve, "remove node")
 }
 
@@ -1312,7 +1314,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 					cc.ConfChange.ID = confChangeCount
 					node.logger.Info(fmt.Sprintf("LogNode %d: proposing configuration change: %s",
 						node.id, cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
-					err := node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
+					err = node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 					if err != nil {
 						node.logger.Error("Failed to propose configuration change.", zap.Error(err))
 					}

@@ -5752,11 +5752,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 
 		executionManager := kernel.GetExecutionManager()
 
-		lastPrimaryReplicaId := int32(-1)
-		lastPrimaryReplica := executionManager.LastPrimaryReplica()
-		if lastPrimaryReplica != nil {
-			lastPrimaryReplicaId = lastPrimaryReplica.ReplicaID()
-		}
+		lastPrimaryReplicaId := executionManager.LastPrimaryReplicaId()
 
 		replicas := make([]*proto.JupyterKernelReplica, 0, len(kernel.Replicas()))
 		kernelReplicas := kernel.Replicas()
