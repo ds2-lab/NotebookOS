@@ -504,13 +504,11 @@ func (node *LogNode) Start(config *LogNodeConfig) bool {
 
 	startErrorChan := make(chan startError, 1)
 
-	//go func() {
-	//	// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
-	//	node.logger.Debug("'start' goroutine created")
-	//	node.start(startErrorChan)
-	//}()
-
-	node.start(startErrorChan)
+	go func() {
+		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+		node.logger.Debug("'start' goroutine created")
+		node.start(startErrorChan)
+	}()
 
 	node.logger.Debug("Waiting for notification from 'start' goroutine.")
 	err := <-startErrorChan
@@ -1295,7 +1293,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 					// blocks until accepted by raft state machine
 					node.logger.Info(fmt.Sprintf("LogNode %d: proposing something.", node.id),
 						zap.Int("num_bytes", len(ctx.Proposal)))
-					err := node.node.Propose(ctx, ctx.Proposal)
+					err = node.node.Propose(ctx, ctx.Proposal)
 					if err != nil {
 						node.logger.Error("Failed to propose value.", zap.Error(err),
 							zap.Int("num_bytes", len(ctx.Proposal)))

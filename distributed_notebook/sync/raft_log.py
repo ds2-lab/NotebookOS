@@ -1554,12 +1554,13 @@ class RaftLog(object):
 
         self._needs_to_catch_up = False
 
-        if self._catchup_future is None:
+        _catchup_future = self._catchup_future
+        if _catchup_future is None:
             self.log.error(f"'Catchup' Future is None. Cannot handle committed 'Catchup' value: {catchupValue}")
             self._report_error_callback("'Catchup' Future is None.",
                                         f"Cannot handle committed 'Catchup' value: {catchupValue}")
 
-        self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, catchupValue)
+        self._catchup_io_loop.call_soon_threadsafe(_catchup_future.set_result, catchupValue)
         self._catchup_value = None
 
         self.log.debug("Scheduled setting of result of catch-up value on catchup future.")

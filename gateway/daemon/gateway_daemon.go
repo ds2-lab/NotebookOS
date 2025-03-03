@@ -1189,53 +1189,6 @@ func (d *ClusterGatewayImpl) SetID(_ context.Context, _ *proto.HostId) (*proto.H
 	return nil, ErrNotImplemented
 }
 
-// Issue an 'update-replica' request to a replica of a specific kernel, informing that replica and its peers
-// that the replica with ID = `nodeId` has a new peer address, namely `newAddress`.
-func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId int32, newAddress string) {
-	d.log.Info("Issuing 'update-replica' request to kernel %s for replica %d, newAddr = %s.", kernelId, nodeId, newAddress)
-
-	kernelClient, ok := d.kernels.Load(kernelId)
-	if !ok {
-		panic(fmt.Sprintf("Could not find distributed kernel client with ID %s.", kernelId))
-	}
-
-	targetReplica := kernelClient.GetReadyReplica()
-	if targetReplica == nil {
-		panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernelId))
-	}
-
-	if !targetReplica.IsReady() {
-		panic(fmt.Sprintf("Selected non-ready replica %d of kernel %s to be target of 'update-replica' request...", targetReplica.ReplicaID(), targetReplica.ID()))
-	}
-
-	if targetReplica.ReplicaID() == nodeId { // This shouldn't happen, but it appears to have happened once already?
-		panic(fmt.Sprintf("Cannot issue 'Update Replica' request to replica %d, as it is in the process of registering...", nodeId))
-	}
-
-	// host := targetReplica.Context().Value(client.CtxKernelHost).(scheduling.Host)
-	host := targetReplica.Host()
-	if host == nil {
-		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
-	}
-
-	d.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s. Sending request to Local Daemon of replica %d.",
-		nodeId, kernelId, targetReplica.ReplicaID())
-	replicaInfo := &proto.ReplicaInfoWithAddr{
-		Id:       nodeId,
-		KernelId: kernelId,
-		Hostname: fmt.Sprintf("%s:%d", newAddress, d.smrPort),
-	}
-
-	// Issue the 'update-replica' request. We panic if there was an error.
-	if _, err := host.UpdateReplicaAddr(context.Background(), replicaInfo); err != nil {
-		d.log.Debug("Failed to add replica %d of kernel %s to SMR cluster because: %v", nodeId, kernelId, err)
-		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
-	}
-
-	d.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.", nodeId, kernelId, newAddress)
-	// time.Sleep(time.Second * 5)
-}
-
 // SmrReady is an RPC handler called by the Local Daemon to the Cluster Gateway to notify the Gateway that a
 // "smr_node_ready" message was received.
 func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *proto.SmrReadyNotification) (*proto.Void, error) {
@@ -2507,7 +2460,7 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during migration \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
 
-	err = addReplicaOp.SetReplicaRegistered(replica)
+	err = addReplicaOp.SetReplicaRegistered(replica, in.KernelIp)
 	if err != nil {
 		errorMessage := fmt.Sprintf("We're using the WRONG AddReplicaOperation... AddReplicaOperation \"%s\" has already recorded that its replica has registered: %v",
 			addReplicaOp.OperationID(), addReplicaOp.String())

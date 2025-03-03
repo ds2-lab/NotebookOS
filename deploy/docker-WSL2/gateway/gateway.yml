@@ -84,3 +84,4 @@ dynamically_maintain_capacity: true
 prewarming_policy: no_maintenance
 # prewarming_policy: no_maintenance
 # prewarming_policy: little_law_capacity
+# prewarming_policy: maintain_minimum_capacity

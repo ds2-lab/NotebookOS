@@ -297,7 +297,7 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 			panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernel.ID()))
 		}
 
-		err = km.issueUpdateReplicaRequest(readyReplica, args.kernelReplica.ReplicaID(), newlyAddedReplica.Address())
+		err = km.issueUpdateReplicaRequest(readyReplica, args.kernelReplica.ReplicaID(), addReplicaOp.NewKernelIp)
 		if err != nil {
 			return &proto.MigrateKernelResponse{
 				Id:          -1,
@@ -1087,7 +1087,9 @@ func (km *kernelMigrator) GetAddReplicaOperationManager() hashmap.HashMap[string
 //
 // readyReplica is one of the other replicas of the kernel.
 func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.KernelReplica, targetReplicaId int32, newAddress string) error {
-	km.log.Info("Issuing 'update-replica' request to replica %d of kernel %s for replica %d, newAddr = %s.",
+	km.log.Debug(
+		utils.LightPurpleStyle.Render(
+			"Issuing 'update-replica' request to replica %d of kernel %s for replica %d, newAddr = %s."),
 		readyReplica.ReplicaID(), readyReplica.ID(), targetReplicaId, newAddress)
 
 	if !readyReplica.IsReady() {
@@ -1116,7 +1118,7 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 		return err
 	}
 
-	km.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.",
+	km.log.Debug(utils.LightGreenStyle.Render("Successfully updated peer address of replica %d of kernel %s to %s."),
 		targetReplicaId, readyReplica.ID(), newAddress)
 	return nil
 }

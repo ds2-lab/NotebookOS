@@ -30,6 +30,7 @@ type AddReplicaOperation struct {
 	metadata          hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
 	spec              *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
 	NewlyAddedReplica KernelReplica                        // NewlyAddedReplica is the new replica created during the add/migrate op.
+	NewKernelIp       string
 
 	podOrContainerStartedChannel chan string   // Used to notify that the new Pod has started.
 	replicaRegisteredChannel     chan struct{} // Used to notify that the new replica has registered with the Gateway.
@@ -78,6 +79,10 @@ func NewAddReplicaOperation(client Kernel, spec *proto.KernelReplicaSpec, dataDi
 // DataDirectory returns the path to etcd-raft data directory in RemoteStorage.
 func (op *AddReplicaOperation) DataDirectory() string {
 	return op.dataDirectory
+}
+
+func (op *AddReplicaOperation) GetNewKernelIp() string {
+	return op.NewKernelIp
 }
 
 // ToString
@@ -202,13 +207,14 @@ func (op *AddReplicaOperation) ReplicaRegistered() bool {
 // SetReplicaRegistered Records that the new replica for this migration operation has registered with the Gateway.
 // Will return an error if we've already recorded that the new replica has registered.
 // This also sends a notification on the replicaRegisteredChannel.
-func (op *AddReplicaOperation) SetReplicaRegistered(replica KernelReplica) error {
+func (op *AddReplicaOperation) SetReplicaRegistered(replica KernelReplica, kernelIp string) error {
 	if op.replicaRegistered {
 		return fmt.Errorf("replica has already registered for AddReplicaOperation \"%s\"", op.OperationID())
 	}
 
 	op.replicaRegistered = true
 	op.NewlyAddedReplica = replica
+	op.NewKernelIp = kernelIp
 	op.replicaRegisteredChannel <- struct{}{} // KernelID isn't needed.
 
 	return nil

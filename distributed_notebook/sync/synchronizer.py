@@ -248,7 +248,6 @@ class Synchronizer:
 
             self.log.debug(f'Handling updated value of type {type(val).__name__} with key="{val.key}": {val}')
             diff = existed.update(val)
-            self.log.debug(f"Variable \"{val.key}\" of type {type(diff).__name__} has changed: {diff}")
 
             sys.modules["__main__"] = old_main_modules
             # End of switch context
@@ -258,6 +257,8 @@ class Synchronizer:
             else:
                 assert isinstance(existed, SyncObjectWrapper)
                 assert val.key is not None
+
+                self.log.debug(f"Variable \"{val.key}\" of type {type(existed).__name__} has changed: {diff}")
                 self.variable_changed(val, existed)
 
             if val.should_end_execution:
@@ -278,34 +279,22 @@ class Synchronizer:
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
             pointer: SyncPointer = existed.object
-            self.log.debug(
-                f'Large object pointer variable "{pointer.user_namespace_variable_name}" of type {type(pointer).__name__} changed.'
-            )
+            self.log.debug(f'Large object pointer variable "{pointer.user_namespace_variable_name}" '
+                           f'of type {type(pointer).__name__} changed.')
             large_object = self._large_object_pointer_committed(existed.object)
 
             # If the return value is None, then the large object that was committed was originally proposed by us.
             if large_object is None:
                 return
-                # if isinstance(large_object, ModelPointer):
-                #     assert large_object.model is not None
-                #     variable_value: Any = large_object.model
-                # else:
-                #     assert isinstance(large_object, DatasetPointer)
-                #     assert large_object.dataset is not None
-                #     variable_value: Any = large_object.dataset
-            # else:
-            self.log.debug(
-                f'Assigning large object of type {type(large_object).__name__} to variable "{val.key}".'
-            )
+
+            self.log.debug(f'Assigning large object of type {type(large_object).__name__} to variable "{val.key}".')
 
             # We want to put the large object in the global namespace, rather than the pointer.
             variable_value: Any = large_object
             sys.stderr.flush()
             sys.stdout.flush()
         else:
-            self.log.debug(
-                f'Variable "{val.key}" of type {type(existed.object).__name__} changed.'
-            )
+            self.log.debug(f'Variable "{val.key}" of type {type(existed.object).__name__} changed.')
             variable_value: Any = existed.object
 
         self._tags[val.key] = existed
