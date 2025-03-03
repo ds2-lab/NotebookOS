@@ -58,11 +58,12 @@ const (
 )
 
 var (
-	ProposalDeadline          = 60 * time.Second
-	ErrClosed                 = errors.New("node closed")
-	ErrEOF                    = io.EOF.Error() // For python module to check if io.EOF is returned
-	ErrRemoteStorageClientNil = errors.New("remote storage client is nil; cannot close it")
-	sig                       = make(chan os.Signal, 1)
+	ProposalDeadline           = 60 * time.Second
+	UpdateNodeProposalDeadline = 15 * time.Second
+	ErrClosed                  = errors.New("node closed")
+	ErrEOF                     = io.EOF.Error() // For python module to check if io.EOF is returned
+	ErrRemoteStorageClientNil  = errors.New("remote storage client is nil; cannot close it")
+	sig                        = make(chan os.Signal, 1)
 )
 
 type StateValueCallback func(ReadCloser, int, string) string
@@ -166,7 +167,7 @@ type commit struct {
 // LogNode is a SyncLog backed by raft
 type LogNode struct {
 	proposeC    chan *proposalContext   // proposed serialized messages
-	confChangeC chan *confChangeContext // proposed cluster config changes
+	confChangeC chan *ConfChangeContext // proposed cluster config changes
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
@@ -191,7 +192,7 @@ type LogNode struct {
 	numChanges       uint64
 	deniedChanges    uint64
 	proposalPadding  int
-	proposalRegistry hashmap.BaseHashMap[string, smrContext]
+	proposalRegistry hashmap.BaseHashMap[string, SmrContext]
 
 	// raft backing for the commit/error channel
 	node        raft.Node
@@ -289,7 +290,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 
 	node := &LogNode{
 		proposeC:                        make(chan *proposalContext),
-		confChangeC:                     make(chan *confChangeContext),
+		confChangeC:                     make(chan *ConfChangeContext),
 		commitC:                         make(chan *commit),
 		errorC:                          make(chan error, 1),
 		id:                              id,
@@ -300,7 +301,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		httpDoneChannel:                 make(chan struct{}),
 		numChanges:                      0,
 		deniedChanges:                   0,
-		proposalRegistry:                hashmap.NewConcurrentMap[smrContext](32),
+		proposalRegistry:                hashmap.NewConcurrentMap[SmrContext](32),
 		snapshotterReady:                make(chan LogSnapshotter, 1),
 		dataDir:                         storePath, // The base path of store_path is the persistent ID.
 		shouldLoadDataFromRemoteStorage: shouldLoadDataFromRemoteStorage,
@@ -595,11 +596,11 @@ func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
 		Type:    raftpb.ConfChangeUpdateNode,
 		NodeID:  uint64(id),
 		Context: []byte(addr),
-	}, ProposalDeadline)
+	}, UpdateNodeProposalDeadline)
 	go node.propose(ctx, node.manageNode, resolve, "update node")
 }
 
-func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, resolve ResolveCallback, msg string) {
+func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, resolve ResolveCallback, msg string) {
 	debug.SetPanicOnFault(true)
 	defer finalize()
 
@@ -624,7 +625,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	for !node.waitProposal(ctx) {
 		node.logger.Info("Retry proposing to append value",
 			zap.String("key", msg), zap.String("id", ctx.ID()))
-		ctx.Reset(ProposalDeadline)
+		ctx.ResetWithPreviousTimeout()
 		if err := proposer(ctx); err != nil {
 			node.logger.Error("Exception while retrying value proposal.",
 				zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
@@ -642,9 +643,9 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	}
 }
 
-func (node *LogNode) manageNode(ctx smrContext) error {
+func (node *LogNode) manageNode(ctx SmrContext) error {
 	select {
-	case node.confChangeC <- ctx.(*confChangeContext):
+	case node.confChangeC <- ctx.(*ConfChangeContext):
 		return nil
 	case <-node.stopChannel:
 		return ErrClosed
@@ -1480,7 +1481,7 @@ func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte
 	return ret, ctx
 }
 
-func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Duration) *confChangeContext {
+func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Duration) *ConfChangeContext {
 	var id string
 	cc.Context, id = node.patchPropose(cc.Context)
 	ctx := NewConfChangeContext(id, cc, timeout)
@@ -1488,11 +1489,11 @@ func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Dura
 	return ctx
 }
 
-func (node *LogNode) registerProposal(proposal smrContext) {
+func (node *LogNode) registerProposal(proposal SmrContext) {
 	node.proposalRegistry.Store(proposal.ID(), proposal)
 }
 
-func (node *LogNode) sendProposal(proposal smrContext) error {
+func (node *LogNode) sendProposal(proposal SmrContext) error {
 	// Save local channel for thread-safe access.
 	select {
 	case node.proposeC <- proposal.(*proposalContext):
@@ -1502,7 +1503,7 @@ func (node *LogNode) sendProposal(proposal smrContext) error {
 	}
 }
 
-func (node *LogNode) doneProposal(val []byte) ([]byte, smrContext) {
+func (node *LogNode) doneProposal(val []byte) ([]byte, SmrContext) {
 	if len(val) < node.proposalPadding {
 		return val, nil
 	}
@@ -1519,12 +1520,12 @@ func (node *LogNode) doneProposal(val []byte) ([]byte, smrContext) {
 	return ret, ctx
 }
 
-func (node *LogNode) doneConfChange(cc *raftpb.ConfChange) (ctx smrContext) {
+func (node *LogNode) doneConfChange(cc *raftpb.ConfChange) (ctx SmrContext) {
 	cc.Context, ctx = node.doneProposal(cc.Context)
 	return ctx
 }
 
-func (node *LogNode) waitProposal(ctx smrContext) bool {
+func (node *LogNode) waitProposal(ctx SmrContext) bool {
 	<-ctx.Done()
 	return errors.Is(ctx.Err(), context.Canceled)
 }
