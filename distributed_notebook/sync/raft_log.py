@@ -2516,6 +2516,8 @@ class RaftLog(object):
             if voteProposal is None or isDone:
                 return isDone, isLeading
 
+            self.log.debug(f"Received the following vote proposal after proposing election proposal: {proposalOrVote}")
+
             assert isinstance(proposalOrVote, LeaderElectionVote)
         else:
             assert isinstance(proposalOrVote, LeaderElectionVote)
