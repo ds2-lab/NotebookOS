@@ -2477,6 +2477,7 @@ class RaftLog(object):
             _election_decision_future: asyncio.Future[Any],
             _leading_future: asyncio.Future[int],
             _received_vote_future: asyncio.Future[Any],
+            target_replica_id: int,
     ) -> tuple[bool, bool]:
         """
         :param buffered_proposals:
@@ -2486,6 +2487,7 @@ class RaftLog(object):
         :param _election_decision_future:
         :param _leading_future:
         :param _received_vote_future:
+        :param target_replica_id:
         :return: a tuple where 1st element indicates if we're done processing the election, and 2nd is result if so.
         """
         num_buffered_proposals_processed: int = 0
@@ -2516,9 +2518,7 @@ class RaftLog(object):
             if voteProposal is None or isDone:
                 return isDone, isLeading
 
-            self.log.debug(f"Received the following vote proposal after proposing election proposal: {proposalOrVote}")
-
-            assert isinstance(proposalOrVote, LeaderElectionVote)
+            assert isinstance(voteProposal, LeaderElectionVote)
         else:
             assert isinstance(proposalOrVote, LeaderElectionVote)
             voteProposal: LeaderElectionVote = proposalOrVote
@@ -2594,6 +2594,7 @@ class RaftLog(object):
             proposalOrVote: LeaderElectionProposal | LeaderElectionVote,
             target_term_number: int = -1,
             jupyter_message_id: str = "",
+            target_replica_id: int = -1,
     ) -> bool:
         """
         Orchestrate an election. Return a boolean indicating whether we are now the "leader".
@@ -2722,6 +2723,7 @@ class RaftLog(object):
                 _election_decision_future,
                 _leading_future,
                 _received_vote_future,
+                target_replica_id
             )
 
             if done:
@@ -3323,6 +3325,7 @@ class RaftLog(object):
             proposalOrVote,
             target_term_number=term_number,
             jupyter_message_id=jupyter_message_id,
+            target_replica_id=target_replica_id,
         )
 
         return is_leading
@@ -3347,6 +3350,7 @@ class RaftLog(object):
             proposalOrVote,
             target_term_number=term_number,
             jupyter_message_id=jupyter_message_id,
+            target_replica_id=target_replica_id,
         )
 
         # If is_leading is True, then we have a problem, as we proposed YIELD.
