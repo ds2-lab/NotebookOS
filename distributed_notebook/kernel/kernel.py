@@ -2200,7 +2200,7 @@ class DistributedKernel(IPythonKernel):
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
             self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(
-                self.set_checkpointing_state, (True, future, resolve))
+                self.set_checkpointing_state, (True, resolve))
 
             # Wait for the above to finish.
             await future.result()
@@ -2249,7 +2249,7 @@ class DistributedKernel(IPythonKernel):
             # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
             # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
             self.control_thread.io_loop.asyncio_loop.call_soon_threadsafe(
-                self.set_checkpointing_state, (False, future, resolve))
+                self.set_checkpointing_state, (False, resolve))
 
             # Wait for the above to finish.
             await future.result()
