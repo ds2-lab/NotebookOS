@@ -4,10 +4,12 @@ import traceback
 import sys
 import time
 
+import asyncio
+
 from distributed_notebook.sync.remote_storage.error import InvalidKeyError
 from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 
-from typing import Any
+from typing import Any, Optional
 
 import aioboto3
 import boto3
@@ -30,6 +32,12 @@ class S3Provider(RemoteStorageProvider):
         self._aws_region: str = aws_region
 
         self.init_bucket(bucket_name = bucket_name, aws_region= aws_region)
+
+        try:
+            self._loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+        except RuntimeError:
+            self.log.warning("There is no running AsyncIO event loop...")
+            self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         self._aio_session: aioboto3.session.Session = aioboto3.Session()
 
@@ -111,6 +119,12 @@ class S3Provider(RemoteStorageProvider):
             else:
                 size_bytes = sys.getsizeof(value)
 
+        if self._loop is not None and self._loop != asyncio.get_running_loop():
+            self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
+                             f'Will use sync AWS/S3 client for '
+                             f'upload_fileobj("s3://{self._bucket_name}/{key}") operation...')
+            return self.write_value(key, value, size_bytes)
+
         async with self._aio_session.client('s3') as s3:
             try:
                 start_time: float = time.time()
@@ -186,6 +200,12 @@ class S3Provider(RemoteStorageProvider):
 
         :return: the value read from AWS S3.
         """
+
+        if self._loop is not None and self._loop != asyncio.get_running_loop():
+            self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
+                             f'Will use sync AWS/S3 client for '
+                             f'download_fileobj("s3://{self._bucket_name}/{key}") operation...')
+
         start_time: float = time.time()
 
         async with self._aio_session.client('s3') as s3:
@@ -264,6 +284,11 @@ class S3Provider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
+        if self._loop is not None and self._loop != asyncio.get_running_loop():
+            self.log.warning(f'Current IO loop differs from the loop in which our async AWS session was created. '
+                             f'Will use sync AWS/S3 client for '
+                             f'delete_object("s3://{self._bucket_name}/{key}") operation...')
+
         start_time: float = time.time()
 
         async with self._aio_session.client('s3') as s3:

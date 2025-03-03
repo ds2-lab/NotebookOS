@@ -55,6 +55,7 @@ class RedisProvider(RemoteStorageProvider):
         try:
             self._loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
         except RuntimeError:
+            self.log.warning("There is no running AsyncIO event loop...")
             self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Cached. Just used for logging.
