@@ -1,6 +1,6 @@
 import asyncio
 import io
-from typing import Any, Optional, List, ByteString
+from typing import Any, Optional, List, ByteString, Dict
 
 import redis
 import redis.asyncio as async_redis
@@ -19,6 +19,11 @@ except ImportError:
     fakeredis_imported: bool = False
 
 
+async def create_async_redis_client(host: str, port: int, db: int, password: str,
+                                    additional_redis_args: Optional[dict]) -> async_redis.Redis:
+    return async_redis.Redis(host=host, port=port, db=db, password=password, **additional_redis_args)
+
+
 class RedisProvider(RemoteStorageProvider):
     # We automatically chunk values whose size is greater than this.
     size_limit_bytes: int = 400.0e6
@@ -33,6 +38,7 @@ class RedisProvider(RemoteStorageProvider):
             redis_client=None,  # For unit testing
             async_redis_client=None,  # For unit testing
             strict_size_checking_during_tests: bool = False,
+            io_loops: Optional[List[asyncio.AbstractEventLoop]] = None,
     ):
         super().__init__()
 
@@ -58,6 +64,17 @@ class RedisProvider(RemoteStorageProvider):
             self.log.warning("There is no running AsyncIO event loop...")
             self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        self.io_loops: Dict[int, asyncio.AbstractEventLoop] = {
+            id(self._loop): self._loop
+        }
+
+        if io_loops is not None:
+            for io_loop in io_loops:
+                if io_loop != self._loop and id(io_loop) != id(self._loop):
+                    self.io_loops[id(io_loop)] = io_loop
+
+        self.log.debug(f"We've registered a total of {len(self.io_loops)} IO loop(s).")
+
         # Cached. Just used for logging.
         self._size_limit_mb: float = RedisProvider.size_limit_bytes / 1.0e6
 
@@ -73,16 +90,29 @@ class RedisProvider(RemoteStorageProvider):
 
         if redis_client is not None:
             self._redis = redis_client
+
+            self.using_fake_redis: bool = isinstance(redis_client, fakeredis.FakeRedis)
         else:
             self.log.debug(f"Creating synchronous Redis client of Redis server at {host}:{port} (db={db}).")
             self._redis = redis.Redis(host=host, port=port, db=db, password=password, **additional_redis_args)
 
+            self.using_fake_redis: bool = False
+
         if async_redis_client is not None:
-            self._async_redis = async_redis_client
+            self.async_redis_clients: Dict[int, Any] = {
+                id(self._loop): async_redis_client
+            }
         else:
-            self.log.debug(f"Creating asynchronous Redis client of Redis server at {host}:{port} (db={db}).")
-            self._async_redis = async_redis.Redis(host=host, port=port, db=db, password=password,
-                                                  **additional_redis_args)
+            self.log.debug(f"Creating {len(self.io_loops)} async Redis client(s).")
+
+            self.async_redis_clients: Dict[int, Any] = {}
+
+            for _, io_loop in self.io_loops.items():
+                future = asyncio.run_coroutine_threadsafe(
+                    coro=create_async_redis_client(host, port, db, password, additional_redis_args, ),
+                    loop=io_loop)
+                async_redis_client: async_redis.Redis = future.result()
+                self.async_redis_clients[id(io_loop)] = async_redis_client
 
         self.log.debug(f"Successfully connected to Redis server at {host}:{port} (db={db}).")
 
@@ -94,23 +124,25 @@ class RedisProvider(RemoteStorageProvider):
     def redis_port(self) -> int:
         return self._redis_port
 
-    def __ensure_async_redis(self) -> bool:
+    async def __ensure_async_redis(self) -> bool:
         """
         Ensure the RedisProvider has created its async Redis client.
 
         :return: true if the async Redis client already existed, false if the async Redis client did not already exist.
         """
-        if getattr(self, "_async_redis") is None:
-            self._async_redis = async_redis.Redis(
-                host=self._redis_host,
-                port=self._redis_port,
-                db=self._redis_db,
-                password=self._redis_password,
-                **self._additional_redis_args
-            )
-            return False
-        else:
+        io_loop = asyncio.get_running_loop()
+
+        if id(io_loop) in self.async_redis_clients:
             return True
+
+        self.async_redis_clients[id(io_loop)] = async_redis.Redis(
+            host=self._redis_host,
+            port=self._redis_port,
+            db=self._redis_db,
+            password=self._redis_password,
+            **self._additional_redis_args
+        )
+        return False
 
     def __ensure_redis(self):
         """
@@ -149,7 +181,7 @@ class RedisProvider(RemoteStorageProvider):
         # If we were able to import FakeRedis (which is only a dev dependency and may fail for non-development
         # installations), and our redis clients are instances of the FakeRedis and FakeAsyncRedis classes,
         # then we'll just return True.
-        if isinstance(self._redis, fakeredis.FakeRedis) and isinstance(self._async_redis, fakeredis.FakeAsyncRedis):
+        if self.using_fake_redis:
             self.log.warning(f"We appear to be unit testing, so returning 'False' for 'is_too_large({size_bytes:,}) "
                              f"despite it being >512MB...")
             return False  # Allow objects of arbitrary sizes for unit testing (when the flag mentioned above is False).
@@ -184,12 +216,15 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is None or running_loop != self._loop:
-            self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
+        async_redis_client: Optional[async_redis.Redis] = self.async_redis_clients.get(id(running_loop), None)
+
+        if async_redis_client is not None:
+            await async_redis_client.lpush(key, *chunks[::-1])
+        else:
+            self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
                              f'Will use sync Redis client for lpush("{key}") operation...')
             self._redis.lpush(key, *chunks[::-1])
-        else:
-            await self._async_redis.lpush(key, *chunks[::-1])
+
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
@@ -253,7 +288,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    async def write_value_async(self, key: str, value: Any, size_bytes:int = -1) -> bool:
+    async def write_value_async(self, key: str, value: Any, size_bytes: int = -1) -> bool:
         """
         Asynchronously write a value to Redis at the specified key.
 
@@ -287,12 +322,14 @@ class RedisProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is None or running_loop != self._loop:
-            self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
+        async_redis_client: Optional[async_redis.Redis] = self.async_redis_clients.get(id(running_loop), None)
+
+        if async_redis_client is not None:
+            await async_redis_client.set(key, value)
+        else:
+            self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
                              f'Will use sync Redis client for set("{key}", <value>) operation...')
             self._redis.set(key, value)
-        else:
-            await self._async_redis.set(key, value)
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
@@ -309,7 +346,7 @@ class RedisProvider(RemoteStorageProvider):
 
         return True
 
-    def write_value(self, key: str, value: Any, size_bytes:int = -1) -> bool:
+    def write_value(self, key: str, value: Any, size_bytes: int = -1) -> bool:
         """
         Write a value to Redis at the specified key.
 
@@ -372,19 +409,21 @@ class RedisProvider(RemoteStorageProvider):
 
         # Get the type of the data.
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is None or running_loop != self._loop:
-            self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
+        async_redis_client: Optional[async_redis.Redis] = self.async_redis_clients.get(id(running_loop), None)
+
+        if async_redis_client is not None:
+            value_type: str | bytes = await async_redis_client.type(key)
+        else:
+            self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
                              f'Will use sync Redis client for type("{key}") operation...')
             value_type: str | bytes = self._redis.type(key)
-        else:
-            value_type: str | bytes = await self._async_redis.type(key)
 
         if isinstance(value_type, bytes):
             value_type = value_type.decode()
 
         # If the value type is "none", then there's simply no data stored at
         # that key, in which case we can already raise an InvalidKeyError.
-        if value_type== "none":
+        if value_type == "none":
             self.log.debug(f'Type of value at key "{key}" is "none".')
             raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
@@ -399,12 +438,12 @@ class RedisProvider(RemoteStorageProvider):
         num_values_read: int = 1
         if value_type == "list":
             # Read the entire list.
-            if self._loop is None or running_loop != self._loop:
-                self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
+            if async_redis_client is not None:
+                values: Optional[List[str | bytes | memoryview]] = await async_redis_client.lrange(key, 0, -1)
+            else:
+                self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
                                  f'Will use sync Redis client for lrange("{key}", 0, -1) operation...')
                 values: Optional[List[str | bytes | memoryview]] = self._redis.lrange(key, 0, -1)
-            else:
-                values: Optional[List[str | bytes | memoryview]] = await self._async_redis.lrange(key, 0, -1)
 
             if values is None or len(values) == 0:
                 raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
@@ -417,12 +456,12 @@ class RedisProvider(RemoteStorageProvider):
             # Concatenate all the items in the list together.
             value: str | bytes | memoryview = b''.join(values)
         else:
-            if self._loop is None or running_loop != self._loop:
-                self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
+            if async_redis_client is not None:
+                value: Optional[str | bytes | memoryview] = await async_redis_client.get(key)
+            else:
+                self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
                                  f'Will use sync Redis client for get("{key}") operation...')
                 value: Optional[str | bytes | memoryview] = self._redis.get(key)
-            else:
-                value: Optional[str | bytes | memoryview] = await self._async_redis.get(key)
 
             if value is None:
                 raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
@@ -468,7 +507,7 @@ class RedisProvider(RemoteStorageProvider):
 
         # If the value type is "none", then there's simply no data stored at
         # that key, in which case we can already raise an InvalidKeyError.
-        if value_type== "none":
+        if value_type == "none":
             self.log.debug(f'Type of value at key "{key}" is "none".')
             raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
@@ -536,13 +575,16 @@ class RedisProvider(RemoteStorageProvider):
 
         start_time: float = time.time()
 
+        # Get the type of the data.
         running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is None or running_loop != self._loop:
-            self.log.warning(f'Current IO loop differs from the loop in which our async Redis client was created. '
-                             f'Will use sync Redis client for delete("{key}", 0, -1) operation...')
-            self._redis.delete(key)
+        async_redis_client: Optional[async_redis.Redis] = self.async_redis_clients.get(id(running_loop), None)
+
+        if async_redis_client is not None:
+            await async_redis_client.delete(key)
         else:
-            await self._async_redis.delete(key)
+            self.log.warning(f'We do not have an async Redis client for the currently-running IO loop. '
+                             f'Will use sync Redis client for delete("{key}") operation...')
+            self._redis.delete(key)
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
@@ -581,9 +623,14 @@ class RedisProvider(RemoteStorageProvider):
 
         self._redis.close()
 
-        running_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        if self._loop is None or running_loop != self._loop:
-            self._loop.call_soon_threadsafe(self._async_redis.close)
+        for loop_id, async_redis_client in self.async_redis_clients.values():
+            io_loop = self.io_loops.get(loop_id, None)
+
+            if io_loop is None:
+                self.log.error(f'No IO loop for key "{loop_id}"')
+                continue
+
+            io_loop.call_soon_threadsafe(async_redis_client.close)
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
@@ -591,10 +638,14 @@ class RedisProvider(RemoteStorageProvider):
 
         self._redis.close()
 
-        try:
-            asyncio.run(self._async_redis.close())
-        except RuntimeError as ex:
-            self.log.debug(f"RuntimeError occurred while closing RedisLog: {ex}")
+        for loop_id, async_redis_client in self.async_redis_clients.values():
+            io_loop = self.io_loops.get(loop_id, None)
+
+            if io_loop is None:
+                self.log.error(f'No IO loop for key "{loop_id}"')
+                continue
+
+            io_loop.call_soon_threadsafe(async_redis_client.close)
 
     get = read_value
     set = write_value

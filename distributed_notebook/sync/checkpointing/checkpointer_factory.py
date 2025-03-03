@@ -1,4 +1,5 @@
-from typing import Any, Optional, Dict
+import asyncio
+from typing import Any, Optional, Dict, List
 
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
@@ -13,9 +14,10 @@ def get_local_checkpointer(**kwargs)->RemoteCheckpointer:
 def get_s3_checkpointer(
         host: str = DEFAULT_S3_BUCKET_NAME,
         aws_region: str = DEFAULT_AWS_S3_REGION,
+        io_loops: Optional[List[asyncio.AbstractEventLoop]] = None,
         **kwargs,
 )->RemoteCheckpointer:
-    s3_provider: S3Provider = S3Provider(bucket_name = host, aws_region = aws_region)
+    s3_provider: S3Provider = S3Provider(bucket_name = host, aws_region = aws_region, io_loops = io_loops)
     return RemoteCheckpointer(s3_provider)
 
 def get_redis_checkpointer(
@@ -24,6 +26,7 @@ def get_redis_checkpointer(
         redis_database: int = 0,
         redis_password: Optional[str] = None,
         additional_redis_args: Optional[Dict[str, Any]] = None,
+        io_loops: Optional[List[asyncio.AbstractEventLoop]] = None,
         **kwargs,
 )->RemoteCheckpointer:
     redis_provider: RedisProvider = RedisProvider(
@@ -32,6 +35,7 @@ def get_redis_checkpointer(
         db = redis_database,
         password = redis_password,
         additional_redis_args = additional_redis_args,
+        io_loops = io_loops,
     )
 
     return RemoteCheckpointer(redis_provider)

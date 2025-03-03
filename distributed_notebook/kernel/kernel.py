@@ -638,16 +638,6 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(f'Remote storage hostname: "{self.remote_storage_hostname}"')
 
-        # Arguments not relevant to the specified remote storage will be ignored.
-        self._remote_checkpointer: Checkpointer = get_checkpointer(
-            remote_storage_name=self.remote_storage,
-            host=self.remote_storage_hostname,
-            aws_region=self.aws_region,
-            redis_port=self.redis_port,
-            redis_database=self.redis_database,
-            redis_password=self.redis_password,
-        )
-
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
             "AWS S3 (Default)": SimulatedCheckpointer(
@@ -1256,6 +1246,17 @@ class DistributedKernel(IPythonKernel):
         super().start()
 
         self.init_debugpy()
+
+        # Arguments not relevant to the specified remote storage will be ignored.
+        self._remote_checkpointer: Checkpointer = get_checkpointer(
+            remote_storage_name=self.remote_storage,
+            host=self.remote_storage_hostname,
+            aws_region=self.aws_region,
+            redis_port=self.redis_port,
+            redis_database=self.redis_database,
+            redis_password=self.redis_password,
+            io_loops = [self.io_loop.asyncio_loop, self.control_thread.io_loop.asyncio_loop],
+        )
 
         persistent_id_defined: bool = self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None
 

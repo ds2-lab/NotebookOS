@@ -9,7 +9,7 @@ import asyncio
 from distributed_notebook.sync.remote_storage.error import InvalidKeyError
 from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict
 
 import aioboto3
 import boto3
@@ -24,20 +24,16 @@ class S3Provider(RemoteStorageProvider):
             self,
             bucket_name: str = DEFAULT_S3_BUCKET_NAME,
             aws_region: str = DEFAULT_AWS_S3_REGION,
+            io_loops: Optional[List[asyncio.AbstractEventLoop]] = None,
     ):
         super().__init__()
 
         self._s3_client = boto3.client('s3')
         self._bucket_name: str = bucket_name
         self._aws_region: str = aws_region
+        self._io_loops: List[asyncio.AbstractEventLoop] = io_loops or [asyncio.get_running_loop()]
 
         self.init_bucket(bucket_name = bucket_name, aws_region= aws_region)
-
-        try:
-            self._loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
-        except RuntimeError:
-            self.log.warning("There is no running AsyncIO event loop...")
-            self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         self._aio_session: aioboto3.session.Session = aioboto3.Session()
 
