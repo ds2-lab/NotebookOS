@@ -5767,7 +5767,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 				PodId:                 replica.GetPodOrContainerId(),
 				NodeId:                replica.NodeName(),
 				WasLastPrimaryReplica: replica.ReplicaID() == lastPrimaryReplicaId,
-				NumExecutions:         executionManager.NumExecutionsByReplica(replica.ReplicaID()),
+				NumExecutions:         int32(executionManager.NumExecutionsByReplica(replica.ReplicaID())),
 			}
 			replicas = append(replicas, kernelReplica)
 		}
