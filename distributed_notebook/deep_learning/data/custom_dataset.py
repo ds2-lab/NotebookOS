@@ -39,6 +39,15 @@ class CustomDataset(ABC):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+    def __getstate__(self):
+        self.log.error(f'CustomDataset::__getstate__ has been called for dataset "{self.dataset_name()}".')
+        state = self.__dict__.copy()
+
+        for key, value in state.items():
+            self.log.debug(f'Entry "{key}" has type "{type(value).__name__}".')
+
+        return state
+
     @abstractmethod
     def remove_local_files(self):
         """
