@@ -152,6 +152,7 @@ class RaftLog(object):
         # self._received_vote_future: Optional[asyncio.Future] = None
         self._fast_forward_execution_count_handler: Callable[[], None] = fast_forward_execution_count_handler
         self._set_execution_count_handler: Callable[[int], None] = set_execution_count_handler
+        self._handled_sync_values: set[str] = set()
         self._loaded_serialized_state_callback: Callable[
             [dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
 
@@ -280,7 +281,7 @@ class RaftLog(object):
         # Called by Go (into Python) when a value is committed.
         self._valueCommittedCallback: Callable[[Any, int, str], Any] = self.__value_committed_wrapper
 
-        self._exec_complete_notifications_processed = set()
+        # self._exec_complete_notifications_processed = set()
 
         # Called by Go (into Python) when a value is restored (from a checkpoint/backup).
         # Note: this must not be an awaitable/it must not run on an IO loop.
@@ -1060,11 +1061,11 @@ class RaftLog(object):
         self.log.debug(f'Received "execution complete" notification for election term '
                        f"{notification.election_term} from node {notification.proposer_id}: {notification}")
 
-        if notification.id in self._exec_complete_notifications_processed:
+        if notification.id in self._handled_sync_values:
             self.log.warning(f"We've already processed this 'execution complete' notification...: {notification}")
             return GoNilError()
 
-        self._exec_complete_notifications_processed.add(notification.id)
+        self._handled_sync_values.add(notification.id)
 
         if self.needs_to_catch_up:
             self.__handle_execution_complete_notification_while_catching_up(notification)
@@ -1475,6 +1476,12 @@ class RaftLog(object):
         self.log.debug(f"Value of type {type(committedValue).__name__} and size {value_size} bytes has been "
                        f"committed to the RaftLog: {committedValue}")
 
+        if committedValue.id in self._handled_sync_values:
+            self.log.debug(f'Duplicate Value with ID="{committedValue.id}": {committedValue}. Discarding.')
+            return GoNilError()
+
+        self._handled_sync_values.add(committedValue.id)
+
         if self.needs_to_catch_up:
             assert self._catchup_value is not None
             assert self._catchup_future is not None
@@ -1717,7 +1724,8 @@ class RaftLog(object):
             "last_completed_election": self._last_completed_election,  # Election object
             "_term_to_jupyter_id": self._term_to_jupyter_id,
             "_jupyter_id_to_term": self._jupyter_id_to_term,
-            "_exec_complete_notifications_processed": self._exec_complete_notifications_processed,
+            # "_exec_complete_notifications_processed": self._exec_complete_notifications_processed,
+            "_handled_sync_values": self._handled_sync_values,
         }
 
         # Add the resource request entry, if available.
@@ -1841,7 +1849,8 @@ class RaftLog(object):
         self._last_completed_election = data_dict["last_completed_election"]
         self._term_to_jupyter_id = data_dict["_term_to_jupyter_id"]
         self._jupyter_id_to_term = data_dict["_jupyter_id_to_term"]
-        self._exec_complete_notifications_processed = data_dict["_exec_complete_notifications_processed"]
+        # self._exec_complete_notifications_processed = data_dict["_exec_complete_notifications_processed"]
+        self._handled_sync_values = data_dict["_handled_sync_values"]
 
         # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
         # (a) already know about and (b) aren't finished yet in some capacity.
