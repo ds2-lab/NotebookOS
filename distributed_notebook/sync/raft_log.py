@@ -1920,7 +1920,7 @@ class RaftLog(object):
 
         if loop == self._async_loop:
             self.log.debug(f"Registering callback future on _async_loop. "
-                           f"_async_loop.is_running: {self._async_loop.is_running()}") # type: ignore
+                           f"_async_loop.is_running: {self._async_loop.is_running()}")  # type: ignore
         elif loop == self._start_loop:
             # type: ignore
             self.log.debug(f"Registering callback future on _start_loop. "
@@ -2226,11 +2226,15 @@ class RaftLog(object):
 
         # If we're bumping the election term to a new number, ensure that the last election
         # we know about did in fact complete successfully.
-        if self._last_completed_election is not None:
-            assert (
-                    self._last_completed_election.code_execution_completed_successfully
-                    or self._last_completed_election.was_skipped
-            )
+        if self._last_completed_election is not None and (
+                self._last_completed_election.code_execution_completed_successfully or self._last_completed_election.was_skipped):
+            self.log.warning("Previous election never completed successfully...")
+            self._report_error_callback(
+                f"Creating Election {term_number}, But Election "
+                f"{self._last_completed_election.term_number} Never Finished",
+                f"Election {term_number} is for execution '{jupyter_message_id}' whereas election "
+                f"{self._last_completed_election.term_number} is for execution "
+                f"'{self._last_completed_election.jupyter_message_id}'")
 
         self.log.info(f"Created new election with term number {term_number}")
 
