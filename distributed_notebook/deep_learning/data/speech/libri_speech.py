@@ -211,11 +211,11 @@ class LibriSpeech(CustomDataset):
             self._test_loader: Optional[WrappedLoader] = None
 
     def __getstate__(self):
-        self.log.error("LibriSpeech::__getstate__ has been called.")
+        self.log.warning("LibriSpeech::__getstate__ has been called.")
         state = self.__dict__.copy()
 
         for key, value in state.items():
-            self.log.debug(f'Entry "{key}" has type "{type(value).__name__}".')
+            self.log.warning(f'Entry "{key}" has type "{type(value).__name__}".')
 
         return state
 
