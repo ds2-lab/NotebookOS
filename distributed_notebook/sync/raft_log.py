@@ -271,6 +271,8 @@ class RaftLog(object):
         # The IO loop that the `self._catchup_cond` is interacted with on.
         self._catchup_io_loop: Optional[asyncio.AbstractEventLoop] = None
 
+        self._catchup_cond = asyncio.Condition()
+
         self._ignore_changes: int = 0
 
         # This can be set such that it will be resolved when close() is called.
@@ -329,7 +331,6 @@ class RaftLog(object):
             )
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_io_loop.set_debug(True)
-            self._catchup_cond = asyncio.Condition()
 
             self.log.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, "
                            f"timestamp={self._catchup_value.timestamp}, "
@@ -1566,16 +1567,19 @@ class RaftLog(object):
 
         future.add_done_callback(caught_up_callback)
 
-        self.log.debug("Scheduled setting of result of catch-up value on catchup future.")
+        self.log.debug("Scheduled call to notify_caught_up.")
 
         sys.stderr.flush()
         sys.stdout.flush()
         return GoNilError()
 
     async def notify_caught_up(self):
+        self.log.debug("Setting 'needs to catch up' flag to False now...")
         async with self._catchup_cond:
             self._needs_to_catch_up = False
             self._catchup_cond.notify_all()
+
+        self.log.debug("Set 'needs to catch up' flag to False.")
 
     def __value_restored_old(self, rc, sz) -> bytes:
         sys.stderr.flush()
@@ -2061,7 +2065,33 @@ class RaftLog(object):
         rather than mocking the more generic _serialize_and_append_value method.
         """
         self.log.debug(f'Serializing and appending "catch-up" value: {value}')
-        await self._serialize_and_append_value(value)
+
+        dumped = pickle.dumps(value)
+
+        # Propose and wait the future.
+        future, resolve = self._get_callback(future_name=f'append_val["{value.key}"]')
+        assert future is not None
+        assert resolve is not None
+        self.log.debug(f"Calling 'propose' now for SynchronizedValue: {value}")
+
+        start: float = time.time()
+        self.propose(dumped, resolve, value.key)
+        # await future.result()
+        self.log.debug(f"Called 'propose' for SynchronizedValue: {value}")
+
+        while True:
+            try:
+                await asyncio.wait_for(future.result(), 10)
+                break
+            except TimeoutError:
+                self.log.warning(f"Timed-out waiting to append catch-up value. "
+                                 f"Time elapsed: {time.time() - start:,} seconds.")
+
+                if not self._needs_to_catch_up:
+                    self.log.debug("We no longer need to catch up... we must've caught up already.")
+                    break 
+
+        self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
     async def append_execution_end_notification(
             self, notification: ExecutionCompleteNotification
