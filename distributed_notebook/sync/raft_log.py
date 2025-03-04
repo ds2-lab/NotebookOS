@@ -268,8 +268,7 @@ class RaftLog(object):
         self._catchup_value: Optional[SynchronizedValue] = None
         # Future that is created so that we can wait for the `self._catchup_value` to be fully committed.
         # This just returns the committed `_catchup_value`.
-        self._catchup_future: Optional[asyncio.Future[SynchronizedValue]] = None
-        # The IO loop that the `self._catchup_future` is created on.
+        # The IO loop that the `self._catchup_cond` is interacted with on.
         self._catchup_io_loop: Optional[asyncio.AbstractEventLoop] = None
 
         self._ignore_changes: int = 0
@@ -311,11 +310,6 @@ class RaftLog(object):
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
         self.catchup_start_time: float = time.time()
 
-        def caught_up_callback(f: Any):
-            self._restore_namespace_time_seconds = time.time() - self.catchup_start_time
-            self.log.debug(f"We're caught up. "
-                           f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds. f='{f}'")
-
         if self._needs_to_catch_up:
             # We pass the last election term, as we don't want to win the current election.
             # That is, if we pass self._leader_term_before_migration + 1 as the election term,
@@ -335,9 +329,8 @@ class RaftLog(object):
             )
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_io_loop.set_debug(True)
-            self._catchup_future = self._catchup_io_loop.create_future()
             self._catchup_cond = asyncio.Condition()
-            self._catchup_future.add_done_callback(caught_up_callback)
+
             self.log.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, "
                            f"timestamp={self._catchup_value.timestamp}, "
                            f"and election term={self._catchup_value.election_term}.")
@@ -1487,7 +1480,6 @@ class RaftLog(object):
 
         if self.needs_to_catch_up:
             assert self._catchup_value is not None
-            assert self._catchup_future is not None
             assert self._catchup_io_loop is not None
             assert self._catchup_cond is not None
 
@@ -1562,26 +1554,6 @@ class RaftLog(object):
             raise ValueError(f"The leader term before migration was {self._leader_term_before_migration}, "
                              f'while the committed "catch-up" value has term {catchupValue.election_term}. '
                              f'The term of the "catch-up" value should be equal to last leader term.')
-
-        # self._needs_to_catch_up = False
-
-        _catchup_future = self._catchup_future
-        if _catchup_future is None:
-            self.log.error(f"'Catchup' Future is None. Cannot handle committed 'Catchup' value: {catchupValue}")
-            self._report_error_callback("'Catchup' Future is None.",
-                                        f"Cannot handle committed 'Catchup' value: {catchupValue}")
-
-        def set_catchup_result():
-            self.log.debug(f"Setting result on 'Catchup' future now: {catchupValue}")
-
-            if _catchup_future is None:
-                self.log.error(f"'Catchup' future is NULL. Cannot assign result...: {catchupValue}")
-                self._report_error_callback(
-                    "'Catchup' Future is NULL. Cannot assign result...",
-                    str(catchupValue),
-                )
-
-            _catchup_future.set_result(catchupValue)
 
         # self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
         future = asyncio.run_coroutine_threadsafe(self.notify_caught_up(), loop = self._catchup_io_loop)
@@ -2840,13 +2812,6 @@ class RaftLog(object):
             sys.stdout.flush()
             raise ValueError('"catchup" IO loop is None')
 
-        # Ensure that the "catchup" future has been created already.
-        # if self._catchup_future is None:
-        #     self.log.error("_catchup_future is None in catchup_with_peers")
-        #     sys.stderr.flush()
-        #     sys.stdout.flush()
-        #     raise ValueError('"catchup" future is None')
-
         if self._catchup_cond is None:
             self.log.error("_catchup_cond is None in catchup_with_peers")
             sys.stderr.flush()
@@ -2876,9 +2841,8 @@ class RaftLog(object):
         """
         Called by catchup_with_peers. Exists as a separate function so we can mock it while unit testing.
 
-        Basically just awaits the self._catchup_future variable and then sets a bunch of state to None afterwards.
+        Basically just awaits the self._catchup_cond variable and then sets a bunch of state to None afterwards.
         """
-        # _catchup_future = self._catchup_future
 
         async with self._catchup_cond:
             while self._needs_to_catch_up:
@@ -2892,7 +2856,6 @@ class RaftLog(object):
         self.log.debug("We've successfully caught up to our peer replicas.")
 
         # Reset these fields after we're done.
-        self._catchup_future = None
         self._catchup_io_loop = None
         self._catchup_value = None  # This should already be None at this point; we set it to None in the 'value committed' handler.
 
