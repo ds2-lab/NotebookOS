@@ -1557,7 +1557,7 @@ class RaftLog(object):
                              f'The term of the "catch-up" value should be equal to last leader term.')
 
         # self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
-        future = asyncio.run_coroutine_threadsafe(self.notify_caught_up(), loop = self._catchup_io_loop)
+        future = asyncio.run_coroutine_threadsafe(self.notify_caught_up(), loop=self._catchup_io_loop)
         self._catchup_value = None
 
         def caught_up_callback(f: Any):
@@ -2245,8 +2245,7 @@ class RaftLog(object):
 
         # If we're bumping the election term to a new number, ensure that the last election
         # we know about did in fact complete successfully.
-        if self._last_completed_election is not None and (
-                self._last_completed_election.code_execution_completed_successfully or self._last_completed_election.was_skipped):
+        if self._last_completed_election is not None and not self._last_completed_election.code_execution_completed_successfully and not self._last_completed_election.was_skipped:
             self.log.warning("Previous election never completed successfully...")
             self._report_error_callback(
                 f"Creating Election {term_number}, But Election "
