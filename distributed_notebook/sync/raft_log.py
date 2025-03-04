@@ -156,6 +156,8 @@ class RaftLog(object):
         self._loaded_serialized_state_callback: Callable[
             [dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
 
+        self._catchup_cond: Optional[asyncio.Condition] = None
+
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
         self._election_timeout_sec = election_timeout_seconds
@@ -307,10 +309,10 @@ class RaftLog(object):
         # If we do need to catch up, then we'll create the state necessary to do so now.
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
-        catchup_start_time: float = time.time()
+        self.catchup_start_time: float = time.time()
 
         def caught_up_callback(f: Any):
-            self._restore_namespace_time_seconds = time.time() - catchup_start_time
+            self._restore_namespace_time_seconds = time.time() - self.catchup_start_time
             self.log.debug(f"We're caught up. "
                            f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds. f='{f}'")
 
@@ -334,6 +336,7 @@ class RaftLog(object):
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_io_loop.set_debug(True)
             self._catchup_future = self._catchup_io_loop.create_future()
+            self._catchup_cond = asyncio.Condition()
             self._catchup_future.add_done_callback(caught_up_callback)
             self.log.debug(f"Created new 'catchup value' with ID={self._catchup_value.id}, "
                            f"timestamp={self._catchup_value.timestamp}, "
@@ -1486,6 +1489,7 @@ class RaftLog(object):
             assert self._catchup_value is not None
             assert self._catchup_future is not None
             assert self._catchup_io_loop is not None
+            assert self._catchup_cond is not None
 
             if (
                     committedValue.key == KEY_CATCHUP
@@ -1559,7 +1563,7 @@ class RaftLog(object):
                              f'while the committed "catch-up" value has term {catchupValue.election_term}. '
                              f'The term of the "catch-up" value should be equal to last leader term.')
 
-        self._needs_to_catch_up = False
+        # self._needs_to_catch_up = False
 
         _catchup_future = self._catchup_future
         if _catchup_future is None:
@@ -1579,14 +1583,27 @@ class RaftLog(object):
 
             _catchup_future.set_result(catchupValue)
 
-        self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
+        # self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
+        future = asyncio.run_coroutine_threadsafe(self.notify_caught_up(), loop = self._catchup_io_loop)
         self._catchup_value = None
+
+        def caught_up_callback(f: Any):
+            self._restore_namespace_time_seconds = time.time() - self.catchup_start_time
+            self.log.debug(f"We're caught up. "
+                           f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds. f='{f}'")
+
+        future.add_done_callback(caught_up_callback)
 
         self.log.debug("Scheduled setting of result of catch-up value on catchup future.")
 
         sys.stderr.flush()
         sys.stdout.flush()
         return GoNilError()
+
+    async def notify_caught_up(self):
+        async with self._catchup_cond:
+            self._needs_to_catch_up = False
+            self._catchup_cond.notify_all()
 
     def __value_restored_old(self, rc, sz) -> bytes:
         sys.stderr.flush()
@@ -2824,11 +2841,17 @@ class RaftLog(object):
             raise ValueError('"catchup" IO loop is None')
 
         # Ensure that the "catchup" future has been created already.
-        if self._catchup_future is None:
-            self.log.error("_catchup_future is None in catchup_with_peers")
+        # if self._catchup_future is None:
+        #     self.log.error("_catchup_future is None in catchup_with_peers")
+        #     sys.stderr.flush()
+        #     sys.stdout.flush()
+        #     raise ValueError('"catchup" future is None')
+
+        if self._catchup_cond is None:
+            self.log.error("_catchup_cond is None in catchup_with_peers")
             sys.stderr.flush()
             sys.stdout.flush()
-            raise ValueError('"catchup" future is None')
+            raise ValueError('"catchup" condition is None')
 
         # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
         # (a) already know about and (b) aren't finished yet in some capacity.
@@ -2855,12 +2878,16 @@ class RaftLog(object):
 
         Basically just awaits the self._catchup_future variable and then sets a bunch of state to None afterwards.
         """
-        await self._catchup_future  # Wait for the value to be committed.
+        # _catchup_future = self._catchup_future
+
+        async with self._catchup_cond:
+            while self._needs_to_catch_up:
+                self._catchup_cond.wait()
 
         if self._send_notification_func is not None:
             self._send_notification_func("Caught Up After Migration",
-                                         f"Replica {self._node_id} of Kernel {self._kernel_id} has caught-up to its peers following a migration operation.",
-                                         2)
+                                         f"Replica {self._node_id} of Kernel {self._kernel_id} has "
+                                         f"caught-up to its peers following a migration operation.", 2)
 
         self.log.debug("We've successfully caught up to our peer replicas.")
 
