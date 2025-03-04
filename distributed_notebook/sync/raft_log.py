@@ -1725,7 +1725,7 @@ class RaftLog(object):
             "_term_to_jupyter_id": self._term_to_jupyter_id,
             "_jupyter_id_to_term": self._jupyter_id_to_term,
             # "_exec_complete_notifications_processed": self._exec_complete_notifications_processed,
-            "_handled_sync_values": self._handled_sync_values,
+            # "_handled_sync_values": self._handled_sync_values,
         }
 
         # Add the resource request entry, if available.
@@ -1850,7 +1850,7 @@ class RaftLog(object):
         self._term_to_jupyter_id = data_dict["_term_to_jupyter_id"]
         self._jupyter_id_to_term = data_dict["_jupyter_id_to_term"]
         # self._exec_complete_notifications_processed = data_dict["_exec_complete_notifications_processed"]
-        self._handled_sync_values = data_dict["_handled_sync_values"]
+        self._handled_sync_values = data_dict.get("_handled_sync_values", set())
 
         # Ensure the "election_finished_condition_waiter" loops are set on any elections that we
         # (a) already know about and (b) aren't finished yet in some capacity.
