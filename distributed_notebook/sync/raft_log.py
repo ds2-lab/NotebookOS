@@ -1569,6 +1569,14 @@ class RaftLog(object):
 
         def set_catchup_result():
             self.log.debug(f"Setting result on 'Catchup' future now: {catchupValue}")
+
+            if _catchup_future is None:
+                self.log.error(f"'Catchup' future is NULL. Cannot assign result...: {catchupValue}")
+                self._report_error_callback(
+                    "'Catchup' Future is NULL. Cannot assign result...",
+                    str(catchupValue),
+                )
+
             _catchup_future.set_result(catchupValue)
 
         self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
