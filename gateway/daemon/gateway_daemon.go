@@ -1384,8 +1384,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 			ReplicaId:    int32(targetReplicaId),
 			PersistentId: kernel.PersistentID(),
 		},
-		ForTraining:  true,
-		TargetNodeId: nil,
+		ForTraining:      true,
+		CanCreateNewHost: true,
+		TargetNodeId:     nil,
 	}
 
 	var waitGroup sync.WaitGroup
