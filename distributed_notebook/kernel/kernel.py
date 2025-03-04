@@ -1972,19 +1972,19 @@ class DistributedKernel(IPythonKernel):
                 continue
 
             if metadata[required_key] != resource_request[resource_request_key]:
-                self.log.error(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                self.log.warning(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
                                f"and current resource request '{resource_request_key}' "
                                f"({resource_request[resource_request_key]}).")
 
-                self.report_error(f"Inconsistent '{required_key}' Field and "
+                self.report_warning(f"Inconsistent '{required_key}' Field and "
                                   f"Resource Request '{resource_request_key}' Field",
                                   f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
                                   f"and current resource request '{resource_request_key}' "
                                   f"({resource_request[resource_request_key]}).")
 
-                raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
-                                 f"and current resource request '{resource_request_key}' "
-                                 f"({resource_request[resource_request_key]}).")
+                # raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                #                  f"and current resource request '{resource_request_key}' "
+                #                  f"({resource_request[resource_request_key]}).")
 
     async def process_execute_request_metadata(
             self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
@@ -4931,7 +4931,7 @@ class DistributedKernel(IPythonKernel):
 
     def report_warning(self, warning_title: str = "", warning_message: str = ""):
         """
-        Send an warning report/message to our local daemon via our IOPub socket.
+        Send a warning report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
             self.log.warning(

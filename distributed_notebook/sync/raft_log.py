@@ -1557,6 +1557,7 @@ class RaftLog(object):
                              f'The term of the "catch-up" value should be equal to last leader term.')
 
         # self._catchup_io_loop.call_soon_threadsafe(set_catchup_result)
+        assert self._catchup_io_loop is not None
         future = asyncio.run_coroutine_threadsafe(self.notify_caught_up(), loop=self._catchup_io_loop)
         self._catchup_value = None
 
