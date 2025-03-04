@@ -541,6 +541,16 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.debug(f"smr_enabled={self.smr_enabled}")
 
+        # Arguments not relevant to the specified remote storage will be ignored.
+        self._remote_checkpointer: Optional[Checkpointer] = get_checkpointer(
+            remote_storage_name=self.remote_storage,
+            host=self.remote_storage_hostname,
+            aws_region=self.aws_region,
+            redis_port=self.redis_port,
+            redis_database=self.redis_database,
+            redis_password=self.redis_password,
+        )
+
         # Committed DatasetPointers that we encounter while catching-up after a migration.
         # Once we're caught-up, we download all of these.
         #
@@ -1247,17 +1257,6 @@ class DistributedKernel(IPythonKernel):
         super().start()
 
         self.init_debugpy()
-
-        # Arguments not relevant to the specified remote storage will be ignored.
-
-        self._remote_checkpointer: Optional[Checkpointer] = get_checkpointer(
-            remote_storage_name=self.remote_storage,
-            host=self.remote_storage_hostname,
-            aws_region=self.aws_region,
-            redis_port=self.redis_port,
-            redis_database=self.redis_database,
-            redis_password=self.redis_password,
-        )
 
         persistent_id_defined: bool = self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None
 
@@ -2684,6 +2683,7 @@ class DistributedKernel(IPythonKernel):
             try:
                 self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
                 rsp = self.gen_simple_response()
+                self.log.info("Persistent store confirmed: " + self.store)
             except Exception as ex:
                 self.log.error(f"Failed to initialize persistent store during prewarm promotion: {ex}")
                 self.log.error(traceback.format_exc())
@@ -2691,7 +2691,6 @@ class DistributedKernel(IPythonKernel):
                 rsp = gen_error_response(ex)
 
             future.set_result(rsp)
-            self.log.info("Persistent store confirmed: " + self.store)
         else:
             self.log.info(f'Waiting to start SyncLog until explicitly instructed to do so. '
                           f'Persistent ID: "{self.persistent_id}"')

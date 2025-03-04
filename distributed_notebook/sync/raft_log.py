@@ -2089,7 +2089,7 @@ class RaftLog(object):
 
                 if not self._needs_to_catch_up:
                     self.log.debug("We no longer need to catch up... we must've caught up already.")
-                    break 
+                    break
 
         self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
