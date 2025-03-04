@@ -1061,11 +1061,11 @@ class RaftLog(object):
         self.log.debug(f'Received "execution complete" notification for election term '
                        f"{notification.election_term} from node {notification.proposer_id}: {notification}")
 
-        if notification.id in self._handled_sync_values:
-            self.log.warning(f"We've already processed this 'execution complete' notification...: {notification}")
-            return GoNilError()
-
-        self._handled_sync_values.add(notification.id)
+        # if notification.id in self._handled_sync_values:
+        #     self.log.warning(f"We've already processed this 'execution complete' notification...: {notification}")
+        #     return GoNilError()
+        #
+        # self._handled_sync_values.add(notification.id)
 
         if self.needs_to_catch_up:
             self.__handle_execution_complete_notification_while_catching_up(notification)
