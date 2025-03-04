@@ -15,12 +15,12 @@ const (
 	KernelMigrationStarted   ClusterEventName = "kernel_migration_started"
 	KernelMigrationComplete  ClusterEventName = "kernel_migration_complete"
 	KernelTrainingStarted    ClusterEventName = "kernel_training_started"
-	KernelTrainingEnded      ClusterEventName = "kernel_training_ended"
+	KernelTrainingEnded      ClusterEventName = "kernel_training_complete"
 	KernelStopped            ClusterEventName = "kernel_stopped"
 	ScaleOutStarted          ClusterEventName = "scale_out_started"
-	ScaleOutEnded            ClusterEventName = "scale_out_ended"
+	ScaleOutEnded            ClusterEventName = "scale_out_complete"
 	ScaleInStarted           ClusterEventName = "scale_in_started"
-	ScaleInEnded             ClusterEventName = "scale_in_ended"
+	ScaleInEnded             ClusterEventName = "scale_in_complete"
 )
 
 type ClusterEventName string

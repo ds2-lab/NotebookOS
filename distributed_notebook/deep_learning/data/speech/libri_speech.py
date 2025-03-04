@@ -210,6 +210,15 @@ class LibriSpeech(CustomDataset):
         else:
             self._test_loader: Optional[WrappedLoader] = None
 
+    def __getstate__(self):
+        self.log.error("LibriSpeech::__getstate__ has been called.")
+        state = self.__dict__.copy()
+
+        for key, value in state.items():
+            self.log.debug(f'Entry "{key}" has type "{type(value).__name__}".')
+
+        return state
+
     def __init_dataset_no_download(self, train_split:str, test_split: str, root_dir: str, folder_in_archive: str):
         """
         Attempts to create the LibriSpeech dataset using the TorchAudio module without downloading anything.

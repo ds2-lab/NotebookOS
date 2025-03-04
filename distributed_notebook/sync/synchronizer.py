@@ -239,7 +239,7 @@ class Synchronizer:
                     existed = SyncObjectWrapper(self._referer)
 
             # Switch context
-            old_main_modules = sys.modules["__main__"]
+            old_main_modules =sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
             if isinstance(existed, SyncAST) and existed.execution_count == val.tag and val.proposer_id == self._node_id:
@@ -260,7 +260,6 @@ class Synchronizer:
 
                 self.log.debug(f"Variable \"{val.key}\" of type {type(existed).__name__} has changed: {diff}")
                 self.variable_changed(val, existed)
-
             if val.should_end_execution:
                 self._syncing = False
                 self.log.debug("<< exit execution syncing [2]")
@@ -655,10 +654,8 @@ class Synchronizer:
         sys.modules["__main__"] = self._module
 
         if isinstance(val, CustomDataset):
-            self.log.debug(
-                f'Synchronizing Dataset "{val.name}" ("{key}"). '
-                f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]"
-            )
+            self.log.debug(f'Synchronizing Dataset "{val.name}" ("{key}"). '
+                           f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             dataset_pointer: DatasetPointer = DatasetPointer(
                 dataset=val,
                 user_namespace_variable_name=key,
@@ -667,10 +664,8 @@ class Synchronizer:
             )
             val = dataset_pointer
         elif isinstance(val, DeepLearningModel):
-            self.log.debug(
-                f'Synchronizing Model "{val.name}" ("{key}"). '
-                f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]"
-            )
+            self.log.debug(f'Synchronizing Model "{val.name}" ("{key}"). '
+                           f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             model_pointer: ModelPointer = ModelPointer(
                 deep_learning_model=val,
                 user_namespace_variable_name=key,
@@ -680,11 +675,9 @@ class Synchronizer:
             try:
                 await self._remote_checkpointer.write_state_dicts_async(model_pointer)
             except ValueError as value_error:
-                self.log.warning(
-                    f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
-                    f'DeepLearningModel for variable "{model_pointer.user_namespace_variable_name}" '
-                    f'("{key}"): {value_error}'
-                )
+                self.log.warning(f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
+                                 f'DeepLearningModel for variable "{model_pointer.user_namespace_variable_name}" '
+                                 f'("{key}"): {value_error}')
                 raise value_error # re-raise
 
             self.log.debug(f'Finished writing state dictionaries of model "{val.name}" '
