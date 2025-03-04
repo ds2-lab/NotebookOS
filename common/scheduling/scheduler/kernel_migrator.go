@@ -77,7 +77,7 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
 	}
 
-	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s. ForTraining=%v.",
+	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: \"%s\". ForTraining=%v.",
 		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId, forTraining)
 
 	kernelContainer := kernelReplica.Container()
@@ -601,7 +601,7 @@ func (km *kernelMigrator) issuePrepareToMigrateRequest(kernelReplica scheduling.
 		}
 	}
 
-	km.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
+	km.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of old replica %d of kernel %s now.",
 		originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
 
 	replicaInfo := &proto.ReplicaInfo{

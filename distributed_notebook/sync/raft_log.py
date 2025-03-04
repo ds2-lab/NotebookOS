@@ -1993,17 +1993,17 @@ class RaftLog(object):
 
         # If a specific replica ID was specified, then we "short-circuit" the election
         # and immediately propose a vote rather than a 'LEAD' or 'YIELD' proposal.
-        if target_replica_id >= 1:
-            vote: LeaderElectionVote = LeaderElectionVote(
-                proposed_node_id=target_replica_id,
-                jupyter_message_id=jupyter_message_id,
-                proposer_id=self._node_id,
-                election_term=term_number,
-                attempt_number=attempt_num,
-            )
-            return vote
+        # if target_replica_id >= 1:
+        #     vote: LeaderElectionVote = LeaderElectionVote(
+        #         proposed_node_id=target_replica_id,
+        #         jupyter_message_id=jupyter_message_id,
+        #         proposer_id=self._node_id,
+        #         election_term=term_number,
+        #         attempt_number=attempt_num,
+        #     )
+        #     return vote
 
-            # Create the new proposal.
+        # Create the new proposal.
         proposal: LeaderElectionProposal = LeaderElectionProposal(
             key=str(key),
             proposer_id=self._node_id,

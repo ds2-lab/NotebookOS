@@ -814,7 +814,9 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 
 	if c.activeScaleOperation != nil {
 		c.log.Debug("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, scheduling.ErrScalingActive
+		return nil, fmt.Errorf("%w from %d --> %d nodes that was created %v ago",
+			scheduling.ErrScalingActive, c.activeScaleOperation.InitialScale, c.activeScaleOperation.TargetScale,
+			time.Since(c.activeScaleOperation.StartTime))
 	}
 
 	currentClusterSize := int32(c.Len())
