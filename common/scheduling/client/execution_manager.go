@@ -738,6 +738,13 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 			statistics.CompletedTrainings.Add(1)
 			statistics.NumIdleSessions.Add(1)
+
+			resourceRequest := replica.ResourceSpec()
+
+			statistics.BusyCPUs.Sub(resourceRequest.CPU())
+			statistics.BusyMemory.Sub(resourceRequest.MemoryMB())
+			statistics.BusyGPUs.Sub(resourceRequest.GPU())
+			statistics.BusyVRAM.Sub(resourceRequest.VRAM())
 		})
 	}
 
@@ -978,6 +985,15 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
 	m.processExecutionStartLatency(activeExecution, time.UnixMilli(leadMessage.UnixMilliseconds))
+
+	m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		resourceRequest := replica.ResourceSpec()
+
+		statistics.BusyCPUs.Add(resourceRequest.CPU())
+		statistics.BusyMemory.Add(resourceRequest.MemoryMB())
+		statistics.BusyGPUs.Add(resourceRequest.GPU())
+		statistics.BusyVRAM.Add(resourceRequest.VRAM())
+	})
 
 	// If the 'completed' execution index is greater than or equal to the execution index of the "smr_lead_task"
 	// message, then that means that we received the "smr_lead_task" AFTER receiving the "execute_reply". So,

@@ -125,27 +125,51 @@ type SerializableClusterStatistics struct {
 	CumulativeKernelPostprocessMillis                    float64 `csv:"cumulative_kernel_postprocess_millis" json:"cumulative_kernel_postprocess_millis"`
 	CumulativeReplayTimeMicroseconds                     float64 `csv:"cumulative_replay_time_microseconds" json:"cumulative_replay_time_microseconds"`
 
-	SpecCPUs        float64 `csv:"SpecCPUs" json:"SpecCPUs"`
-	SpecGPUs        float64 `csv:"SpecGPUs" json:"SpecGPUs"`
-	SpecMemory      float64 `csv:"SpecMemory" json:"SpecMemory"`
-	SpecVRAM        float64 `csv:"SpecVRAM" json:"SpecVRAM"`
-	IdleCPUs        float64 `csv:"IdleCPUs" json:"IdleCPUs"`
-	IdleGPUs        float64 `csv:"IdleGPUs" json:"IdleGPUs"`
-	IdleMemory      float64 `csv:"IdleMemory" json:"IdleMemory"`
-	IdleVRAM        float64 `csv:"IdleVRAM" json:"IdleVRAM"`
-	PendingCPUs     float64 `csv:"PendingCPUs" json:"PendingCPUs"`
-	PendingGPUs     float64 `csv:"PendingGPUs" json:"PendingGPUs"`
-	PendingMemory   float64 `csv:"PendingMemory" json:"PendingMemory"`
-	PendingVRAM     float64 `csv:"PendingVRAM" json:"PendingVRAM"`
+	// Spec is the amount that is available/allocatable.
+	// It only changes when adding or removing hosts to/from the cluster.
+
+	SpecCPUs   float64 `csv:"SpecCPUs" json:"SpecCPUs"`
+	SpecGPUs   float64 `csv:"SpecGPUs" json:"SpecGPUs"`
+	SpecMemory float64 `csv:"SpecMemory" json:"SpecMemory"`
+	SpecVRAM   float64 `csv:"SpecVRAM" json:"SpecVRAM"`
+
+	// Idle means that they're not bound exclusively to a kernel replica.
+
+	IdleCPUs   float64 `csv:"IdleCPUs" json:"IdleCPUs"`
+	IdleGPUs   float64 `csv:"IdleGPUs" json:"IdleGPUs"`
+	IdleMemory float64 `csv:"IdleMemory" json:"IdleMemory"`
+	IdleVRAM   float64 `csv:"IdleVRAM" json:"IdleVRAM"`
+
+	// Pending is the sum of the resources requested by all kernel replicas scheduled on a host
+	// if they were to begin training at the same time.
+
+	PendingCPUs   float64 `csv:"PendingCPUs" json:"PendingCPUs"`
+	PendingGPUs   float64 `csv:"PendingGPUs" json:"PendingGPUs"`
+	PendingMemory float64 `csv:"PendingMemory" json:"PendingMemory"`
+	PendingVRAM   float64 `csv:"PendingVRAM" json:"PendingVRAM"`
+
+	// Commited means that they're bound exclusively to a kernel replica.
+
 	CommittedCPUs   float64 `csv:"CommittedCPUs" json:"CommittedCPUs"`
 	CommittedGPUs   float64 `csv:"CommittedGPUs" json:"CommittedGPUs"`
 	CommittedMemory float64 `csv:"CommittedMemory" json:"CommittedMemory"`
 	CommittedVRAM   float64 `csv:"CommittedVRAM" json:"CommittedVRAM"`
 
+	// Demand is the sum of the resources requested by all active sessions/kernels.
+
 	DemandCPUs   float64 `csv:"DemandCPUs" json:"DemandCPUs"`
 	DemandMemMb  float64 `csv:"DemandMemMb" json:"DemandMemMb"`
 	DemandGPUs   float64 `csv:"DemandGPUs" json:"DemandGPUs"`
 	DemandVRAMGb float64 `csv:"DemandVRAMGb" json:"DemandVRAMGb"`
+
+	// Busy are what are actively being used by training kernels.
+	// Only committed resources can be considered busy.
+	// Committed resources are not considered to be busy until the associated kernel replica begins training.
+
+	BusyCPUs   float64 `csv:"BusyCPUs" json:"BusyCPUs"`
+	BusyGPUs   float64 `csv:"BusyGPUs" json:"BusyGPUs"`
+	BusyMemory float64 `csv:"BusyMemory" json:"BusyMemory"`
+	BusyVRAM   float64 `csv:"BusyVRAM" json:"BusyVRAM"`
 
 	TotalNumReplays       int64 `json:"total_num_replays" csv:"total_num_replays"`
 	TotalNumCellsReplayed int64 `json:"total_num_cells_replayed" csv:"total_num_cells_replayed"`
@@ -309,27 +333,51 @@ type ClusterStatistics struct {
 	// Resources //
 	///////////////
 
-	SpecCPUs        types.StatFloat64 `csv:"SpecCPUs" json:"SpecCPUs"`
-	SpecGPUs        types.StatFloat64 `csv:"SpecGPUs" json:"SpecGPUs"`
-	SpecMemory      types.StatFloat64 `csv:"SpecMemory" json:"SpecMemory"`
-	SpecVRAM        types.StatFloat64 `csv:"SpecVRAM" json:"SpecVRAM"`
-	IdleCPUs        types.StatFloat64 `csv:"IdleCPUs" json:"IdleCPUs"`
-	IdleGPUs        types.StatFloat64 `csv:"IdleGPUs" json:"IdleGPUs"`
-	IdleMemory      types.StatFloat64 `csv:"IdleMemory" json:"IdleMemory"`
-	IdleVRAM        types.StatFloat64 `csv:"IdleVRAM" json:"IdleVRAM"`
-	PendingCPUs     types.StatFloat64 `csv:"PendingCPUs" json:"PendingCPUs"`
-	PendingGPUs     types.StatFloat64 `csv:"PendingGPUs" json:"PendingGPUs"`
-	PendingMemory   types.StatFloat64 `csv:"PendingMemory" json:"PendingMemory"`
-	PendingVRAM     types.StatFloat64 `csv:"PendingVRAM" json:"PendingVRAM"`
+	// Spec is the amount that is available/allocatable.
+	// It only changes when adding or removing hosts to/from the cluster.
+
+	SpecCPUs   types.StatFloat64 `csv:"SpecCPUs" json:"SpecCPUs"`
+	SpecGPUs   types.StatFloat64 `csv:"SpecGPUs" json:"SpecGPUs"`
+	SpecMemory types.StatFloat64 `csv:"SpecMemory" json:"SpecMemory"`
+	SpecVRAM   types.StatFloat64 `csv:"SpecVRAM" json:"SpecVRAM"`
+
+	// Idle means that they're not bound exclusively to a kernel replica.
+
+	IdleCPUs   types.StatFloat64 `csv:"IdleCPUs" json:"IdleCPUs"`
+	IdleGPUs   types.StatFloat64 `csv:"IdleGPUs" json:"IdleGPUs"`
+	IdleMemory types.StatFloat64 `csv:"IdleMemory" json:"IdleMemory"`
+	IdleVRAM   types.StatFloat64 `csv:"IdleVRAM" json:"IdleVRAM"`
+
+	// Pending is the sum of the resources requested by all kernel replicas scheduled on a host
+	// if they were to begin training at the same time.
+
+	PendingCPUs   types.StatFloat64 `csv:"PendingCPUs" json:"PendingCPUs"`
+	PendingGPUs   types.StatFloat64 `csv:"PendingGPUs" json:"PendingGPUs"`
+	PendingMemory types.StatFloat64 `csv:"PendingMemory" json:"PendingMemory"`
+	PendingVRAM   types.StatFloat64 `csv:"PendingVRAM" json:"PendingVRAM"`
+
+	// Commited means that they're bound exclusively to a kernel replica.
+
 	CommittedCPUs   types.StatFloat64 `csv:"CommittedCPUs" json:"CommittedCPUs"`
 	CommittedGPUs   types.StatFloat64 `csv:"CommittedGPUs" json:"CommittedGPUs"`
 	CommittedMemory types.StatFloat64 `csv:"CommittedMemory" json:"CommittedMemory"`
 	CommittedVRAM   types.StatFloat64 `csv:"CommittedVRAM" json:"CommittedVRAM"`
 
+	// Demand is the sum of the resources requested by all active sessions/kernels.
+
 	DemandCPUs   types.StatFloat64 `csv:"DemandCPUs" json:"DemandCPUs"`
 	DemandMemMb  types.StatFloat64 `csv:"DemandMemMb" json:"DemandMemMb"`
 	DemandGPUs   types.StatFloat64 `csv:"DemandGPUs" json:"DemandGPUs"`
 	DemandVRAMGb types.StatFloat64 `csv:"DemandVRAMGb" json:"DemandVRAMGb"`
+
+	// Busy are what are actively being used by training kernels.
+	// Only committed resources can be considered busy.
+	// Committed resources are not considered to be busy until the associated kernel replica begins training.
+
+	BusyCPUs   types.StatFloat64 `csv:"BusyCPUs" json:"BusyCPUs"`
+	BusyGPUs   types.StatFloat64 `csv:"BusyGPUs" json:"BusyGPUs"`
+	BusyMemory types.StatFloat64 `csv:"BusyMemory" json:"BusyMemory"`
+	BusyVRAM   types.StatFloat64 `csv:"BusyVRAM" json:"BusyVRAM"`
 
 	/////////////////////////////////
 	// Static & Dynamic Scheduling //
@@ -459,6 +507,36 @@ func NewClusterStatistics() *ClusterStatistics {
 	clusterStatistics.CumulativeKernelProposalVotePhaseMillis.Store(0.0)
 	clusterStatistics.CumulativeKernelPostprocessMillis.Store(0.0)
 
+	clusterStatistics.SpecCPUs.Store(0)
+	clusterStatistics.SpecGPUs.Store(0)
+	clusterStatistics.SpecMemory.Store(0)
+	clusterStatistics.SpecVRAM.Store(0)
+
+	clusterStatistics.IdleCPUs.Store(0)
+	clusterStatistics.IdleGPUs.Store(0)
+	clusterStatistics.IdleMemory.Store(0)
+	clusterStatistics.IdleVRAM.Store(0)
+
+	clusterStatistics.PendingCPUs.Store(0)
+	clusterStatistics.PendingGPUs.Store(0)
+	clusterStatistics.PendingMemory.Store(0)
+	clusterStatistics.PendingVRAM.Store(0)
+
+	clusterStatistics.CommittedCPUs.Store(0)
+	clusterStatistics.CommittedGPUs.Store(0)
+	clusterStatistics.CommittedMemory.Store(0)
+	clusterStatistics.CommittedVRAM.Store(0)
+
+	clusterStatistics.DemandCPUs.Store(0)
+	clusterStatistics.DemandMemMb.Store(0)
+	clusterStatistics.DemandGPUs.Store(0)
+	clusterStatistics.DemandVRAMGb.Store(0)
+
+	clusterStatistics.BusyCPUs.Store(0)
+	clusterStatistics.BusyGPUs.Store(0)
+	clusterStatistics.BusyMemory.Store(0)
+	clusterStatistics.BusyVRAM.Store(0)
+
 	return clusterStatistics
 }
 
@@ -504,6 +582,10 @@ func (stats *ClusterStatistics) ConvertToSerializable() *SerializableClusterStat
 		DemandGPUs:                                           stats.DemandGPUs.Load(),
 		DemandMemMb:                                          stats.DemandMemMb.Load(),
 		DemandVRAMGb:                                         stats.DemandVRAMGb.Load(),
+		BusyCPUs:                                             stats.BusyCPUs.Load(),
+		BusyMemory:                                           stats.BusyMemory.Load(),
+		BusyGPUs:                                             stats.BusyGPUs.Load(),
+		BusyVRAM:                                             stats.BusyVRAM.Load(),
 		ExecuteRequestTraces:                                 stats.ExecuteRequestTraces,
 		Hosts:                                                stats.Hosts.Load(),
 		IdleCPUs:                                             stats.IdleCPUs.Load(),
