@@ -49,7 +49,7 @@ func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions, clusterProvider sc
 		opts.InitialClusterSize = opts.MaximumNumNodes
 	}
 
-	basePolicy, err := newBaseSchedulingPolicy(opts, false, false, clusterProvider)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (p *MiddleGroundPolicy) ValidateCapacity(cluster scheduling.Cluster) {
 // SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
 // the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
 func (p *MiddleGroundPolicy) SupportsPredictiveAutoscaling() bool {
-	return false
+	return true
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
@@ -337,7 +337,7 @@ func (p *MiddleGroundPolicy) ScalingOutEnabled() bool {
 // ScalingInEnabled is disabled for the MiddleGroundPolicy, as the MiddleGroundPolicy uses a fixed-size cluster
 // on which a warm container pool is created and maintained.
 func (p *MiddleGroundPolicy) ScalingInEnabled() bool {
-	return false
+	return true
 }
 
 /////////////////////////////////////////////
