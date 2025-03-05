@@ -502,7 +502,7 @@ func (p *BaseContainerPrewarmer) RequestProvisionContainers(n int, criteria sche
 
 			p.log.Warn(
 				utils.YellowStyle.Render(
-					"Prewarmed 0/%d container(s) this iter. Total so far: %d/%d. Consecutive failures: %d. Time elapsed: %v. Sleeping for %v."),
+					"Prewarmed %d/%d container(s) this iter. Total so far: %d/%d. Consecutive failures: %d. Time elapsed: %v. Sleeping for %v."),
 				numCreatedThisIteration, numToCreate, totalNumCreated, n, consecutiveFailures, time.Since(startTime), sleepInterval)
 
 			// Sleep for a small amount of time, as sometimes things can change if you wait a little.
