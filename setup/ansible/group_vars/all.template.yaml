@@ -52,6 +52,8 @@ distributed_notebook_initial_prewarm_containers_per_host: 3
 distributed_notebook_min_prewarm_containers_per_host: 3
 distributed_notebook_max_prewarm_containers_per_host: 4
 distributed_notebook_prewarming_policy: maintain_minimum_capacity
+distributed_notebook_dynamically_maintain_capacity: true
+distributed_notebook_replenish_on_use: false
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: s3

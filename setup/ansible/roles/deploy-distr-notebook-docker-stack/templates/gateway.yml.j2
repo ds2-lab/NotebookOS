@@ -78,6 +78,6 @@ prewarming_enabled: {{ distributed_notebook_prewarming_enabled }}
 initial_num_containers_per_host: {{ distributed_notebook_initial_prewarm_containers_per_host }}
 min_prewarm_containers_per_host: {{ distributed_notebook_min_prewarm_containers_per_host }}
 max_prewarm_containers_per_host: {{ distributed_notebook_max_prewarm_containers_per_host }}
-replenish_on_use: false
-dynamically_maintain_capacity: true
+replenish_on_use: {{ distributed_notebook_replenish_on_use }}
+dynamically_maintain_capacity: {{ distributed_notebook_dynamically_maintain_capacity }}
 prewarming_policy: {{ distributed_notebook_prewarming_policy }}
