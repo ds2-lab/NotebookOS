@@ -2234,6 +2234,36 @@ func (c *DistributedKernelClient) unsafeAreReplicasScheduled() bool {
 	return int32(c.replicas.Len()) == c.targetNumReplicas
 }
 
+func (c *DistributedKernelClient) handleExecuteStatisticsIoPubMessage(sender scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+	c.log.Debug("Received execution statistics for \"execute_request\" \"%s\" from replica %d.",
+		msg.JupyterMessageId(), sender.ReplicaID())
+
+	var content map[string]interface{}
+	err := msg.JupyterFrames.DecodeContent(&content)
+	if err != nil {
+		c.log.Error("Failed to decode content of IOPub \"%s\" message \"%s\" (associated with execute request \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), msg.JupyterParentMessageId(), err)
+
+		return err
+	}
+
+	// Check if we ended up receiving the "execute_reply".
+	//
+	// If we didn't, then we'll use the execution statistics message as the "execute_reply".
+	if !c.ExecutionManager.IsExecutionComplete(msg.JupyterParentMessageId()) {
+		c.log.Warn("Received execution statistics for execution \"%s\"; however, that execution is not yet complete...",
+			msg.JupyterParentMessageId())
+
+		_, err = c.ExecutionManager.ExecutionComplete(msg, sender)
+		if err != nil && !errors.Is(err, ErrExecutionAlreadyComplete) {
+			c.log.Error("Failed to record execution \"%s\" as having completed using 'execution statistics' message: %v",
+				msg.JupyterMessageType(), err)
+		}
+	}
+
+	return nil
+}
+
 func (c *DistributedKernelClient) handleMsg(replica messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	switch typ {
 	case messaging.IOMessage:
@@ -2243,12 +2273,26 @@ func (c *DistributedKernelClient) handleMsg(replica messaging.JupyterServerInfo,
 			{
 				return c.handleIOKernelStatus(replica.(scheduling.KernelReplica), jFrames, msg)
 			}
+		case messaging.MessageTypeExecutionStatistics:
+			{
+				return c.handleExecuteStatisticsIoPubMessage(replica.(scheduling.KernelReplica), msg)
+			}
 		case messaging.MessageTypeSMRLeadTask:
 			{
 				err := c.ExecutionManager.HandleSmrLeadTaskMessage(msg, replica.(scheduling.KernelReplica))
 				if err != nil {
 					c.log.Error("Error while handling \"%s\" message from replica %d of kernel \"%s\": %v",
 						messaging.MessageTypeSMRLeadTask, replica.(scheduling.KernelReplica).ReplicaID(), c.id, err)
+
+					// Forward the IO pub message even if we encountered an error while handling/processing it.
+					sendErr := c.server.Sockets.IO.Send(*msg.GetZmqMsg())
+					if sendErr != nil {
+						c.log.Error("Failed to forward \"%s\" message to Jupyter Client of kernel \"%s\": %v",
+							messaging.MessageTypeSMRLeadTask, c.id, err)
+
+						err = errors.Join(err, sendErr)
+					}
+
 					return err
 				}
 

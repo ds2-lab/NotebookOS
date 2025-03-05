@@ -11,6 +11,7 @@ const (
 
 	MessageTypeErrorReport             = "error_report"
 	MessageTypeSMRLeadTask             = "smr_lead_task"
+	MessageTypeExecutionStatistics     = "execute_statistics"
 	MessageTypeLeadAfterYield          = "smr_lead_after_yield" // Used by kernels to report an error that they've been selected to lead despite yielding.
 	MessageTypeAddReplicaRequest       = "add_replica_request"
 	MessageTypeUpdateReplicaRequest    = "update_replica_request"

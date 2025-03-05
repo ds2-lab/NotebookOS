@@ -1308,7 +1308,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell or process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
 
         msg = self.session.send(
             stream, "kernel_info_reply", content, parent, ident, buffers=buffers
@@ -1442,9 +1442,7 @@ class DistributedKernel(IPythonKernel):
 
         # The first time we call 'extract_and_process_request_trace' for this request.
         # The second time will be in the handler itself.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            msg, self.shell_received_at
-        )
+        buffers, _ = self.extract_and_process_request_trace(msg, self.shell_received_at)
 
         handler = self.shell_handlers.get(msg_type, None)
         if handler is None:
@@ -2191,7 +2189,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Sending 'execute_reply' message now.")
 
             # Send the reply now.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            buffers, _ = self.extract_and_process_request_trace(
                 parent, -1, execution_stats=self.current_execution_stats
             )
             reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -2315,7 +2313,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Sending 'execute_reply' message now.")
 
             # Send the reply now.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            buffers, _ = self.extract_and_process_request_trace(
                 parent, -1, execution_stats=self.current_execution_stats
             )
 
@@ -2333,17 +2331,23 @@ class DistributedKernel(IPythonKernel):
         else:
             execute_request_id: str = parent["header"]["msg_id"]
 
+            # Make sure the 'buffers' variable is defined.
+            buffers, request_trace = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+
             # If SMR is enabled, then we send an IO pub message with the completed execute trace.
             self.session.send(
                 self.iopub_socket,
                 IOPubNotification.ExecuteStatistics,
                 {
-                    "execution_stats": self.current_execution_stats,
-                    "execute_request_id": execute_request_id,
+                    "execute_reply_content": reply_content,
                     "kernel_id": self.kernel_id,
                     "replica_id": self.smr_node_id,
                 },
                 parent=parent,
+                metadata=metadata,
+                buffers=buffers,
                 ident=self._topic(IOPubNotification.ExecuteStatistics),
             )
 
@@ -2583,7 +2587,7 @@ class DistributedKernel(IPythonKernel):
 
         reply_content: Dict[str, str] = await self.__handle_start_synclog_request(parent)
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "start_synclog_reply",
@@ -2623,9 +2627,7 @@ class DistributedKernel(IPythonKernel):
             if ok:
                 reply_content["prewarm_container"] = False
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "reset_kernel_reply",
@@ -2710,7 +2712,7 @@ class DistributedKernel(IPythonKernel):
             self.log.info(f'Waiting to start SyncLog until explicitly instructed to do so. '
                           f'Persistent ID: "{self.persistent_id}"')
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "promote_prewarm_reply",
@@ -2729,9 +2731,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -2768,9 +2768,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
 
         self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -3073,7 +3071,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -4538,7 +4536,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         sent_message = self.session.send(
             stream,
             "prepare_to_migrate_reply",
@@ -4568,9 +4566,7 @@ class DistributedKernel(IPythonKernel):
             self.log.error("A replica fails to join: {}...".format(e))
             return gen_error_response(e), False
 
-    def decode_request_trace_from_buffers(
-            self, buffers, msg_id: str = "N/A", msg_type: str = "N/A"
-    ) -> dict[str, Any]:
+    def decode_request_trace_from_buffers(self, buffers, msg_id: str = "N/A", msg_type: str = "N/A") -> dict[str, Any]:
         """
         Attempt to decode a RequestTrace from the first buffers frame.
 
@@ -4584,10 +4580,8 @@ class DistributedKernel(IPythonKernel):
         Returns:
             The first buffers frame, extracted and decoded, or an empty dictionary.
         """
-        # self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
         if len(buffers) > 0:
             first_buffers_frame = buffers[0]
-            # self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {str(first_buffers_frame)}")
         else:
             return {}
 
@@ -4601,25 +4595,104 @@ class DistributedKernel(IPythonKernel):
 
         try:
             buffers_decoded = json.loads(first_buffers_frame)
-            # self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" "
-            #                f"using JSON (type={type(buffers_decoded).__name__}): {buffers_decoded}")
             return buffers_decoded
         except json.decoder.JSONDecodeError as ex:
-            self.log.warning(
-                f'Failed to decode buffers of "{msg_type}" message "{msg_id}" using JSON because: {ex}'
-            )
-            self.log.debug(
-                f'Returning empty dictionary for buffers from "{msg_type}" '
-                f'message "{msg_id}" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}'
-            )
+            self.log.warning(f'Failed to decode buffers of "{msg_type}" message "{msg_id}" using JSON because: {ex}')
+            self.log.debug(f'Returning empty dictionary for buffers from "{msg_type}" '
+                           f'message "{msg_id}" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}')
             return {}
+
+    def update_request_trace(
+            self,
+            request_trace_frame: Dict[str, Any],
+            execution_stats: ExecutionStats,
+            msg_id: str,
+            msg_type: str,
+            received_at: float = 0,
+    ):
+        request_trace: dict[str, Any] = request_trace_frame["request_trace"]
+
+        if received_at > 0:
+            received_at = int(math.floor(received_at))
+            request_trace["requestReceivedByKernelReplica"] = received_at
+        else:
+            reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
+            request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
+
+        request_trace["replicaId"] = self.smr_node_id
+
+        if execution_stats is None:
+            return request_trace
+
+        # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
+        request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
+
+        request_trace["downloadModelMicroseconds"] = int(execution_stats.download_model_microseconds)
+
+        request_trace["downloadDatasetMicroseconds"] = int(execution_stats.download_training_data_microseconds)
+        request_trace["downloadDatasetStartUnixMillis"] = int(execution_stats.download_training_data_start_unix_millis)
+
+        request_trace["downloadDatasetEndUnixMillis"] = int(execution_stats.download_training_data_end_unix_millis)
+        request_trace["uploadModelAndTrainingDataMicroseconds"] = int(
+            execution_stats.upload_model_and_training_data_microseconds
+        )
+
+        request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
+        request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
+        request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
+
+        request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+        request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+
+        request_trace["copyFromCpuToGpuMicroseconds"] = int(execution_stats.copy_data_from_cpu_to_gpu_microseconds)
+        request_trace["copyFromGpuToCpuMicroseconds"] = int(execution_stats.copy_data_from_gpu_to_cpu_microseconds)
+        request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
+
+        request_trace["syncStartUnixMillis"] = execution_stats.sync_start_unix_millis
+        request_trace["syncEndUnixMillis"] = execution_stats.sync_end_unix_millis
+        request_trace["syncDurationMillis"] = execution_stats.sync_duration_millis
+
+        request_trace["tokenizeDatasetStart"] = execution_stats.tokenize_training_data_start_unix_millis
+        request_trace["tokenizeDatasetEnd"] = execution_stats.tokenize_training_data_end_unix_millis
+        request_trace["tokenizeDatasetMicroseconds"] = execution_stats.tokenize_dataset_microseconds
+
+        # We only want to embed election statistics if this request trace is being embedded in an
+        # "execute_request" or "yield_request" message (i.e., a code submission).
+        if not self.smr_enabled or (msg_type != "execute_request" and msg_type != "yield_request"):
+            return request_trace
+
+        current_election: Election = self.synchronizer.current_election
+
+        # It shouldn't be None, but let's double-check, just to be safe.
+        if current_election is None:
+            self.log.warning(f"Current Election is None while embedding "
+                             f"request trace in '{msg_type}' request '{msg_id}'")
+            return request_trace
+
+        # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
+        # if-statement to ensure that it is a valid, non-null reference.
+        current_election_timestamps: Optional[ElectionTimestamps] = current_election.current_election_timestamps
+        if current_election_timestamps is None:
+            self.log.warning(f"Current Election's timestamp data is "
+                             f"None while embedding request trace in '{msg_type}' request '{msg_id}'")
+            return request_trace
+
+        request_trace["electionCreationTime"] = int(current_election_timestamps.creation_time)
+        request_trace["electionProposalPhaseStartTime"] = int(current_election_timestamps.proposal_phase_start_time)
+        request_trace["electionExecutionPhaseStartTime"] = int(current_election_timestamps.execution_phase_start_time)
+        request_trace["electionEndTime"] = int(current_election_timestamps.end_time)
+
+        self.log.debug(f"Embedding the following RequestTrace in response "
+                       f"to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}")
+
+        return request_trace
 
     def extract_and_process_request_trace(
             self,
-            msg: dict[str, Any],
+            msg: Dict[str, Any],
             received_at: float,
             execution_stats: Optional[ExecutionStats] = None,
-    ) -> Optional[list[bytes]]:
+    ) -> Optional[List[bytes], Dict[str, Any]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
 
@@ -4641,135 +4714,41 @@ class DistributedKernel(IPythonKernel):
         msg_header: dict[str, Any] = msg.get("header", {})
         msg_type: str = msg_header.get("msg_type", "N/A")
         msg_id: str = msg_header.get("msg_id", "N/A")
-        # self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
 
         if "buffers" in msg:
-            # self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\".")
             buffers = msg["buffers"]
         else:
-            # frame_names: str = ", ".join(list(msg.keys()))
-            # self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
-            #                  f"Message only has the following frames: {frame_names}")
             buffers = []
 
         request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(
             buffers, msg_id=msg_id, msg_type=msg_type
         )
+
         if isinstance(request_trace_frame, dict) and "request_trace" in request_trace_frame:
-            request_trace: dict[str, Any] = request_trace_frame["request_trace"]
-
-            if received_at > 0:
-                received_at = int(math.floor(received_at))
-                request_trace["requestReceivedByKernelReplica"] = received_at
-            else:
-                reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
-                request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
-
-            request_trace["replicaId"] = self.smr_node_id
-
-            # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
-            if execution_stats is not None:
-                request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
-
-                request_trace["downloadModelMicroseconds"] = int(execution_stats.download_model_microseconds)
-
-                request_trace["downloadDatasetMicroseconds"] = int(execution_stats.download_training_data_microseconds)
-                request_trace["downloadDatasetStartUnixMillis"] = int(
-                    execution_stats.download_training_data_start_unix_millis
-                )
-
-                request_trace["downloadDatasetEndUnixMillis"] = int(
-                    execution_stats.download_training_data_end_unix_millis
-                )
-                request_trace["uploadModelAndTrainingDataMicroseconds"] = int(
-                    execution_stats.upload_model_and_training_data_microseconds
-                )
-
-                request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
-                request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
-                request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
-
-                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
-                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
-
-                request_trace["copyFromCpuToGpuMicroseconds"] = int(
-                    execution_stats.copy_data_from_cpu_to_gpu_microseconds
-                )
-                request_trace["copyFromGpuToCpuMicroseconds"] = int(
-                    execution_stats.copy_data_from_gpu_to_cpu_microseconds
-                )
-                request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
-
-                request_trace["syncStartUnixMillis"] = execution_stats.sync_start_unix_millis
-                request_trace["syncEndUnixMillis"] = execution_stats.sync_end_unix_millis
-                request_trace["syncDurationMillis"] = execution_stats.sync_duration_millis
-
-                request_trace["tokenizeDatasetStart"] = execution_stats.tokenize_training_data_start_unix_millis
-                request_trace["tokenizeDatasetEnd"] = execution_stats.tokenize_training_data_end_unix_millis
-                request_trace["tokenizeDatasetMicroseconds"] = execution_stats.tokenize_dataset_microseconds
-
-                # We only want to embed election statistics if this request trace is being embedded in an
-                # "execute_request" or "yield_request" message (i.e., a code submission).
-                if self.smr_enabled and (msg_type == "execute_request" or msg_type == "yield_request"):
-                    current_election: Election = self.synchronizer.current_election
-
-                    # It shouldn't be None, but let's double-check, just to be safe.
-                    if current_election is not None:
-                        # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
-                        # if-statement to ensure that it is a valid, non-null reference.
-                        current_election_timestamps: Optional[ElectionTimestamps] = (
-                            current_election.current_election_timestamps
-                        )
-                        if current_election_timestamps is not None:
-                            request_trace["electionCreationTime"] = int(
-                                current_election_timestamps.creation_time
-                            )
-                            request_trace["electionProposalPhaseStartTime"] = int(
-                                current_election_timestamps.proposal_phase_start_time
-                            )
-                            request_trace["electionExecutionPhaseStartTime"] = int(
-                                current_election_timestamps.execution_phase_start_time
-                            )
-                            request_trace["electionEndTime"] = int(
-                                current_election_timestamps.end_time
-                            )
-                        else:
-                            self.log.warning(
-                                f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'"
-                            )
-                    else:
-                        self.log.warning(
-                            f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'"
-                        )
-
-                self.log.debug(
-                    f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}"
-                )
+            request_trace = self.update_request_trace(
+                request_trace_frame=request_trace_frame,
+                execution_stats=execution_stats,
+                received_at=received_at,
+                msg_type=msg_type,
+                msg_id=msg_id,
+            )
 
             buffers[0] = json.dumps(request_trace_frame).encode("utf-8")
-            # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
             msg["buffers"] = buffers
-            return buffers
-        # else:
-        #     self.log.warning(f"Could not find \"request_trace\" entry in request_trace_frame: {request_trace_frame}")
+            return buffers, request_trace
 
-        return None
+        return None, None
 
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
         """Add a replica to the SMR cluster"""
         params = parent["content"]
-        self.log.info(
-            "Received 'add-replica' request for replica with id %d, addr %s"
-            % (params["id"], params["addr"])
-        )
+        self.log.info("Received 'add-replica' request for replica with id %d, addr %s"% (params["id"], params["addr"]))
 
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
-                self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request."
-                )
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
                 await self.persistent_store_cv.wait()
 
         if "id" not in params or "addr" not in params:
@@ -4777,9 +4756,8 @@ class DistributedKernel(IPythonKernel):
 
             # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
             # The first was in dispatch_shell.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-                parent, -1
-            )
+            buffers, _ = self.extract_and_process_request_trace(parent, -1)
+
             self.session.send(
                 stream,
                 "add_replica_reply",
@@ -4788,6 +4766,7 @@ class DistributedKernel(IPythonKernel):
                 ident=ident,
                 buffers=buffers,
             )
+
             return
 
         content, success = await self.do_add_replica(params["id"], params["addr"])
@@ -4823,12 +4802,8 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
-        self.session.send(
-            stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers
-        )  # type: ignore
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
+        self.session.send(stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers)  # type: ignore
 
     async def do_update_replica(self, replicaId, addr) -> tuple:
         """
@@ -4909,9 +4884,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         self.session.send(
             stream,
             "update_replica_reply",

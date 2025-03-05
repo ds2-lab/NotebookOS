@@ -68,11 +68,15 @@ type ExecutionManager interface {
 	YieldProposalReceived(replica KernelReplica, executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error
 	HandleSmrLeadTaskMessage(msg *messaging.JupyterMessage, kernelReplica KernelReplica) error
 	HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica KernelReplica) (bool, error)
+	HandleExecuteStatisticsMessage(msg *messaging.JupyterMessage, replica KernelReplica) (bool, error)
 	ExecutionComplete(msg *messaging.JupyterMessage, replica KernelReplica) (Execution, error)
 	GetActiveExecution(msgId string) Execution
 	NumActiveExecutionOperations() int
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
+
+	// IsExecutionComplete returns true if the execution associated with the given message ID is complete.
+	IsExecutionComplete(executeRequestId string) bool
 
 	// ReplicaRemoved is used to notify the ExecutionManager that a particular KernelReplica has been removed.
 	// This allows the ExecutionManager to set the LastPrimaryReplica field to nil if the removed KernelReplica

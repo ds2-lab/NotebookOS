@@ -677,6 +677,75 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 	return false, err // Will be nil if everything went OK in the call to ExecutionComplete
 }
 
+func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
+	if msg.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
+		return false, fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
+			ErrInvalidExecuteRegistrationMessage, messaging.MessageTypeExecutionStatistics, msg.JupyterMessageType())
+	}
+
+	kernelId := m.Kernel.ID()
+	m.log.Debug("Received \"%s\" message with JupyterID=\"%s\" from replica %d of kernel %s.",
+		msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
+
+	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
+		m.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)",
+			replica.ReplicaID(), kernelId)
+		return false, messaging.ErrInvalidJupyterMessage
+	}
+
+	if len(*msg.JupyterFrames.ContentFrame()) == 0 {
+		m.log.Warn("Received shell '%v' response with empty content.", msg.JupyterMessageType())
+		return false, nil
+	}
+
+	var msgErr *messaging.MessageErrorWithYieldReason
+	if err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr); err != nil {
+		m.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v",
+			replica.ReplicaID(), kernelId, err)
+		return false, err
+	}
+
+	var isYieldProposal bool
+	if msgErr.Status != messaging.MessageStatusOK {
+		isYieldProposal = (msgErr.ErrName == messaging.MessageErrYieldExecution) || msgErr.YieldReason != "" || msgErr.Yielded
+
+		if msgErr.ErrName != messaging.MessageErrYieldExecution {
+			m.log.Error("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue)
+
+			title := "Kernel Encountered Error During Code Execution"
+			m.sendNotification(title, fmt.Sprintf("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue), messaging.ErrorNotification, true)
+		}
+	}
+
+	activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
+	if activeExec != nil {
+		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
+		if err != nil {
+			m.log.Error("Failed to register \"execute_reply\" message: %v", err)
+			return isYieldProposal, err
+		}
+	}
+
+	if isYieldProposal {
+		err := m.YieldProposalReceived(replica, msg, msgErr)
+		if err != nil {
+			msg.IsFailedExecuteRequest = true
+			return true, errors.Join(err, fmt.Errorf("%s: %s", msgErr.ErrName, msgErr.ErrValue))
+		}
+
+		return true, messaging.ErrExecutionYielded
+	}
+
+	_, err := m.ExecutionComplete(msg, replica)
+
+	return false, err // Will be nil if everything went OK in the call to ExecutionComplete
+}
+
 // ExecutionComplete should be called by the Kernel associated with the target ExecutionManager when an "execute_reply"
 // message is received.
 //
@@ -706,10 +775,13 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId)
 	}
 
-	//err = activeExecution.ReceivedSmrLeadTaskMessage(msg.ReplicaId)
-	//if err != nil {
-	//	return nil, err
-	//}
+	// If the execution is already marked as complete, then we'll log an error.
+	// We can't just return because we shouldn't have found the active execution struct in the "activeExecutions"
+	// map if it was already completed.
+	if activeExecution.IsCompleted() {
+		m.log.Error("Execution \"%s\" was already completed %v ago...",
+			executeRequestId, time.Since(activeExecution.GetReceivedExecuteReplyAt()))
+	}
 
 	activeExecution.SetExecuted(receivedAt)
 
@@ -1286,4 +1358,17 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 		messages[0].JupyterMessageId(), exec.GetExecutionIndex(), targetReplicaId)
 
 	return exec.SetTargetReplica(targetReplicaId)
+}
+
+// IsExecutionComplete returns true if the execution associated with the given message ID is complete.
+func (m *ExecutionManager) IsExecutionComplete(executeRequestId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	exec, loaded := m.activeExecutions[executeRequestId]
+	if !loaded {
+		return false
+	}
+
+	return exec.IsCompleted()
 }

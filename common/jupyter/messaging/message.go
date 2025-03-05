@@ -276,6 +276,14 @@ func (m *MessageErrorWithOldContent) String() string {
 	return string(out)
 }
 
+type ExecuteStatisticsMessage struct {
+	ExecuteReplyContent map[string]interface{} `json:"execute_reply_content"`
+	ExecutionStats      *proto.RequestTrace    `json:"execution_stats"`
+	ExecuteRequestId    string                 `json:"execute_request_id"`
+	KernelId            string                 `json:"kernel_id"`
+	ReplicaId           int32                  `json:"replica_id"`
+}
+
 // MessageErrorWithYieldReason is a wrapper around MessageError with an additional YieldReason field, in case
 // the error is an 'execution yielded' error, and the replica that encountered this error was explicitly instructed
 // to yield, and a reason was provided.
