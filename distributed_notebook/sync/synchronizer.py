@@ -663,6 +663,7 @@ class Synchronizer:
                 proposer_id=self._node_id,
             )
             val = dataset_pointer
+            val.delete_dataset_field()
         elif isinstance(val, DeepLearningModel):
             self.log.debug(f'Synchronizing Model "{val.name}" ("{key}"). '
                            f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
@@ -683,6 +684,7 @@ class Synchronizer:
             self.log.debug(f'Finished writing state dictionaries of model "{val.name}" '
                            f'variable "{key}" to remote storage.')
             val = model_pointer
+            val.delete_model_field()
         else:
             self.log.debug(f'Synchronizing {type(val).__name__} "{key}" [checkpointing={checkpointing}].')
 
