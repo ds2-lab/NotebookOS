@@ -487,7 +487,7 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 	}
 
 	// Update the appropriate timestamp field of the RequestTrace.
-	requestTrace.PopulateNextField(timestamp.UnixMilli(), logger)
+	requestTrace.PopulateNextField(timestamp.UnixMilli())
 
 	// logger.Debug("New/updated RequestTrace: %s.", requestTrace.String())
 

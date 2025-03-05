@@ -490,7 +490,7 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
         self.synclog: Optional[SyncLog] = None
-        self._remote_checkpointer: Optional[Checkpointer] = None # created in start method.
+        self._remote_checkpointer: Optional[Checkpointer] = None  # created in start method.
 
         # Normally, we start the SyncLog in DistributedKernel::start.
         #
@@ -1973,14 +1973,14 @@ class DistributedKernel(IPythonKernel):
 
             if metadata[required_key] != resource_request[resource_request_key]:
                 self.log.warning(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
-                               f"and current resource request '{resource_request_key}' "
-                               f"({resource_request[resource_request_key]}).")
+                                 f"and current resource request '{resource_request_key}' "
+                                 f"({resource_request[resource_request_key]}).")
 
                 self.report_warning(f"Inconsistent '{required_key}' Field and "
-                                  f"Resource Request '{resource_request_key}' Field",
-                                  f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
-                                  f"and current resource request '{resource_request_key}' "
-                                  f"({resource_request[resource_request_key]}).")
+                                    f"Resource Request '{resource_request_key}' Field",
+                                    f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                                    f"and current resource request '{resource_request_key}' "
+                                    f"({resource_request[resource_request_key]}).")
 
                 # raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
                 #                  f"and current resource request '{resource_request_key}' "
@@ -2310,6 +2310,7 @@ class DistributedKernel(IPythonKernel):
         self.synclog.clear_restoration_time()
         self.synclog.clear_restore_namespace_time_seconds()
 
+        # If SMR is disabled, then we send the "execute_reply" now.
         if not self.smr_enabled:
             self.log.debug("Sending 'execute_reply' message now.")
 
@@ -2317,26 +2318,44 @@ class DistributedKernel(IPythonKernel):
             buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
                 parent, -1, execution_stats=self.current_execution_stats
             )
+
             reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
                 stream,
                 "execute_reply",
                 reply_content,
-                parent,
+                parent=parent,
                 metadata=metadata,
                 ident=ident,
                 buffers=buffers,
             )
 
             self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
+        else:
+            execute_request_id: str = parent["header"]["msg_id"]
+
+            # If SMR is enabled, then we send an IO pub message with the completed execute trace.
+            self.session.send(
+                self.iopub_socket,
+                IOPubNotification.ExecuteStatistics,
+                {
+                    "execution_stats": self.current_execution_stats,
+                    "execute_request_id": execute_request_id,
+                    "kernel_id": self.kernel_id,
+                    "replica_id": self.smr_node_id,
+                },
+                parent=parent,
+                ident=self._topic(IOPubNotification.ExecuteStatistics),
+            )
+
+            self.log.debug(f'Sent IOPub message containing completed execution '
+                           f'statistics for execution "{execute_request_id}".')
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
 
         await_election_end_task: Optional[asyncio.Task] = None
         if self.smr_enabled and not was_primary_replica:
-            await_election_end_task = asyncio.create_task(
-                self.synchronizer.wait_for_election_to_end(term_number)
-            )
+            await_election_end_task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
             # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
             # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
@@ -2352,10 +2371,8 @@ class DistributedKernel(IPythonKernel):
             # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
             #       message before the others, and possibly starts a new election and proposes something before the
             #       others do?
-            self.log.debug(
-                f"Waiting for election {term_number} "
-                "to be totally finished before returning from execute_request function."
-            )
+            self.log.debug(f"Waiting for election {term_number} "
+                           "to be totally finished before returning from execute_request function.")
 
         # If we're supposed to write-after-execute, but the write operation is not supposed to be on the critical path,
         # then we'll perform the write now, as we already sent the "execute_reply" back to the Local Daemon. That will
@@ -2368,12 +2385,10 @@ class DistributedKernel(IPythonKernel):
                 and self.simulate_write_after_execute
                 and not self.simulate_write_after_execute_on_critical_path
         ):
-            self.log.debug(
-                f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path."
-            )
-            duration: float = await self.simulate_remote_checkpointing(
-                remote_storage_name, io_type="upload"
-            )
+            self.log.debug(f"Performing post-execution simulated network write "
+                           f"operation to '{remote_storage_name}' off of critical path.")
+
+            duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
             # TODO: What if we receive next message before this completes?
             if duration > 0 and self.prometheus_enabled and hasattr(self, "remote_storage_write_latency_milliseconds"):

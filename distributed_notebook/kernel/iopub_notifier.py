@@ -13,6 +13,8 @@ class IOPubNotification(StrEnum):
     
     # Sent by follower replicas upon officially yielding a request.
     SmrYieldTask = "smr_yield_task"
+
+    ExecuteStatistics = "execute_statistics"
     
     # Sent by the first replica to see one of its proposals get committed.
     # For example, if Replica 2 proposes "LEAD" and Replica 3 proposes "LEAD",
