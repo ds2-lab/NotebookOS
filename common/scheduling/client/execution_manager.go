@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -981,19 +982,19 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		return err
 	}
 
+	var (
+		samePrimaryReplicaAsLastTime bool
+		isFirstTraining              = m.lastPrimaryReplica == nil
+	)
+
+	if m.lastPrimaryReplica != nil {
+		samePrimaryReplicaAsLastTime = m.lastPrimaryReplica.ReplicaID() == replica.ReplicaID()
+	}
+
 	m.lastPrimaryReplica = replica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
 	m.processExecutionStartLatency(activeExecution, time.UnixMilli(leadMessage.UnixMilliseconds))
-
-	m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		resourceRequest := replica.ResourceSpec()
-
-		statistics.BusyCPUs.Add(resourceRequest.CPU())
-		statistics.BusyMemory.Add(resourceRequest.MemoryMB())
-		statistics.BusyGPUs.Add(resourceRequest.GPU())
-		statistics.BusyVRAM.Add(resourceRequest.VRAM())
-	})
 
 	// If the 'completed' execution index is greater than or equal to the execution index of the "smr_lead_task"
 	// message, then that means that we received the "smr_lead_task" AFTER receiving the "execute_reply". So,
@@ -1021,6 +1022,36 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 			m.Kernel.ID()), err.Error(), messaging.ErrorNotification, true)
 
 		return err
+	}
+
+	if m.statisticsProvider != nil {
+		m.statisticsProvider.UpdateClusterStatistics(func(stats *metrics.ClusterStatistics) {
+			stats.NumTrainingSessions.Add(1)
+
+			resourceRequest := replica.ResourceSpec()
+
+			stats.BusyCPUs.Add(resourceRequest.CPU())
+			stats.BusyMemory.Add(resourceRequest.MemoryMB())
+			stats.BusyGPUs.Add(resourceRequest.GPU())
+			stats.BusyVRAM.Add(resourceRequest.VRAM())
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.KernelTrainingStarted,
+				KernelId:            m.Kernel.ID(),
+				ReplicaId:           replica.ReplicaID(),
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"resource_request":                resourceRequest.ToMap(),
+					"is_first_training":               isFirstTraining,
+					"reused_previous_primary_replica": samePrimaryReplicaAsLastTime,
+					"num_viable_replicas":             activeExecution.NumViableReplicas,
+					"migration_required":              activeExecution.MigrationWasRequired,
+				},
+			})
+		})
 	}
 
 	m.log.Debug("Session \"%s\" has successfully started training on replica %d.",

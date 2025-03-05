@@ -631,16 +631,16 @@ func (c *DistributedKernelClient) GetExecutionManager() scheduling.ExecutionMana
 //
 // If we are resubmitting an "execute_request" following a migration, then this will not create and return a new
 // (pointer to a) execution.Execution struct, as the current active execution can simply be reused.
-func (c *DistributedKernelClient) RegisterActiveExecution(msg *messaging.JupyterMessage) error {
-	_, err := c.ExecutionManager.RegisterExecution(msg)
+func (c *DistributedKernelClient) RegisterActiveExecution(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
+	execution, err := c.ExecutionManager.RegisterExecution(msg)
 	if err != nil {
 		c.log.Error("Error while registering new code execution \"%s\": %v",
 			msg.JupyterMessageId(), err)
-		return err
+		return nil, err
 	}
 
 	c.log.Debug("Registered new code execution \"%s\"", msg.JupyterMessageId())
-	return nil
+	return execution, nil
 }
 
 // ResetID resets the kernel ID.

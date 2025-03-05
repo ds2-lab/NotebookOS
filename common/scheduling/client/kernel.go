@@ -450,27 +450,11 @@ func (c *KernelReplicaClient) KernelStartedTraining(trainingStartedAt time.Time)
 		}
 	}
 
+	c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
+		statistics.CumulativeSessionIdleTime.Add(time.Since(c.idleStartedAt).Seconds())
+	})
+
 	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
-
-	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumTrainingSessions.Add(1)
-			stats.CumulativeSessionIdleTime.Add(time.Since(c.idleStartedAt).Seconds())
-
-			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
-				EventId:             uuid.NewString(),
-				Name:                metrics.KernelTrainingStarted,
-				KernelId:            c.id,
-				ReplicaId:           c.replicaId,
-				Timestamp:           now,
-				TimestampUnixMillis: now.UnixMilli(),
-				Metadata: map[string]interface{}{
-					"resource_request": container.ResourceSpec().ToMap(),
-				},
-			})
-		})
-	}
 
 	return nil
 }

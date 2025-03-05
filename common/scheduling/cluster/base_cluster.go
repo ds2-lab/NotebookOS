@@ -661,6 +661,7 @@ func (c *BaseCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
 		}
 
 		if session.IsMigrating() {
+			demandGPUs += session.ResourceSpec().GPU()
 			numRunning += 1
 		} else if session.IsIdle() {
 			demandGPUs += session.ResourceSpec().GPU()

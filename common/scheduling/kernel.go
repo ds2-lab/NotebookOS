@@ -203,7 +203,7 @@ type Kernel interface {
 
 	// ExecutionComplete(msg *messaging.JupyterMessage) error
 
-	RegisterActiveExecution(msg *messaging.JupyterMessage) error
+	RegisterActiveExecution(msg *messaging.JupyterMessage) (Execution, error)
 	ResetID(id string)
 	PersistentID() string
 	String() string

@@ -85,6 +85,12 @@ type Execution struct {
 	// NumReplicas is the number of replicas that the kernel had with the execution request was originally received.
 	NumReplicas int
 
+	// MigrationWasRequired indicates whether a migration was required in order to serve this training.
+	MigrationWasRequired bool
+
+	// NumViableReplicas is the number of replicas that were viable to serve this training request.
+	NumViableReplicas int
+
 	// NumLeadProposals is the number of 'LEAD' Proposals issued.
 	NumLeadProposals int
 
@@ -381,4 +387,22 @@ func (e *Execution) GetReceivedSmrLeadTaskAt() time.Time {
 // had finished was received.
 func (e *Execution) GetReceivedExecuteReplyAt() time.Time {
 	return e.ReceivedExecuteReplyAt
+}
+
+func (e *Execution) SetMigrationRequired(required bool) {
+	e.MigrationWasRequired = required
+}
+
+// GetMigrationRequired returns a bool indicating whether a migration was required in order to serve this training.
+func (e *Execution) GetMigrationRequired() bool {
+	return e.MigrationWasRequired
+}
+
+func (e *Execution) SetNumViableReplicas(n int) {
+	e.NumViableReplicas = n
+}
+
+// GetNumViableReplicas returns the number of replicas that were viable to serve this training request.
+func (e *Execution) GetNumViableReplicas() int {
+	return e.NumViableReplicas
 }

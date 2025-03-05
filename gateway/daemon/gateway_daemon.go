@@ -4608,11 +4608,11 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	}
 
 	// Register the execution with the kernel.
-	err = kernel.RegisterActiveExecution(msg)
-	if err != nil {
+	activeExecution, registrationError := kernel.RegisterActiveExecution(msg)
+	if registrationError != nil {
 		d.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
-			msg.JupyterMessageId(), kernel.ID(), err)
-		return nil, err
+			msg.JupyterMessageId(), kernel.ID(), registrationError)
+		return nil, registrationError
 	}
 
 	if kernel.SupposedToYieldNextExecutionRequest() {
@@ -4651,7 +4651,45 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 			d.clusterStatisticsMutex.Unlock()
 		}
 
+		activeExecution.SetMigrationRequired(false) // Record that we didn't have to migrate a replica.
+
+		// Determine how many replicas could have served the request (including the selected target replica).
+		replicas := kernel.Replicas()
+		numViableReplicas := 1
+		resourceRequest := targetReplica.ResourceSpec()
+		for idx, replica := range replicas {
+			// If the replica is nil for some reason, then we just skip it.
+			if replica == nil {
+				d.log.Warn("Replica #%d of kernel \"%s\" is nil...", idx+1, kernel.ID())
+				continue
+			}
+
+			// We initialized numViableReplicas to 1, so we just skip the target replica.
+			if replica.ReplicaID() == targetReplica.ReplicaID() {
+				continue
+			}
+
+			// If the host is nil (which it shouldn't be), then we'll just skip it.
+			host := replica.Host()
+			if host == nil {
+				d.log.Warn("Host of replica #%d (idx=%d) of kernel \"%s\" is nil...",
+					replica.ReplicaID(), idx, kernel.ID())
+				continue
+			}
+
+			// If the host of the other replica (i.e., the non-target replica) could commit resources
+			// to the replica, then we'll increment the numViableReplicas counter.
+			if host.CanCommitResources(resourceRequest) {
+				numViableReplicas += 1
+			}
+		}
+
+		activeExecution.SetNumViableReplicas(numViableReplicas)
+
 		return targetReplica, nil
+	} else {
+		activeExecution.SetMigrationRequired(true) // Record that we did (or will) have to migrate a replica.
+		activeExecution.SetNumViableReplicas(0)
 	}
 
 	// If we're using a long-running, replica-based scheduling policy, then we'll
@@ -6324,11 +6362,6 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 
 	var numRunning, numIdle, numTraining, numStopped int
 	d.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
-		demandCpus += value.ResourceSpec().CPU()
-		demandMem += value.ResourceSpec().MemoryMB()
-		demandGpus += value.ResourceSpec().GPU()
-		demandVram += value.ResourceSpec().VRAM()
-
 		if value.IsIdle() {
 			numIdle += 1
 			numRunning += 1
@@ -6339,7 +6372,13 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 			numRunning += 1
 		} else if value.IsStopped() {
 			numStopped += 1
+			return true // Return here so that we don't increment the demand values for stopped sessions.
 		}
+
+		demandCpus += value.ResourceSpec().CPU()
+		demandMem += value.ResourceSpec().MemoryMB()
+		demandGpus += value.ResourceSpec().GPU()
+		demandVram += value.ResourceSpec().VRAM()
 
 		return true
 	})

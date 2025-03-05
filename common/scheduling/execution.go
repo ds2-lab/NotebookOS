@@ -186,6 +186,14 @@ type Execution interface {
 	// GetReceivedExecuteReplyAt returns the time at which the "execute_reply" message that indicated that the execution
 	// had finished was received.
 	GetReceivedExecuteReplyAt() time.Time
+
+	// GetMigrationRequired returns a bool indicating whether a migration was required in order to serve this training.
+	GetMigrationRequired() bool
+	SetMigrationRequired(required bool)
+
+	// GetNumViableReplicas returns the number of replicas that were viable to serve this training request.
+	GetNumViableReplicas() int
+	SetNumViableReplicas(n int)
 }
 type Proposal interface {
 	GetKey() ProposalKey
