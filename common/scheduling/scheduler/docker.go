@@ -242,6 +242,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 	blacklistedHosts := args.BlacklistedHosts
 	forTraining := args.ForTraining
 	ignoreOversubscriptionRisk := args.IgnoreOversubscriptionRisk
+	canUsePrewarmContainer := args.CanUsePrewarmContainer
 
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
@@ -275,7 +276,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 			replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, kernelId)
 	}
 
-	if s.prewarmer != nil {
+	if s.prewarmer != nil && canUsePrewarmContainer {
 		container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
 		if container != nil {
 			s.log.Debug("Found pre-warmed container on host %s (ID=%s). Using for replica %d of kernel %s.",
@@ -455,11 +456,12 @@ func (s *DockerScheduler) scheduleKernelReplicas(ctx context.Context, in *proto.
 				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
 
 			args := &scheduling.ScheduleReplicaArgs{
-				ReplicaSpec:      replicaSpec,
-				TargetHost:       targetHost,
-				BlacklistedHosts: blacklistedHosts,
-				ForTraining:      forTraining,
-				ForMigration:     false,
+				ReplicaSpec:            replicaSpec,
+				TargetHost:             targetHost,
+				BlacklistedHosts:       blacklistedHosts,
+				ForTraining:            forTraining,
+				ForMigration:           false,
+				CanUsePrewarmContainer: false,
 			}
 			schedulingError := s.ScheduleKernelReplica(ctx, args)
 			if schedulingError != nil {

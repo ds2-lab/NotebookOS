@@ -23,7 +23,7 @@ func (t SchedulerPoolType) String() string {
 	if t == SchedulerPoolTypeUndersubscribed {
 		return "Undersubscribed"
 	}
-	
+
 	if t == SchedulerPoolTypeOversubscribed {
 		return "Oversubscribed"
 	}
@@ -70,6 +70,8 @@ type ScheduleReplicaArgs struct {
 	ForTraining bool
 
 	IgnoreOversubscriptionRisk bool
+
+	CanUsePrewarmContainer bool
 
 	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
 	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,

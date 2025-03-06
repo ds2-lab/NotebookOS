@@ -766,11 +766,12 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 		defer sem.Release(1)
 
 		args := &scheduling.ScheduleReplicaArgs{
-			ReplicaSpec:      newReplicaSpec,
-			TargetHost:       targetHost,
-			BlacklistedHosts: blacklistedHosts,
-			ForTraining:      forTraining,
-			ForMigration:     true,
+			ReplicaSpec:            newReplicaSpec,
+			TargetHost:             targetHost,
+			BlacklistedHosts:       blacklistedHosts,
+			ForTraining:            forTraining,
+			ForMigration:           true,
+			CanUsePrewarmContainer: true,
 		}
 
 		//
