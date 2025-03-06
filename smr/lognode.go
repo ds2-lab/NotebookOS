@@ -554,7 +554,7 @@ func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 
 		wg.Wait()
 
-		time.Sleep(time.Millisecond * 250)
+		time.Sleep(time.Millisecond * 50)
 
 		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::Propose.",
 			zap.String("msg", msg))
@@ -609,7 +609,7 @@ func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
 
 		wg.Wait()
 
-		time.Sleep(time.Millisecond * 250)
+		time.Sleep(time.Millisecond * 50)
 
 		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::AddNode.",
 			zap.Int("id", id), zap.String("addr", addr))
@@ -638,7 +638,7 @@ func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
 
 		wg.Wait()
 
-		time.Sleep(time.Millisecond * 250)
+		time.Sleep(time.Millisecond * 50)
 
 		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::RemoveNode.",
 			zap.Int("id", id))
@@ -668,7 +668,7 @@ func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
 
 		wg.Wait()
 
-		time.Sleep(time.Millisecond * 250)
+		time.Sleep(time.Millisecond * 50)
 
 		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::UpdateNode.",
 			zap.Int("id", id), zap.String("addr", addr))
@@ -712,9 +712,6 @@ func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, re
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
 		node.logger.Info("Calling `resolve` callback.", zap.String("msg", msg))
-
-		time.Sleep(time.Millisecond * 125)
-
 		resolve(msg, toCError(nil))
 		node.logger.Info("Finished call to `resolve` callback.", zap.String("msg", msg))
 	} else {
