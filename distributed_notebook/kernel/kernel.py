@@ -479,7 +479,6 @@ class DistributedKernel(IPythonKernel):
         self.background_tasks = set()
         self.next_execute_request_msg_id: Optional[str] = None
         self.old_run_cell = None
-        self.daemon_registration_socket = None
         self.prometheus_thread = None
         self.prometheus_server = None
         self.source = None
@@ -1045,63 +1044,7 @@ class DistributedKernel(IPythonKernel):
 
         return md
 
-    def register_with_local_daemon(self, connection_info: dict, session_id: str):
-        self.log.info("Registering with local daemon now.")
-
-        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
-        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
-        try:
-            server_port = int(server_port)
-        except ValueError:
-            server_port = 8075
-
-        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port))
-
-        self.daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-        start_time: float = time.time()
-        try:
-            self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
-        except Exception as ex:
-            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
-            self.log.error("Reason: %s" % str(ex))
-            raise ex
-
-        self.log.info(f"Successfully connected to Local Daemon at {local_daemon_service_name}:{server_port} "
-                      f"in {round((time.time() - start_time) * 1.0e3, 3):,} ms.")
-
-        try:
-            registration_payload = {
-                "op": "register",
-                "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
-                "key": connection_info.get("key", ""),
-                "replicaId": self.smr_node_id,
-                "numReplicas": len(self.smr_nodes_map),
-                "join": self.smr_join,
-                "podName": self.docker_container_name,
-                "nodeName": self.node_name,
-                "connection-info": connection_info,
-                "workload_id": self.workload_id,
-                "prewarm_container": self.prewarm_container,
-                "kernel": {
-                    "id": self.kernel_id,
-                    "session": session_id,
-                    "signature_scheme": connection_info.get("signature_scheme", "hmac-sha256"),
-                    "key": connection_info.get("key", ""),
-                },
-            }
-        except Exception as ex:
-            self.log.error(f"Failed to create registration payload: {ex}")
-            raise ex  # Re-raise
-
-        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
-
-        bytes_sent: int = self.daemon_registration_socket.send(json.dumps(registration_payload).encode())
-
-        self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
-
-        response: bytes = self.daemon_registration_socket.recv(1024)
-
+    def handle_registration_response(self, response: bytes, start_time: float, local_daemon_service_name:str):
         if len(response) == 0:
             self.log.error("Received empty response from local daemon during registration...")
             raise ValueError("received empty response from local daemon during registration procedure")
@@ -1218,7 +1161,138 @@ class DistributedKernel(IPythonKernel):
             self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
             self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
 
-        self.daemon_registration_socket.close()
+    async def register_with_local_daemon_async(self, connection_info: dict, session_id: str):
+        self.log.info("Registering with local daemon now.")
+
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
+        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
+        try:
+            server_port = int(server_port)
+        except ValueError:
+            server_port = 8075
+
+        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port))
+
+        start_time: float = time.time()
+        try:
+            reader, writer = asyncio.open_connection(local_daemon_service_name, server_port)
+        except Exception as ex:
+            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
+            self.log.error("Reason: %s" % str(ex))
+            raise ex
+
+        self.log.info(f"Successfully connected to Local Daemon at {local_daemon_service_name}:{server_port} "
+                      f"in {round((time.time() - start_time) * 1.0e3, 3):,} ms.")
+
+        try:
+            registration_payload = {
+                "op": "register",
+                "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                "key": connection_info.get("key", ""),
+                "replicaId": self.smr_node_id,
+                "numReplicas": len(self.smr_nodes_map),
+                "join": self.smr_join,
+                "podName": self.docker_container_name,
+                "nodeName": self.node_name,
+                "connection-info": connection_info,
+                "workload_id": self.workload_id,
+                "prewarm_container": self.prewarm_container,
+                "kernel": {
+                    "id": self.kernel_id,
+                    "session": session_id,
+                    "signature_scheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                    "key": connection_info.get("key", ""),
+                },
+            }
+        except Exception as ex:
+            self.log.error(f"Failed to create registration payload: {ex}")
+            raise ex  # Re-raise
+
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
+
+        writer.write(json.dumps(registration_payload).encode())
+        await writer.drain()
+
+        self.log.info("Asynchronously sent registration payload to local daemon.")
+
+        response: bytes = await reader.read(1024)
+
+        self.handle_registration_response(response, start_time, local_daemon_service_name)
+
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception as ex:
+            self.log.warning(f"Error while closing writer to Local Daemon: {ex}")
+            self.log.warning(traceback.format_exc())
+
+        try:
+            reader.close()
+            await reader.close()
+        except Exception as ex:
+            self.log.warning(f"Error while closing writer to Local Daemon: {ex}")
+            self.log.warning(traceback.format_exc())
+
+    def register_with_local_daemon(self, connection_info: dict, session_id: str):
+        self.log.info("Registering with local daemon now.")
+
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
+        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
+        try:
+            server_port = int(server_port)
+        except ValueError:
+            server_port = 8075
+
+        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port))
+
+        daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        start_time: float = time.time()
+        try:
+            daemon_registration_socket.connect((local_daemon_service_name, server_port))
+        except Exception as ex:
+            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
+            self.log.error("Reason: %s" % str(ex))
+            raise ex
+
+        self.log.info(f"Successfully connected to Local Daemon at {local_daemon_service_name}:{server_port} "
+                      f"in {round((time.time() - start_time) * 1.0e3, 3):,} ms.")
+
+        try:
+            registration_payload = {
+                "op": "register",
+                "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                "key": connection_info.get("key", ""),
+                "replicaId": self.smr_node_id,
+                "numReplicas": len(self.smr_nodes_map),
+                "join": self.smr_join,
+                "podName": self.docker_container_name,
+                "nodeName": self.node_name,
+                "connection-info": connection_info,
+                "workload_id": self.workload_id,
+                "prewarm_container": self.prewarm_container,
+                "kernel": {
+                    "id": self.kernel_id,
+                    "session": session_id,
+                    "signature_scheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                    "key": connection_info.get("key", ""),
+                },
+            }
+        except Exception as ex:
+            self.log.error(f"Failed to create registration payload: {ex}")
+            raise ex  # Re-raise
+
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
+
+        bytes_sent: int = daemon_registration_socket.send(json.dumps(registration_payload).encode())
+
+        self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
+
+        response: bytes = daemon_registration_socket.recv(1024)
+
+        self.handle_registration_response(response, start_time, local_daemon_service_name)
+
+        daemon_registration_socket.close()
 
     def init_debugpy(self):
         if not self.debugpy_enabled or self.debug_port < 0:
@@ -2683,7 +2757,7 @@ class DistributedKernel(IPythonKernel):
         self.prewarm_container = False
 
         registration_start: float = time.time()
-        self.register_with_local_daemon(self.connection_info, self.kernel_id)
+        await self.register_with_local_daemon_async(self.connection_info, self.kernel_id)
         registration_duration: float = (time.time() - registration_start) * 1.0e3
 
         if self.prometheus_enabled:
