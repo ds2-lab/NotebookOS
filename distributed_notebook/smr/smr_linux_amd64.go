@@ -1802,6 +1802,150 @@ func smr_Set_UpdateNodeProposalDeadline(val C.longlong) {
 
 // ---- Interfaces ---
 
+//export smr_LogSnapshotter_Load
+func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
+	go_src_func_name := "smr_LogSnapshotter_Load"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	cret, __err := vifc.(smr.LogSnapshotter).Load()
+
+	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
+}
+
+//export smr_LogSnapshotter_LoadNewestAvailable
+func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
+	go_src_func_name := "smr_LogSnapshotter_LoadNewestAvailable"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	cret, __err := vifc.(smr.LogSnapshotter).LoadNewestAvailable(deptrFromHandle_Slice_walpb_Snapshot(arg_0))
+
+	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		C.free(unsafe.Pointer(estr))
+		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
+	}
+	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
+}
+
+//export smr_LogSnapshotter_SaveSnap
+func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
+	go_src_func_name := "smr_LogSnapshotter_SaveSnap"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
+	if __err != nil {
+		return errorGoToPy(nil)
+	}
+	__err = vifc.(smr.LogSnapshotter).SaveSnap(*ptrFromHandle_raftpb_Snapshot(arg_0))
+
+	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_Close
+func smr_LogStorage_Close(_handle CGoHandle) *C.char {
+	go_src_func_name := "smr_LogStorage_Close"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return errorGoToPy(nil)
+	}
+	__err = vifc.(smr.LogStorage).Close()
+
+	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_ReleaseLockTo
+func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char {
+	go_src_func_name := "smr_LogStorage_ReleaseLockTo"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return errorGoToPy(nil)
+	}
+	__err = vifc.(smr.LogStorage).ReleaseLockTo(uint64(arg_0))
+
+	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_Save
+func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C.char {
+	go_src_func_name := "smr_LogStorage_Save"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return errorGoToPy(nil)
+	}
+	__err = vifc.(smr.LogStorage).Save(*ptrFromHandle_raftpb_HardState(arg_0), deptrFromHandle_Slice_raftpb_Entry(arg_1))
+
+	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	if __err != nil {
+		estr := C.CString(__err.Error())
+		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
+		return estr
+	}
+	return C.CString("")
+}
+
+//export smr_LogStorage_SaveSnapshot
+func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.char) {
+	go_src_func_name := "smr_LogStorage_SaveSnapshot"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
+	if __err != nil {
+		return
+	}
+	if boolPyToGo(goRun) {
+		fmt.Printf("Calling 'resolve' callback for function 'SaveSnapshot' in separate goroutine.\n")
+		go vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
+	} else {
+		fmt.Printf("Calling 'resolve' callback for function 'SaveSnapshot' in this goroutine.\n")
+		vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
+	}
+}
+
 //export smr_ReadCloser_Close
 func smr_ReadCloser_Close(_handle CGoHandle) *C.char {
 	go_src_func_name := "smr_ReadCloser_Close"
@@ -1978,150 +2122,6 @@ func smr_WriteCloser_Write(_handle CGoHandle, p CGoHandle) CGoHandle {
 	}
 	return handleFromPtr_Ptr_smr_IntRet(vifc.(smr.WriteCloser).Write(*ptrFromHandle_smr_Bytes(p)))
 
-}
-
-//export smr_LogSnapshotter_Load
-func smr_LogSnapshotter_Load(_handle CGoHandle) CGoHandle {
-	go_src_func_name := "smr_LogSnapshotter_Load"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
-	if __err != nil {
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	cret, __err := vifc.(smr.LogSnapshotter).Load()
-
-	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		C.free(unsafe.Pointer(estr))
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
-}
-
-//export smr_LogSnapshotter_LoadNewestAvailable
-func smr_LogSnapshotter_LoadNewestAvailable(_handle CGoHandle, arg_0 CGoHandle) CGoHandle {
-	go_src_func_name := "smr_LogSnapshotter_LoadNewestAvailable"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
-	if __err != nil {
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	cret, __err := vifc.(smr.LogSnapshotter).LoadNewestAvailable(deptrFromHandle_Slice_walpb_Snapshot(arg_0))
-
-	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		C.free(unsafe.Pointer(estr))
-		return handleFromPtr_Ptr_raftpb_Snapshot(nil)
-	}
-	return handleFromPtr_Ptr_raftpb_Snapshot(cret)
-}
-
-//export smr_LogSnapshotter_SaveSnap
-func smr_LogSnapshotter_SaveSnap(_handle CGoHandle, arg_0 CGoHandle) *C.char {
-	go_src_func_name := "smr_LogSnapshotter_SaveSnap"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogSnapshotter")
-	if __err != nil {
-		return errorGoToPy(nil)
-	}
-	__err = vifc.(smr.LogSnapshotter).SaveSnap(*ptrFromHandle_raftpb_Snapshot(arg_0))
-
-	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogStorage_Close
-func smr_LogStorage_Close(_handle CGoHandle) *C.char {
-	go_src_func_name := "smr_LogStorage_Close"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
-	if __err != nil {
-		return errorGoToPy(nil)
-	}
-	__err = vifc.(smr.LogStorage).Close()
-
-	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogStorage_ReleaseLockTo
-func smr_LogStorage_ReleaseLockTo(_handle CGoHandle, arg_0 C.ulonglong) *C.char {
-	go_src_func_name := "smr_LogStorage_ReleaseLockTo"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
-	if __err != nil {
-		return errorGoToPy(nil)
-	}
-	__err = vifc.(smr.LogStorage).ReleaseLockTo(uint64(arg_0))
-
-	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogStorage_Save
-func smr_LogStorage_Save(_handle CGoHandle, arg_0 CGoHandle, arg_1 CGoHandle) *C.char {
-	go_src_func_name := "smr_LogStorage_Save"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
-	if __err != nil {
-		return errorGoToPy(nil)
-	}
-	__err = vifc.(smr.LogStorage).Save(*ptrFromHandle_raftpb_HardState(arg_0), deptrFromHandle_Slice_raftpb_Entry(arg_1))
-
-	C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	if __err != nil {
-		estr := C.CString(__err.Error())
-		C.PyErr_SetString(C.PyExc_RuntimeError, estr)
-		return estr
-	}
-	return C.CString("")
-}
-
-//export smr_LogStorage_SaveSnapshot
-func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.char) {
-	go_src_func_name := "smr_LogStorage_SaveSnapshot"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	var wg sync.WaitGroup
-	wg.Add(1)
-	defer wg.Done()
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	vifc, __err := gopyh.VarFromHandleTry((gopyh.CGoHandle)(_handle), "smr.LogStorage")
-	if __err != nil {
-		return
-	}
-	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'SaveSnapshot' in separate goroutine.\n")
-		go vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
-	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'SaveSnapshot' in this goroutine.\n")
-		vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
-	}
 }
 
 // ---- Structs ---
@@ -3343,6 +3343,20 @@ func smr_NewConfChangeContext(id *C.char, cc CGoHandle, timeout C.longlong) CGoH
 
 // ---- Functions ---
 
+//export smr_CreateBytes
+func smr_CreateBytes(len C.char) CGoHandle {
+	go_src_func_name := "_CreateBytes"
+	fmt.Printf("Calling: '%s'\n", go_src_func_name)
+	_saved_thread := C.PyEval_SaveThread() // Release GIL
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
+	cret := smr.CreateBytes(byte(len))
+
+	return handleFromPtr_Slice_byte(&cret)
+}
+
 //export smr_PrintTestMessage
 func smr_PrintTestMessage(goRun C.char) {
 	go_src_func_name := "_PrintTestMessage"
@@ -3359,18 +3373,4 @@ func smr_PrintTestMessage(goRun C.char) {
 		fmt.Printf("Calling 'resolve' callback for function 'PrintTestMessage' in this goroutine.\n")
 		smr.PrintTestMessage()
 	}
-}
-
-//export smr_CreateBytes
-func smr_CreateBytes(len C.char) CGoHandle {
-	go_src_func_name := "_CreateBytes"
-	fmt.Printf("Calling: '%s'\n", go_src_func_name)
-	_saved_thread := C.PyEval_SaveThread() // Release GIL
-	var wg sync.WaitGroup
-	wg.Add(1)
-	defer wg.Done()
-	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
-	cret := smr.CreateBytes(byte(len))
-
-	return handleFromPtr_Slice_byte(&cret)
 }

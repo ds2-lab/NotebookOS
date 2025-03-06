@@ -1582,45 +1582,10 @@ class RaftLog(object):
 
         self.log.debug("Set 'needs to catch up' flag to False.")
 
-    def __value_restored_old(self, rc, sz) -> bytes:
-        sys.stderr.flush()
-        sys.stdout.flush()
-        self.log.debug(f"Restoring: {rc} {sz}")
-
-        reader = readCloser(ReadCloser(handle=rc), sz)
-        unpickler = pickle.Unpickler(reader)
-
-        synchronizedValue: Optional[SynchronizedValue] = None
-        try:
-            synchronizedValue = unpickler.load()
-        except Exception:
-            pass
-
-        # Recount _ignore_changes
-        self._ignore_changes = 0
-        restored = 0
-        while synchronizedValue is not None:
-            try:
-                assert self._change_handler is not None
-                self._change_handler(self._load_value(synchronizedValue))
-                restored = restored + 1
-
-                synchronizedValue = None
-                synchronizedValue = unpickler.load()
-            except SyncError as se:
-                self.log.error("Error on restoring snapshot: {}".format(se))
-                return GoError(se)
-            except Exception:
-                pass
-
-        self.log.debug("Restored {}".format(restored))
-        return GoNilError()
-
-    # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
+    # TODO: Debug why, when reading from a read closer and we get to the end,
+    #       it automatically loops back to the beginning.
     def __value_restored(self, goObject, aggregate_size: int) -> bytes:
-        self.log.debug(
-            f"Restoring state(s) with combined/aggregate size of {aggregate_size} bytes now..."
-        )
+        self.log.debug(f"Restoring state(s) with combined/aggregate size of {aggregate_size} bytes now...")
 
         debugpy.breakpoint()
 
@@ -1635,14 +1600,14 @@ class RaftLog(object):
         try:
             synchronizedValue = unpickler.load()
         except Exception as ex:
-            self.log.error(
-                f"Could not load first synchronized value to restore (aggregate_size = {aggregate_size}) because: {ex}"
-            )
+            self.log.error(f"Could not load first synchronized value to restore "
+                           f"(aggregate_size = {aggregate_size}) because: {ex}")
 
         # Recount _ignore_changes
         self._ignore_changes = 0
         restored: int = 0
-        # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
+        # TODO: Debug why, when reading from a read closer and we get to the end,
+        #       it automatically loops back to the beginning.
         while synchronizedValue is not None:
             assert self._change_handler is not None
             # self.logger.debug("Loading next SynchronizedValue to restore.")
@@ -2070,16 +2035,16 @@ class RaftLog(object):
         dumped = pickle.dumps(value)
 
         # Propose and wait the future.
-        future, resolve = self._get_callback(future_name=f'append_val["{value.key}"]')
-        assert future is not None
-        assert resolve is not None
+        # future, resolve = self._get_callback(future_name=f'append_val["{value.key}"]')
+        # assert future is not None
+        # assert resolve is not None
         self.log.debug(f"Calling 'propose' now for SynchronizedValue: {value}")
 
         start: float = time.time()
-        self.propose(dumped, resolve, value.key)
+        self.propose(dumped, None, value.key)
         # await future.result()
         self.log.debug(f"Called 'propose' for SynchronizedValue: {value}")
-        assert future is not None
+        # assert future is not None
 
         # while True:
         #     try:
@@ -2093,8 +2058,8 @@ class RaftLog(object):
         #         if not self._needs_to_catch_up:
         #             self.log.debug("We no longer need to catch up... we must've caught up already.")
         #             break
-        #
-        # self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
+
+        self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
     async def append_execution_end_notification(
             self, notification: ExecutionCompleteNotification
@@ -2470,8 +2435,7 @@ class RaftLog(object):
                              f"while processing buffered votes for election {election_term}...")
             return True, False, None
 
-        done, pending = await asyncio.wait([_election_decision_future, _received_vote_future],
-                                           return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
 
         if _received_vote_future in done or _received_vote_future.done():
             voteReceived: LeaderElectionVote = _received_vote_future.result()
@@ -2875,10 +2839,9 @@ class RaftLog(object):
 
         Basically just awaits the self._catchup_cond variable and then sets a bunch of state to None afterwards.
         """
-
         async with self._catchup_cond:
             while self._needs_to_catch_up:
-                self._catchup_cond.wait()
+                await self._catchup_cond.wait()
 
         if self._send_notification_func is not None:
             self._send_notification_func("Caught Up After Migration",
@@ -3180,13 +3143,9 @@ class RaftLog(object):
 
         if self._closed is not None:
             if self._start_loop is None:
-                self.log.error(
-                    "Cannot resolve '_closed' future; start loop is None..."
-                )
+                self.log.error("Cannot resolve '_closed' future; start loop is None...")
             else:
-                asyncio.run_coroutine_threadsafe(
-                    self._closed.resolve(None, None), self._start_loop
-                )
+                asyncio.run_coroutine_threadsafe(self._closed.resolve(None, None), self._start_loop)
                 self._closed = None
 
         self.log.debug("RaftLog %d has closed." % self._node_id)

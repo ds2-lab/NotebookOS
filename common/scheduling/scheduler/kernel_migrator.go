@@ -432,7 +432,10 @@ func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.Kern
 		persistentId = targetReplica.PersistentID()
 	}
 
-	_, err := host.StartSyncLog(context.Background(), &proto.ReplicaInfo{
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	_, err := host.StartSyncLog(ctx, &proto.ReplicaInfo{
 		ReplicaId:    targetReplica.ReplicaID(),
 		KernelId:     targetReplica.ID(),
 		PersistentId: persistentId,

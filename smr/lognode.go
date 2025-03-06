@@ -59,10 +59,10 @@ const (
 )
 
 var (
-	ProposalDeadline           = 20 * time.Second
+	ProposalDeadline           = 25 * time.Second
 	UpdateNodeProposalDeadline = 15 * time.Second
-	RemoveNodeProposalDeadline = 20 * time.Second
-	AddNodeProposalDeadline    = 20 * time.Second
+	RemoveNodeProposalDeadline = 25 * time.Second
+	AddNodeProposalDeadline    = 25 * time.Second
 	ErrClosed                  = errors.New("node closed")
 	ErrEOF                     = io.EOF.Error() // For python module to check if io.EOF is returned
 	ErrRemoteStorageClientNil  = errors.New("remote storage client is nil; cannot close it")
@@ -544,27 +544,9 @@ func (node *LogNode) GetSerializedState() []byte {
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 	_, ctx := node.generateProposal(val.Bytes(), ProposalDeadline)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	defer wg.Done()
-
-	wrappedResolve := func(i interface{}, s string) {
-		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::Propose.",
-			zap.String("msg", msg))
-
-		wg.Wait()
-
-		time.Sleep(time.Millisecond * 50)
-
-		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::Propose.",
-			zap.String("msg", msg))
-
-		resolve(i, s)
-	}
-
 	go func() {
 		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
-		node.propose(ctx, node.sendProposal, wrappedResolve, msg)
+		node.propose(ctx, node.sendProposal, resolve, msg)
 	}()
 }
 

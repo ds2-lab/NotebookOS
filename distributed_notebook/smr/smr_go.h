@@ -336,6 +336,13 @@ extern long long int smr_RemoveNodeProposalDeadline();
 extern void smr_Set_RemoveNodeProposalDeadline(long long int val);
 extern long long int smr_UpdateNodeProposalDeadline();
 extern void smr_Set_UpdateNodeProposalDeadline(long long int val);
+extern long long int smr_LogSnapshotter_Load(long long int _handle);
+extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
+extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
+extern char* smr_LogStorage_Close(long long int _handle);
+extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsigned int arg_0);
+extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
+extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg_0, char goRun);
 extern char* smr_ReadCloser_Close(long long int _handle);
 extern long long int smr_ReadCloser_Read(long long int _handle, long long int p);
 extern void smr_SmrContext_Cancel(long long int _handle, char goRun);
@@ -346,13 +353,6 @@ extern long long int smr_SmrContext_ResetWithPreviousTimeout(long long int _hand
 extern long long int smr_SmrContext_Value(long long int _handle, long long int key);
 extern char* smr_WriteCloser_Close(long long int _handle);
 extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
-extern long long int smr_LogSnapshotter_Load(long long int _handle);
-extern long long int smr_LogSnapshotter_LoadNewestAvailable(long long int _handle, long long int arg_0);
-extern char* smr_LogSnapshotter_SaveSnap(long long int _handle, long long int arg_0);
-extern char* smr_LogStorage_Close(long long int _handle);
-extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsigned int arg_0);
-extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
-extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg_0, char goRun);
 
 // --- wrapping struct: smr.Bytes ---
 //
@@ -425,8 +425,8 @@ extern long long int smr_ConfChangeContext_ResetWithPreviousTimeout(long long in
 extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
 extern long long int smr_NewConfig();
 extern long long int smr_NewConfChangeContext(char* id, long long int cc, long long int timeout);
-extern void smr_PrintTestMessage(char goRun);
 extern long long int smr_CreateBytes(char len);
+extern void smr_PrintTestMessage(char goRun);
 extern long long int smr_NewBytes(char* bytes, GoInt len);
 
 #ifdef __cplusplus

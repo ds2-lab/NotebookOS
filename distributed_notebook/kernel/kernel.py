@@ -4235,7 +4235,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.warning("We are currently preparing to migrate. "
                                  "Will wait until migration completes before shutting down.")
 
-                self.preparing_to_migrate_cv.wait()
+                await self.preparing_to_migrate_cv.wait()
 
             self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
 
@@ -4323,7 +4323,7 @@ class DistributedKernel(IPythonKernel):
         type RaftLog. In that case, the remote storage client must be closed explicitly via the
         DistributedKernel's __close_synclog_remote_storage_client method.
         """
-        if not self.synclog:
+        if not hasattr(self, "synclog") or self.synclog is None:
             self.log.warning("We do not have a SyncLog. Cannot close SyncLog.")
             return {
                 "status": "ok",
@@ -4334,11 +4334,8 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Closing the SyncLog now.")
         try:
             self.synclog.close()
-
             self.synclog_stopped = True
-            self.log.info(
-                "SyncLog closed successfully. Writing SyncLog data directory to RemoteStorage now."
-            )
+            self.log.info("SyncLog closed successfully. Writing SyncLog data directory to RemoteStorage now.")
         except Exception as e:
             self.log.error(
                 "Failed to close the SyncLog for replica %d of kernel %s.",
@@ -4445,7 +4442,7 @@ class DistributedKernel(IPythonKernel):
         # on another node.
         self.remove_on_shutdown = False
 
-        if not self.synclog:
+        if not hasattr(self, "synclog") or self.synclog is None:
             self.log.warning("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
             return {
                 "status": "ok",
@@ -4519,9 +4516,7 @@ class DistributedKernel(IPythonKernel):
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
-                self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request."
-                )
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
                 await self.persistent_store_cv.wait()
 
         async with self.preparing_to_migrate_cv:
@@ -4857,9 +4852,7 @@ class DistributedKernel(IPythonKernel):
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
-                self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'update-replica' request."
-                )
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'update-replica' request.")
                 await self.persistent_store_cv.wait()
 
         if "id" not in params or "addr" not in params:

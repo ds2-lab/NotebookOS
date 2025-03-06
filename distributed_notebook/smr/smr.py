@@ -394,6 +394,59 @@ def Set_UpdateNodeProposalDeadline(value):
 
 # ---- Interfaces ---
 
+# Python type for interface smr.LogSnapshotter
+class LogSnapshotter(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Load(self):
+		"""Load() object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
+	def LoadNewestAvailable(self, arg_0):
+		"""LoadNewestAvailable([]object) object, str"""
+		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
+	def SaveSnap(self, arg_0):
+		"""SaveSnap(object) str"""
+		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
+
+# Python type for interface smr.LogStorage
+class LogStorage(go.GoClass):
+	""""""
+	def __init__(self, *args, **kwargs):
+		"""
+		handle=A Go-side object is always initialized with an explicit handle=arg
+		"""
+		if len(kwargs) == 1 and 'handle' in kwargs:
+			self.handle = kwargs['handle']
+			_smr.IncRef(self.handle)
+		elif len(args) == 1 and isinstance(args[0], go.GoClass):
+			self.handle = args[0].handle
+			_smr.IncRef(self.handle)
+		else:
+			self.handle = 0
+	def Close(self):
+		"""Close() str"""
+		return _smr.smr_LogStorage_Close(self.handle)
+	def ReleaseLockTo(self, arg_0):
+		"""ReleaseLockTo(long) str"""
+		return _smr.smr_LogStorage_ReleaseLockTo(self.handle, arg_0)
+	def Save(self, arg_0, arg_1):
+		"""Save(object, []object) str"""
+		return _smr.smr_LogStorage_Save(self.handle, arg_0.handle, arg_1.handle)
+	def SaveSnapshot(self, arg_0, goRun=False):
+		"""SaveSnapshot(object) """
+		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
+
 # Python type for interface smr.ReadCloser
 class ReadCloser(go.GoClass):
 	""""""
@@ -471,59 +524,6 @@ class WriteCloser(go.GoClass):
 	def Write(self, p):
 		"""Write(object p) object"""
 		return IntRet(handle=_smr.smr_WriteCloser_Write(self.handle, p.handle))
-
-# Python type for interface smr.LogSnapshotter
-class LogSnapshotter(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Load(self):
-		"""Load() object, str"""
-		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_Load(self.handle))
-	def LoadNewestAvailable(self, arg_0):
-		"""LoadNewestAvailable([]object) object, str"""
-		return go.Ptr_raftpb_Snapshot(handle=_smr.smr_LogSnapshotter_LoadNewestAvailable(self.handle, arg_0.handle))
-	def SaveSnap(self, arg_0):
-		"""SaveSnap(object) str"""
-		return _smr.smr_LogSnapshotter_SaveSnap(self.handle, arg_0.handle)
-
-# Python type for interface smr.LogStorage
-class LogStorage(go.GoClass):
-	""""""
-	def __init__(self, *args, **kwargs):
-		"""
-		handle=A Go-side object is always initialized with an explicit handle=arg
-		"""
-		if len(kwargs) == 1 and 'handle' in kwargs:
-			self.handle = kwargs['handle']
-			_smr.IncRef(self.handle)
-		elif len(args) == 1 and isinstance(args[0], go.GoClass):
-			self.handle = args[0].handle
-			_smr.IncRef(self.handle)
-		else:
-			self.handle = 0
-	def Close(self):
-		"""Close() str"""
-		return _smr.smr_LogStorage_Close(self.handle)
-	def ReleaseLockTo(self, arg_0):
-		"""ReleaseLockTo(long) str"""
-		return _smr.smr_LogStorage_ReleaseLockTo(self.handle, arg_0)
-	def Save(self, arg_0, arg_1):
-		"""Save(object, []object) str"""
-		return _smr.smr_LogStorage_Save(self.handle, arg_0.handle, arg_1.handle)
-	def SaveSnapshot(self, arg_0, goRun=False):
-		"""SaveSnapshot(object) """
-		_smr.smr_LogStorage_SaveSnapshot(self.handle, arg_0.handle, goRun)
 
 
 # ---- Structs ---
@@ -1013,12 +1013,12 @@ def NewConfChangeContext(id, cc, timeout):
 
 
 # ---- Functions ---
-def PrintTestMessage(goRun=False):
-	"""PrintTestMessage() """
-	_smr.smr_PrintTestMessage(goRun)
 def CreateBytes(len):
 	"""CreateBytes(int len) []int"""
 	return go.Slice_byte(handle=_smr.smr_CreateBytes(len))
+def PrintTestMessage(goRun=False):
+	"""PrintTestMessage() """
+	_smr.smr_PrintTestMessage(goRun)
 
 
 def NewBytes(b):
