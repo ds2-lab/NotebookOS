@@ -27,6 +27,7 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 
 // #define Py_LIMITED_API // need full API for PyRun*
 #include <Python.h>
+#include <stdio.h>
 typedef uint8_t bool;
 // static inline is trick for avoiding need for extra .c file
 // the following are used for build value -- switch on reflect.Kind
@@ -58,6 +59,7 @@ static inline int gopy_method_check(PyObject* obj) { // macro
 static inline void gopy_err_handle() {
 
 	if(PyErr_Occurred() != NULL) {
+		printf("[ERROR] A Python error has occurred...\n");
 		PyErr_Print();
 	}
 }
@@ -352,20 +354,11 @@ extern char* smr_LogStorage_ReleaseLockTo(long long int _handle, long long unsig
 extern char* smr_LogStorage_Save(long long int _handle, long long int arg_0, long long int arg_1);
 extern void smr_LogStorage_SaveSnapshot(long long int _handle, long long int arg_0, char goRun);
 
-// --- wrapping struct: smr.LogNodeConfig ---
+// --- wrapping struct: smr.Bytes ---
 //
-extern long long int smr_LogNodeConfig_CTor();
-extern long long int smr_LogNodeConfig_ElectionTick_Get(long long int handle);
-extern void smr_LogNodeConfig_ElectionTick_Set(long long int handle, long long int val);
-extern long long int smr_LogNodeConfig_HeartbeatTick_Get(long long int handle);
-extern void smr_LogNodeConfig_HeartbeatTick_Set(long long int handle, long long int val);
-extern char smr_LogNodeConfig_Debug_Get(long long int handle);
-extern void smr_LogNodeConfig_Debug_Set(long long int handle, char val);
-extern long long int smr_LogNodeConfig_WithChangeCallback(long long int _handle, PyObject* cb);
-extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle, PyObject* cb);
-extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);
-extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handle, PyObject* cb);
-extern char* smr_LogNodeConfig_String(long long int _handle);
+extern long long int smr_Bytes_CTor();
+extern long long int smr_Bytes_Bytes(long long int _handle);
+extern long long int smr_Bytes_Len(long long int _handle);
 
 // --- wrapping struct: smr.SMRContext ---
 //
@@ -376,19 +369,6 @@ extern char* smr_SMRContext_ID(long long int _handle);
 extern long long int smr_SMRContext_Reset(long long int _handle, long long int timeout);
 extern long long int smr_SMRContext_ResetWithPreviousTimeout(long long int _handle);
 extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
-
-// --- wrapping struct: smr.Bytes ---
-//
-extern long long int smr_Bytes_CTor();
-extern long long int smr_Bytes_Bytes(long long int _handle);
-extern long long int smr_Bytes_Len(long long int _handle);
-
-// --- wrapping struct: smr.ConfChangeContext ---
-//
-extern long long int smr_ConfChangeContext_CTor();
-extern char* smr_ConfChangeContext_ID(long long int _handle);
-extern long long int smr_ConfChangeContext_Reset(long long int _handle, long long int timeout);
-extern long long int smr_ConfChangeContext_ResetWithPreviousTimeout(long long int _handle);
 
 // --- wrapping struct: smr.IntRet ---
 //
@@ -420,9 +400,31 @@ extern char* smr_LogNode_Process(long long int _handle, long long int ctx, long 
 extern char smr_LogNode_IsIDRemoved(long long int _handle, long long unsigned int id);
 extern void smr_LogNode_ReportUnreachable(long long int _handle, long long unsigned int id, char goRun);
 extern void smr_LogNode_ReportSnapshot(long long int _handle, long long unsigned int id, long long int status, char goRun);
+
+// --- wrapping struct: smr.LogNodeConfig ---
+//
+extern long long int smr_LogNodeConfig_CTor();
+extern long long int smr_LogNodeConfig_ElectionTick_Get(long long int handle);
+extern void smr_LogNodeConfig_ElectionTick_Set(long long int handle, long long int val);
+extern long long int smr_LogNodeConfig_HeartbeatTick_Get(long long int handle);
+extern void smr_LogNodeConfig_HeartbeatTick_Set(long long int handle, long long int val);
+extern char smr_LogNodeConfig_Debug_Get(long long int handle);
+extern void smr_LogNodeConfig_Debug_Set(long long int handle, char val);
+extern long long int smr_LogNodeConfig_WithChangeCallback(long long int _handle, PyObject* cb);
+extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle, PyObject* cb);
+extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);
+extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handle, PyObject* cb);
+extern char* smr_LogNodeConfig_String(long long int _handle);
+
+// --- wrapping struct: smr.ConfChangeContext ---
+//
+extern long long int smr_ConfChangeContext_CTor();
+extern char* smr_ConfChangeContext_ID(long long int _handle);
+extern long long int smr_ConfChangeContext_Reset(long long int _handle, long long int timeout);
+extern long long int smr_ConfChangeContext_ResetWithPreviousTimeout(long long int _handle);
+extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
 extern long long int smr_NewConfig();
 extern long long int smr_NewConfChangeContext(char* id, long long int cc, long long int timeout);
-extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
 extern void smr_PrintTestMessage(char goRun);
 extern long long int smr_CreateBytes(char len);
 extern long long int smr_NewBytes(char* bytes, GoInt len);

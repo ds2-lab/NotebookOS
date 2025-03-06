@@ -72,6 +72,7 @@ type SerializableClusterStatistics struct {
 	Migrated                          int32   `csv:"Migrated" json:"Migrated"`
 	JupyterTrainingStartLatencyMillis float64 `json:"jupyter_training_start_latency_millis" csv:"jupyter_training_start_latency_millis"`
 	NumFailedMigrations               int32   `json:"num_failed_migrations" csv:"num_failed_migrations"`
+	NumActiveMigrations               int32   `json:"num_active_migrations" csv:"num_active_migrations"`
 	OnDemandContainer                 int32   `csv:"OnDemandContainers" json:"OnDemandContainers"`
 	NumNonTerminatedSessions          int32   `csv:"NumNonTerminatedSessions" json:"NumNonTerminatedSessions"`
 	NumIdleSessions                   int32   `csv:"NumIdleSessions" json:"NumIdleSessions"`
@@ -433,6 +434,7 @@ type ClusterStatistics struct {
 
 	NumSuccessfulMigrations types.StatInt32 `json:"num_successful_migrations" csv:"num_successful_migrations"`
 	NumFailedMigrations     types.StatInt32 `json:"num_failed_migrations" csv:"num_failed_migrations"`
+	NumActiveMigrations     types.StatInt32 `json:"num_active_migrations" csv:"num_active_migrations"`
 
 	// The amount of time that Sessions have spent idling throughout the entire simulation.
 	CumulativeSessionIdleTime types.StatFloat64 `csv:"CumulativeSessionIdleTimeSec" json:"CumulativeSessionIdleTimeSec"`
@@ -474,6 +476,10 @@ func NewClusterStatistics() *ClusterStatistics {
 		LargeObjectReadLatenciesMillis:      make([]float64, 0),
 		SynchronizationTimes:                make([]float64, 0),
 	}
+
+	clusterStatistics.NumActiveMigrations.Store(0)
+	clusterStatistics.NumFailedMigrations.Store(0)
+	clusterStatistics.NumSuccessfulMigrations.Store(0)
 
 	// Initialize StatInt32 fields
 	clusterStatistics.Hosts.Store(0)
@@ -621,6 +627,7 @@ func (stats *ClusterStatistics) ConvertToSerializable() *SerializableClusterStat
 		NumCudaRuntimesInitialized:                           stats.NumCudaRuntimesInitialized.Load(),
 		NumDisabledHosts:                                     stats.NumDisabledHosts.Load(),
 		NumFailedMigrations:                                  stats.NumFailedMigrations.Load(),
+		NumActiveMigrations:                                  stats.NumActiveMigrations.Load(),
 		NumFailedScaleInEvents:                               stats.NumFailedScaleInEvents.Load(),
 		NumFailedScaleOutEvents:                              stats.NumFailedScaleOutEvents.Load(),
 		NumIdleSessions:                                      stats.NumIdleSessions.Load(),

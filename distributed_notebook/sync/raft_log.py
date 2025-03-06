@@ -2079,20 +2079,22 @@ class RaftLog(object):
         self.propose(dumped, resolve, value.key)
         # await future.result()
         self.log.debug(f"Called 'propose' for SynchronizedValue: {value}")
+        assert future is not None
 
-        while True:
-            try:
-                await asyncio.wait_for(future.result(), 10)
-                break
-            except TimeoutError:
-                self.log.warning(f"Timed-out waiting to append catch-up value. "
-                                 f"Time elapsed: {time.time() - start:,} seconds.")
-
-                if not self._needs_to_catch_up:
-                    self.log.debug("We no longer need to catch up... we must've caught up already.")
-                    break
-
-        self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
+        # while True:
+        #     try:
+        #         self.log.debug("Waiting for \"catch-up\" value to be appended...")
+        #         await asyncio.wait_for(future.result(), 10)
+        #         break
+        #     except TimeoutError:
+        #         self.log.warning(f"Timed-out waiting to append catch-up value. "
+        #                          f"Time elapsed: {time.time() - start:,} seconds.")
+        #
+        #         if not self._needs_to_catch_up:
+        #             self.log.debug("We no longer need to catch up... we must've caught up already.")
+        #             break
+        #
+        # self.log.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
     async def append_execution_end_notification(
             self, notification: ExecutionCompleteNotification

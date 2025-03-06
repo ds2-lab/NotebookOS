@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
@@ -33,6 +34,7 @@ type kernelMigrator struct {
 	log                logger.Logger
 	scheduler          clusterSchedulerInternal
 	notificationBroker NotificationBroker
+	statisticsProvider scheduling.StatisticsProvider
 	smrPort            int32
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
@@ -49,7 +51,8 @@ type kernelMigrator struct {
 	cluster scheduling.Cluster
 }
 
-func newKernelMigrator(kernelProvider KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal, smrPort int32) *kernelMigrator {
+func newKernelMigrator(kernelProvider KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal,
+	statisticsProvider scheduling.StatisticsProvider, smrPort int32) *kernelMigrator {
 	return &kernelMigrator{
 		kernelProvider:                        kernelProvider,
 		scheduler:                             scheduler,
@@ -58,6 +61,7 @@ func newKernelMigrator(kernelProvider KernelProvider, cluster scheduling.Cluster
 		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
 		smrPort:                               smrPort,
+		statisticsProvider:                    statisticsProvider,
 	}
 }
 
@@ -100,6 +104,23 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId},
 			nil, types.ErrKernelNotFound
 	}
+
+	// Record that there's an active migration.
+	if km.statisticsProvider != nil {
+		km.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+			statistics.NumActiveMigrations.Add(1)
+		})
+	}
+
+	// When we return -- either because we succeeded or because we failed -- we'll decrement the counter for
+	// the number of active migration operations.
+	defer func() {
+		if km.statisticsProvider != nil {
+			km.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+				statistics.NumActiveMigrations.Sub(1)
+			})
+		}
+	}()
 
 	//
 	// Step 1: Record that migration has started
