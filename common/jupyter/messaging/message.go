@@ -277,11 +277,9 @@ func (m *MessageErrorWithOldContent) String() string {
 }
 
 type ExecuteStatisticsMessage struct {
-	ExecuteReplyContent map[string]interface{} `json:"execute_reply_content"`
-	ExecutionStats      *proto.RequestTrace    `json:"execution_stats"`
-	ExecuteRequestId    string                 `json:"execute_request_id"`
-	KernelId            string                 `json:"kernel_id"`
-	ReplicaId           int32                  `json:"replica_id"`
+	MessageErrorWithYieldReason `json:"message_error_with_yield_reason"`
+	KernelId                    string `json:"kernel_id"`
+	ReplicaId                   int32  `json:"replica_id"`
 }
 
 // MessageErrorWithYieldReason is a wrapper around MessageError with an additional YieldReason field, in case
@@ -441,6 +439,18 @@ func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Lo
 	}
 }
 
+// ExtractRequestTraceFromJupyterMessage will attempt to extract and return a *proto.RequestTrace from the (first)
+// buffers frame of the given JupyterMessage.
+//
+// It is the caller's responsibility to ensure that the given JupyterMessage has a buffers frame.
+func ExtractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Logger) (*proto.RequestTrace, error) {
+	_, requestTrace, err := extractRequestTraceFromJupyterMessage(msg, logger)
+
+	msg.RequestTrace = requestTrace
+
+	return requestTrace, err
+}
+
 // AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given messaging.JupyterMessage's metadata frame.
 // If there is already a RequestTrace within the messaging.JupyterMessage's metadata frame, then no change is made.
 //
@@ -457,17 +467,12 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 		err          error
 	)
 
-	//logger.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.", msg.JupyterMessageType())
-
 	// Check if the message has enough frames to have a RequestTrace in it (i.e., if there are buffers frames or not).
 	// If not, then we'll assume that the message does not have a buffers frame/RequestTrace (as there aren't enough
 	// frames for that to be the case), and we'll add additional frames and then add a new RequestTrace to the new
 	// buffer frame.
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= JupyterFrameRequestTrace {
 		for msg.JupyterFrames.LenWithoutIdentitiesFrame(false) <= JupyterFrameRequestTrace {
-			// logger.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d. Frames: %s",
-			//	msg.JupyterMessageType(), msg.JupyterFrames.LenWithoutIdentitiesFrame(false), msg.Offset(), msg.JupyterFrames.String())
-
 			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
 			msg.JupyterFrames.Frames = append(msg.JupyterFrames.Frames, make([]byte, 0))
 		}
@@ -479,25 +484,17 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 
 		// Create the wrapper/frame itself.
 		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
-
-		// logger.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
 	} else {
-		// logger.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
-
 		// The message has at least one buffers frame, so let's try to extract an existing RequestTrace.
 		wrapper, requestTrace, err = extractRequestTraceFromJupyterMessage(msg, logger)
 		if err != nil {
 			// We failed to extract the RequestTrace for some reason.
 			return nil, false, err
 		}
-
-		// logger.Debug("Extracted existing RequestTrace from Jupyter \"%s\" message.", msg.JupyterMessageType())
 	}
 
 	// Update the appropriate timestamp field of the RequestTrace.
 	requestTrace.PopulateNextField(timestamp.UnixMilli())
-
-	// logger.Debug("New/updated RequestTrace: %s.", requestTrace.String())
 
 	marshalledFrame, err := json.Marshal(wrapper)
 	if err != nil {
@@ -506,8 +503,6 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 	}
 
 	msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+JupyterFrameRequestTrace] = marshalledFrame
-
-	// logger.Debug("Updated frames: %s.", msg.JupyterFrames.String())
 
 	msg.RequestTrace = requestTrace
 

@@ -38,7 +38,6 @@ type Container struct {
 
 // NewContainer creates and returns a new *Container.
 func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host, kernelIp string) *Container {
-
 	id := session.ID()
 	container := &Container{
 		KernelReplica:  kernelReplica,

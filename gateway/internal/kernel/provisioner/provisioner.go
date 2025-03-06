@@ -1019,13 +1019,7 @@ func (p *Provisioner) handleStandardKernelReplicaRegistration(ctx context.Contex
 	p.log.Debug("Creating new KernelReplicaClient for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
-		jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), p.id,
-		p.opts.NumResendAttempts, in.PodOrContainerName, nodeName, nil,
-		nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
-		true, true, p.opts.DebugMode, p.metricsProvider, p.kernelReconnectionFailed,
-		p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics,
-		p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), p.id, p.opts.NumResendAttempts, in.PodOrContainerName, nodeName, nil, nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, metrics.ClusterGateway, true, true, p.opts.DebugMode, p.metricsProvider, p.kernelReconnectionFailed, p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics, p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
 
 	session, ok := p.cluster.GetSession(kernelId)
 	if !ok {
@@ -1177,13 +1171,7 @@ func (p *Provisioner) handleMigratedReplicaRegistered(in *proto.KernelRegistrati
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
-		jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
-		p.id, p.opts.NumResendAttempts, in.PodOrContainerName, in.NodeName,
-		nil, nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
-		host, metrics.ClusterGateway, true, true, p.opts.DebugMode, p.metricsProvider,
-		p.kernelReconnectionFailed, p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics,
-		p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo), p.id, p.opts.NumResendAttempts, in.PodOrContainerName, in.NodeName, nil, nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId, metrics.ClusterGateway, true, true, p.opts.DebugMode, p.metricsProvider, p.kernelReconnectionFailed, p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics, p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
 
 	err := replica.Validate()
 	if err != nil {

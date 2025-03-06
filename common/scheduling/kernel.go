@@ -405,6 +405,8 @@ type Kernel interface {
 	// IsActivelyMigratingAnyReplica returns true if any replica of the target DistributedKernelClient
 	// is actively being migrated right now.
 	IsActivelyMigratingAnyReplica() bool
+
+	HandleExecuteStatisticsIoPubMessage(sender KernelReplica, msg *messaging.JupyterMessage) error
 }
 
 type KernelReplica interface {
@@ -424,6 +426,8 @@ type KernelReplica interface {
 
 	Container() KernelContainer
 	Host() Host
+	// SetHost sets the KernelReplica's Host. It also calls SetHost on the KernelContainer of the KernelReplica.
+	SetHost(Host)
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()

@@ -570,6 +570,9 @@ message RequestTrace {
   float tokenizeDatasetMicroseconds = 32;
   float tokenizeDatasetStart = 33;
   float tokenizeDatasetEnd = 34;
+
+  int64 synchronizeUpdatedStateMilliseconds = 35;
+  int64 commitExecutionCompleteNotificationMilliseconds = 36;
 }
 
 message PingInstruction {

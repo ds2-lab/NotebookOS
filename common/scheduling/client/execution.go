@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
@@ -15,6 +16,10 @@ import (
 
 const (
 	defaultTargetReplicaId = int32(-1)
+)
+
+var (
+	ErrReplyAlreadyRegistered = errors.New("already have response registered from specified replica")
 )
 
 // Execution encapsulates the submission of a single 'execute_request' message for a particular kernel.
@@ -200,18 +205,31 @@ func (e *Execution) GetAttemptNumber() int {
 // This will return an error if the 'overwrite' parameter is false, and we've already registered a response
 // from the specified kernel replica. (The replica is specified via the 'replicaId' parameter.)
 //
+// Even if 'overwrite' is specified as true, RegisterReply will not overwrite an existing messaging.ShellExecuteReply
+// message with a new messaging.MessageTypeExecutionStatistics message.
+//
 // This method is thread safe.
 func (e *Execution) RegisterReply(replicaId int32, response *messaging.JupyterMessage, overwrite bool) error {
 	e.replyMutex.Lock()
 	defer e.replyMutex.Unlock()
 
-	if response.JupyterMessageType() != messaging.ShellExecuteReply {
+	if response.JupyterMessageType() != messaging.ShellExecuteReply && response.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
 		return fmt.Errorf("illegal Jupyter message type of response: \"%s\"", messaging.ShellExecuteReply)
 	}
 
 	// If overwrite is false, then we return an error if we already have a response registered for the specified replica.
-	if _, loaded := e.Replies.LoadOrStore(replicaId, response); loaded && !overwrite {
-		return fmt.Errorf("already have response from replica %d", replicaId)
+	existing, loaded := e.Replies.LoadOrStore(replicaId, response)
+
+	if loaded && !overwrite {
+		return fmt.Errorf("%w: \"%s\" message from replica %d of kernel \"%s\"",
+			ErrReplyAlreadyRegistered, existing.JupyterMessageType(), replicaId, e.KernelId)
+	}
+
+	// If we're attempting to overwrite an "execute_reply" with an "execute_statistics" message,
+	// then we'll leave the "execute_reply" and not overwrite it -- even if overwrite is
+	// specified as 'true'.
+	if loaded && response.JupyterMessageType() == messaging.MessageTypeExecutionStatistics {
+		return nil
 	}
 
 	// This will overwrite the existing value if there is one.

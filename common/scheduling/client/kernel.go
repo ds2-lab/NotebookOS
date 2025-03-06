@@ -69,9 +69,12 @@ type KernelReplicaClient struct {
 	idleStartedAt                    time.Time // idleStartedAt is the time at which the kernel last began idling
 	lastTrainingTimePrometheusUpdate time.Time // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
 	scheduling.SessionManager
-	host                          scheduling.Host                                    // The host that the kernel replica is running on.
-	pendingExecuteRequestIds      hashmap.HashMap[string, *messaging.JupyterMessage] // pendingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
-	receivedExecuteRequestReplies hashmap.HashMap[string, *messaging.JupyterMessage] // receivedExecuteRequestReplies is a map from Jupyter message ID (of execute_request messages) to the responses.
+
+	// pendingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
+	pendingExecuteRequestIds hashmap.HashMap[string, *messaging.JupyterMessage]
+
+	// receivedExecuteRequestReplies is a map from Jupyter message ID (of execute_request messages) to the responses.
+	receivedExecuteRequestReplies hashmap.HashMap[string, *messaging.JupyterMessage]
 
 	// The Container associated with this KernelReplicaClient.
 	container     scheduling.KernelContainer
@@ -143,11 +146,12 @@ type KernelReplicaClient struct {
 //
 // If the proto.KernelReplicaSpec argument is nil, or the proto.KernelSpec field of the proto.KernelReplicaSpec
 // argument is nil, then NewKernelReplicaClient will panic.
-func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *jupyter.ConnectionInfo, componentId string,
-	numResendAttempts int, podOrContainerName string, nodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback,
-	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool, persistentId string, hostId string,
-	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
-	messagingMetricsProvider server.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
+func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *jupyter.ConnectionInfo,
+	componentId string, numResendAttempts int, podOrContainerName string, nodeName string,
+	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback,
+	messageAcknowledgementsEnabled bool, persistentId string, hostId string, nodeType metrics.NodeType,
+	shouldAckMessages bool, isGatewayClient bool, debugMode bool, messagingMetricsProvider server.MessagingMetricsProvider,
+	connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
 	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), submitRequestsOneAtATime bool,
 	containerType scheduling.ContainerType) *KernelReplicaClient {
@@ -176,7 +180,6 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
 		smrNodeAddedCallback:                 smrNodeAddedCallback,
 		numResendAttempts:                    numResendAttempts,
-		host:                                 host,
 		idleStartedAt:                        time.Now(),
 		hostId:                               hostId,
 		pendingExecuteRequestIds:             hashmap.NewCornelkMap[string, *messaging.JupyterMessage](64),
@@ -231,6 +234,14 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	client.pendingExecuteRequestCond = sync.NewCond(&client.pendingExecuteRequestIdsMutex)
 
 	return client
+}
+
+func (c *KernelReplicaClient) SetHost(host scheduling.Host) {
+	if c.container == nil {
+		return
+	}
+
+	c.container.SetHost(host)
 }
 
 func (c *KernelReplicaClient) Host() scheduling.Host {
@@ -508,7 +519,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
-	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+	if msg.JupyterMessageType() != messaging.ShellExecuteReply && msg.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
 		// This really shouldn't happen.
 		c.log.Error(utils.RedStyle.Render("Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
 		return

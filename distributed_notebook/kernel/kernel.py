@@ -2221,10 +2221,13 @@ class DistributedKernel(IPythonKernel):
             execute_request_id: str = parent_header["msg_id"]
 
             try:
+                sync_start: float = time.time()
                 # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
                 # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
                 # or Redis, depending on the system's configuration.
                 await self.synchronize_updated_state(term_number, execute_request_id)
+
+                self.current_execution_stats.synchronize_updated_state_time_millis = (time.time() - sync_start) * 1.0e3
             except Exception as ex:
                 self.log.error(f'Error while synchronizing updated state for term {term_number} '
                                f'and execution "{execute_request_id}": {ex}')
@@ -2233,6 +2236,8 @@ class DistributedKernel(IPythonKernel):
                                   f'for Execution "{execute_request_id}"', str(ex))
 
             try:
+                commit_notify_complete_start: float = time.time()
+
                 # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
                 #
                 # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
@@ -2244,6 +2249,8 @@ class DistributedKernel(IPythonKernel):
                 # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
                 # runtime state.
                 await self.schedule_notify_execution_complete(term_number)
+
+                self.current_execution_stats.commit_exec_end_millis = (time.time() - commit_notify_complete_start) * 1.0e3
             except Exception as ex:
                 self.log.error(f'Error while scheduling "Execution Complete" notification for term {term_number} '
                                f'and execution "{execute_request_id}": {ex}')
@@ -4655,6 +4662,9 @@ class DistributedKernel(IPythonKernel):
         request_trace["tokenizeDatasetStart"] = execution_stats.tokenize_training_data_start_unix_millis
         request_trace["tokenizeDatasetEnd"] = execution_stats.tokenize_training_data_end_unix_millis
         request_trace["tokenizeDatasetMicroseconds"] = execution_stats.tokenize_dataset_microseconds
+
+        request_trace["synchronizeUpdatedStateMilliseconds"] = execution_stats.synchronize_updated_state_time_millis
+        request_trace["commitExecutionCompleteNotificationMilliseconds"] = execution_stats.commit_exec_end_millis
 
         # We only want to embed election statistics if this request trace is being embedded in an
         # "execute_request" or "yield_request" message (i.e., a code submission).

@@ -68,7 +68,6 @@ type ExecutionManager interface {
 	YieldProposalReceived(replica KernelReplica, executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error
 	HandleSmrLeadTaskMessage(msg *messaging.JupyterMessage, kernelReplica KernelReplica) error
 	HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica KernelReplica) (bool, error)
-	HandleExecuteStatisticsMessage(msg *messaging.JupyterMessage, replica KernelReplica) (bool, error)
 	ExecutionComplete(msg *messaging.JupyterMessage, replica KernelReplica) (Execution, error)
 	GetActiveExecution(msgId string) Execution
 	NumActiveExecutionOperations() int

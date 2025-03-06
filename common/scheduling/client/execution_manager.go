@@ -29,7 +29,7 @@ func validateRequest(msg *messaging.JupyterMessage) error {
 
 // validateReply ensures that the given *messaging.JupyterMessage is an "execute_reply"
 func validateReply(msg *messaging.JupyterMessage) error {
-	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+	if msg.JupyterMessageType() != messaging.ShellExecuteReply { // && msg.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
 		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
 			ErrInvalidExecuteRegistrationMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
 	}
@@ -451,11 +451,11 @@ func (m *ExecutionManager) LastPrimaryReplicaId() int32 {
 func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica,
 	executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error {
 
-	replica.ReceivedExecuteReply(executeReplyMsg, true)
-
 	if err := validateReply(executeReplyMsg); err != nil {
 		return err
 	}
+
+	replica.ReceivedExecuteReply(executeReplyMsg, true)
 
 	m.log.Debug("Received 'YIELD' proposal from replica %d for execution \"%s\"",
 		replica.ReplicaID(), executeReplyMsg.JupyterParentMessageId())
@@ -677,9 +677,9 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 	return false, err // Will be nil if everything went OK in the call to ExecutionComplete
 }
 
-func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
+func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) error {
 	if msg.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
-		return false, fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
+		return /* false, */ fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
 			ErrInvalidExecuteRegistrationMessage, messaging.MessageTypeExecutionStatistics, msg.JupyterMessageType())
 	}
 
@@ -691,19 +691,64 @@ func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.Jupyter
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
 		m.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)",
 			replica.ReplicaID(), kernelId)
-		return false, messaging.ErrInvalidJupyterMessage
+		return /* false, */ messaging.ErrInvalidJupyterMessage
 	}
 
 	if len(*msg.JupyterFrames.ContentFrame()) == 0 {
 		m.log.Warn("Received shell '%v' response with empty content.", msg.JupyterMessageType())
-		return false, nil
+		return /* false, */ nil
 	}
 
+	//msgErr, isYieldProposal, decodeErr := m.checkIfMessageIsYield(msg, replica)
+	//if decodeErr != nil {
+	//	m.log.Error("Decoding failed while checking for yield message: %v", decodeErr)
+	//	return false, decodeErr
+	//}
+	//
+	//m.mu.Lock()
+	//defer m.mu.Unlock()
+	//
+	//activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
+	//if activeExec != nil {
+	//	err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
+	//	if err != nil && !errors.Is(err, ErrReplyAlreadyRegistered) {
+	//		m.log.Error("Failed to register \"execute_reply\" message: %v", err)
+	//		return isYieldProposal, err
+	//	}
+	//}
+	//
+	//if isYieldProposal {
+	//	err := m.YieldProposalReceived(replica, msg, msgErr)
+	//	if err != nil {
+	//		msg.IsFailedExecuteRequest = true
+	//		return true, errors.Join(err, fmt.Errorf("%s: %s", msgErr.ErrName, msgErr.ErrValue))
+	//	}
+	//
+	//	return true, messaging.ErrExecutionYielded
+	//}
+	//
+	//_, err := m.unsafeExecutionComplete(msg, replica)
+
+	// Update the ClusterStatistics using the data encoded in the "execute_statistics" message.
+	//
+	// We'll only update the parts of the ClusterStatistics that won't/wouldn't be updated
+	// upon receiving the "execute_reply" sent for the same execution. We're also operating
+	// under the assumption that we only receive "execute_statistics" IOPub messages while
+	// using SMR-enabled, multiple-replica-based policies, such as "static" and "dynamic".
+	m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		// TODO: Implement me!
+		panic("Implement me!")
+	})
+
+	return nil /* false, err */ // Will be nil if everything went OK in the call to ExecutionComplete
+}
+
+func (m *ExecutionManager) checkIfExecuteReplyMessageIsYield(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (*messaging.MessageErrorWithYieldReason, bool, error) {
 	var msgErr *messaging.MessageErrorWithYieldReason
 	if err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr); err != nil {
 		m.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v",
-			replica.ReplicaID(), kernelId, err)
-		return false, err
+			replica.ReplicaID(), replica.ID(), err)
+		return nil, false, err
 	}
 
 	var isYieldProposal bool
@@ -722,28 +767,65 @@ func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.Jupyter
 		}
 	}
 
-	activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
-	if activeExec != nil {
-		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
-		if err != nil {
-			m.log.Error("Failed to register \"execute_reply\" message: %v", err)
-			return isYieldProposal, err
-		}
+	return msgErr, isYieldProposal, nil
+}
+
+func (m *ExecutionManager) checkIfMessageIsYield(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (*messaging.MessageErrorWithYieldReason, bool, error) {
+	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
+		return m.checkIfExecuteReplyMessageIsYield(msg, replica)
 	}
 
-	if isYieldProposal {
-		err := m.YieldProposalReceived(replica, msg, msgErr)
-		if err != nil {
-			msg.IsFailedExecuteRequest = true
-			return true, errors.Join(err, fmt.Errorf("%s: %s", msgErr.ErrName, msgErr.ErrValue))
-		}
+	var content map[string]interface{}
+	err := msg.JupyterFrames.DecodeContent(&content)
+	if err != nil {
+		m.log.Error("Failed to decode content of \"%s\" message \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), err)
 
-		return true, messaging.ErrExecutionYielded
+		return nil, false, err
 	}
 
-	_, err := m.ExecutionComplete(msg, replica)
+	var (
+		msgErr          messaging.MessageErrorWithYieldReason
+		isYieldProposal bool
+		loaded          bool
+		val             interface{}
+	)
 
-	return false, err // Will be nil if everything went OK in the call to ExecutionComplete
+	val, loaded = content["status"]
+	if !loaded {
+		return nil, false, nil
+	}
+	msgErr.Status = val.(string)
+
+	// If the "status" field is "ok", then it's not a YIELD message.
+	if msgErr.Status == messaging.MessageStatusOK {
+		return nil, false, nil
+	}
+
+	val, loaded = content["ename"]
+	if !loaded {
+		return nil, false, nil
+	}
+	msgErr.ErrName = val.(string)
+
+	val, loaded = content["evalue"]
+	if !loaded {
+		return nil, false, nil
+	}
+	msgErr.ErrValue = val.(string)
+
+	val, loaded = content["yield-reason"]
+	if loaded {
+		msgErr.YieldReason = val.(string)
+	}
+
+	val, loaded = content["yielded"]
+	if loaded {
+		msgErr.Yielded = val.(bool)
+	}
+
+	isYieldProposal = (msgErr.ErrName == messaging.MessageErrYieldExecution) || msgErr.YieldReason != "" || msgErr.Yielded
+	return &msgErr, isYieldProposal, nil
 }
 
 // ExecutionComplete should be called by the Kernel associated with the target ExecutionManager when an "execute_reply"
@@ -751,6 +833,13 @@ func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.Jupyter
 //
 // ExecutionComplete returns nil on success.
 func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.unsafeExecutionComplete(msg, replica)
+}
+
+func (m *ExecutionManager) unsafeExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
 	receivedAt := time.Now()
 
 	err := validateReply(msg)

@@ -174,6 +174,8 @@ type DistributedKernelClient struct {
 	closing int32
 
 	debugMode bool
+
+	statisticsProvider scheduling.StatisticsProvider
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
@@ -191,9 +193,10 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
 
 	kernelClient := &DistributedKernelClient{
-		id:           spec.Id,
-		persistentId: persistentId,
-		debugMode:    debugMode,
+		id:                 spec.Id,
+		persistentId:       persistentId,
+		debugMode:          debugMode,
+		statisticsProvider: statisticsProvider,
 		server: server.New(ctx, &jupyter.ConnectionInfo{Transport: "tcp", SignatureScheme: connectionInfo.SignatureScheme, Key: connectionInfo.Key}, metrics.ClusterGateway, func(s *server.AbstractServer) {
 			s.Sockets.Shell = messaging.NewSocket(zmq4.NewRouter(s.Ctx, types.GetSocketOptions()...), 0, messaging.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
 			s.Sockets.IO = messaging.NewSocket(zmq4.NewPub(s.Ctx, types.GetSocketOptions()...), 0, messaging.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
@@ -1062,7 +1065,7 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 		}
 	}
 
-	r.Container().SetHost(nil) // Set the host to nil...
+	r.SetHost(nil) // Set the host to nil. This will call SetHost on the Container too.
 
 	c.replicas.Delete(r.ReplicaID())
 
@@ -2234,11 +2237,11 @@ func (c *DistributedKernelClient) unsafeAreReplicasScheduled() bool {
 	return int32(c.replicas.Len()) == c.targetNumReplicas
 }
 
-func (c *DistributedKernelClient) handleExecuteStatisticsIoPubMessage(sender scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+func (c *DistributedKernelClient) HandleExecuteStatisticsIoPubMessage(sender scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
 	c.log.Debug("Received execution statistics for \"execute_request\" \"%s\" from replica %d.",
 		msg.JupyterMessageId(), sender.ReplicaID())
 
-	var content map[string]interface{}
+	var content *messaging.ExecuteStatisticsMessage
 	err := msg.JupyterFrames.DecodeContent(&content)
 	if err != nil {
 		c.log.Error("Failed to decode content of IOPub \"%s\" message \"%s\" (associated with execute request \"%s\": %v",
@@ -2250,16 +2253,33 @@ func (c *DistributedKernelClient) handleExecuteStatisticsIoPubMessage(sender sch
 	// Check if we ended up receiving the "execute_reply".
 	//
 	// If we didn't, then we'll use the execution statistics message as the "execute_reply".
-	if !c.ExecutionManager.IsExecutionComplete(msg.JupyterParentMessageId()) {
-		c.log.Warn("Received execution statistics for execution \"%s\"; however, that execution is not yet complete...",
-			msg.JupyterParentMessageId())
+	//if !c.ExecutionManager.IsExecutionComplete(msg.JupyterParentMessageId()) {
+	//	c.log.Warn("Received execution statistics for execution \"%s\"; however, that execution is not yet complete...",
+	//		msg.JupyterParentMessageId())
+	//
+	//	_, err = c.ExecutionManager.ExecutionComplete(msg, sender)
+	//	if err != nil && !errors.Is(err, ErrExec) {
+	//		c.log.Error("Failed to record execution \"%s\" as having completed using 'execution statistics' message: %v",
+	//			msg.JupyterMessageType(), err)
+	//	}
+	//}
 
-		_, err = c.ExecutionManager.ExecutionComplete(msg, sender)
-		if err != nil && !errors.Is(err, ErrExecutionAlreadyComplete) {
-			c.log.Error("Failed to record execution \"%s\" as having completed using 'execution statistics' message: %v",
-				msg.JupyterMessageType(), err)
-		}
+	trace, err := messaging.ExtractRequestTraceFromJupyterMessage(msg, c.log)
+	if err != nil {
+		c.log.Warn("Failed to extract RequestTrace from \"%s\" message \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), err)
+
+		return err
 	}
+
+	c.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		if trace.UploadModelAndTrainingDataMicroseconds > 0 {
+			statistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds.Add(float64(trace.UploadModelAndTrainingDataMicroseconds))
+			statistics.NumTimesUploadModelAndTrainingDataMicroseconds.Add(1)
+		}
+
+		if trace.S
+	})
 
 	return nil
 }
@@ -2275,7 +2295,7 @@ func (c *DistributedKernelClient) handleMsg(replica messaging.JupyterServerInfo,
 			}
 		case messaging.MessageTypeExecutionStatistics:
 			{
-				return c.handleExecuteStatisticsIoPubMessage(replica.(scheduling.KernelReplica), msg)
+				return c.HandleExecuteStatisticsIoPubMessage(replica.(scheduling.KernelReplica), msg)
 			}
 		case messaging.MessageTypeSMRLeadTask:
 			{
