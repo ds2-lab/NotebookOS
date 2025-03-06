@@ -1175,7 +1175,7 @@ class DistributedKernel(IPythonKernel):
 
         start_time: float = time.time()
         try:
-            reader, writer = asyncio.open_connection(local_daemon_service_name, server_port)
+            reader, writer = await asyncio.open_connection(local_daemon_service_name, server_port)
         except Exception as ex:
             self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
             self.log.error("Reason: %s" % str(ex))
