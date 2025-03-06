@@ -171,6 +171,13 @@ type SerializableClusterStatistics struct {
 	BusyMemory float64 `csv:"BusyMemory" json:"BusyMemory"`
 	BusyVRAM   float64 `csv:"BusyVRAM" json:"BusyVRAM"`
 
+	CumulativeCommitExecutionCompleteNotificationMilliseconds float64 `json:"cumulative_commit_execution_complete_notification_milliseconds" csv:"cumulative_commit_execution_complete_notification_milliseconds"`
+	CumulativeSynchronizeUpdatedStateMilliseconds             float64 `json:"cumulative_synchronize_updated_state_milliseconds" csv:"cumulative_synchronize_updated_state_milliseconds"`
+
+	LargeObjectWriteLatenciesMillis []float64 `json:"large_object_write_latencies_millis" csv:"-"`
+	LargeObjectReadLatenciesMillis  []float64 `json:"large_object_read_latencies_millis" csv:"-"`
+	SynchronizationTimes            []float64 `json:"synchronization_times" csv:"-"`
+
 	TotalNumReplays       int64 `json:"total_num_replays" csv:"total_num_replays"`
 	TotalNumCellsReplayed int64 `json:"total_num_cells_replayed" csv:"total_num_cells_replayed"`
 
@@ -290,6 +297,9 @@ type ClusterStatistics struct {
 	CumulativeTimeUploadModelAndTrainingDataMicroseconds types.StatFloat64 `json:"cumulative_time_upload_model_and_training_data_microseconds" csv:"cumulative_time_upload_model_and_training_data_microseconds"`
 	// NumTimesDownloadedDependencies is the total number of times that a kernel uploaded the model and training data.
 	NumTimesUploadModelAndTrainingDataMicroseconds types.StatFloat64 `json:"num_times_upload_model_and_training_data_microseconds" csv:"num_times_upload_model_and_training_data_microseconds"`
+
+	CumulativeCommitExecutionCompleteNotificationMilliseconds types.StatFloat64 `json:"cumulative_commit_execution_complete_notification_milliseconds" csv:"cumulative_commit_execution_complete_notification_milliseconds"`
+	CumulativeSynchronizeUpdatedStateMilliseconds             types.StatFloat64 `json:"cumulative_synchronize_updated_state_milliseconds" csv:"cumulative_synchronize_updated_state_milliseconds"`
 
 	// CumulativeTimeCopyDataHostToDeviceMicroseconds is the cumulative, aggregate time spent copying data from main
 	// memory (i.e., host memory) to the GPU (i.e., device memory) by all kernels.
@@ -433,6 +443,10 @@ type ClusterStatistics struct {
 	// Delay between when client submits "execute_request" and when kernel begins executing.
 	JupyterTrainingStartLatencyMillis types.StatFloat64 `json:"jupyter_training_start_latency_millis" csv:"jupyter_training_start_latency_millis"`
 
+	LargeObjectWriteLatenciesMillis []float64 `json:"large_object_write_latencies_millis" csv:"-"`
+	LargeObjectReadLatenciesMillis  []float64 `json:"large_object_read_latencies_millis" csv:"-"`
+	SynchronizationTimes            []float64 `json:"synchronization_times" csv:"-"`
+
 	////////////////////////
 	// Dynamic Scheduling //
 	////////////////////////
@@ -456,6 +470,9 @@ func NewClusterStatistics() *ClusterStatistics {
 		AggregateSessionLifetimesSec:        make([]float64, 0),
 		ClusterEvents:                       make([]*ClusterEvent, 0),
 		ExecuteRequestTraces:                make([]*proto.RequestTrace, 0),
+		LargeObjectWriteLatenciesMillis:     make([]float64, 0),
+		LargeObjectReadLatenciesMillis:      make([]float64, 0),
+		SynchronizationTimes:                make([]float64, 0),
 	}
 
 	// Initialize StatInt32 fields
@@ -506,6 +523,9 @@ func NewClusterStatistics() *ClusterStatistics {
 	clusterStatistics.CumulativeKernelCreateElectionMillis.Store(0.0)
 	clusterStatistics.CumulativeKernelProposalVotePhaseMillis.Store(0.0)
 	clusterStatistics.CumulativeKernelPostprocessMillis.Store(0.0)
+
+	clusterStatistics.CumulativeCommitExecutionCompleteNotificationMilliseconds.Store(0.0)
+	clusterStatistics.CumulativeSynchronizeUpdatedStateMilliseconds.Store(0.0)
 
 	clusterStatistics.SpecCPUs.Store(0)
 	clusterStatistics.SpecGPUs.Store(0)
@@ -639,5 +659,10 @@ func (stats *ClusterStatistics) ConvertToSerializable() *SerializableClusterStat
 		SubscriptionRatio:                                    stats.SubscriptionRatio.Load(),
 		TotalNumCellsReplayed:                                stats.TotalNumCellsReplayed.Load(),
 		TotalNumReplays:                                      stats.TotalNumReplays.Load(),
+		CumulativeCommitExecutionCompleteNotificationMilliseconds: stats.CumulativeCommitExecutionCompleteNotificationMilliseconds.Load(),
+		CumulativeSynchronizeUpdatedStateMilliseconds:             stats.CumulativeSynchronizeUpdatedStateMilliseconds.Load(),
+		LargeObjectReadLatenciesMillis:                            stats.LargeObjectReadLatenciesMillis,
+		LargeObjectWriteLatenciesMillis:                           stats.LargeObjectWriteLatenciesMillis,
+		SynchronizationTimes:                                      stats.SynchronizationTimes,
 	}
 }

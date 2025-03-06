@@ -5196,6 +5196,11 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 	return nil
 }
 
+// extractStatisticsFromShellExecuteReply is an alias for updateStatisticsFromShellExecuteReply.
+func (d *ClusterGatewayImpl) extractStatisticsFromShellExecuteReply(trace *proto.RequestTrace) {
+	d.updateStatisticsFromShellExecuteReply(trace)
+}
+
 func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.RequestTrace) {
 	if trace == nil {
 		d.log.Warn("RequestTrace is nil when attempting to extract metrics/statistics from shell \"execute_reply\"")
@@ -5303,6 +5308,18 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 
 	d.ClusterStatistics.CumulativeResponseProcessingTimeClusterGateway.Add(gatewayResponseProcessTime)
 	d.ClusterStatistics.CumulativeResponseProcessingTimeLocalDaemon.Add(localDaemonResponseProcessTime)
+
+	for _, latency := range trace.LargeObjectWriteLatenciesMillis {
+		d.ClusterStatistics.LargeObjectWriteLatenciesMillis = append(d.ClusterStatistics.LargeObjectWriteLatenciesMillis, float64(latency))
+	}
+
+	for _, latency := range trace.LargeObjectReadLatenciesMillis {
+		d.ClusterStatistics.LargeObjectReadLatenciesMillis = append(d.ClusterStatistics.LargeObjectReadLatenciesMillis, float64(latency))
+	}
+
+	for _, syncTime := range trace.SynchronizationTimes {
+		d.ClusterStatistics.SynchronizationTimes = append(d.ClusterStatistics.SynchronizationTimes, float64(syncTime))
+	}
 }
 
 func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {

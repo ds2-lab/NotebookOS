@@ -2310,57 +2310,6 @@ class DistributedKernel(IPythonKernel):
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(write_time_sec * 1e3)
 
-        self.synchronizer.clear_sync_time()
-        self._remote_checkpointer.storage_provider.clear_statistics()
-        self.synclog.clear_restoration_time()
-        self.synclog.clear_restore_namespace_time_seconds()
-
-        # If SMR is disabled, then we send the "execute_reply" now.
-        if not self.smr_enabled:
-            self.log.debug("Sending 'execute_reply' message now.")
-
-            # Send the reply now.
-            buffers, _ = self.extract_and_process_request_trace(
-                parent, -1, execution_stats=self.current_execution_stats
-            )
-
-            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
-                stream,
-                "execute_reply",
-                reply_content,
-                parent=parent,
-                metadata=metadata,
-                ident=ident,
-                buffers=buffers,
-            )
-
-            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
-        else:
-            execute_request_id: str = parent["header"]["msg_id"]
-
-            # Make sure the 'buffers' variable is defined.
-            buffers, request_trace = self.extract_and_process_request_trace(
-                parent, -1, execution_stats=self.current_execution_stats
-            )
-
-            # If SMR is enabled, then we send an IO pub message with the completed execute trace.
-            self.session.send(
-                self.iopub_socket,
-                IOPubNotification.ExecuteStatistics,
-                {
-                    "execute_reply_content": reply_content,
-                    "kernel_id": self.kernel_id,
-                    "replica_id": self.smr_node_id,
-                },
-                parent=parent,
-                metadata=metadata,
-                buffers=buffers,
-                ident=self._topic(IOPubNotification.ExecuteStatistics),
-            )
-
-            self.log.debug(f'Sent IOPub message containing completed execution '
-                           f'statistics for execution "{execute_request_id}".')
-
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
 
@@ -2407,9 +2356,55 @@ class DistributedKernel(IPythonKernel):
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(duration * 1e3)
 
-        if self.smr_enabled and not was_primary_replica:
-            assert await_election_end_task is not None
-            await await_election_end_task
+        # If SMR is disabled, then we send the "execute_reply" now.
+        if not self.smr_enabled:
+            self.log.debug("Sending 'execute_reply' message now.")
+
+            # Send the reply now.
+            buffers, _ = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+
+            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+                stream,
+                "execute_reply",
+                reply_content,
+                parent=parent,
+                metadata=metadata,
+                ident=ident,
+                buffers=buffers,
+            )
+
+            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
+        else: # smr is enabled
+            execute_request_id: str = parent["header"]["msg_id"]
+
+            # Make sure the 'buffers' variable is defined.
+            buffers, request_trace = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+
+            # If SMR is enabled, then we send an IO pub message with the completed execute trace.
+            self.session.send(
+                self.iopub_socket,
+                IOPubNotification.ExecuteStatistics,
+                {
+                    "execute_reply_content": reply_content,
+                    "kernel_id": self.kernel_id,
+                    "replica_id": self.smr_node_id,
+                },
+                parent=parent,
+                metadata=metadata,
+                buffers=buffers,
+                ident=self._topic(IOPubNotification.ExecuteStatistics),
+            )
+
+            self.log.debug(f'Sent IOPub message containing completed execution '
+                           f'statistics for execution "{execute_request_id}".')
+
+            if not was_primary_replica:
+                assert await_election_end_task is not None
+                await await_election_end_task
 
         end_time: float = time.time()
         duration_ms: float = (end_time - start_time) * 1.0e3
@@ -2419,6 +2414,11 @@ class DistributedKernel(IPythonKernel):
 
         # Reset the current ExecutionStats object.
         self.current_execution_stats = ExecutionStats()
+
+        self.synchronizer.clear_sync_time()
+        self._remote_checkpointer.storage_provider.clear_statistics()
+        self.synclog.clear_restoration_time()
+        self.synclog.clear_restore_namespace_time_seconds()
 
     async def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
         """
@@ -4617,6 +4617,11 @@ class DistributedKernel(IPythonKernel):
             msg_type: str,
             received_at: float = 0,
     ):
+        """
+        Important: this may be called multiple times, such as when sending an "execute_reply" during static, and then
+        again later when sending an "execute_statistics" IOPub message. So, we should SET everything in here, rather
+        than add/append.
+        """
         request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
         if received_at > 0:
@@ -4665,6 +4670,11 @@ class DistributedKernel(IPythonKernel):
 
         request_trace["synchronizeUpdatedStateMilliseconds"] = execution_stats.synchronize_updated_state_time_millis
         request_trace["commitExecutionCompleteNotificationMilliseconds"] = execution_stats.commit_exec_end_millis
+
+        request_trace["largeObjectWriteLatenciesMillis"] = self._remote_checkpointer.storage_provider.write_times
+        request_trace["largeObjectReadLatenciesMillis"] = self._remote_checkpointer.storage_provider.read_times
+
+        request_trace["synchronizationTimes"] = self.synchronizer.synchronization_times
 
         # We only want to embed election statistics if this request trace is being embedded in an
         # "execute_request" or "yield_request" message (i.e., a code submission).

@@ -573,6 +573,10 @@ message RequestTrace {
 
   int64 synchronizeUpdatedStateMilliseconds = 35;
   int64 commitExecutionCompleteNotificationMilliseconds = 36;
+
+  repeated float largeObjectWriteLatenciesMillis = 37;
+  repeated float largeObjectReadLatenciesMillis = 38;
+  repeated float synchronizationTimes = 39;
 }
 
 message PingInstruction {

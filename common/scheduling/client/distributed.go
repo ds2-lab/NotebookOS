@@ -2278,7 +2278,25 @@ func (c *DistributedKernelClient) HandleExecuteStatisticsIoPubMessage(sender sch
 			statistics.NumTimesUploadModelAndTrainingDataMicroseconds.Add(1)
 		}
 
-		if trace.S
+		if trace.SynchronizeUpdatedStateMilliseconds > 0 {
+			statistics.CumulativeSynchronizeUpdatedStateMilliseconds.Add(float64(trace.SynchronizeUpdatedStateMilliseconds))
+		}
+
+		if trace.CommitExecutionCompleteNotificationMilliseconds > 0 {
+			statistics.CumulativeCommitExecutionCompleteNotificationMilliseconds.Add(float64(trace.CommitExecutionCompleteNotificationMilliseconds))
+		}
+
+		for _, latency := range trace.LargeObjectWriteLatenciesMillis {
+			statistics.LargeObjectWriteLatenciesMillis = append(statistics.LargeObjectWriteLatenciesMillis, float64(latency))
+		}
+
+		for _, latency := range trace.LargeObjectReadLatenciesMillis {
+			statistics.LargeObjectReadLatenciesMillis = append(statistics.LargeObjectReadLatenciesMillis, float64(latency))
+		}
+
+		for _, syncTimes := range trace.SynchronizationTimes {
+			statistics.SynchronizationTimes = append(statistics.SynchronizationTimes, float64(syncTimes))
+		}
 	})
 
 	return nil
