@@ -31,6 +31,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/scusemua/distributed-notebook/smr/storage"
@@ -542,9 +543,28 @@ func (node *LogNode) GetSerializedState() []byte {
 // Propose appends the difference of the value of specified key to the synchronization queue.
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 	_, ctx := node.generateProposal(val.Bytes(), ProposalDeadline)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::Propose.",
+			zap.String("msg", msg))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 250)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::Propose.",
+			zap.String("msg", msg))
+
+		resolve(i, s)
+	}
+
 	go func() {
 		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
-		node.propose(ctx, node.sendProposal, resolve, msg)
+		node.propose(ctx, node.sendProposal, wrappedResolve, msg)
 	}()
 }
 
@@ -578,7 +598,26 @@ func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
 		NodeID:  uint64(id),
 		Context: []byte(addr),
 	}, AddNodeProposalDeadline)
-	go node.propose(ctx, node.manageNode, resolve, "add node")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::AddNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 250)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::AddNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		resolve(i, s)
+	}
+
+	go node.propose(ctx, node.manageNode, wrappedResolve, "add node")
 }
 
 func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
@@ -588,7 +627,26 @@ func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
 		Type:   raftpb.ConfChangeRemoveNode,
 		NodeID: uint64(id),
 	}, RemoveNodeProposalDeadline)
-	go node.propose(ctx, node.manageNode, resolve, "remove node")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::RemoveNode.",
+			zap.Int("id", id))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 250)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::RemoveNode.",
+			zap.Int("id", id))
+
+		resolve(i, s)
+	}
+
+	go node.propose(ctx, node.manageNode, wrappedResolve, "remove node")
 }
 
 func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
@@ -599,7 +657,26 @@ func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
 		NodeID:  uint64(id),
 		Context: []byte(addr),
 	}, UpdateNodeProposalDeadline)
-	go node.propose(ctx, node.manageNode, resolve, "update node")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::UpdateNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 250)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::UpdateNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		resolve(i, s)
+	}
+
+	go node.propose(ctx, node.manageNode, wrappedResolve, "update node")
 }
 
 func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, resolve ResolveCallback, msg string) {
@@ -610,9 +687,6 @@ func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, re
 		// node.logger.Info("No Python callback provided. Using default resolve callback.")
 		resolve = node.defaultResolveCallback
 	}
-	// else {
-	// node.sugaredLogger.Infof("Provided Python resolve callback. Message: %s", msg)
-	// }
 
 	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
@@ -638,6 +712,9 @@ func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, re
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
 		node.logger.Info("Calling `resolve` callback.", zap.String("msg", msg))
+
+		time.Sleep(time.Millisecond * 125)
+
 		resolve(msg, toCError(nil))
 		node.logger.Info("Finished call to `resolve` callback.", zap.String("msg", msg))
 	} else {

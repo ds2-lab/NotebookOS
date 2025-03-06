@@ -461,9 +461,11 @@ func (c *KernelReplicaClient) KernelStartedTraining(trainingStartedAt time.Time)
 		}
 	}
 
-	c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
-		statistics.CumulativeSessionIdleTime.Add(time.Since(c.idleStartedAt).Seconds())
-	})
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
+			statistics.CumulativeSessionIdleTime.Add(time.Since(c.idleStartedAt).Seconds())
+		})
+	}
 
 	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
 
