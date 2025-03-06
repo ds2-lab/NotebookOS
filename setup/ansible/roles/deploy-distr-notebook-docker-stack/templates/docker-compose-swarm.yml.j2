@@ -122,13 +122,18 @@ services:
     deploy:
       restart_policy:
         condition: any
-      mode: global
+      mode: "{{ distributed_notebook_daemon_deployment_mode }}"
       endpoint_mode: dnsrr
       labels:
         - "app=distributed_cluster"
         - "component=local_daemon"
         - "logging=promtail"
         - "logging_jobname=local_daemon"
+      {% if distributed_notebook_daemon_deployment_mode == "replicated" %}
+      replicas: {{ distributed_notebook_daemon_num_replicas }}
+      placement:
+        max_replicas_per_node: {{ distributed_notebook_daemon_max_replicas_per_node }}
+      {% endif %}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
