@@ -2437,7 +2437,7 @@ class RaftLog(object):
 
         done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
 
-        if _received_vote_future in done or _received_vote_future.done():
+        if _received_vote_future is not None and (_received_vote_future in done or _received_vote_future.done()):
             voteReceived: LeaderElectionVote = _received_vote_future.result()
             self.log.debug(f"The voting phase for election {election_term} has already completed, "
                            f"before we had a chance to propose our own vote. "
