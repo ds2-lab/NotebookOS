@@ -347,7 +347,8 @@ class Synchronizer:
         try:
             # Propose to lead specified term.
             # Term 0 tries to lead the next term whatever and will always success.
-            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number, target_replica_id = target_replica_id)
+            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number,
+                                                            target_replica_id = target_replica_id)
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -783,6 +784,8 @@ class Synchronizer:
 
     def checkpoint_callback(self, checkpointer: Checkpointer) -> None:
         self.log.debug("Checkpointing...")
+        sys.stderr.flush()
+        sys.stdout.flush()
         checkpointer.lead(self._ast.execution_count)
         # await self.sync(None, source="checkpoint", checkpointer=checkpointer)
         # checkpointer.close()

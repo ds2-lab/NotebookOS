@@ -2437,7 +2437,11 @@ class RaftLog(object):
 
         self.log.debug(f"Waiting on {len(futures)} future(s) for term {election_term}.")
 
-        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = 60)
+        # try:
+        #     done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = 60)
+        # except TimeoutError:
+        #     self.log.warning(f"Timed-out after ~60sec waiting for {len(futures)} futures during term {election_term}.")
 
         if _received_vote_future is not None and (_received_vote_future in done or _received_vote_future.done()):
             voteReceived: LeaderElectionVote = _received_vote_future.result()
@@ -2681,19 +2685,18 @@ class RaftLog(object):
 
         # This is the future we'll use to submit a formal vote for who should lead,
         # based on the proposals that are committed to the etcd-raft log.
-        self._election_decision_future = self._future_io_loop.create_future()
+        _election_decision_future: asyncio.Future[Any] = self._future_io_loop.create_future()
+        self._election_decision_future = _election_decision_future
         # self._received_vote_future = self._future_io_loop.create_future()
 
         # self._received_vote_future_term: int = target_term_number
         # This is the future that we'll use to inform the local kernel replica if
         # it has been selected to "lead" the election (and therefore execute the user-submitted code).
-        self._leading_future = self._future_io_loop.create_future()
-
         # Create local references.
-        _election_decision_future: asyncio.Future[Any] = self._election_decision_future
-        _leading_future: asyncio.Future[int] = self._leading_future
-        _received_vote_future: asyncio.Future[
-            Any] = self._current_election.received_vote_future  # self._received_vote_future
+        _leading_future: asyncio.Future[int] = self._future_io_loop.create_future()
+        self._leading_future = self._leading_future
+
+        _received_vote_future: asyncio.Future[Any] = self._current_election.received_vote_future
 
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
@@ -3180,10 +3183,10 @@ class RaftLog(object):
             return
 
         def snapshot_callback(wc) -> bytes:
+            self.log.debug(f"SnapshotCallback called with wc = {wc}")
             sys.stderr.flush()
             sys.stdout.flush()
             try:
-                self.log.debug(f"SnapshotCallback called with wc = {wc}")
                 sys.stderr.flush()
                 sys.stdout.flush()
                 checkpointer = Checkpoint(writeCloser(WriteCloser(handle=wc)))
@@ -3311,12 +3314,12 @@ class RaftLog(object):
 
         A subsequent call to append (without successfully being elected as leader) will fail.
         """
+        self.log.debug(f"RaftLog {self._node_id} is proposing to lead term {term_number}"
+                       f"[target_replica_id = {target_replica_id}].")
+
         if target_replica_id >= 1 and target_replica_id != self._node_id:
             raise ValueError(f"Target replica ID specified as {target_replica_id} "
                              f"but we're still proposing 'LEAD' as node {self._node_id}.")
-
-        self.log.debug(f"RaftLog {self._node_id} is proposing to lead term {term_number}"
-                       f"[target_replica_id = {target_replica_id}].")
 
         proposalOrVote: LeaderElectionProposal | LeaderElectionVote = await self._create_election_proposal_or_vote(
             ElectionProposalKey.LEAD, term_number, jupyter_message_id, target_replica_id=target_replica_id
