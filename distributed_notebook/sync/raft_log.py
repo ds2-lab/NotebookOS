@@ -2420,20 +2420,22 @@ class RaftLog(object):
         else:
             await self._append_election_proposal(proposal)
 
-        self.log.debug(f"Waiting on 'election decision' and 'received vote' futures for term {election_term}.")
-
         futures: List[asyncio.Future] = []
 
         if _election_decision_future is not None:
+            self.log.debug(f"Will wait on 'election decision' future for term {election_term}.")
             futures.append(_election_decision_future)
 
         if _received_vote_future is not None:
+            self.log.debug(f"Will wait on 'received vote' future for term {election_term}.")
             futures.append(_received_vote_future)
 
         if len(futures) == 0:
             self.log.warning(f"Both 'election decision' future and 'received vote' futures are None "
                              f"while processing buffered votes for election {election_term}...")
             return True, False, None
+
+        self.log.debug(f"Waiting on {len(futures)} future(s) for term {election_term}.")
 
         done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
 
