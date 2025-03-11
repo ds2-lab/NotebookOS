@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 import inspect
 import json
 import logging
+import math
 import os
 import random
 import signal
 import socket
+import sys
+import time
 import traceback
 import typing as t
 import uuid
@@ -19,12 +23,8 @@ from threading import Lock
 from typing import Union, Optional, Dict, Any, Tuple, Awaitable
 
 import debugpy
-import faulthandler
 import grpc
-import math
 import numpy as np
-import sys
-import time
 import zmq
 from IPython.core.interactiveshell import ExecutionResult
 from ipykernel import jsonutil
@@ -1044,7 +1044,7 @@ class DistributedKernel(IPythonKernel):
 
         return md
 
-    def handle_registration_response(self, response: bytes, start_time: float, local_daemon_service_name:str):
+    def handle_registration_response(self, response: bytes, start_time: float, local_daemon_service_name: str):
         if len(response) == 0:
             self.log.error("Received empty response from local daemon during registration...")
             raise ValueError("received empty response from local daemon during registration procedure")
@@ -2296,7 +2296,7 @@ class DistributedKernel(IPythonKernel):
             buffers, _ = self.extract_and_process_request_trace(
                 parent, -1, execution_stats=self.current_execution_stats
             )
-            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            reply_msg: t.Dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
                 stream,
                 "execute_reply",
                 reply_content,
@@ -2310,66 +2310,10 @@ class DistributedKernel(IPythonKernel):
 
         # Synchronize updated state if we executed the user-submitted code.
         if was_primary_replica:
-            self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
-
-            # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
-            # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
-            future = asyncio.run_coroutine_threadsafe(
-                self.set_checkpointing_state(True),
-                loop=self.control_thread.io_loop.asyncio_loop
+            await self.synchronize_updated_state_and_notify_execution_complete(
+                term_number = term_number,
+                parent_header = parent_header,
             )
-
-            # Wait for the above to finish.
-            future.result()
-
-            execute_request_id: str = parent_header["msg_id"]
-
-            try:
-                sync_start: float = time.time()
-                # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
-                # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
-                # or Redis, depending on the system's configuration.
-                await self.synchronize_updated_state(term_number, execute_request_id)
-
-                self.current_execution_stats.synchronize_updated_state_time_millis = (time.time() - sync_start) * 1.0e3
-            except Exception as ex:
-                self.log.error(f'Error while synchronizing updated state for term {term_number} '
-                               f'and execution "{execute_request_id}": {ex}')
-                self.log.error(traceback.format_exc())
-                self.report_error(f'Failed to Synchronize Updated State in Term {term_number} '
-                                  f'for Execution "{execute_request_id}"', str(ex))
-
-            try:
-                commit_notify_complete_start: float = time.time()
-
-                # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
-                #
-                # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
-                # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
-                #
-                # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
-                # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
-                # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
-                # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
-                # runtime state.
-                await self.schedule_notify_execution_complete(term_number)
-
-                self.current_execution_stats.commit_exec_end_millis = (time.time() - commit_notify_complete_start) * 1.0e3
-            except Exception as ex:
-                self.log.error(f'Error while scheduling "Execution Complete" notification for term {term_number} '
-                               f'and execution "{execute_request_id}": {ex}')
-                self.log.error(traceback.format_exc())
-                self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
-                                  f'for Execution "{execute_request_id}"', str(ex))
-
-            # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
-            # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
-            future = asyncio.run_coroutine_threadsafe(
-                self.set_checkpointing_state(False),
-                loop=self.control_thread.io_loop.asyncio_loop
-            )
-
-            future.result()
         else:
             self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronization step.")
 
@@ -2480,7 +2424,18 @@ class DistributedKernel(IPythonKernel):
             )
 
             self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
-        else: # smr is enabled
+        else:
+            # smr is enabled
+            #
+            # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
+            # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
+            future = asyncio.run_coroutine_threadsafe(
+                self.set_checkpointing_state(False),
+                loop=self.control_thread.io_loop.asyncio_loop
+            )
+
+            future.result()
+
             execute_request_id: str = parent["header"]["msg_id"]
 
             # Make sure the 'buffers' variable is defined.
@@ -2523,6 +2478,75 @@ class DistributedKernel(IPythonKernel):
         self._remote_checkpointer.storage_provider.clear_statistics()
         self.synclog.clear_restoration_time()
         self.synclog.clear_restore_namespace_time_seconds()
+
+    async def synchronize_updated_state_and_notify_execution_complete(
+            self,
+            term_number: int,
+            parent_header: Dict[str, Any]
+    ):
+        self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
+
+        # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
+        # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
+        future = asyncio.run_coroutine_threadsafe(
+            self.set_checkpointing_state(True),
+            loop=self.control_thread.io_loop.asyncio_loop
+        )
+
+        # Wait for the above to finish.
+        future.result()
+
+        execute_request_id: str = parent_header["msg_id"]
+
+        try:
+            sync_start: float = time.time()
+            # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
+            # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
+            # or Redis, depending on the system's configuration.
+            await self.synchronize_updated_state(term_number, execute_request_id)
+
+            self.current_execution_stats.synchronize_updated_state_time_millis = (time.time() - sync_start) * 1.0e3
+        except Exception as ex:
+            self.log.error(f'Error while synchronizing updated state for term {term_number} '
+                           f'and execution "{execute_request_id}": {ex}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Synchronize Updated State in Term {term_number} '
+                              f'for Execution "{execute_request_id}"', str(ex))
+
+        notify_complete_task: Optional[asyncio.Task] = None
+        commit_notify_exec_complete_start: float = time.time()
+        try:
+            # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+            #
+            # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
+            # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
+            #
+            # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
+            # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
+            # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
+            # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
+            # runtime state.
+            notify_complete_task = await self.schedule_notify_execution_complete(term_number)
+        except Exception as ex:
+            self.log.error(f'Error while scheduling "Execution Complete" notification for term {term_number} '
+                           f'and execution "{execute_request_id}": {ex}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
+                              f'for Execution "{execute_request_id}"', str(ex))
+
+        # Wait for the notification to be committed to the RaftLog.
+        if notify_complete_task is not None:
+            try:
+                await asyncio.wait([notify_complete_task], return_when=asyncio.FIRST_COMPLETED)
+                commit_notify_exec_complete_dur_millis = (time.time() - commit_notify_exec_complete_start) * 1.0e3
+                self.current_execution_stats.commit_exec_end_millis = commit_notify_exec_complete_dur_millis
+            except Exception as ex:
+                self.log.error(
+                    f'Error while waiting for commitment of "Execution Complete" notification for term {term_number} '
+                    f'and execution "{execute_request_id}" to RaftLog: {ex}')
+                self.log.error(traceback.format_exc())
+                self.report_error(f'Potential Failure to Commit "Execute Complete" Notification {term_number} '
+                                  f'for Execution "{execute_request_id}"', str(ex))
 
     async def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
         """
@@ -4296,7 +4320,7 @@ class DistributedKernel(IPythonKernel):
 
         return duration
 
-    async def schedule_notify_execution_complete(self, term_number: int):
+    async def schedule_notify_execution_complete(self, term_number: int) -> Optional[asyncio.Task]:
         """
         Schedule the proposal of an "execution complete" notification for this election.
 
@@ -4314,7 +4338,7 @@ class DistributedKernel(IPythonKernel):
         """
         if not hasattr(self, "synchronizer") or self.synchronizer is None:
             self.log.warning("No Sychronizer. Cannot notify that execution is complete.")
-            return
+            return None
 
         # Add task to the set. This creates a strong reference.
         # We don't await this here so that we can go ahead and send the shell response back.
@@ -4328,6 +4352,8 @@ class DistributedKernel(IPythonKernel):
         # To prevent keeping references to finished tasks forever, we make each task remove its own reference
         # from the "background tasks" set after completion.
         task.add_done_callback(self.background_tasks.discard)
+
+        return task
 
     async def do_shutdown(self, restart):
         self.log.info("Replica %d of kernel %s is shutting down.", self.smr_node_id, self.kernel_id)
@@ -4862,7 +4888,7 @@ class DistributedKernel(IPythonKernel):
     async def add_replica_request(self, stream, ident, parent):
         """Add a replica to the SMR cluster"""
         params = parent["content"]
-        self.log.info("Received 'add-replica' request for replica with id %d, addr %s"% (params["id"], params["addr"]))
+        self.log.info("Received 'add-replica' request for replica with id %d, addr %s" % (params["id"], params["addr"]))
 
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?

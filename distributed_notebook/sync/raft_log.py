@@ -105,9 +105,7 @@ class RaftLog(object):
         if peer_ids is None:
             peer_ids = []
 
-        self.log: logging.Logger = logging.getLogger(
-            __class__.__name__ + str(node_id)
-        )
+        self.log: logging.Logger = logging.getLogger(__class__.__name__ + str(node_id))
         self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
@@ -122,9 +120,7 @@ class RaftLog(object):
 
         if debug_port <= 1023 or debug_port >= 65535:
             if debug_port < 0:
-                self.log.warning(
-                    "Debug port specified as -1. Golang HTTP debug server will be disabled."
-                )
+                self.log.warning("Debug port specified as -1. Golang HTTP debug server will be disabled.")
             else:
                 raise ValueError(f"Invalid debug port specified: {debug_port}")
 
@@ -1893,7 +1889,8 @@ class RaftLog(object):
         self._async_loop = loop
 
         def resolve(key, err):
-            self.log.debug(f'Python-level resolve callback called with key="{key}", err="{err}"')
+            #print(f'Python-level resolve callback called with key="{key}", err="{err}" '
+            #      f'[kernelId={self._kernel_id}, nodeId={self._node_id}]')
 
             # must use local variable
             asyncio.run_coroutine_threadsafe(future.resolve(key, err), loop)  # type: ignore
@@ -2437,11 +2434,14 @@ class RaftLog(object):
 
         self.log.debug(f"Waiting on {len(futures)} future(s) for term {election_term}.")
 
-        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = 60)
-        # try:
-        #     done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = 60)
-        # except TimeoutError:
-        #     self.log.warning(f"Timed-out after ~60sec waiting for {len(futures)} futures during term {election_term}.")
+        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = 45)
+
+        if len(done) == 0:
+            self._report_error_callback(f"Timed-Out Waiting for Election to Make Progress in Term {election_term}",
+                                        "")
+
+            # Wait until something resolves, for now.
+            done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
 
         if _received_vote_future is not None and (_received_vote_future in done or _received_vote_future.done()):
             voteReceived: LeaderElectionVote = _received_vote_future.result()
@@ -2471,7 +2471,7 @@ class RaftLog(object):
 
         if _election_decision_future is not None:
             assert _election_decision_future.done()
-        
+
         voteProposal: LeaderElectionVote = _election_decision_future.result()
 
         if voteProposal is not None:
