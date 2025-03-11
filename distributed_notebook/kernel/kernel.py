@@ -488,7 +488,7 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
-        self.synclog: Optional[SyncLog] = None
+        self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = None
         self._remote_checkpointer: Optional[Checkpointer] = None  # created in start method.
 
         # Normally, we start the SyncLog in DistributedKernel::start.
@@ -1832,7 +1832,7 @@ class DistributedKernel(IPythonKernel):
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         try:
-            self.synchronizer = Synchronizer(
+            self.synchronizer: Optional[Synchronizer] = Synchronizer(
                 sync_log,
                 store_path=self.store_path,
                 module=self.shell.user_module,
@@ -1997,7 +1997,7 @@ class DistributedKernel(IPythonKernel):
             self, remote_storage_definition: Dict[str, Any]
     ) -> Optional[str]:
         if len(remote_storage_definition) == 0:
-            return
+            return None
 
         remote_storage_name: str = remote_storage_definition.get("name", "")
 
@@ -2652,8 +2652,8 @@ class DistributedKernel(IPythonKernel):
         if hasattr(self, "synchronizer") and self.synchronizer is not None:
             self.synchronizer.close()
 
-        self.synchronizer = None
-        self.synclog = None
+        self.synchronizer: Optional[Synchronizer] = None
+        self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = None
 
         self.smr_node_id = 0
         self.kernel_id = prewarm_container_id
@@ -3201,13 +3201,13 @@ class DistributedKernel(IPythonKernel):
         self.shell.payload_manager.clear_payload()
 
         # Send the reply.
-        reply_content: dict[str, Any] = jsonutil.json_clean(reply_content)
+        reply_content: Dict[str, Any] = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
         buffers, _ = self.extract_and_process_request_trace(parent, -1)
-        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+        reply_msg: Dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
             reply_content,
@@ -4580,6 +4580,12 @@ class DistributedKernel(IPythonKernel):
                 "kernel_id": self.kernel_id,
             }, True  # Didn't fail, we just have nothing to migrate.
 
+        async with self.checkpointing_state_cv:
+            while self.checkpointing_state:
+                self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+
+                await self.checkpointing_state_cv.wait()
+
         # When using RaftLog, we must first stop the SyncLog (RaftLog) before copying the data directory.
         #
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
@@ -4599,12 +4605,6 @@ class DistributedKernel(IPythonKernel):
         if isinstance(self.synclog, RaftLog):
             # We'll ignore any errors at this stage.
             await self.__close_synclog_remote_storage_client()
-
-        async with self.checkpointing_state_cv:
-            while self.checkpointing_state:
-                self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
-
-                await self.checkpointing_state_cv.wait()
 
         return {
             "status": "ok",
@@ -5548,7 +5548,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog: Optional[SyncLog] = RaftLog(
+                self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -5617,7 +5617,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Remote storage provider should not be None at this point.")
                 raise ValueError("Remote storage provider is None, but it should have been created by now.")
 
-            self.synclog: Optional[SyncLog] = RemoteStorageLog(
+            self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,
