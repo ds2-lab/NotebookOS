@@ -1938,10 +1938,8 @@ func smr_LogStorage_SaveSnapshot(_handle CGoHandle, arg_0 CGoHandle, goRun C.cha
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'SaveSnapshot' in separate goroutine.\n")
 		go vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'SaveSnapshot' in this goroutine.\n")
 		vifc.(smr.LogStorage).SaveSnapshot(*ptrFromHandle_walpb_Snapshot(arg_0))
 	}
 }
@@ -1994,10 +1992,8 @@ func smr_SmrContext_Cancel(_handle CGoHandle, goRun C.char) {
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'Cancel' in separate goroutine.\n")
 		go vifc.(smr.SmrContext).Cancel()
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'Cancel' in this goroutine.\n")
 		vifc.(smr.SmrContext).Cancel()
 	}
 }
@@ -2252,10 +2248,8 @@ func smr_SMRContext_Cancel(_handle CGoHandle, goRun C.char) {
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'Cancel' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'Cancel' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.SMRContext{})).(*smr.SMRContext).Cancel()
 	}
 }
@@ -2312,10 +2306,8 @@ func smr_LogNode_ServeHttpDebug(_handle CGoHandle, goRun C.char) {
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'ServeHttpDebug' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ServeHttpDebug()
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'ServeHttpDebug' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ServeHttpDebug()
 	}
 }
@@ -2402,10 +2394,8 @@ func smr_LogNode_StartAndWait(_handle CGoHandle, config CGoHandle, goRun C.char)
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'StartAndWait' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).StartAndWait(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'StartAndWait' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).StartAndWait(ptrFromHandle_Ptr_smr_LogNodeConfig(config))
 	}
 }
@@ -2444,22 +2434,19 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'Propose' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2471,27 +2458,30 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		}, C.GoString(msg))
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'Propose' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).Propose(*ptrFromHandle_smr_Bytes(val), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2503,7 +2493,13 @@ func smr_LogNode_Propose(_handle CGoHandle, val CGoHandle, resolve *C.PyObject, 
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		}, C.GoString(msg))
@@ -2526,22 +2522,19 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'AddNode' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2553,27 +2546,30 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'AddNode' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).AddNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2585,7 +2581,13 @@ func smr_LogNode_AddNode(_handle CGoHandle, id C.longlong, addr *C.char, resolve
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
@@ -2608,22 +2610,19 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'RemoveNode' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2635,27 +2634,30 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'RemoveNode' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).RemoveNode(int(id), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2667,7 +2669,13 @@ func smr_LogNode_RemoveNode(_handle CGoHandle, id C.longlong, resolve *C.PyObjec
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
@@ -2690,22 +2698,19 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'UpdateNode' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2717,27 +2722,30 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'UpdateNode' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).UpdateNode(int(id), C.GoString(addr), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2749,7 +2757,13 @@ func smr_LogNode_UpdateNode(_handle CGoHandle, id C.longlong, addr *C.char, reso
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
@@ -2832,22 +2846,19 @@ func smr_LogNode_WriteDataDirectoryToRemoteStorage(_handle CGoHandle, serialized
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'WriteDataDirectoryToRemoteStorage' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToRemoteStorage(deptrFromHandle_Slice_byte(serializedState), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2859,27 +2870,30 @@ func smr_LogNode_WriteDataDirectoryToRemoteStorage(_handle CGoHandle, serialized
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'WriteDataDirectoryToRemoteStorage' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).WriteDataDirectoryToRemoteStorage(deptrFromHandle_Slice_byte(serializedState), func(arg_0 interface{}, arg_1 string) {
 			runtime.LockOSThread()
-			fmt.Println("Calling WaitGroup::Wait() now...")
+			fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			wg.Wait()
-			fmt.Println("Returned from WaitGroup::Wait()")
+			fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			_gstate := C.PyGILState_Ensure() // Acquire GIL
 			fmt.Printf("Acquired GIL in Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
 			if _fun_arg == nil {
 				fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
 			if C.PyCallable_Check(_fun_arg) == 0 {
-				C.gopy_decref(_fun_arg)
 				C.PyGILState_Release(_gstate) // Release GIL
 				return
 			}
@@ -2891,7 +2905,13 @@ func smr_LogNode_WriteDataDirectoryToRemoteStorage(_handle CGoHandle, serialized
 			fmt.Printf("Calling into Python callback of type smr.ResolveCallback now [%s] \n", go_src_func_name)
 			C.PyObject_CallObject(_fun_arg, _fcargs)
 			fmt.Printf("Returned from Python callback of type smr.ResolveCallback [%s] \n", go_src_func_name)
-			C.gopy_err_handle()
+			fmt.Printf("Checking if Python error occurred while executing callback of type smr.ResolveCallback [%s] now...\n", go_src_func_name)
+			if C.PyErr_Occurred() != nil {
+				fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ResolveCallback [%s]! Printing the error now...\n", go_src_func_name)
+				C.PyErr_Print()
+			} else {
+				fmt.Printf("No Python error occurred while executing callback of type smr.ResolveCallback [%s].\n", go_src_func_name)
+			}
 			C.gopy_decref(_fcargs)
 			C.PyGILState_Release(_gstate) // Release GIL
 		})
@@ -2949,10 +2969,8 @@ func smr_LogNode_ReportUnreachable(_handle CGoHandle, id C.ulonglong, goRun C.ch
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'ReportUnreachable' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportUnreachable(uint64(id))
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'ReportUnreachable' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportUnreachable(uint64(id))
 	}
 }
@@ -2971,10 +2989,8 @@ func smr_LogNode_ReportSnapshot(_handle CGoHandle, id C.ulonglong, status C.long
 		return
 	}
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'ReportSnapshot' in separate goroutine.\n")
 		go gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportSnapshot(uint64(id), raft.SnapshotStatus(int(status)))
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'ReportSnapshot' in this goroutine.\n")
 		gopyh.Embed(vifc, reflect.TypeOf(smr.LogNode{})).(*smr.LogNode).ReportSnapshot(uint64(id), raft.SnapshotStatus(int(status)))
 	}
 }
@@ -3039,19 +3055,17 @@ func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGo
 	}
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithChangeCallback(func(arg_0 smr.ReadCloser, arg_1 int, arg_2 string) string {
 		runtime.LockOSThread()
-		fmt.Println("Calling WaitGroup::Wait() now...")
+		fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
 		wg.Wait()
-		fmt.Println("Returned from WaitGroup::Wait()")
+		fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
 		_gstate := C.PyGILState_Ensure() // Acquire GIL
 		fmt.Printf("Acquired GIL in Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
 		if _fun_arg == nil {
 			fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return C.GoString(nil)
 		}
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return C.GoString(nil)
 		}
@@ -3064,7 +3078,13 @@ func smr_LogNodeConfig_WithChangeCallback(_handle CGoHandle, cb *C.PyObject) CGo
 		fmt.Printf("Calling into Python callback of type smr.StateValueCallback now [%s] \n", go_src_func_name)
 		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		fmt.Printf("Returned from Python callback of type smr.StateValueCallback [%s] \n", go_src_func_name)
-		C.gopy_err_handle()
+		fmt.Printf("Checking if Python error occurred while executing callback of type smr.StateValueCallback [%s] now...\n", go_src_func_name)
+		if C.PyErr_Occurred() != nil {
+			fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.StateValueCallback [%s]! Printing the error now...\n", go_src_func_name)
+			C.PyErr_Print()
+		} else {
+			fmt.Printf("No Python error occurred while executing callback of type smr.StateValueCallback [%s].\n", go_src_func_name)
+		}
 		C.gopy_decref(_fcargs)
 		ret := C.GoString(C.PyBytes_AsString(_fcret))
 		C.PyGILState_Release(_gstate) // Release GIL
@@ -3090,19 +3110,17 @@ func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CG
 	}
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithRestoreCallback(func(arg_0 smr.ReadCloser, arg_1 int) string {
 		runtime.LockOSThread()
-		fmt.Println("Calling WaitGroup::Wait() now...")
+		fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
 		wg.Wait()
-		fmt.Println("Returned from WaitGroup::Wait()")
+		fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
 		_gstate := C.PyGILState_Ensure() // Acquire GIL
 		fmt.Printf("Acquired GIL in Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
 		if _fun_arg == nil {
 			fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return C.GoString(nil)
 		}
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return C.GoString(nil)
 		}
@@ -3114,7 +3132,13 @@ func smr_LogNodeConfig_WithRestoreCallback(_handle CGoHandle, cb *C.PyObject) CG
 		fmt.Printf("Calling into Python callback of type smr.StatesValueCallback now [%s] \n", go_src_func_name)
 		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		fmt.Printf("Returned from Python callback of type smr.StatesValueCallback [%s] \n", go_src_func_name)
-		C.gopy_err_handle()
+		fmt.Printf("Checking if Python error occurred while executing callback of type smr.StatesValueCallback [%s] now...\n", go_src_func_name)
+		if C.PyErr_Occurred() != nil {
+			fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.StatesValueCallback [%s]! Printing the error now...\n", go_src_func_name)
+			C.PyErr_Print()
+		} else {
+			fmt.Printf("No Python error occurred while executing callback of type smr.StatesValueCallback [%s].\n", go_src_func_name)
+		}
 		C.gopy_decref(_fcargs)
 		ret := C.GoString(C.PyBytes_AsString(_fcret))
 		C.PyGILState_Release(_gstate) // Release GIL
@@ -3140,19 +3164,17 @@ func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObj
 	}
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithShouldSnapshotCallback(func(arg_0 *smr.LogNode) bool {
 		runtime.LockOSThread()
-		fmt.Println("Calling WaitGroup::Wait() now...")
+		fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
 		wg.Wait()
-		fmt.Println("Returned from WaitGroup::Wait()")
+		fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
 		_gstate := C.PyGILState_Ensure() // Acquire GIL
 		fmt.Printf("Acquired GIL in Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
 		if _fun_arg == nil {
 			fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return false
 		}
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return false
 		}
@@ -3163,7 +3185,13 @@ func smr_LogNodeConfig_WithShouldSnapshotCallback(_handle CGoHandle, cb *C.PyObj
 		fmt.Printf("Calling into Python callback of type smr.ShouldLogNodeCallback now [%s] \n", go_src_func_name)
 		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		fmt.Printf("Returned from Python callback of type smr.ShouldLogNodeCallback [%s] \n", go_src_func_name)
-		C.gopy_err_handle()
+		fmt.Printf("Checking if Python error occurred while executing callback of type smr.ShouldLogNodeCallback [%s] now...\n", go_src_func_name)
+		if C.PyErr_Occurred() != nil {
+			fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.ShouldLogNodeCallback [%s]! Printing the error now...\n", go_src_func_name)
+			C.PyErr_Print()
+		} else {
+			fmt.Printf("No Python error occurred while executing callback of type smr.ShouldLogNodeCallback [%s].\n", go_src_func_name)
+		}
 		C.gopy_decref(_fcargs)
 		ret := boolPyToGo(C.char(C.PyLong_AsLongLong(_fcret)))
 		C.PyGILState_Release(_gstate) // Release GIL
@@ -3189,19 +3217,17 @@ func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) C
 	}
 	return handleFromPtr_Ptr_smr_LogNodeConfig(gopyh.Embed(vifc, reflect.TypeOf(smr.LogNodeConfig{})).(*smr.LogNodeConfig).WithSnapshotCallback(func(arg_0 smr.WriteCloser) string {
 		runtime.LockOSThread()
-		fmt.Println("Calling WaitGroup::Wait() now...")
+		fmt.Printf("Calling WaitGroup::Wait() while preparing to execute Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
 		wg.Wait()
-		fmt.Println("Returned from WaitGroup::Wait()")
+		fmt.Printf("Returned from WaitGroup::Wait() while preparing to execute Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
 		_gstate := C.PyGILState_Ensure() // Acquire GIL
 		fmt.Printf("Acquired GIL in Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
 		if _fun_arg == nil {
 			fmt.Printf("[CGO WARNING] 'resolve' PyObject* callback is nil.\n")
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return C.GoString(nil)
 		}
 		if C.PyCallable_Check(_fun_arg) == 0 {
-			C.gopy_decref(_fun_arg)
 			C.PyGILState_Release(_gstate) // Release GIL
 			return C.GoString(nil)
 		}
@@ -3212,7 +3238,13 @@ func smr_LogNodeConfig_WithSnapshotCallback(_handle CGoHandle, cb *C.PyObject) C
 		fmt.Printf("Calling into Python callback of type smr.WriteCallback now [%s] \n", go_src_func_name)
 		_fcret := C.PyObject_CallObject(_fun_arg, _fcargs)
 		fmt.Printf("Returned from Python callback of type smr.WriteCallback [%s] \n", go_src_func_name)
-		C.gopy_err_handle()
+		fmt.Printf("Checking if Python error occurred while executing callback of type smr.WriteCallback [%s] now...\n", go_src_func_name)
+		if C.PyErr_Occurred() != nil {
+			fmt.Printf("[ERROR] A Python error occurred while executing callback of type smr.WriteCallback [%s]! Printing the error now...\n", go_src_func_name)
+			C.PyErr_Print()
+		} else {
+			fmt.Printf("No Python error occurred while executing callback of type smr.WriteCallback [%s].\n", go_src_func_name)
+		}
 		C.gopy_decref(_fcargs)
 		ret := C.GoString(C.PyBytes_AsString(_fcret))
 		C.PyGILState_Release(_gstate) // Release GIL
@@ -3367,10 +3399,8 @@ func smr_PrintTestMessage(goRun C.char) {
 	defer wg.Done()
 	defer C.PyEval_RestoreThread(_saved_thread) // Reacquire GIL
 	if boolPyToGo(goRun) {
-		fmt.Printf("Calling 'resolve' callback for function 'PrintTestMessage' in separate goroutine.\n")
 		go smr.PrintTestMessage()
 	} else {
-		fmt.Printf("Calling 'resolve' callback for function 'PrintTestMessage' in this goroutine.\n")
 		smr.PrintTestMessage()
 	}
 }

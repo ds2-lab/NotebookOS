@@ -1215,9 +1215,24 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info("Asynchronously sent registration payload to local daemon.")
 
-        response: bytes = await reader.read(1024)
+        num_tries: int = 0
+        registered_successfully: bool = False
 
-        self.handle_registration_response(response, start_time, local_daemon_service_name)
+        while num_tries < 3 and not registered_successfully:
+            response: bytes = await reader.read(1024)
+
+            try:
+                self.handle_registration_response(response, start_time, local_daemon_service_name)
+                registered_successfully = True
+                break
+            except ValueError as ex:
+                self.log.error(ex)
+                num_tries += 1
+                await asyncio.sleep(num_tries * 2)
+                continue
+
+        if not registered_successfully:
+            self.report_error("Failed to Register with Local Daemon", "")
 
         try:
             writer.close()
@@ -1288,11 +1303,26 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
 
-        response: bytes = daemon_registration_socket.recv(1024)
+        num_tries: int = 0
+        registered_successfully: bool = False
 
-        self.handle_registration_response(response, start_time, local_daemon_service_name)
+        while num_tries < 3 and not registered_successfully:
+            response: bytes = daemon_registration_socket.recv(1024)
+
+            try:
+                self.handle_registration_response(response, start_time, local_daemon_service_name)
+                registered_successfully = True
+                break
+            except ValueError as ex:
+                self.log.error(ex)
+                num_tries += 1
+                time.sleep(num_tries * 2)
+                continue
 
         daemon_registration_socket.close()
+
+        if not registered_successfully:
+            self.report_error("Failed to Register with Local Daemon", "")
 
     def init_debugpy(self):
         if not self.debugpy_enabled or self.debug_port < 0:

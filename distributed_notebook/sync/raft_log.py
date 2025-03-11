@@ -2465,12 +2465,13 @@ class RaftLog(object):
             assert self._current_election.voting_phase_completed_successfully
 
             self._current_election.received_vote_future = None
-            # self._received_vote_future = None
             self._election_decision_future = None
 
             return True, voteReceived.proposed_node_id == self.node_id, None
 
-        assert _election_decision_future.done()
+        if _election_decision_future is not None:
+            assert _election_decision_future.done()
+        
         voteProposal: LeaderElectionVote = _election_decision_future.result()
 
         if voteProposal is not None:

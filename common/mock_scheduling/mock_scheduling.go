@@ -10579,6 +10579,20 @@ func (mr *MockExecutionMockRecorder) GetExecutionIndex() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecutionIndex", reflect.TypeOf((*MockExecution)(nil).GetExecutionIndex))
 }
 
+// GetGpuDeviceIDs mocks base method.
+func (m *MockExecution) GetGpuDeviceIDs() []int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGpuDeviceIDs")
+	ret0, _ := ret[0].([]int)
+	return ret0
+}
+
+// GetGpuDeviceIDs indicates an expected call of GetGpuDeviceIDs.
+func (mr *MockExecutionMockRecorder) GetGpuDeviceIDs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpuDeviceIDs", reflect.TypeOf((*MockExecution)(nil).GetGpuDeviceIDs))
+}
+
 // GetMigrationRequired mocks base method.
 func (m *MockExecution) GetMigrationRequired() bool {
 	m.ctrl.T.Helper()

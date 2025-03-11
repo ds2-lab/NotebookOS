@@ -2355,7 +2355,8 @@ func (d *ClusterGatewayImpl) handleMigratedReplicaRegistered(in *proto.KernelReg
 					in.ReplicaId, in.KernelId))
 		}
 
-		addReplicaOp.SetContainerName(dockerContainerId)
+		addReplicaOp.SetContainerId(dockerContainerId)
+		addReplicaOp.SetContainerName(in.PodOrContainerName)
 	}
 
 	host, loaded := d.cluster.GetHost(in.HostId)

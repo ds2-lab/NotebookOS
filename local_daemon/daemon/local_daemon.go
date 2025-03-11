@@ -440,11 +440,23 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		createdAt:                      time.Now(),
 	}
 
+	config.InitLogger(&daemon.log, daemon)
+
 	for _, configFunc := range configs {
 		configFunc(daemon)
 	}
 
-	config.InitLogger(&daemon.log, daemon)
+	if daemon.ip == "" {
+		ip, err := utils.GetIP()
+		if err != nil {
+			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
+		} else {
+			daemon.ip = ip
+			daemon.log.Debug("Resolved IP address to \"%s\"", ip)
+		}
+	} else {
+		daemon.log.Debug("IP address has been explicitly set to \"%s\"", ip)
+	}
 
 	if daemon.DebugMode {
 		daemon.log.Debug("Running in DebugMode.")
@@ -512,15 +524,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	//	daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
 	//	daemon.prometheusPort = DefaultPrometheusPort
 	//}
-
-	if daemon.ip == "" {
-		ip, err := utils.GetIP()
-		if err != nil {
-			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
-		} else {
-			daemon.ip = ip
-		}
-	}
 
 	if len(localDaemonOptions.RemoteStorageEndpoint) == 0 {
 		panic("remote storage endpoint is empty.")
