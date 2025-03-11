@@ -30,7 +30,6 @@ var (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type Execution struct {
-
 	// CreatedAt is the time at which this Execution was created.
 	CreatedAt time.Time
 
@@ -81,6 +80,9 @@ type Execution struct {
 	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
 	WorkloadId string
+
+	// GpuDeviceIDs are the GPU device IDs assigned to the kernel for this execution.
+	GpuDeviceIDs []int
 
 	State State
 
@@ -155,6 +157,10 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 				activeExecution.WorkloadId = workloadId
 				activeExecution.workloadIdSet = true
 			}
+
+			if requestMetadata.GpuDeviceIds != nil {
+				activeExecution.GpuDeviceIDs = requestMetadata.GpuDeviceIds
+			}
 		} else {
 			// Fallback if the mapstructure way is broken.
 			log.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode request metadata via mapstructure: %v\n"), err)
@@ -171,6 +177,11 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 				workloadId := workloadIdVal.(string)
 				activeExecution.WorkloadId = workloadId
 				activeExecution.workloadIdSet = true
+			}
+
+			deviceIds, ok := metadataDict["gpu_device_ids"]
+			if ok {
+				activeExecution.GpuDeviceIDs = deviceIds.([]int)
 			}
 		}
 	}
@@ -423,4 +434,13 @@ func (e *Execution) SetNumViableReplicas(n int) {
 // GetNumViableReplicas returns the number of replicas that were viable to serve this training request.
 func (e *Execution) GetNumViableReplicas() int {
 	return e.NumViableReplicas
+}
+
+func (e *Execution) GetActiveReplica() scheduling.KernelReplica {
+	return e.ActiveReplica
+}
+
+// GetGpuDeviceIDs returns the GPU device IDs assigned to the kernel for this execution.
+func (e *Execution) GetGpuDeviceIDs() []int {
+	return e.GpuDeviceIDs
 }

@@ -422,7 +422,7 @@ type KernelReplica interface {
 	ReplicaID() int32
 
 	// KernelStoppedTraining is called when the Replica has stopped training.
-	KernelStoppedTraining(reason string) error
+	KernelStoppedTraining(reason string, activeExecution Execution) error
 
 	Container() KernelContainer
 	Host() Host

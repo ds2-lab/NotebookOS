@@ -1026,7 +1026,7 @@ func (c *DistributedKernelClient) removeReplica(r scheduling.KernelReplica, remo
 	if r.IsTraining() {
 		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
 			r.ReplicaID(), r.ID())
-		err = r.KernelStoppedTraining(reason)
+		err = r.KernelStoppedTraining(reason, nil) // TODO: Pass active execution if possible.
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process) on host %s (ID=%s) in container %s: %v",
 				r.ReplicaID(), hostName, hostId, r.GetPodOrContainerId(), err)

@@ -983,7 +983,7 @@ func (m *ExecutionManager) unsafeExecutionComplete(msg *messaging.JupyterMessage
 	}
 
 	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
-	err = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
+	err = activeExecution.ActiveReplica.KernelStoppedTraining(reason, activeExecution)
 	if err != nil {
 		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
 			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
@@ -1196,6 +1196,26 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 			stats.BusyGPUs.Add(resourceRequest.GPU())
 			stats.BusyVRAM.Add(resourceRequest.VRAM())
 
+			var (
+				gpuDeviceIds     []int
+				hostId, hostName string
+			)
+
+			// Get the name and ID of the host on which the active replica is running,
+			// if that information is available right now.
+			if activeExecution != nil {
+				activeReplica := activeExecution.ActiveReplica
+				if activeReplica != nil {
+					host := activeReplica.Host()
+					if host != nil {
+						hostId = host.GetID()
+						hostName = host.GetNodeName()
+					}
+				}
+
+				gpuDeviceIds = activeExecution.GetGpuDeviceIDs()
+			}
+
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
 				EventId:             uuid.NewString(),
@@ -1210,6 +1230,9 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 					"reused_previous_primary_replica": samePrimaryReplicaAsLastTime,
 					"num_viable_replicas":             activeExecution.NumViableReplicas,
 					"migration_required":              activeExecution.MigrationWasRequired,
+					"gpu_device_ids":                  gpuDeviceIds,
+					"host_id":                         hostId,
+					"host_name":                       hostName,
 				},
 			})
 		})
@@ -1252,14 +1275,14 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 		m.log.Warn("Calling KernelStoppedTraining on the replica recorded on the Execution struct for execution '%s'",
 			requestId)
 
-		err1 = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
+		err1 = activeExecution.ActiveReplica.KernelStoppedTraining(reason, activeExecution)
 	}
 
 	if replica.IsTraining() {
 		m.log.Warn("Calling KernelStoppedTraining on the replica that sent the \"execute_reply\" message for execution '%s'",
 			requestId)
 
-		err2 = replica.KernelStoppedTraining(reason)
+		err2 = replica.KernelStoppedTraining(reason, activeExecution)
 	}
 
 	// We recorded the errors of each call to KernelStoppedTraining separately.

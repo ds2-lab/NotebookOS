@@ -168,6 +168,7 @@ type Execution interface {
 	IsErred() bool
 	GetNumReplicas() int
 	SetActiveReplica(replica KernelReplica)
+	GetActiveReplica() KernelReplica
 	GetOriginallySentAtTime() time.Time
 	GetWorkloadId() string
 	GetExecuteRequestMessageId() string
@@ -197,7 +198,11 @@ type Execution interface {
 	// GetNumViableReplicas returns the number of replicas that were viable to serve this training request.
 	GetNumViableReplicas() int
 	SetNumViableReplicas(n int)
+
+	// GetGpuDeviceIDs returns the GPU device IDs assigned to the kernel for this execution.
+	GetGpuDeviceIDs() []int
 }
+
 type Proposal interface {
 	GetKey() ProposalKey
 	GetReason() string

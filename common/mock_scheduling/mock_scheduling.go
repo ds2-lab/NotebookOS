@@ -6708,6 +6708,20 @@ func (mr *MockKernelMockRecorder) GetSocketPort(typ any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSocketPort", reflect.TypeOf((*MockKernel)(nil).GetSocketPort), typ)
 }
 
+// HandleExecuteStatisticsIoPubMessage mocks base method.
+func (m *MockKernel) HandleExecuteStatisticsIoPubMessage(sender scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HandleExecuteStatisticsIoPubMessage", sender, msg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HandleExecuteStatisticsIoPubMessage indicates an expected call of HandleExecuteStatisticsIoPubMessage.
+func (mr *MockKernelMockRecorder) HandleExecuteStatisticsIoPubMessage(sender, msg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleExecuteStatisticsIoPubMessage", reflect.TypeOf((*MockKernel)(nil).HandleExecuteStatisticsIoPubMessage), sender, msg)
+}
+
 // HasActiveTraining mocks base method.
 func (m *MockKernel) HasActiveTraining() bool {
 	m.ctrl.T.Helper()
@@ -7241,11 +7255,12 @@ func (mr *MockKernelMockRecorder) RegisterAckForRequest(req any) *gomock.Call {
 }
 
 // RegisterActiveExecution mocks base method.
-func (m *MockKernel) RegisterActiveExecution(msg *messaging.JupyterMessage) error {
+func (m *MockKernel) RegisterActiveExecution(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RegisterActiveExecution", msg)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(scheduling.Execution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // RegisterActiveExecution indicates an expected call of RegisterActiveExecution.
@@ -8203,17 +8218,17 @@ func (mr *MockKernelReplicaMockRecorder) KernelStartedTraining(trainingStartedAt
 }
 
 // KernelStoppedTraining mocks base method.
-func (m *MockKernelReplica) KernelStoppedTraining(reason string) error {
+func (m *MockKernelReplica) KernelStoppedTraining(reason string, activeExecution scheduling.Execution) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelStoppedTraining", reason)
+	ret := m.ctrl.Call(m, "KernelStoppedTraining", reason, activeExecution)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // KernelStoppedTraining indicates an expected call of KernelStoppedTraining.
-func (mr *MockKernelReplicaMockRecorder) KernelStoppedTraining(reason any) *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) KernelStoppedTraining(reason, activeExecution any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelStoppedTraining", reflect.TypeOf((*MockKernelReplica)(nil).KernelStoppedTraining), reason)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelStoppedTraining", reflect.TypeOf((*MockKernelReplica)(nil).KernelStoppedTraining), reason, activeExecution)
 }
 
 // LastTrainingStartedAt mocks base method.
@@ -8501,6 +8516,18 @@ func (m *MockKernelReplica) SetContext(arg0 context.Context) {
 func (mr *MockKernelReplicaMockRecorder) SetContext(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContext", reflect.TypeOf((*MockKernelReplica)(nil).SetContext), arg0)
+}
+
+// SetHost mocks base method.
+func (m *MockKernelReplica) SetHost(arg0 scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetHost", arg0)
+}
+
+// SetHost indicates an expected call of SetHost.
+func (mr *MockKernelReplicaMockRecorder) SetHost(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelReplica)(nil).SetHost), arg0)
 }
 
 // SetIOPubSocket mocks base method.
@@ -10277,6 +10304,20 @@ func (mr *MockExecutionManagerMockRecorder) HasActiveTraining() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveTraining", reflect.TypeOf((*MockExecutionManager)(nil).HasActiveTraining))
 }
 
+// IsExecutionComplete mocks base method.
+func (m *MockExecutionManager) IsExecutionComplete(executeRequestId string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsExecutionComplete", executeRequestId)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsExecutionComplete indicates an expected call of IsExecutionComplete.
+func (mr *MockExecutionManagerMockRecorder) IsExecutionComplete(executeRequestId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsExecutionComplete", reflect.TypeOf((*MockExecutionManager)(nil).IsExecutionComplete), executeRequestId)
+}
+
 // LastPrimaryReplica mocks base method.
 func (m *MockExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
 	m.ctrl.T.Helper()
@@ -10289,6 +10330,20 @@ func (m *MockExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
 func (mr *MockExecutionManagerMockRecorder) LastPrimaryReplica() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastPrimaryReplica", reflect.TypeOf((*MockExecutionManager)(nil).LastPrimaryReplica))
+}
+
+// LastPrimaryReplicaId mocks base method.
+func (m *MockExecutionManager) LastPrimaryReplicaId() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LastPrimaryReplicaId")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// LastPrimaryReplicaId indicates an expected call of LastPrimaryReplicaId.
+func (mr *MockExecutionManagerMockRecorder) LastPrimaryReplicaId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastPrimaryReplicaId", reflect.TypeOf((*MockExecutionManager)(nil).LastPrimaryReplicaId))
 }
 
 // LastTrainingEndedAt mocks base method.
@@ -10359,6 +10414,20 @@ func (m *MockExecutionManager) NumCompletedTrainings() int {
 func (mr *MockExecutionManagerMockRecorder) NumCompletedTrainings() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumCompletedTrainings", reflect.TypeOf((*MockExecutionManager)(nil).NumCompletedTrainings))
+}
+
+// NumExecutionsByReplica mocks base method.
+func (m *MockExecutionManager) NumExecutionsByReplica(replicaId int32) int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumExecutionsByReplica", replicaId)
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumExecutionsByReplica indicates an expected call of NumExecutionsByReplica.
+func (mr *MockExecutionManagerMockRecorder) NumExecutionsByReplica(replicaId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumExecutionsByReplica", reflect.TypeOf((*MockExecutionManager)(nil).NumExecutionsByReplica), replicaId)
 }
 
 // RegisterExecution mocks base method.
@@ -10454,6 +10523,20 @@ func (m *MockExecution) EXPECT() *MockExecutionMockRecorder {
 	return m.recorder
 }
 
+// GetActiveReplica mocks base method.
+func (m *MockExecution) GetActiveReplica() scheduling.KernelReplica {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveReplica")
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	return ret0
+}
+
+// GetActiveReplica indicates an expected call of GetActiveReplica.
+func (mr *MockExecutionMockRecorder) GetActiveReplica() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveReplica", reflect.TypeOf((*MockExecution)(nil).GetActiveReplica))
+}
+
 // GetAttemptNumber mocks base method.
 func (m *MockExecution) GetAttemptNumber() int {
 	m.ctrl.T.Helper()
@@ -10496,6 +10579,20 @@ func (mr *MockExecutionMockRecorder) GetExecutionIndex() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecutionIndex", reflect.TypeOf((*MockExecution)(nil).GetExecutionIndex))
 }
 
+// GetMigrationRequired mocks base method.
+func (m *MockExecution) GetMigrationRequired() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMigrationRequired")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// GetMigrationRequired indicates an expected call of GetMigrationRequired.
+func (mr *MockExecutionMockRecorder) GetMigrationRequired() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMigrationRequired", reflect.TypeOf((*MockExecution)(nil).GetMigrationRequired))
+}
+
 // GetNumReplicas mocks base method.
 func (m *MockExecution) GetNumReplicas() int {
 	m.ctrl.T.Helper()
@@ -10508,6 +10605,20 @@ func (m *MockExecution) GetNumReplicas() int {
 func (mr *MockExecutionMockRecorder) GetNumReplicas() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNumReplicas", reflect.TypeOf((*MockExecution)(nil).GetNumReplicas))
+}
+
+// GetNumViableReplicas mocks base method.
+func (m *MockExecution) GetNumViableReplicas() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNumViableReplicas")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetNumViableReplicas indicates an expected call of GetNumViableReplicas.
+func (mr *MockExecutionMockRecorder) GetNumViableReplicas() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNumViableReplicas", reflect.TypeOf((*MockExecution)(nil).GetNumViableReplicas))
 }
 
 // GetOriginallySentAtTime mocks base method.
@@ -10848,6 +10959,30 @@ func (m *MockExecution) SetExecuted(receivedExecuteReplyAt time.Time) {
 func (mr *MockExecutionMockRecorder) SetExecuted(receivedExecuteReplyAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExecuted", reflect.TypeOf((*MockExecution)(nil).SetExecuted), receivedExecuteReplyAt)
+}
+
+// SetMigrationRequired mocks base method.
+func (m *MockExecution) SetMigrationRequired(required bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetMigrationRequired", required)
+}
+
+// SetMigrationRequired indicates an expected call of SetMigrationRequired.
+func (mr *MockExecutionMockRecorder) SetMigrationRequired(required any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMigrationRequired", reflect.TypeOf((*MockExecution)(nil).SetMigrationRequired), required)
+}
+
+// SetNumViableReplicas mocks base method.
+func (m *MockExecution) SetNumViableReplicas(n int) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetNumViableReplicas", n)
+}
+
+// SetNumViableReplicas indicates an expected call of SetNumViableReplicas.
+func (mr *MockExecutionMockRecorder) SetNumViableReplicas(n any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNumViableReplicas", reflect.TypeOf((*MockExecution)(nil).SetNumViableReplicas), n)
 }
 
 // SetTargetReplica mocks base method.

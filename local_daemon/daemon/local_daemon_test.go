@@ -2120,7 +2120,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				By("Releasing the resources once training ends")
 
 				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
-				kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
+				kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.", gomock.Any()).Times(1).Return(nil)
 
 				execReqHeader, err := processedMessage.GetHeader()
 				Expect(err).To(BeNil())
@@ -2369,7 +2369,7 @@ var _ = Describe("Local Daemon Tests", func() {
 					By("Releasing the resources once training ends")
 
 					kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
-					kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
+					kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.", gomock.Any()).Times(1).Return(nil)
 
 					execReqHeader, err := processedMessage.GetHeader()
 					Expect(err).To(BeNil())
@@ -2443,7 +2443,7 @@ var _ = Describe("Local Daemon Tests", func() {
 						By("Releasing the resources once training ends")
 
 						kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
-						kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
+						kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.", gomock.Any()).Times(1).Return(nil)
 
 						execReqHeader, err := processedMessage.GetHeader()
 						Expect(err).To(BeNil())

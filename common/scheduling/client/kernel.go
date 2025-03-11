@@ -439,7 +439,7 @@ func (c *KernelReplicaClient) KernelStartedTraining(trainingStartedAt time.Time)
 			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.lastTrainingStartedAt)
 
 		// We already locked the kernel above, so we can call the unsafe method directly here.
-		err := c.unsafeKernelStoppedTraining("Need to start next training event, so current training event must be stopped first.")
+		err := c.unsafeKernelStoppedTraining("Need to start next training event, so current training event must be stopped first.", nil)
 		if err != nil {
 			c.log.Error("Couldn't cleanly stop training for replica %d of kernel %s: %v", c.replicaId, c.id, err)
 			return err
@@ -562,7 +562,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage
 // KernelReplicaClient struct.
 //
 // If the kernel is already not training, then this method just returns immediately (without an error).
-func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
+func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string, activeExecution scheduling.Execution) error {
 	c.trainingFinishedMu.Lock()
 	if !c.isTraining {
 		c.log.Warn("Cannot stop training; already not training.")
@@ -599,10 +599,33 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 			stats.NumTrainingSessions.Sub(1)
 			stats.CumulativeSessionTrainingTime.Add(time.Since(c.lastTrainingStartedAt).Seconds())
 
+			var (
+				gpuDeviceIds     []int
+				hostId, hostName string
+			)
+
+			// Get the name and ID of the host on which the active replica is running,
+			// if that information is available right now.
+			if activeExecution != nil {
+				activeReplica := activeExecution.GetActiveReplica()
+				if activeReplica != nil {
+					host := activeReplica.Host()
+					if host != nil {
+						hostId = host.GetID()
+						hostName = host.GetNodeName()
+					}
+				}
+
+				gpuDeviceIds = activeExecution.GetGpuDeviceIDs()
+			}
+
 			var metadata map[string]interface{}
 			if container != nil {
 				metadata = map[string]interface{}{
 					"resource_request": container.ResourceSpec().ToMap(),
+					"host_id":          hostId,
+					"host_name":        hostName,
+					"gpu_device_ids":   gpuDeviceIds,
 				}
 			}
 
@@ -625,11 +648,11 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 }
 
 // KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
-func (c *KernelReplicaClient) KernelStoppedTraining(reason string) error {
+func (c *KernelReplicaClient) KernelStoppedTraining(reason string, activeExecution scheduling.Execution) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.unsafeKernelStoppedTraining(reason)
+	return c.unsafeKernelStoppedTraining(reason, activeExecution)
 }
 
 // LastTrainingStartedAt returns the time at which the kernel associated with this client last began actively training.

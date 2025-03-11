@@ -3152,7 +3152,8 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	}
 
 	if shouldCallTrainingStopped {
-		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
+		_ = kernelClient.KernelStoppedTraining(
+			"Received \"execute_reply\" message, indicating that the training has stopped.", nil)
 
 		if d.prometheusManager != nil && d.prometheusEnabled {
 			d.prometheusManager.TrainingTimeGaugeVec.
