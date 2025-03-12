@@ -2145,7 +2145,9 @@ class RaftLog(object):
 
         # If we don't have a current election, then we'll use the specified term number, which should be 1.
         if self._current_election is None:
-            assert term_number == 1
+            if term_number > 1:
+                self.log.warning(f"We should probably have an existing election for term {term_number}...")
+
             return term_number
 
         # If we originally specified something higher, then we'll assume that we know what we're doing.

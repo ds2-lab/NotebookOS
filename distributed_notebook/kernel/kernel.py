@@ -3231,6 +3231,14 @@ class DistributedKernel(IPythonKernel):
         # Block until the leader finishes executing the code, or until we know that all replicas yielded,
         # in which case we can just return, as the code will presumably be resubmitted shortly.
         current_election: Election = self.synchronizer.current_election
+        if current_election is None:
+            self.log.error(f"Expected to have non-null election at this point in yield_request...")
+            self.report_error(
+                "Election is Null in yield_request",
+                "Election should not be null at this point.")
+            await asyncio.sleep(5)
+            return
+
         term_number: int = current_election.term_number
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from yield_request function.")
