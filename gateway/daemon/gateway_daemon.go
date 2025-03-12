@@ -4444,8 +4444,15 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 		return err
 	}
 
-	requestType := request.JupyterMessageType()
-	replyType := fmt.Sprintf("%s_reply", requestType[0:strings.Index(requestType, "_request")])
+	var requestType, replyType string
+	if strings.HasSuffix(request.JupyterMessageType(), "_reply") {
+		replyType = request.JupyterMessageType()
+		requestType = fmt.Sprintf("%s_request", requestType[0:strings.Index(requestType, "_request")])
+	} else {
+		requestType = request.JupyterMessageType()
+		replyType = fmt.Sprintf("%s_reply", requestType[0:strings.Index(requestType, "_request")])
+	}
+
 	_ = request.SetMessageType(messaging.JupyterMessageType(replyType), false)
 	_ = request.SetMessageId(fmt.Sprintf("%s_1", request.JupyterMessageId()), false)
 	_ = request.SetDate(time.Now().Format(time.RFC3339Nano), false)
