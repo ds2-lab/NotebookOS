@@ -1436,6 +1436,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error(f"Will be discarding SHELL message: {msg}")
             return
 
+        self.log.debug(f'Received new SHELL message. Flushing control queue before processing: {msg}')
+
         # flush control queue before handling shell requests
         await self._flush_control_queue()
 
@@ -1521,9 +1523,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("=============================================================================================")
         sys.stderr.flush()
         sys.stdout.flush()
-        self.send_ack(
-            self.shell_stream, msg_type, msg_id, idents, msg, stream_name="shell"
-        )  # Send an ACK.
+        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg, stream_name="shell")  # Send an ACK.
 
         # Only abort execute requests
         if self._aborting and msg_type == "execute_request":

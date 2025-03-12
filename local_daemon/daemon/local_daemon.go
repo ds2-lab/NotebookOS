@@ -3072,8 +3072,8 @@ func (d *LocalScheduler) handleExecuteRequest(msg *messaging.JupyterMessage, ker
 				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), res.(error))
 			return res.(error)
 		default:
-			d.log.Debug("Received result for \"%s\" message \"%s\" targeting kernel \"%s\".",
-				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
+			d.log.Debug("Received result for \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), res)
 			return nil
 		}
 	}

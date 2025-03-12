@@ -8,7 +8,7 @@ import asyncio
 
 from distributed_notebook.sync.remote_storage.error import InvalidKeyError
 from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
-
+from botocore.client import Config
 from typing import Any, Optional, List, Dict
 
 import aioboto3
@@ -28,7 +28,8 @@ class S3Provider(RemoteStorageProvider):
     ):
         super().__init__()
 
-        self._s3_client = boto3.client('s3')
+        config = Config(connect_timeout=5, retries={'max_attempts': 3})
+        self._s3_client = boto3.client('s3', config=config)
         self._bucket_name: str = bucket_name
         self._aws_region: str = aws_region
         # self._io_loops: List[asyncio.AbstractEventLoop] = io_loops or [asyncio.get_running_loop()]

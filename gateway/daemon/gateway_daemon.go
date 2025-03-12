@@ -1504,6 +1504,11 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
 		go d.notifier.NotifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
+
+		// We'll send an error message to the associated client here, though it's possible that we were able to
+		// send a reply, and the error came from something that occurred after sending our response (I think?).
+		_ = d.sendErrorResponse(kernel, executeRequestMsg, err, messaging.ShellMessage)
+
 		return err
 	}
 
@@ -4071,7 +4076,15 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
 		// executeRequestHandler handles sending an error response if it encounters an error.
-		return d.executeRequestHandler(kernel, msg)
+		err := d.executeRequestHandler(kernel, msg)
+		if err != nil {
+			d.log.Error("Error while handling/forwarding shell \"%s\" message \"%s\" (JupyterID=\"%s\"): %v.",
+				msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+
+			// We'll send an error message to the associated client here, though it's possible that we were able to
+			// send a reply, and the error came from something that occurred after sending our response (I think?).
+			_ = d.sendErrorResponse(kernel, msg, err, messaging.ShellMessage)
+		}
 	}
 
 	d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
