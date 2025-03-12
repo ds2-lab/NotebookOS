@@ -2503,9 +2503,15 @@ class DistributedKernel(IPythonKernel):
             # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
             # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
             # or Redis, depending on the system's configuration.
-            await self.synchronize_updated_state(term_number, execute_request_id)
+            await asyncio.wait_for(self.synchronize_updated_state(term_number, execute_request_id), timeout = 120)
 
             self.current_execution_stats.synchronize_updated_state_time_millis = (time.time() - sync_start) * 1.0e3
+        except TimeoutError as ex:
+            self.log.error(f'Timed-out while synchronizing updated state for term {term_number} '
+                           f'and execution "{execute_request_id}": {ex}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Synchronize Updated State in Term {term_number} '
+                              f'for Execution "{execute_request_id}"', str(ex))
         except Exception as ex:
             self.log.error(f'Error while synchronizing updated state for term {term_number} '
                            f'and execution "{execute_request_id}": {ex}')
