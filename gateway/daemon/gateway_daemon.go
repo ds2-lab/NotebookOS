@@ -1498,17 +1498,13 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 
 		kernel.BindSession(executeRequestMsg.JupyterSession())
 
+		// executeRequestHandler handles sending an error response if it encounters an error.
 		err = d.executeRequestHandler(kernel, executeRequestMsg)
 	}
 
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
 		go d.notifier.NotifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
-
-		// We'll send an error message to the associated client here, though it's possible that we were able to
-		// send a reply, and the error came from something that occurred after sending our response (I think?).
-		_ = d.sendErrorResponse(kernel, executeRequestMsg, err, messaging.ShellMessage)
-
 		return err
 	}
 
@@ -4076,15 +4072,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
 		// executeRequestHandler handles sending an error response if it encounters an error.
-		err := d.executeRequestHandler(kernel, msg)
-		if err != nil {
-			d.log.Error("Error while handling/forwarding shell \"%s\" message \"%s\" (JupyterID=\"%s\"): %v.",
-				msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
-
-			// We'll send an error message to the associated client here, though it's possible that we were able to
-			// send a reply, and the error came from something that occurred after sending our response (I think?).
-			_ = d.sendErrorResponse(kernel, msg, err, messaging.ShellMessage)
-		}
+		return d.executeRequestHandler(kernel, msg)
 	}
 
 	d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
@@ -4364,6 +4352,14 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	err := d.processExecuteRequestMetadata(jMsg, kernel)
 	if err != nil {
 		jMsg.IsFailedExecuteRequest = true
+		// We'll send an error message to the associated client here.
+		go func() {
+			sendErr := d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+			if sendErr != nil {
+				d.log.Error("Failed to send error response for shell \"%s\" message \"%s\": %v",
+					jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), sendErr)
+			}
+		}()
 		return err
 	}
 

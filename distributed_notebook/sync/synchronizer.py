@@ -351,20 +351,14 @@ class Synchronizer:
                                                             target_replica_id = target_replica_id)
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
-            # print_trace(limit = 10)
-            stack: list[str] = traceback.format_exception(se)
-            for frame in stack:
-                self.log.error(frame)
+            self.log.error(traceback.format_exception(se))
         except DiscardMessageError as dme:
             self.log.warning(f"Received direction to discard Jupyter Message {jupyter_message_id}, "
                              f"as election for term {term_number} was skipped: {dme}")
             raise dme
         except Exception as e:
             self.log.error("Exception encountered while proposing LEAD: %s" % str(e))
-            # print_trace(limit = 10)
-            stack: list[str] = traceback.format_exception(e)
-            for frame in stack:
-                self.log.error(frame)
+            self.log.error(traceback.format_exception(e))
             raise e
 
         if we_won:

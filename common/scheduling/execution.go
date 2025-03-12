@@ -201,6 +201,9 @@ type Execution interface {
 
 	// GetGpuDeviceIDs returns the GPU device IDs assigned to the kernel for this execution.
 	GetGpuDeviceIDs() []int
+
+	// SetGpuDeviceIDs sets the GPU device IDs assigned to the kernel for this execution.
+	SetGpuDeviceIDs(gpuDeviceIDs []int)
 }
 
 type Proposal interface {

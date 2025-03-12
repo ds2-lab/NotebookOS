@@ -140,6 +140,12 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 
 	activeExecution.targetReplicaId.Store(defaultTargetReplicaId)
 
+	extractMetadata(msg, activeExecution)
+
+	return activeExecution
+}
+
+func extractMetadata(msg *messaging.JupyterMessage, activeExecution *Execution) {
 	var metadataDict map[string]interface{}
 	err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
 	if err == nil {
@@ -185,8 +191,6 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 			}
 		}
 	}
-
-	return activeExecution
 }
 
 // GetExecutionIndex returns the ExecutionIndex of the target Execution.
@@ -443,4 +447,9 @@ func (e *Execution) GetActiveReplica() scheduling.KernelReplica {
 // GetGpuDeviceIDs returns the GPU device IDs assigned to the kernel for this execution.
 func (e *Execution) GetGpuDeviceIDs() []int {
 	return e.GpuDeviceIDs
+}
+
+// SetGpuDeviceIDs sets the GPU device IDs assigned to the kernel for this execution.
+func (e *Execution) SetGpuDeviceIDs(gpuDeviceIDs []int) {
+	e.GpuDeviceIDs = gpuDeviceIDs
 }

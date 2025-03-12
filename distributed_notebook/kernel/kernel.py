@@ -3751,7 +3751,7 @@ class DistributedKernel(IPythonKernel):
                 current_term_number = self.synchronizer.execution_count + 1
 
                 execution_index: int = execute_request_metadata.get("execution_index", -1)
-                if 1 <= execution_index and execution_index != current_term_number:
+                if 1 <= execution_index != current_term_number:
                     self.log.warning(f'Computed term number {current_term_number} != "execution_index" entry '
                                      f'in metadata ({execution_index}). Will use {execution_index} instead.')
 

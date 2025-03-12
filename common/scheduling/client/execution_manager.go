@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
@@ -1432,13 +1433,13 @@ func (m *ExecutionManager) HasActiveTraining() bool {
 // messaging.ShellYieldRequest.
 //
 // If a single target replica is identified, then the ExecutionManager will register this with the associated Execution.
-func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.JupyterMessage, exec scheduling.Execution) error {
+func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.JupyterMessage, activeExecution scheduling.Execution) error {
 	if len(messages) == 0 {
 		m.log.Error("ExecutionManager::SendingExecuteRequest: messages slice is empty.")
 		return ErrEmptyMessagesSlice
 	}
 
-	if exec == nil {
+	if activeExecution == nil {
 		m.log.Error("ExecutionManager::checkAndSetTargetReplica: scheduling.Execution argument is nil.")
 		return fmt.Errorf("execution argument is nil")
 	}
@@ -1452,7 +1453,7 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 		// If the execution index is already set, then we've found two messages of type "execute_request".
 		if execRequestIndex != -1 {
 			m.log.Debug("Messages %d and %d are both of type \"%s\". No single target replica identified for execution \"%s\" (index=%d).",
-				execRequestIndex, i, messaging.ShellExecuteRequest, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+				execRequestIndex, i, messaging.ShellExecuteRequest, messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex())
 			return nil
 		}
 
@@ -1461,15 +1462,52 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 
 	if execRequestIndex == -1 {
 		m.log.Debug("No single target replica identified for execution \"%s\" (index=%d).",
-			messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+			messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex())
 		return nil
 	}
 
 	targetReplicaId := int32(execRequestIndex + 1) // Replica IDs start at 1.
 	m.log.Debug("Identified target replica for execution \"%s\" (index=%d): replica %d.",
-		messages[0].JupyterMessageId(), exec.GetExecutionIndex(), targetReplicaId)
+		messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex(), targetReplicaId)
 
-	return exec.SetTargetReplica(targetReplicaId)
+	err := activeExecution.SetTargetReplica(targetReplicaId)
+	if err != nil {
+		m.log.Error("Failed to set target replica for active execution \"%s\": %v",
+			activeExecution.GetExecuteRequestMessageId(), err)
+		return err
+	}
+
+	// If we already have assigned the GPU device IDs, then we can just return.
+	if activeExecution.GetGpuDeviceIDs() != nil && len(activeExecution.GetGpuDeviceIDs()) > 0 {
+		return nil
+	}
+
+	execRequest := messages[execRequestIndex]
+
+	var metadataDict map[string]interface{}
+	err = execRequest.JupyterFrames.DecodeMetadata(&metadataDict)
+	if err != nil {
+		m.log.Error("Failed to decode the metadata dictionary of \"%s\" message \"%s\": %v",
+			execRequest.JupyterMessageType(), execRequest.JupyterMessageId(), err)
+		return err
+	}
+
+	// Attempt to decode it this way.
+	var requestMetadata *messaging.ExecuteRequestMetadata
+	err = mapstructure.Decode(metadataDict, &requestMetadata)
+	if err == nil {
+		activeExecution.SetGpuDeviceIDs(requestMetadata.GpuDeviceIds)
+	} else {
+		// Fallback if the mapstructure way is broken.
+		m.log.Warn(utils.OrangeStyle.Render("[WARNING] Failed to decode request metadata via mapstructure: %v\n"), err)
+
+		deviceIds, ok := metadataDict["gpu_device_ids"]
+		if ok {
+			activeExecution.SetGpuDeviceIDs(deviceIds.([]int))
+		}
+	}
+
+	return nil
 }
 
 // IsExecutionComplete returns true if the execution associated with the given message ID is complete.

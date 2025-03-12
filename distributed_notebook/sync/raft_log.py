@@ -2436,9 +2436,13 @@ class RaftLog(object):
 
         self.log.debug(f"Waiting on {len(futures)} future(s) for term {election_term}.")
 
-        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = 45)
+        timeout_seconds: float = 60.0
+        done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED, timeout = timeout_seconds)
 
         if len(done) == 0:
+            self.log.warning(f"Have been waiting for at least {timeout_seconds} "
+                             f"seconds to make progress in election for term {election_term}")
+
             self._report_error_callback(f"Timed-Out Waiting for Election to Make Progress in Term {election_term}",
                                         "")
 
