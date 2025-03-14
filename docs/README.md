@@ -10,7 +10,7 @@ shown in the `README.md` located in `<root_directory>/gateway/README.md`.
 ## Clients
 
 Similar to conventional Jupyter environments, clients interact with the platform by transmitting notebook operations 
-via HTTP or WebSocket messages to the platform’s Jupyter Server (Step 1 in Figure 3).
+via HTTP or WebSocket messages to the platform’s Jupyter Server (Step 1 in the architecture diagram).
 
 ## Jupyter Server
 
