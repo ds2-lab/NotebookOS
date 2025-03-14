@@ -59,6 +59,16 @@ func (n *DashboardNotifier) NotifyDashboard(name string, content string, typ mes
 	}
 }
 
+// SendErrorNotification sends an 'error' notification to the Cluster Dashboard in a separate goroutine.
+func (n *DashboardNotifier) SendErrorNotification(errorName string, errorMessage string) {
+	go n.NotifyDashboardOfError(errorName, errorMessage)
+}
+
+// SendInfoNotification sends an 'info' notification to the Cluster Dashboard in a separate goroutine.
+func (n *DashboardNotifier) SendInfoNotification(title string, message string) {
+	go n.NotifyDashboardOfInfo(title, message)
+}
+
 // NotifyDashboardOfInfo is used to issue an "info" notification to the internalCluster Dashboard.
 func (n *DashboardNotifier) NotifyDashboardOfInfo(name string, content string) {
 	n.NotifyDashboard(name, content, messaging.InfoNotification)

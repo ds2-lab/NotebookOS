@@ -3,3 +3,7 @@
 ## Organization
 - `internal/`: the core business logic of the Global Scheduler.
 - `cmd/`: the executable/driver for the Global Scheduler.
+
+## Architecture
+
+![Gateway Architecture Diagram](docs/gateway_arch.png)

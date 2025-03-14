@@ -255,11 +255,6 @@ type ClusterGatewayImpl struct {
 	// Kubernetes client. This is shared with the associated internalCluster Gateway.
 	kubeClient scheduling.KubeClient
 
-	// Watches for new Pods/Containers.
-	//
-	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerEventHandler scheduling.ContainerWatcher
-
 	// gRPC connection to the Dashboard.
 	clusterDashboard proto.ClusterDashboardClient
 
@@ -285,9 +280,6 @@ type ClusterGatewayImpl struct {
 
 	// remoteDockerEventAggregator listens for docker events that occur on remote nodes in Docker Swarm mode.
 	remoteDockerEventAggregator *RemoteDockerEventAggregator
-
-	// Docker client.
-	dockerApiClient *dockerClient.Client
 
 	// MetricsProvider provides all metrics to the members of the scheduling package.
 	MetricsProvider *metrics.ClusterMetricsProvider
@@ -620,16 +612,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.log.Info("Running in DOCKER COMPOSE mode.")
 			clusterGateway.deploymentMode = types.DockerComposeMode
 
-			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
-			if err != nil {
-				panic(err)
-			}
-
-			clusterGateway.dockerApiClient = apiClient
-
-			dockerEventHandler := NewDockerEventHandler()
-			clusterGateway.containerEventHandler = dockerEventHandler
-
 			clusterType = cluster.DockerCompose
 			break
 		}
@@ -637,13 +619,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		{
 			clusterGateway.log.Info("Running in DOCKER SWARM mode.")
 			clusterGateway.deploymentMode = types.DockerSwarmMode
-
-			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
-			if err != nil {
-				panic(err)
-			}
-
-			clusterGateway.dockerApiClient = apiClient
 
 			clusterType = cluster.DockerSwarm
 
@@ -655,7 +630,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.deploymentMode = types.KubernetesMode
 
 			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
-			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
 			clusterType = cluster.Kubernetes
 

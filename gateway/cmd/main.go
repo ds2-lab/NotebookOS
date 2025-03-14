@@ -24,6 +24,7 @@ import (
 	"github.com/scusemua/distributed-notebook/gateway/internal/notifier"
 	"github.com/scusemua/distributed-notebook/gateway/internal/routing"
 	"github.com/scusemua/distributed-notebook/gateway/internal/rpc"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/keepalive"
 	"log"
 	"net"
@@ -222,7 +223,7 @@ func main() {
 
 	forwarder := routing.NewForwarder(&options.ConnectionInfo, dashboardNotifier, metricsProvider, &options)
 
-	dockerCluster, schedulingPolicy := initCluster(&options.ClusterDaemonOptions, metricsProvider)
+	dockerCluster, schedulingPolicy := initCluster(&options, metricsProvider, dashboardNotifier)
 
 	kernelManager, err := kernel.NewManagerBuilder().
 		SetID(clusterGatewayId).
@@ -373,7 +374,9 @@ func main() {
 	done.Wait()
 }
 
-func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvider scheduling.MetricsProvider) (scheduling.Cluster, scheduling.Policy) {
+func initCluster(clusterGatewayOptions *domain.ClusterGatewayOptions, metricsProvider scheduling.MetricsProvider,
+	dashboardNotifier scheduler.NotificationBroker) (scheduling.Cluster, scheduling.Policy) {
+
 	clusterProvider := func() scheduling.Cluster {
 		if clusterGateway == nil {
 			return nil
@@ -382,7 +385,7 @@ func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvi
 		return clusterGateway.cluster
 	}
 
-	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions, clusterProvider)
+	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 	if policyError != nil {
 		panic(policyError)
 	}
@@ -390,12 +393,11 @@ func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvi
 	// Note: we don't construct the scheduling.cluster struct within the switch statement below.
 	// We construct the scheduling.cluster struct immediately following the switch statement.
 	var (
-		clusterPlacer  scheduling.Placer
-		clusterType    cluster.Type
-		deploymentMode types.DeploymentMode
-		err            error
+		clusterPlacer scheduling.Placer
+		clusterType   cluster.Type
+		err           error
 	)
-	switch clusterDaemonOptions.DeploymentMode {
+	switch clusterGatewayOptions.DeploymentMode {
 	case "":
 		{
 			globalLogger.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
@@ -420,52 +422,30 @@ func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvi
 	case "docker-compose":
 		{
 			globalLogger.Info("Running in DOCKER COMPOSE mode.")
-			deploymentMode = types.DockerComposeMode
-
-			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
-			if err != nil {
-				panic(err)
-			}
-
-			clusterGateway.dockerApiClient = apiClient
-
-			dockerEventHandler := NewDockerEventHandler()
-			clusterGateway.containerEventHandler = dockerEventHandler
-
 			clusterType = cluster.DockerCompose
 			break
 		}
 	case "docker-swarm":
 		{
 			globalLogger.Info("Running in DOCKER SWARM mode.")
-			deploymentMode = types.DockerSwarmMode
-
-			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
-			if err != nil {
-				panic(err)
-			}
-
-			clusterGateway.dockerApiClient = apiClient
-
 			clusterType = cluster.DockerSwarm
 
 			break
 		}
 	case "kubernetes":
 		{
-			globalLogger.Info("Running in KUBERNETES mode.")
-			deploymentMode = types.KubernetesMode
-
-			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
-			clusterGateway.containerEventHandler = clusterGateway.kubeClient
-
-			clusterType = cluster.Kubernetes
-
-			break
+			panic("Not supported at the moment.")
+			//globalLogger.Info("Running in KUBERNETES mode.")
+			//deploymentMode = types.KubernetesMode
+			//
+			//clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterGatewayOptions)
+			//clusterGateway.containerEventHandler = clusterGateway.kubeClient
+			//
+			//clusterType = cluster.Kubernetes
 		}
 	default:
 		{
-			globalLogger.Error("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode)
+			globalLogger.Error("Unknown/unsupported deployment mode: \"%s\"", clusterGatewayOptions.DeploymentMode)
 			globalLogger.Error("The supported deployment modes are: ")
 			globalLogger.Error("- \"kubernetes\"")
 			globalLogger.Error("- \"docker-swarm\"")
@@ -481,18 +461,20 @@ func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvi
 		panic(err)
 	}
 
+	hostSpec := getHostSpec(clusterGatewayOptions)
+
 	// This is where we actually construct the scheduling.cluster struct.
 	distributedNotebookCluster, err := cluster.NewBuilder(clusterType).
-		WithKubeClient(clusterGateway.kubeClient).
-		WithHostSpec(clusterGateway.hostSpec).
+		WithKubeClient(nil).
+		WithHostSpec(hostSpec).
 		WithPlacer(clusterPlacer).
 		WithSchedulingPolicy(schedulingPolicy).
 		WithHostMapper(clusterGateway).
 		WithKernelProvider(clusterGateway).
 		WithClusterMetricsProvider(metricsProvider).
-		WithNotificationBroker(clusterGateway).
+		WithNotificationBroker(dashboardNotifier).
 		WithStatisticsUpdateProvider(metricsProvider.UpdateClusterStatistics).
-		WithOptions(&clusterSchedulerOptions).
+		WithOptions(&clusterGatewayOptions.SchedulerOptions).
 		BuildCluster()
 
 	if err != nil {
@@ -500,6 +482,41 @@ func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvi
 	}
 
 	return distributedNotebookCluster, schedulingPolicy
+}
+
+func getHostSpec(clusterGatewayOptions *domain.ClusterGatewayOptions) *types.DecimalSpec {
+	gpusPerHost := clusterGatewayOptions.GpusPerHost
+	if gpusPerHost <= 0 {
+		globalLogger.Error("Invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost)
+		panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost))
+	}
+
+	vram := clusterGatewayOptions.VramGbPerHost
+	if vram <= 0 {
+		vram = scheduling.DefaultVramPerHostGb
+	}
+
+	millicpus := clusterGatewayOptions.MillicpusPerHost
+	if millicpus <= 0 {
+		millicpus = scheduling.DefaultMillicpusPerHost
+	}
+
+	memoryMb := clusterGatewayOptions.MemoryMbPerHost
+	if memoryMb <= 0 {
+		memoryMb = scheduling.DefaultMemoryMbPerHost
+	}
+
+	// millicpus and GPU values are rounded to 0 decimal places. memory (mb) values are rounded to 3
+	// decimal places. vram values are rounded to 6 decimal places. This is to be consistent with the granularity
+	// supported by Kubernetes for resource requests/limits (millicpus and kilobytes/kibibytes).
+	return &types.DecimalSpec{
+		GPUs:      decimal.NewFromFloat(float64(gpusPerHost)).Round(0),
+		VRam:      decimal.NewFromFloat(vram).Round(6),
+		Millicpus: decimal.NewFromFloat(float64(millicpus)).Round(3),
+		MemoryMb:  decimal.NewFromFloat(memoryMb).Round(0),
+	}
 }
 
 func finalize(fix bool, identity string, handler PanicHandler) {
