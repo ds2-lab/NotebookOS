@@ -45,8 +45,8 @@ type DockerScheduler struct {
 }
 
 // newDockerScheduler is called internally by "constructors" of other schedulers that "extend" DockerScheduler.
-func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	hostSpec types.Spec, kernelProvider scheduling.KernelProvider, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 	if cluster == nil {
 		panic("Cluster cannot be nil")
@@ -82,8 +82,8 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 	return dockerScheduler, nil
 }
 
-func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	hostSpec types.Spec, kernelProvider scheduling.KernelProvider, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 
 	dockerScheduler, err := newDockerScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider,

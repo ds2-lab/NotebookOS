@@ -6,8 +6,8 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
-func GetDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+func GetDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	hostSpec types.Spec, kernelProvider scheduling.KernelProvider, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) scheduling.Scheduler {
 
 	var (

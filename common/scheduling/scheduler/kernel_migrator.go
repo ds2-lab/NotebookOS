@@ -30,7 +30,7 @@ type MigrationArgs struct {
 // kernelMigrator encapsulates the logic for migrating scheduling.KernelReplica
 // instances from one scheduling.Host to another.
 type kernelMigrator struct {
-	kernelProvider     KernelProvider
+	kernelProvider     scheduling.KernelProvider
 	log                logger.Logger
 	scheduler          clusterSchedulerInternal
 	notificationBroker NotificationBroker
@@ -51,7 +51,7 @@ type kernelMigrator struct {
 	cluster scheduling.Cluster
 }
 
-func newKernelMigrator(kernelProvider KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal,
+func newKernelMigrator(kernelProvider scheduling.KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal,
 	statisticsProvider scheduling.MetricsProvider, smrPort int32) *kernelMigrator {
 	return &kernelMigrator{
 		kernelProvider:                        kernelProvider,

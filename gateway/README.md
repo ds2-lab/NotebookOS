@@ -14,11 +14,11 @@ There are two gRPC servers used by the Cluster Gateway. They are both defined in
 
 The first is the Dashboard RPC Server. This server establishes a bidirectional gRPC connection with the Cluster Dashboard.
 The Cluster Gateway sends RPC requests to the Dashboard to deliver notifications to the frontend UI. The Dashboard
-sends RPC requests to the Cluster Gateway to retrieve information about Europa and the various kernels running within
-Europa.
+sends RPC requests to the Cluster Gateway to retrieve information about the platform and the various kernels running within
+the platform.
 
 The second is the Gateway RPC Server. This server establishes bidirectional gRPC connections with all Local Schedulers
-running within Europa. The Gateway Provisioners created within the Jupyter Server also establishes (unidirectional)
+running within the platform. The Gateway Provisioners created within the Jupyter Server also establishes (unidirectional)
 gRPC connections with the Gateway RPC Server in order to create Distributed Kernels.
 
 ### **Gateway Daemon**

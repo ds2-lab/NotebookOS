@@ -40,7 +40,7 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
 func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
-	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
+	hostMapper scheduling.HostMapper, kernelProvider scheduling.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
 	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
 	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
 

@@ -1737,7 +1737,7 @@ func (s *BaseScheduler) SetHostMapper(hostMapper scheduling.HostMapper) {
 	s.hostMapper = hostMapper
 }
 
-func (s *BaseScheduler) SetKernelProvider(kernelProvider KernelProvider) {
+func (s *BaseScheduler) SetKernelProvider(kernelProvider scheduling.KernelProvider) {
 	s.kernelProvider = kernelProvider
 }
 

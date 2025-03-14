@@ -16,8 +16,8 @@ import (
 type DockerClusterBuilder struct {
 	hostSpec                  types.Spec
 	placer                    scheduling.Placer
-	hostMapper                scheduler.HostMapper
-	kernelProvider            scheduler.KernelProvider
+	hostMapper                scheduling.HostMapper
+	kernelProvider            scheduling.KernelProvider
 	clusterMetricsProvider    scheduling.MetricsProvider
 	notificationBroker        scheduler.NotificationBroker
 	schedulingPolicy          scheduling.Policy
@@ -35,12 +35,12 @@ func (b *DockerClusterBuilder) WithPlacer(placer scheduling.Placer) *DockerClust
 	return b
 }
 
-func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduler.HostMapper) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduling.HostMapper) *DockerClusterBuilder {
 	b.hostMapper = hostMapper
 	return b
 }
 
-func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduler.KernelProvider) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduling.KernelProvider) *DockerClusterBuilder {
 	b.kernelProvider = kernelProvider
 	return b
 }
@@ -97,7 +97,7 @@ type DockerCluster struct {
 // NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
+func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduling.HostMapper, kernelProvider scheduling.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
 	schedulingPolicy scheduling.Policy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerCluster {
