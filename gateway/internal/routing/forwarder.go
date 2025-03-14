@@ -345,6 +345,10 @@ func (f *Forwarder) extractRequestMetadata(msg *messaging.JupyterMessage) (strin
 	return kernelOrSessionId, msgType, nil
 }
 
+func (f *Forwarder) GetRouter() *router.Router {
+	return f.Router
+}
+
 // SendErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
 // schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
 func (f *Forwarder) SendErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, errContent error, typ messaging.MessageType) error {

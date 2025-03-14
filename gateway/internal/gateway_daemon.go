@@ -99,6 +99,7 @@ type MessageForwarder interface {
 	NumRequestLogEntriesByJupyterMsgId() int
 	HasRequestLog() bool
 	RequestLogLength() int
+	GetRouter() *router.Router
 
 	ControlHandler(router.Info, *messaging.JupyterMessage) error
 
@@ -203,16 +204,12 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 		forwarder:         b.forwarder,
 		kernelManager:     b.kernelManager,
 		options:           b.options,
-		router:            b.router,
 		metricsManager:    b.metricsManager,
 		connectionOptions: b.connectionOptions,
+		router:            b.forwarder.GetRouter(),
 		createdAt:         time.Now(),
 		cleaned:           make(chan struct{}),
 	}
-
-	gatewayDaemon.router = router.New(context.Background(), b.id, b.connectionOptions, b.forwarder,
-		b.options.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
-		metrics.ClusterGateway, b.options.DebugMode, b.metricsManager)
 
 	config.InitLogger(&gatewayDaemon.log, gatewayDaemon)
 
