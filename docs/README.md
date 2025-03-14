@@ -50,8 +50,10 @@ such as model parameters, are saved in the Distributed Data Store and asynchrono
 detects GPU overload, prompting a switch to a different executor replica or the migration of an existing one to another 
 GPU server. 
 
-The platform supports multiple different distributed data store implementations, including AWS S3, HDFS, and Redis.
-Adding support for additional storage backends is trivial and involves implementing a simple Python interface.
+The platform supports multiple different distributed data store implementations, including 
+[AWS S3](https://aws.amazon.com/s3/), [HDFS](https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html), and 
+[Redis](https://www.redis.io/). Adding support for additional storage backends is trivial and involves implementing a 
+simple Python interface.
 
 # Project Architecture - Kubernetes
 
