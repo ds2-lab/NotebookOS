@@ -1,9 +1,9 @@
 # This playbook is used to deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
 ---
 
-- name: Print HDFS NameNode endpoint
-  debug:
-    msg: "HDFS NameNode endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}"
+#- name: Print HDFS NameNode endpoint
+#  debug:
+#    msg: "HDFS NameNode endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}"
 
 - name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
   git:
@@ -26,35 +26,24 @@
     group: "{{ remote_username }}"
   become: true
 
-- name: Create the docker-compose.yml file for the distributed-notebook Docker Swarm stack using the associated template.
+- name: Template the configuration files.
   template:
-    src: docker-compose-swarm.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/docker-compose.yml"
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
     mode: 0640
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
-
-- name: Create the grafana.ini configuration file using the associated template.
-  template:
-    src: grafana.ini.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/grafana/grafana.ini"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  tags:
-    - grafana
-
-- name: Create the prometheus.yml configuration file using the associated template.
-  template:
-    src: prometheus.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/prometheus/prometheus.yml"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  tags:
-    - config
-    - prometheus
-    - update-prometheus-config
+  loop:
+    - { src: "docker-compose-swarm.yml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/docker-compose.yml" }
+    - { src: "grafana.ini.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/grafana/grafana.ini" }
+    - { src: "prometheus.yml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/prometheus/prometheus.yml" }
+    - { src: "./dashboard/dashboard_backend_config.yaml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/config-docker.yaml" }
+    - { src: "./dashboard/dashboard_workload_presets.yaml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-presets-file.yaml" }
+    - { src: "./dashboard/dashboard_workload_job_config.yaml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-job-config.yaml" }
+    - { src: "./dashboard/dashboard_env.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/.env" }
+    - { src: "redis.conf.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/redis/redis.conf" }
+    - { src: "gateway.yml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/gateway/gateway.yml" }
+    - { src: "daemon.yml.j2", dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/local_daemon/daemon.yml" }
 
 - name: Print target (local) path of 'dashboard_workload_templates.yaml.j2'
   debug:
@@ -75,7 +64,7 @@
 
 - name: Copy the 'dashboard_workload_templates.yaml.j2' file if it exists locally
   copy: "src='{{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2' dest='{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2'"
-  when: dashboard_template_check.stat.exists
+  when: "dashboard_template_check.stat.exists and inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -86,6 +75,7 @@
     workload_template_template_file: >-
       {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
          else 'default_dashboard_workload_templates.yaml.j2' }}
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -97,6 +87,7 @@
     workload_template_template_file: >-
       {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
          else 'default_dashboard_workload_templates.yaml.j2' }}
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -105,6 +96,7 @@
 - name: Print the dashboard backend 'workloads template' template file that will be used
   debug:
     msg: "Will use the following file to template the workload-template-file.yaml config file: {{ workload_template_template_file }}"
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -117,6 +109,7 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -129,6 +122,7 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
   become: true
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
@@ -141,87 +135,11 @@
     mode: push
   become: true
   become_user: "{{ remote_username }}"
+  when: "inventory_hostname in 'swarm-leader'"
   tags:
     - workload_templates
     - templates
     - dashboard
-
-- name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
-  template:
-    src: ./dashboard/dashboard_backend_config.yaml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/config-docker.yaml"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  tags:
-    - dashboard
-
-- name: Create the workload-presets-file.yaml file for the Dashboard Backend component using the associated template.
-  template:
-    src: ./dashboard/dashboard_workload_presets.yaml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-presets-file.yaml"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  tags:
-    - dashboard
-
-- name: Create the workload-job-config.yaml file for the Dashboard Backend component using the associated template.
-  template:
-    src: ./dashboard/dashboard_workload_job_config.yaml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-job-config.yaml"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  tags:
-    - dashboard
-
-- name: Create the .env file for the Dashboard Backend component using the associated template.
-  template:
-    src: ./dashboard/dashboard_env.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/.env"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  tags:
-    - dashboard
-
-- name: Create the redis.conf file for Redis using the associated template.
-  template:
-    src: redis.conf.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/redis/redis.conf"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  become: true
-  tags:
-    - redis
-
-- name: Create the gateway.yml file for the Cluster Gateway component using the associated template.
-  template:
-    src: gateway.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/gateway/gateway.yml"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  become: true
-  tags:
-    - cluster_gateway
-
-- name: Print daemon.yml path
-  debug:
-    msg: "Path for daemon.yml: {{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/local_daemon/daemon.yml"
-
-- name: Create the daemon.yml file for the Local Daemon service using the associated template.
-  template:
-    src: daemon.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/local_daemon/daemon.yml"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
-  become: true
-  tags:
-    - local_daemon
 
 - name: Print the name of the Docker Swarm stack to be created
   debug:

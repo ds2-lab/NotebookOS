@@ -17,9 +17,7 @@ class OutStream(OutStreamBase):
 
   def write(self, string: str) -> Optional[int]:
     if not isinstance(string, str):
-      raise TypeError(
-        f"write() argument must be str, not {type(string)}"
-      )
+      raise TypeError(f"write() argument must be str, not {type(string)}")
     
     if not self.disable and reduce(lambda ret, pattern: ret and not re.match(pattern, string), no_output_patterns, True):
       return super().write(string)

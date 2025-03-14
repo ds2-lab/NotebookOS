@@ -368,9 +368,26 @@ func (frames *JupyterFrames) DecodeBuffers(out any) error {
 	}
 }
 
+// BuffersFrame returns the first buffers frame.
 func (frames *JupyterFrames) BuffersFrame() *JupyterFrame {
 	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
 		return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameBuffers])
+	} else {
+		return nil
+	}
+}
+
+// BuffersFrames returns all of the buffers frames.
+func (frames *JupyterFrames) BuffersFrames() []*JupyterFrame {
+	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
+		buffersFrames := frames.Frames[frames.Offset+JupyterFrameBuffers:]
+		buffersJFrames := make([]*JupyterFrame, 0, len(buffersFrames))
+
+		for _, frame := range buffersFrames {
+			buffersFrames = append(buffersFrames, frame)
+		}
+
+		return buffersJFrames
 	} else {
 		return nil
 	}

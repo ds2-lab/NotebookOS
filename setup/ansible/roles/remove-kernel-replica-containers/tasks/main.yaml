@@ -1,6 +1,7 @@
 - name: Remove all Docker containers starting with "kernel-" or "prewarm-" in a single command
   ansible.builtin.command:
     cmd: "/bin/sh -c 'docker ps --all --quiet --filter name=prewarm* --filter name=kernel* | xargs docker rm --force'"
+  ignore_errors: true
   register: result
   changed_when: result.stdout != ""
   failed_when: result.rc != 0 and "No such container" not in result.stderr

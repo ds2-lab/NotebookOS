@@ -113,7 +113,7 @@ func (placer *AbstractPlacer) reserveResourcesForKernel(candidateHost scheduling
 // in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
 // depending upon the scheduling.Policy configured for the AllocationManager.
 func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost scheduling.Host,
-	replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+	replicaSpec *proto.KernelReplicaSpec, forTraining bool, ignoreOversubscriptionRisk bool) (bool, error) {
 
 	isViable, reasonForUnviability := placer.schedulingPolicy.ValidateHostForReplica(candidateHost, replicaSpec, forTraining)
 	if !isViable {
@@ -154,7 +154,7 @@ func (placer *AbstractPlacer) reserveResourcesForReplica(candidateHost schedulin
 		return false, scheduling.ErrHostDisabled
 	}
 
-	reserved, err := candidateHost.ReserveResourcesForSpecificReplica(replicaSpec, usePendingReservation)
+	reserved, err := candidateHost.ReserveResourcesForSpecificReplica(replicaSpec, usePendingReservation, ignoreOversubscriptionRisk)
 	if err != nil {
 		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
 		if reserved {
@@ -242,14 +242,14 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 // PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
 // on which the resources are to be reserved.
 func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica,
-	commitResources bool) error {
+	commitResources bool, ignoreOversubscriptionRisk bool) error {
 
 	host := replica.Host()
 
 	decimalSpec := kernel.ResourceSpec()
 	placer.log.Debug("Explicitly reserving resources [%v] for replica %d of kernel %s [commitResources=%v].",
 		decimalSpec, replica.ReplicaID(), kernel.ID(), commitResources)
-	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources, ignoreOversubscriptionRisk)
 
 	if reserved {
 		placer.log.Debug("Explicitly reserved [%v] resources for replica %d of kernel %s [commitResources=%v].",
@@ -263,7 +263,9 @@ func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kerne
 }
 
 // FindHost returns a single host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (scheduling.Host, error) {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
+	ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
+
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
@@ -271,7 +273,7 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, replicaSpec *pro
 	metrics := []float64{replicaSpec.ResourceSpec().GPU()}
 
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host, err := placer.instance.findHost(blacklist, replicaSpec, forTraining, metrics)
+	host, err := placer.instance.findHost(blacklist, replicaSpec, forTraining, ignoreOversubscriptionRisk, metrics)
 	if err != nil {
 		placer.log.Error("Error while finding host for replica of kernel %s: %v", replicaSpec.Kernel.Id, err)
 		return nil, err

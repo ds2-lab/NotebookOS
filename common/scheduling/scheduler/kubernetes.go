@@ -31,8 +31,8 @@ type KubernetesScheduler struct {
 	kubeSchedulerServicePort int // JupyterGrpcPort that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
 }
 
-func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	kernelProvider KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
+func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	kernelProvider scheduling.KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
 
 	clusterProvider := schedulingPolicy.GetClusterProviderFunc()
@@ -72,9 +72,7 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
-	heap.Push(s.idleHosts, host)
-	s.log.Debug("Host %s (ID=%s) has been added. Cluster size: %d. Length of idle hosts: %d",
-		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
+	s.baseHostAdded(host)
 }
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
@@ -125,7 +123,7 @@ func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) 
 	panic("Not implemented")
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(_ context.Context, args *scheduling.ScheduleReplicaArgs) (err error) {
+func (s *KubernetesScheduler) ScheduleKernelReplica(_ context.Context, args *scheduling.ScheduleReplicaArgs) error {
 	replicaSpec := args.ReplicaSpec
 
 	if err := s.kubeClient.ScaleOutCloneSet(replicaSpec.Kernel.Id); err != nil {
@@ -203,7 +201,7 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
-func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
 	panic("Not implemented")
 }
 

@@ -56,10 +56,10 @@ class CIFAR100(ComputerVisionDataset):
                                           num_workers=num_workers, dataset_name=self.dataset_name())
 
         if self._dataset_already_downloaded:
-            print(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
+            self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
-            print(
-                f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" "
+                           f"in {self._download_duration_sec} seconds.")
 
     @staticmethod
     def category() -> str:

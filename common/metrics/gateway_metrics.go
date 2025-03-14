@@ -102,14 +102,14 @@ func (m *GatewayPrometheusManager) UpdateClusterStatistics(updater func(statisti
 	m.updateClusterStatsCallback(updater)
 }
 
-func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNodeProvider, updater func(updater func(statistics *ClusterStatistics))) *GatewayPrometheusManager {
-	baseManager := newBasePrometheusManager(port, localDaemonNodeProvider.GetId())
+func NewGatewayPrometheusManager(port int, callbackProvider CallbackProvider) *GatewayPrometheusManager {
+	baseManager := newBasePrometheusManager(port, callbackProvider.GetId())
 	config.InitLogger(&baseManager.log, baseManager)
 
 	manager := &GatewayPrometheusManager{
 		basePrometheusManager:      baseManager,
-		localDaemonNodeProvider:    localDaemonNodeProvider,
-		updateClusterStatsCallback: updater,
+		localDaemonNodeProvider:    callbackProvider,
+		updateClusterStatsCallback: callbackProvider.UpdateClusterStatistics,
 	}
 	baseManager.instance = manager
 	baseManager.initializeInstanceMetrics = manager.initMetrics

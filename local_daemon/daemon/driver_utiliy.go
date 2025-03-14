@@ -235,8 +235,9 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	globalLogger.Info("Initializing Local Scheduler with options: %s", options.PrettyString(2))
 
-	// Initialize grpc server
-	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName, dockerContainerId)
+	// Initialize rpc server
+	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer,
+		nodeName, dockerContainerId)
 
 	err := scheduler.connectToGateway(options.ProvisionerAddr, finalize)
 	if err != nil {

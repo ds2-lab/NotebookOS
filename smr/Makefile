@@ -69,11 +69,11 @@ endif
 
 gen-python: clean
 	@echo "\nGenerating Go/Python bindings via gopy now"
-	gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=$(PYTHON3_PATH) github.com/scusemua/distributed-notebook/smr
+	GODEBUG=cgocheck=1 GOEXPERIMENT=cgocheck2 gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=$(PYTHON3_PATH) github.com/scusemua/distributed-notebook/smr
 
 build-python: clean
 	@echo "\nBuilding Python"
-	gopy build -output=../distributed_notebook/smr -build-tags='-gcflags=all="-N -l"' -vm=$(PYTHON3_PATH) github.com/scusemua/distributed-notebook/smr -symbols=true
+	GODEBUG=cgocheck=1 GOEXPERIMENT=cgocheck2 gopy build -symbols=true -output=../distributed_notebook/smr -build-tags='-gcflags=all="-N -l"' -vm=$(PYTHON3_PATH) github.com/scusemua/distributed-notebook/smr -symbols=true
 
 build-common:
 	@echo "\nBuilding 'smr-common' now."
@@ -98,5 +98,5 @@ build-%: gen-% build-common patch.smr.c
 clean:
 	@echo "\nRemoving directory \"$(DEST)\""
 	rm -rf $(DEST)
-#	rm -rf $(DEST)/bak
+#	rm -rf $(DEST)/bak 2
 

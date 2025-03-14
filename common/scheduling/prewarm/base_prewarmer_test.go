@@ -461,7 +461,6 @@ var _ = Describe("Base Prewarmer Tests", func() {
 
 			Expect(prewarmer.Len()).To(Equal(numHosts * initialCapacity))
 
-			
 		})
 
 		It("Will allow for the dynamic request of additional prewarm containers", func() {

@@ -128,7 +128,7 @@ var _ = Describe("End-to-End Tests", func() {
 		Expect(os.Getenv(invoker.DockerInvokerKernelConnInfoIp)).To(Equal(dockerInvokerKernelConnInfoIp))
 	})
 
-	Context("Scheduling Kernels", func() {
+	Context("Scheduling kernels", func() {
 		It("Will correctly schedule a kernel.", func() {
 			components := createComponents(3)
 			Expect(components).NotTo(BeNil())
@@ -268,7 +268,7 @@ type KernelReplica struct {
 //		PersistentId:       nil,
 //		NodeName:           k.NodeName,
 //		Key:                k.KernelId,
-//		PodOrContainerName: k.KernelId,
+//		PodOrContainerId: k.KernelId,
 //		Op:                 "register",
 //		SignatureScheme:    messaging.JupyterSignatureScheme,
 //		WorkloadId:         "",

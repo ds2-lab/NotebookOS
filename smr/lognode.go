@@ -27,12 +27,11 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"os"
-	"os/signal"
 	"path"
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"syscall"
+	"sync"
 	"time"
 
 	"github.com/scusemua/distributed-notebook/smr/storage"
@@ -60,11 +59,14 @@ const (
 )
 
 var (
-	ProposalDeadline          = 15 * time.Second
-	ErrClosed                 = errors.New("node closed")
-	ErrEOF                    = io.EOF.Error() // For python module to check if io.EOF is returned
-	ErrRemoteStorageClientNil = errors.New("remote storage client is nil; cannot close it")
-	sig                       = make(chan os.Signal, 1)
+	ProposalDeadline           = 25 * time.Second
+	UpdateNodeProposalDeadline = 15 * time.Second
+	RemoveNodeProposalDeadline = 25 * time.Second
+	AddNodeProposalDeadline    = 25 * time.Second
+	ErrClosed                  = errors.New("node closed")
+	ErrEOF                     = io.EOF.Error() // For python module to check if io.EOF is returned
+	ErrRemoteStorageClientNil  = errors.New("remote storage client is nil; cannot close it")
+	sig                        = make(chan os.Signal, 1)
 )
 
 type StateValueCallback func(ReadCloser, int, string) string
@@ -92,7 +94,11 @@ func toCError(err error) string {
 func finalize() {
 	if err := recover(); err != nil {
 		fmt.Printf("Panic/Error: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Panic/Error: %v\n", err)
+
 		fmt.Printf("Stacktrace:\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Stacktrace:\n")
+
 		debug.PrintStack()
 
 		time.Sleep(time.Second * 30)
@@ -164,7 +170,7 @@ type commit struct {
 // LogNode is a SyncLog backed by raft
 type LogNode struct {
 	proposeC    chan *proposalContext   // proposed serialized messages
-	confChangeC chan *confChangeContext // proposed cluster config changes
+	confChangeC chan *ConfChangeContext // proposed cluster config changes
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
@@ -189,7 +195,7 @@ type LogNode struct {
 	numChanges       uint64
 	deniedChanges    uint64
 	proposalPadding  int
-	proposalRegistry hashmap.BaseHashMap[string, smrContext]
+	proposalRegistry hashmap.BaseHashMap[string, SmrContext]
 
 	// raft backing for the commit/error channel
 	node        raft.Node
@@ -253,8 +259,20 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 
 	defer finalize()
 	_, _ = fmt.Fprintf(os.Stderr, "Creating a new LogNode [version %v].\n", VersionText)
+	_, _ = fmt.Fprintf(os.Stderr, "storePath: \"%s\" \n", storePath)
+	_, _ = fmt.Fprintf(os.Stderr, "id: %d \n", id)
+	_, _ = fmt.Fprintf(os.Stderr, "remoteStorageHostname: \"%s\" \n", remoteStorageHostname)
+	_, _ = fmt.Fprintf(os.Stderr, "storePath: \"%s\" \n", storePath)
+	_, _ = fmt.Fprintf(os.Stderr, "shouldLoadDataFromRemoteStorage: %v \n", shouldLoadDataFromRemoteStorage)
+	_, _ = fmt.Fprintf(os.Stderr, "peerAddresses: %v \n", peerAddresses)
+	_, _ = fmt.Fprintf(os.Stderr, "peerIDs: %v \n", peerIDs)
+	_, _ = fmt.Fprintf(os.Stderr, "join: %v \n", join)
+	_, _ = fmt.Fprintf(os.Stderr, "httpDebugPort: %v \n", httpDebugPort)
+	_, _ = fmt.Fprintf(os.Stderr, "deploymentMode: \"%s\" \n", deploymentMode)
 
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+	// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+
+	_, _ = fmt.Fprintf(os.Stderr, "Validating peer IDs and peer addresses now...\n")
 
 	if len(peerAddresses) != len(peerIDs) {
 		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Received unequal number of peer addresses (%d) and peer node IDs (%d). They must be equal.\n", len(peerAddresses), len(peerIDs))
@@ -275,7 +293,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 
 	node := &LogNode{
 		proposeC:                        make(chan *proposalContext),
-		confChangeC:                     make(chan *confChangeContext),
+		confChangeC:                     make(chan *ConfChangeContext),
 		commitC:                         make(chan *commit),
 		errorC:                          make(chan error, 1),
 		id:                              id,
@@ -286,7 +304,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		httpDoneChannel:                 make(chan struct{}),
 		numChanges:                      0,
 		deniedChanges:                   0,
-		proposalRegistry:                hashmap.NewConcurrentMap[smrContext](32),
+		proposalRegistry:                hashmap.NewConcurrentMap[SmrContext](32),
 		snapshotterReady:                make(chan LogSnapshotter, 1),
 		dataDir:                         storePath, // The base path of store_path is the persistent ID.
 		shouldLoadDataFromRemoteStorage: shouldLoadDataFromRemoteStorage,
@@ -294,6 +312,8 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		deploymentMode:                  deploymentMode,
 		atom:                            zap.NewAtomicLevelAt(zap.DebugLevel),
 	}
+
+	_, _ = fmt.Fprintf(os.Stderr, "Created LogNode struct.\n")
 
 	core := zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), os.Stdout, node.atom)
 	node.logger = zap.New(core, zap.Development())
@@ -366,7 +386,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		progressChan := make(chan string, 8)
 		errorChan := make(chan error)
 		go func() {
-			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+			// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
 			defer finalize()
 
 			// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
@@ -440,7 +460,7 @@ func (node *LogNode) ServeHttpDebug() {
 	}
 
 	go func() {
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
 
 		log.Printf("Serving debug HTTP server on port %d.\n", node.httpDebugPort)
 
@@ -482,22 +502,27 @@ func (node *LogNode) Start(config *LogNodeConfig) bool {
 
 	node.config = config
 	if !config.Debug {
+		node.logger.Debug("Increasing LogLevel as Debug is not set.")
 		node.logger = node.logger.WithOptions(zap.IncreaseLevel(zapcore.InfoLevel))
 	}
 
-	startErrorChan := make(chan startError)
+	startErrorChan := make(chan startError, 1)
 
 	go func() {
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
+		node.logger.Debug("'start' goroutine created")
 		node.start(startErrorChan)
 	}()
 
-	startError := <-startErrorChan
+	node.logger.Debug("Waiting for notification from 'start' goroutine.")
+	err := <-startErrorChan
 
-	if startError.ErrorOccurred {
-		node.logger.Error("Failed to start LogNode.", zap.Error(startError.Error))
+	if err.ErrorOccurred {
+		node.logger.Error("Failed to start LogNode.", zap.Error(err.Error))
 		return false
 	}
+
+	node.logger.Info("Successfully started LogNode.", zap.Int("node_id", node.id))
 
 	return true
 }
@@ -518,6 +543,7 @@ func (node *LogNode) GetSerializedState() []byte {
 // Propose appends the difference of the value of specified key to the synchronization queue.
 func (node *LogNode) Propose(val Bytes, resolve ResolveCallback, msg string) {
 	_, ctx := node.generateProposal(val.Bytes(), ProposalDeadline)
+
 	go func() {
 		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 		node.propose(ctx, node.sendProposal, resolve, msg)
@@ -553,8 +579,27 @@ func (node *LogNode) AddNode(id int, addr string, resolve ResolveCallback) {
 		Type:    raftpb.ConfChangeAddNode,
 		NodeID:  uint64(id),
 		Context: []byte(addr),
-	}, ProposalDeadline)
-	go node.propose(ctx, node.manageNode, resolve, "add node")
+	}, AddNodeProposalDeadline)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::AddNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 50)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::AddNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		resolve(i, s)
+	}
+
+	go node.propose(ctx, node.manageNode, wrappedResolve, "add node")
 }
 
 func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
@@ -563,8 +608,27 @@ func (node *LogNode) RemoveNode(id int, resolve ResolveCallback) {
 	ctx := node.generateConfChange(&raftpb.ConfChange{
 		Type:   raftpb.ConfChangeRemoveNode,
 		NodeID: uint64(id),
-	}, ProposalDeadline)
-	go node.propose(ctx, node.manageNode, resolve, "remove node")
+	}, RemoveNodeProposalDeadline)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::RemoveNode.",
+			zap.Int("id", id))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 50)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::RemoveNode.",
+			zap.Int("id", id))
+
+		resolve(i, s)
+	}
+
+	go node.propose(ctx, node.manageNode, wrappedResolve, "remove node")
 }
 
 func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
@@ -574,11 +638,30 @@ func (node *LogNode) UpdateNode(id int, addr string, resolve ResolveCallback) {
 		Type:    raftpb.ConfChangeUpdateNode,
 		NodeID:  uint64(id),
 		Context: []byte(addr),
-	}, ProposalDeadline)
-	go node.propose(ctx, node.manageNode, resolve, "update node")
+	}, UpdateNodeProposalDeadline)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	wrappedResolve := func(i interface{}, s string) {
+		node.logger.Debug("Waiting before calling 'resolve' callback in LogNode::UpdateNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		wg.Wait()
+
+		time.Sleep(time.Millisecond * 50)
+
+		node.logger.Debug("Done waiting before calling 'resolve' callback in LogNode::UpdateNode.",
+			zap.Int("id", id), zap.String("addr", addr))
+
+		resolve(i, s)
+	}
+
+	go node.propose(ctx, node.manageNode, wrappedResolve, "update node")
 }
 
-func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, resolve ResolveCallback, msg string) {
+func (node *LogNode) propose(ctx SmrContext, proposer func(SmrContext) error, resolve ResolveCallback, msg string) {
 	debug.SetPanicOnFault(true)
 	defer finalize()
 
@@ -586,9 +669,6 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 		// node.logger.Info("No Python callback provided. Using default resolve callback.")
 		resolve = node.defaultResolveCallback
 	}
-	// else {
-	// node.sugaredLogger.Infof("Provided Python resolve callback. Message: %s", msg)
-	// }
 
 	node.logger.Info("Proposing to append value", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if err := proposer(ctx); err != nil {
@@ -603,7 +683,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	for !node.waitProposal(ctx) {
 		node.logger.Info("Retry proposing to append value",
 			zap.String("key", msg), zap.String("id", ctx.ID()))
-		ctx.Reset(ProposalDeadline)
+		ctx.ResetWithPreviousTimeout()
 		if err := proposer(ctx); err != nil {
 			node.logger.Error("Exception while retrying value proposal.",
 				zap.String("key", msg), zap.String("id", ctx.ID()), zap.Error(err))
@@ -613,17 +693,17 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	}
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
-		node.logger.Info("Calling `resolve` callback.", zap.Any("resolve-callback", resolve),
-			zap.String("msg", msg))
+		node.logger.Info("Calling `resolve` callback.", zap.String("msg", msg))
 		resolve(msg, toCError(nil))
+		node.logger.Info("Finished call to `resolve` callback.", zap.String("msg", msg))
 	} else {
 		node.logger.Info("There is no `resolve` callback to invoke.", zap.String("msg", msg))
 	}
 }
 
-func (node *LogNode) manageNode(ctx smrContext) error {
+func (node *LogNode) manageNode(ctx SmrContext) error {
 	select {
-	case node.confChangeC <- ctx.(*confChangeContext):
+	case node.confChangeC <- ctx.(*ConfChangeContext):
 		return nil
 	case <-node.stopChannel:
 		return ErrClosed
@@ -715,12 +795,12 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	defer finalize()
 
 	node.sugaredLogger.Infof("LogNode %d is beginning start procedure now.", node.id)
-	debug.SetPanicOnFault(true)
+	// debug.SetPanicOnFault(true)
 
 	if node.isSnapEnabled() {
 		node.logger.Info("Snapshots are enabled.")
 		if !fileutil.Exist(node.snapdir) {
-			if err := os.Mkdir(node.snapdir, 0750); err != nil {
+			if err := os.Mkdir(node.snapdir, 0750); err != nil && !errors.Is(err, os.ErrExist) {
 				node.logFatalf("LogNode: cannot create directory \"%s\" for snapshot because: %v", node.snapdir, err)
 				startErrorChan <- startError{
 					ErrorOccurred: true,
@@ -802,6 +882,7 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	}
 
 	go node.serveRaft()
+
 	node.serveChannels(startErrorChan)
 }
 
@@ -960,7 +1041,8 @@ func (node *LogNode) loadSnapshot() *raftpb.Snapshot {
 			node.logWarnf("LogNode: error loading snapshot (%v)", err)
 		}
 
-		node.logger.Info("Loaded snapshot from WAL directory.", zap.String("waldir", node.waldir), zap.Int("snapshot-size-bytes", snapshot.Size()))
+		node.logger.Info("Loaded snapshot from WAL directory.",
+			zap.String("waldir", node.waldir), zap.Int("snapshot-size-bytes", snapshot.Size()))
 		return snapshot
 	}
 	return nil
@@ -972,28 +1054,57 @@ func (node *LogNode) isWALEnabled() bool {
 
 // openWAL returns a WAL ready for reading.
 func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
+	defer finalize()
+
 	if !wal.Exist(node.waldir) {
-		node.logger.Info(fmt.Sprintf("WAL directory \"%s\" does not already exist. Creating it now.", node.waldir), zap.String("directory", node.waldir))
-		if err := os.Mkdir(node.waldir, 0750); err != nil {
-			node.logFatalf("LogNode: cannot create dir for wal (%v)", err)
-			return nil
+		node.logger.Info(fmt.Sprintf("WAL directory \"%s\" does not already exist. Creating it now.", node.waldir),
+			zap.String("directory", node.waldir))
+
+		if !fileutil.Exist(node.waldir) {
+			node.logger.Debug("Creating the WAL directory itself now.", zap.String("waldir", node.waldir))
+
+			if err := os.Mkdir(node.waldir, 0750); err != nil && !errors.Is(err, os.ErrExist) {
+				node.logger.Error("Failed to create WAL directory.", zap.Error(err))
+				time.Sleep(time.Millisecond * 50)
+				node.logFatalf("LogNode: cannot create dir for wal (%v)", err)
+				return nil
+			}
+
+			node.logger.Debug("Creating the WAL directory itself.", zap.String("waldir", node.waldir))
+		} else {
+			node.logger.Warn("The WAL directory itself already exists.", zap.String("waldir", node.waldir))
 		}
+
+		node.logger.Debug("Creating the WAL now.", zap.String("waldir", node.waldir))
+
+		notifyChan := make(chan interface{})
 
 		w, err := wal.Create(zap.NewExample(), node.waldir, nil)
 		if err != nil {
+			node.logger.Error("Failed to create WAL.", zap.Error(err))
+			time.Sleep(time.Millisecond * 50)
 			node.logFatalf("LogNode: create WAL error (%v)", err)
+			notifyChan <- err
 			return nil
 		}
+
+		node.logger.Info(fmt.Sprintf("Successfully created WAL direcotry: \"%s\"", node.waldir),
+			zap.String("uri", node.waldir))
+
 		_ = w.Close()
-		node.logger.Info(fmt.Sprintf("Successfully created WAL direcotry: \"%s\"", node.waldir), zap.String("uri", node.waldir))
+
+		node.logger.Debug("Closed the WAL.", zap.String("waldir", node.waldir))
 	}
 
 	walSnapshot := walpb.Snapshot{}
 	if snapshot != nil {
 		walSnapshot.Index, walSnapshot.Term = snapshot.Metadata.Index, snapshot.Metadata.Term
 	}
+
 	w, err := wal.Open(zap.NewExample(), node.waldir, walSnapshot)
 	if err != nil {
+		node.logger.Error("Failed to open or load WAL.", zap.Error(err))
+		time.Sleep(time.Millisecond * 50)
 		node.logFatalf("LogNode: error loading wal (%v)", err)
 	}
 
@@ -1241,7 +1352,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 					// blocks until accepted by raft state machine
 					node.logger.Info(fmt.Sprintf("LogNode %d: proposing something.", node.id),
 						zap.Int("num_bytes", len(ctx.Proposal)))
-					err := node.node.Propose(ctx, ctx.Proposal)
+					err = node.node.Propose(ctx, ctx.Proposal)
 					if err != nil {
 						node.logger.Error("Failed to propose value.", zap.Error(err),
 							zap.Int("num_bytes", len(ctx.Proposal)))
@@ -1259,7 +1370,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 					cc.ConfChange.ID = confChangeCount
 					node.logger.Info(fmt.Sprintf("LogNode %d: proposing configuration change: %s",
 						node.id, cc.ConfChange.String()), zap.String("conf-change", cc.ConfChange.String()))
-					err := node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
+					err = node.node.ProposeConfChange(context.TODO(), *cc.ConfChange)
 					if err != nil {
 						node.logger.Error("Failed to propose configuration change.", zap.Error(err))
 					}
@@ -1428,7 +1539,7 @@ func (node *LogNode) generateProposal(val []byte, timeout time.Duration) ([]byte
 	return ret, ctx
 }
 
-func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Duration) *confChangeContext {
+func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Duration) *ConfChangeContext {
 	var id string
 	cc.Context, id = node.patchPropose(cc.Context)
 	ctx := NewConfChangeContext(id, cc, timeout)
@@ -1436,11 +1547,11 @@ func (node *LogNode) generateConfChange(cc *raftpb.ConfChange, timeout time.Dura
 	return ctx
 }
 
-func (node *LogNode) registerProposal(proposal smrContext) {
+func (node *LogNode) registerProposal(proposal SmrContext) {
 	node.proposalRegistry.Store(proposal.ID(), proposal)
 }
 
-func (node *LogNode) sendProposal(proposal smrContext) error {
+func (node *LogNode) sendProposal(proposal SmrContext) error {
 	// Save local channel for thread-safe access.
 	select {
 	case node.proposeC <- proposal.(*proposalContext):
@@ -1450,7 +1561,7 @@ func (node *LogNode) sendProposal(proposal smrContext) error {
 	}
 }
 
-func (node *LogNode) doneProposal(val []byte) ([]byte, smrContext) {
+func (node *LogNode) doneProposal(val []byte) ([]byte, SmrContext) {
 	if len(val) < node.proposalPadding {
 		return val, nil
 	}
@@ -1467,12 +1578,12 @@ func (node *LogNode) doneProposal(val []byte) ([]byte, smrContext) {
 	return ret, ctx
 }
 
-func (node *LogNode) doneConfChange(cc *raftpb.ConfChange) (ctx smrContext) {
+func (node *LogNode) doneConfChange(cc *raftpb.ConfChange) (ctx SmrContext) {
 	cc.Context, ctx = node.doneProposal(cc.Context)
 	return ctx
 }
 
-func (node *LogNode) waitProposal(ctx smrContext) bool {
+func (node *LogNode) waitProposal(ctx SmrContext) bool {
 	<-ctx.Done()
 	return errors.Is(ctx.Err(), context.Canceled)
 }

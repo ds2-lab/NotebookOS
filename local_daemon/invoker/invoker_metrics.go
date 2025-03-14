@@ -10,5 +10,5 @@ type ContainerMetricsProvider interface {
 	//
 	// If the target ContainerMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 	// error is returned.
-	AddContainerCreationLatencyObservation(latency time.Duration) error
+	AddContainerCreationLatencyObservation(latency time.Duration, nodeId string) error
 }

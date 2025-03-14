@@ -16,7 +16,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -125,6 +124,8 @@ type LocalScheduler struct {
 
 	host scheduling.Host
 
+	hostSpec *types.Float64Spec
+
 	tracer   opentracing.Tracer
 	listener net.Listener
 
@@ -209,7 +210,7 @@ type LocalScheduler struct {
 	containerStartedNotificationManager *notification_manager.ContainerStartedNotificationManager
 
 	// Manages resource allocations on behalf of the Local Daemon.
-	allocationManager *resource.AllocationManager
+	// allocationManager *resource.AllocationManager
 
 	// localDaemonOptions is the options struct that the Local Daemon was created with.
 	localDaemonOptions *domain.LocalDaemonOptions
@@ -309,6 +310,21 @@ type LocalScheduler struct {
 	realGpusAvailable bool
 
 	createdAt time.Time
+}
+
+// KernelRegistrationResponse is sent back to the Python DistributedKernel during the registration process.
+type KernelRegistrationResponse struct {
+	SmrNodeId                       int32            `json:"smr_node_id"`
+	Hostname                        string           `json:"hostname"`
+	Replicas                        map[int32]string `json:"replicas"`
+	DebugPort                       int              `json:"debug_port"`
+	Status                          string           `json:"status"`
+	GrpcPort                        int              `json:"grpc_port"`
+	MessageAcknowledgementsEnabled  bool             `json:"message_acknowledgements_enabled"`
+	PersistentId                    string           `json:"persistent_id"`
+	ShouldReadDataFromRemoteStorage bool             `json:"should_read_data_from_remote_storage"`
+	Error                           string           `json:"error,omitempty"`
+	ErrorMessage                    string           `json:"message,omitempty"`
 }
 
 // KernelRegistrationPayload is sent by the Python DistributedKernel to its co-located LocalScheduler during
@@ -424,11 +440,23 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		createdAt:                      time.Now(),
 	}
 
+	config.InitLogger(&daemon.log, daemon)
+
 	for _, configFunc := range configs {
 		configFunc(daemon)
 	}
 
-	config.InitLogger(&daemon.log, daemon)
+	if daemon.ip == "" {
+		ip, err := utils.GetIP()
+		if err != nil {
+			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
+		} else {
+			daemon.ip = ip
+			daemon.log.Debug("Resolved IP address to \"%s\"", ip)
+		}
+	} else {
+		daemon.log.Debug("IP address has been explicitly set to \"%s\"", ip)
+	}
 
 	if daemon.DebugMode {
 		daemon.log.Debug("Running in DebugMode.")
@@ -479,13 +507,13 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 			gpusPerHost))
 	}
 
-	hostSpec := &types.Float64Spec{
+	daemon.hostSpec = &types.Float64Spec{
 		GPUs:      float64(gpusPerHost),
 		VRam:      scheduling.DefaultVramPerHostGb,
 		Millicpus: scheduling.DefaultMillicpusPerHost,
 		Memory:    scheduling.DefaultMemoryMbPerHost,
 	}
-	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId, nodeName)
+	// daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId, nodeName)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -496,15 +524,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	//	daemon.log.Debug("Using default Prometheus port: %d.", DefaultPrometheusPort)
 	//	daemon.prometheusPort = DefaultPrometheusPort
 	//}
-
-	if daemon.ip == "" {
-		ip, err := utils.GetIP()
-		if err != nil {
-			daemon.log.Warn("No ip set because of missing configuration and failed to get ip: %v", err)
-		} else {
-			daemon.ip = ip
-		}
-	}
 
 	if len(localDaemonOptions.RemoteStorageEndpoint) == 0 {
 		panic("remote storage endpoint is empty.")
@@ -659,6 +678,8 @@ func (d *LocalScheduler) ConsumeDockerEvent(event map[string]interface{}) {
 		return
 	}
 
+	containerName := attributes["name"].(string)
+
 	// Generate a more meaningful error message + notify the dashboard UI.
 	if d.containerStartedNotificationManager == nil {
 		err := fmt.Errorf("containerStartedNotificationManager is nil")
@@ -670,6 +691,7 @@ func (d *LocalScheduler) ConsumeDockerEvent(event map[string]interface{}) {
 	notification := &observer.ContainerStartedNotification{
 		FullContainerId:  fullContainerId,
 		ShortContainerId: shortContainerId,
+		ContainerName:    containerName,
 		KernelId:         kernelId,
 	}
 	d.containerStartedNotificationManager.DeliverNotification(notification)
@@ -689,7 +711,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 			Id:            d.id,
 			NodeName:      d.nodeName,
 			Existing:      true,
-			SpecResources: proto.ResourceSpecFromSpec(d.allocationManager.SpecResources()),
+			SpecResources: proto.ResourceSpecFromSpec(d.hostSpec),
 		}, nil
 	}
 
@@ -713,7 +735,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 
 	// We're passing back the following two values.
 	in.NodeName = d.nodeName
-	in.SpecResources = proto.ResourceSpecFromSpec(d.allocationManager.SpecResources())
+	in.SpecResources = proto.ResourceSpecFromSpec(d.hostSpec)
 
 	// Update the ID field of the router and of any existing kernels.
 	d.router.SetComponentId(d.id)
@@ -721,7 +743,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 		replicaClient.SetComponentId(d.id)
 		return true
 	})
-	d.allocationManager.NodeId = d.id
+	// d.allocationManager.NodeId = d.id
 	d.finishedGatewayHandshake = true
 
 	// If we've never been initialized before, which will usually be the case, then call initPromMetrics.
@@ -756,43 +778,43 @@ func (d *LocalScheduler) initPromMetrics(in *proto.HostId) (*proto.HostId, error
 	}
 
 	// Publish GPU resource metrics.
-	d.prometheusManager.IdleGpuGauge.
-		Set(d.allocationManager.IdleGPUs().InexactFloat64())
-	d.prometheusManager.PendingGpuGauge.
-		Set(d.allocationManager.PendingGPUs().InexactFloat64())
-	d.prometheusManager.CommittedGpuGauge.
-		Set(d.allocationManager.CommittedGPUs().InexactFloat64())
-	d.prometheusManager.SpecGpuGauge.
-		Set(d.allocationManager.SpecGPUs().InexactFloat64())
-
-	// Publish CPU resource metrics.
-	d.prometheusManager.IdleCpuGauge.
-		Set(d.allocationManager.IdleCPUs().InexactFloat64())
-	d.prometheusManager.PendingCpuGauge.
-		Set(d.allocationManager.PendingCPUs().InexactFloat64())
-	d.prometheusManager.CommittedCpuGauge.
-		Set(d.allocationManager.CommittedCPUs().InexactFloat64())
-	d.prometheusManager.SpecCpuGauge.
-		Set(d.allocationManager.SpecCPUs().InexactFloat64())
-
-	// Publish memory resource metrics.
-	d.prometheusManager.IdleMemoryGauge.
-		Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
-	d.prometheusManager.PendingMemoryGauge.
-		Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
-	d.prometheusManager.CommittedMemoryGauge.
-		Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
-	d.prometheusManager.SpecMemoryGauge.
-		Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
-
-	d.prometheusManager.NumActiveKernelReplicasGauge.
-		Set(float64(d.kernels.Len()))
+	//d.prometheusManager.IdleGpuGauge.
+	//	Set(d.allocationManager.IdleGPUs().InexactFloat64())
+	//d.prometheusManager.PendingGpuGauge.
+	//	Set(d.allocationManager.PendingGPUs().InexactFloat64())
+	//d.prometheusManager.CommittedGpuGauge.
+	//	Set(d.allocationManager.CommittedGPUs().InexactFloat64())
+	//d.prometheusManager.SpecGpuGauge.
+	//	Set(d.allocationManager.SpecGPUs().InexactFloat64())
+	//
+	//// Publish CPU resource metrics.
+	//d.prometheusManager.IdleCpuGauge.
+	//	Set(d.allocationManager.IdleCPUs().InexactFloat64())
+	//d.prometheusManager.PendingCpuGauge.
+	//	Set(d.allocationManager.PendingCPUs().InexactFloat64())
+	//d.prometheusManager.CommittedCpuGauge.
+	//	Set(d.allocationManager.CommittedCPUs().InexactFloat64())
+	//d.prometheusManager.SpecCpuGauge.
+	//	Set(d.allocationManager.SpecCPUs().InexactFloat64())
+	//
+	//// Publish memory resource metrics.
+	//d.prometheusManager.IdleMemoryGauge.
+	//	Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
+	//d.prometheusManager.PendingMemoryGauge.
+	//	Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
+	//d.prometheusManager.CommittedMemoryGauge.
+	//	Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
+	//d.prometheusManager.SpecMemoryGauge.
+	//	Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
+	//
+	//d.prometheusManager.NumActiveKernelReplicasGauge.
+	//	Set(float64(d.kernels.Len()))
 
 	// We only call SetDone if we're creating the LocalDaemonPrometheusManager for the first time.
 	d.prometheusStarted.Done()
 
 	// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
-	d.allocationManager.RegisterMetricsManager(d.prometheusManager)
+	// d.allocationManager.RegisterMetricsManager(d.prometheusManager)
 	d.router.AssignPrometheusManager(d.prometheusManager)
 
 	return in, nil
@@ -815,34 +837,34 @@ func (d *LocalScheduler) publishPrometheusMetrics(wg *sync.WaitGroup) {
 			time.Sleep(d.prometheusInterval)
 
 			// Publish GPU resource metrics.
-			d.prometheusManager.IdleGpuGauge.
-				Set(d.allocationManager.IdleGPUs().InexactFloat64())
-			d.prometheusManager.PendingGpuGauge.
-				Set(d.allocationManager.PendingGPUs().InexactFloat64())
-			d.prometheusManager.CommittedGpuGauge.
-				Set(d.allocationManager.CommittedGPUs().InexactFloat64())
-			d.prometheusManager.SpecGpuGauge.
-				Set(d.allocationManager.SpecGPUs().InexactFloat64())
-
-			// Publish CPU resource metrics.
-			d.prometheusManager.IdleCpuGauge.
-				Set(d.allocationManager.IdleCPUs().InexactFloat64())
-			d.prometheusManager.PendingCpuGauge.
-				Set(d.allocationManager.PendingCPUs().InexactFloat64())
-			d.prometheusManager.CommittedCpuGauge.
-				Set(d.allocationManager.CommittedCPUs().InexactFloat64())
-			d.prometheusManager.SpecCpuGauge.
-				Set(d.allocationManager.SpecCPUs().InexactFloat64())
-
-			// Publish memory resource metrics.
-			d.prometheusManager.IdleMemoryGauge.
-				Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
-			d.prometheusManager.PendingMemoryGauge.
-				Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
-			d.prometheusManager.CommittedMemoryGauge.
-				Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
-			d.prometheusManager.SpecMemoryGauge.
-				Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
+			//d.prometheusManager.IdleGpuGauge.
+			//	Set(d.allocationManager.IdleGPUs().InexactFloat64())
+			//d.prometheusManager.PendingGpuGauge.
+			//	Set(d.allocationManager.PendingGPUs().InexactFloat64())
+			//d.prometheusManager.CommittedGpuGauge.
+			//	Set(d.allocationManager.CommittedGPUs().InexactFloat64())
+			//d.prometheusManager.SpecGpuGauge.
+			//	Set(d.allocationManager.SpecGPUs().InexactFloat64())
+			//
+			//// Publish CPU resource metrics.
+			//d.prometheusManager.IdleCpuGauge.
+			//	Set(d.allocationManager.IdleCPUs().InexactFloat64())
+			//d.prometheusManager.PendingCpuGauge.
+			//	Set(d.allocationManager.PendingCPUs().InexactFloat64())
+			//d.prometheusManager.CommittedCpuGauge.
+			//	Set(d.allocationManager.CommittedCPUs().InexactFloat64())
+			//d.prometheusManager.SpecCpuGauge.
+			//	Set(d.allocationManager.SpecCPUs().InexactFloat64())
+			//
+			//// Publish memory resource metrics.
+			//d.prometheusManager.IdleMemoryGauge.
+			//	Set(d.allocationManager.IdleMemoryMB().InexactFloat64())
+			//d.prometheusManager.PendingMemoryGauge.
+			//	Set(d.allocationManager.PendingMemoryMB().InexactFloat64())
+			//d.prometheusManager.CommittedMemoryGauge.
+			//	Set(d.allocationManager.CommittedMemoryMB().InexactFloat64())
+			//d.prometheusManager.SpecMemoryGauge.
+			//	Set(d.allocationManager.SpecMemoryMB().InexactFloat64())
 
 			// TODO: This is somewhat imprecise insofar if we stop training RIGHT before this goroutine runs again,
 			// then we'll not add any of that training time.
@@ -1113,16 +1135,16 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		ForMigration:                         kernelReplicaSpec.GetForMigration(),
 	}
 
-	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, d.id, invokerOpts, d.prometheusManager)
 	d.kernelInvokers.Store(kernelReplicaSpec.Kernel.Id, dockerInvoker)
 
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
-	kernel := client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
-		d.numResendAttempts, registrationPayload.PodOrContainerName, registrationPayload.NodeName,
-		d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
-		metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, nil, true, getContainerType(kernelReplicaSpec))
+	kernel := client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id, d.numResendAttempts,
+		registrationPayload.PodOrContainerName, registrationPayload.NodeName, d.smrReadyCallback, d.smrNodeAddedCallback,
+		d.MessageAcknowledgementsEnabled, "", d.id, metrics.LocalDaemon, false, false,
+		d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection,
+		nil, true, getContainerType(kernelReplicaSpec))
 
 	kernelConnectionInfo, err := d.initializeKernelClient(kernelReplicaSpec, connInfo, kernel)
 	if err != nil {
@@ -1181,7 +1203,7 @@ func (d *LocalScheduler) registerKernelReplicaDocker(kernelReplicaSpec *proto.Ke
 //
 // Return the response to write back to the kernel and an error, if one occurred.
 func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegistrationPayload, remoteIp string,
-	containerType scheduling.ContainerType) map[string]interface{} {
+	containerType scheduling.ContainerType) *KernelRegistrationResponse {
 
 	registeredAt := time.Now()
 
@@ -1244,13 +1266,17 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 		// If both are nil, then there was an error.
 		if err != nil {
 			// Write an error back to the kernel that registered with us.
-			payload := map[string]interface{}{
-				"status":  "error",
-				"error":   "Failed to Register",
-				"message": fmt.Sprintf("Could not initialize kernel client because: %s", err.Error()),
-			}
+			//payload := map[string]interface{}{
+			//	"status":  "error",
+			//	"error":   "Failed to Register",
+			//	"message": fmt.Sprintf("Could not initialize kernel client because: %s", err.Error()),
+			//}
 
-			return payload
+			return &KernelRegistrationResponse{
+				Status:       messaging.MessageStatusError,
+				Error:        "Failed to Register",
+				ErrorMessage: fmt.Sprintf("Could not initialize kernel client because: %s", err.Error()),
+			}
 		}
 	} else {
 		kernel, kernelConnectionInfo = d.registerKernelReplicaDocker(kernelReplicaSpec, containerType)
@@ -1278,27 +1304,32 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 
 	// If the kernel client was originally a prewarm container, then there won't be a notification because the
 	// container will have been created a while ago.
-	var dockerContainerId string
+	var dockerContainerId, dockerContainerName string
 	if d.DockerMode() {
 		// If we've not yet assigned the pod/container name to this kernel, then we should do so.
-		if kernel.GetPodOrContainerName() == "" || kernel.GetPodOrContainerName() == types.DockerContainerIdTBD {
+		if kernel.GetPodOrContainerId() == "" || kernel.GetPodOrContainerId() == types.DockerContainerIdTBD {
 			containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
 			dockerContainerId = containerStartedNotification.FullContainerId
-			kernel.SetPodOrContainerName(dockerContainerId)
+			dockerContainerName = containerStartedNotification.ContainerName
+			kernel.SetPodOrContainerId(dockerContainerId)
+			kernel.SetPodOrContainerName(dockerContainerName)
 			kernel.SetNodeName(d.nodeName)
 		} else {
 			// Just use the existing pod/container name.
-			dockerContainerId = kernel.GetPodOrContainerName()
+			dockerContainerId = kernel.GetPodOrContainerId()
+			dockerContainerName = kernel.GetPodOrContainerName()
 		}
 	}
 
 	// If we're registering a pre-warm container, then we will return now. No need to notify the Cluster Gateway.
 	if registrationPayload.PrewarmContainer {
-		payload := map[string]interface{}{
-			"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
-		}
+		//payload := map[string]interface{}{
+		//	"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
+		//}
 
-		return payload
+		return &KernelRegistrationResponse{
+			MessageAcknowledgementsEnabled: d.MessageAcknowledgementsEnabled,
+		}
 	}
 
 	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
@@ -1320,7 +1351,7 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 	if d.DockerMode() {
 		kernelRegistrationNotification.DockerContainerId = dockerContainerId
 		kernelRegistrationNotification.NodeName = d.nodeName
-		kernelRegistrationNotification.PodOrContainerName = dockerContainerId
+		kernelRegistrationNotification.PodOrContainerName = dockerContainerName
 	}
 
 	d.log.Info("%s kernel %s registered:\n%s\nNotifying Gateway that kernel \"%s\" has registered.",
@@ -1448,13 +1479,17 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 		})
 
 		// Write an error back to the kernel that registered with us.
-		payload := map[string]interface{}{
-			"status":  "error",
-			"error":   "Null Resource Spec",
-			"message": "The ResourceSpec included in the registration payload is nil",
-		}
+		//payload := map[string]interface{}{
+		//	"status":  "error",
+		//	"error":   "Null Resource Spec",
+		//	"message": "The ResourceSpec included in the registration payload is nil",
+		//}
 
-		return payload
+		return &KernelRegistrationResponse{
+			Status:       messaging.MessageStatusError,
+			Error:        "Null Resource Spec",
+			ErrorMessage: "The ResourceSpec included in the registration payload is nil",
+		}
 	}
 
 	d.log.Debug("Resource spec for %s kernel %s: %v", containerType.String(), kernel.ID(), response.ResourceSpec)
@@ -1465,21 +1500,33 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 	var kernelDebugPort = -1
 	kernelDebugPort, _ = d.kernelDebugPorts.Load(kernel.ID())
 
-	payload := map[string]interface{}{
-		"smr_node_id":                      response.Id,
-		"hostname":                         remoteIp,
-		"replicas":                         response.Replicas,
-		"debug_port":                       kernelDebugPort,
-		"status":                           "ok",
-		"grpc_port":                        d.kernelErrorReporterServerPort,
-		"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
+	kernelRegistrationResponse := &KernelRegistrationResponse{
+		SmrNodeId:                       response.Id,
+		Hostname:                        remoteIp,
+		Replicas:                        response.Replicas,
+		DebugPort:                       kernelDebugPort,
+		Status:                          messaging.MessageStatusOK,
+		GrpcPort:                        d.kernelErrorReporterServerPort,
+		MessageAcknowledgementsEnabled:  d.MessageAcknowledgementsEnabled,
+		ShouldReadDataFromRemoteStorage: response.ShouldReadDataFromRemoteStorage,
 	}
+
+	//payload := map[string]interface{}{
+	//	"smr_node_id":                      response.Id,
+	//	"hostname":                         remoteIp,
+	//	"replicas":                         response.Replicas,
+	//	"debug_port":                       kernelDebugPort,
+	//	"status":                           "ok",
+	//	"grpc_port":                        d.kernelErrorReporterServerPort,
+	//	"message_acknowledgements_enabled": d.MessageAcknowledgementsEnabled,
+	//}
 
 	if response.PersistentId != nil && response.GetPersistentId() != "" {
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of %s kernel %s.",
 			response.GetPersistentId(), kernel.ReplicaID(), containerType.String(), kernel.ID())
 
-		payload["persistent_id"] = response.GetPersistentId()
+		//payload["persistent_id"] = response.GetPersistentId()
+		kernelRegistrationResponse.PersistentId = response.GetPersistentId()
 
 		// If this is a prewarm container, then we can set its persistent ID.
 		// Alternatively, if the persistent ID has not yet been set, then we can set the persistent ID.
@@ -1508,22 +1555,16 @@ func (d *LocalScheduler) registerKernelReplica(registrationPayload *KernelRegist
 		d.log.Debug("No persistent ID to include in response.")
 	}
 
-	payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
+	// payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
 
-	return payload
+	return kernelRegistrationResponse
 }
 
 // writeResponseToRegisteringKernelReplica writes the specified response back to the specified KernelRegistrationClient.
-func (d *LocalScheduler) writeResponseToRegisteringKernelReplica(payload map[string]interface{},
+func (d *LocalScheduler) writeResponseToRegisteringKernelReplica(payload []byte,
 	client *KernelRegistrationClient, typ scheduling.ContainerType) {
 
-	payloadJson, err := json.Marshal(payload)
-	if err != nil {
-		d.log.Error("Error encountered while marshalling registration response payload to JSON: %v", err)
-		d.notifyClusterGatewayAndPanic("Failed to Marshal Registration Response Payload", err.Error(), err)
-	}
-
-	bytesWritten, err := client.conn.Write(payloadJson)
+	bytesWritten, err := client.conn.Write(payload)
 	if err != nil {
 		d.log.Error("Error encountered while writing registration response payload back to kernel: %v", err)
 		d.notifyClusterGatewayAndPanic("Failed to Write Registration Response Payload Back to kernel", err.Error(), err)
@@ -1653,8 +1694,8 @@ func (d *LocalScheduler) smrReadyCallback(kernelClient scheduling.KernelReplica)
 // its ID, etc.
 func (d *LocalScheduler) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*proto.LocalDaemonInfo, error) {
 	info := &proto.LocalDaemonInfo{
-		SpecResources:  proto.ResourceSpecFromSpec(d.allocationManager.SpecResources()),
-		GpuSchedulerId: d.allocationManager.Id,
+		SpecResources:  proto.ResourceSpecFromSpec(d.hostSpec),
+		GpuSchedulerId: "", // d.allocationManager.Id,
 		LocalDaemonId:  d.id,
 	}
 
@@ -1665,18 +1706,7 @@ func (d *LocalScheduler) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*
 //
 // Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 func (d *LocalScheduler) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
-	gpuInfo := &proto.GpuInfo{
-		SpecGPUs:              int32(d.allocationManager.SpecGPUs().InexactFloat64()),
-		IdleGPUs:              int32(d.allocationManager.IdleGPUs().InexactFloat64()),
-		CommittedGPUs:         int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
-		PendingGPUs:           int32(d.allocationManager.PendingGPUs().InexactFloat64()),
-		NumPendingAllocations: int32(d.allocationManager.NumAllocations()),
-		NumAllocations:        int32(d.allocationManager.NumPendingAllocations()),
-		GpuSchedulerID:        d.allocationManager.Id,
-		LocalDaemonID:         d.id,
-	}
-
-	return gpuInfo, nil
+	return nil, domain.ErrNotImplemented
 }
 
 func (d *LocalScheduler) PingKernel(_ context.Context, _ *proto.PingInstruction) (*proto.Pong, error) {
@@ -2371,7 +2401,9 @@ func (d *LocalScheduler) PromotePrewarmedContainer(ctx context.Context, in *prot
 	wg.Wait()
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.TotalNumPrewarmContainersUsed.Inc()
+		d.prometheusManager.TotalNumPrewarmContainersUsedVec.With(prometheus.Labels{
+			"node_id": d.id,
+		}).Inc()
 	}
 
 	d.log.Debug(
@@ -2417,7 +2449,7 @@ func (d *LocalScheduler) prepareKernelInvoker(in *proto.KernelReplicaSpec) (invo
 			LocalSchedulerNodeName:               d.nodeName,
 			ForMigration:                         in.GetForMigration(),
 		}
-		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, d.id, invokerOpts, d.prometheusManager)
 		d.kernelInvokers.Store(in.Kernel.Id, kernelInvoker)
 		// Note that we could pass d.prometheusManager directly in the call above.
 
@@ -2580,12 +2612,10 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	d.log.Debug("Creating new KernelReplicaClient for kernel \"%s\" [Prewarm=%v]",
 		in.Kernel.Id, in.PrewarmContainer)
 
-	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
-		types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
-		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
-		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, nil, true,
-		getContainerType(in))
+	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts, types.DockerContainerIdTBD,
+		types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id,
+		metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection, nil, true, getContainerType(in))
 
 	// Register kernel.
 	if in.PrewarmContainer {
@@ -2609,13 +2639,21 @@ func (d *LocalScheduler) createNewKernelClient(in *proto.KernelReplicaSpec, kern
 	kernelClientCreationChannel <- info
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.TotalNumKernelsCounter.Inc()
-		d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
+		d.prometheusManager.TotalNumKernelsCounterVec.With(prometheus.Labels{
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
+		}).Inc()
+		d.prometheusManager.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
+		}).Add(1)
 
 		if in.PrewarmContainer {
-			d.prometheusManager.TotalNumPrewarmContainersCreatedCounter.Inc()
+			d.prometheusManager.TotalNumPrewarmContainersCreatedCounterVec.With(prometheus.Labels{
+				"node_id": d.id,
+			}).Inc()
 		} else {
-			d.prometheusManager.TotalNumStandardContainersCreatedCounter.Inc()
+			d.prometheusManager.TotalNumStandardContainersCreatedCounterVec.With(prometheus.Labels{
+				"node_id": d.id,
+			}).Inc()
 		}
 	}
 
@@ -2677,7 +2715,9 @@ func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (re
 	d.kernels.Delete(in.Id)
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
+		d.prometheusManager.NumActiveKernelReplicasGaugeVec.With(prometheus.Labels{
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
+		}).Sub(1)
 	}
 
 	stopped := d.executeRequestForwarder.UnregisterKernel(in.Id)
@@ -2838,10 +2878,23 @@ func (d *LocalScheduler) startKernelRegistryService() {
 			containerType.String(), remoteAddr.String(), registrationPayload.StringFormatted())
 
 		go func() {
-			responsePayload := d.registerKernelReplica(registrationPayload, remoteIp, containerType)
+			kernelRegistrationResponse := d.registerKernelReplica(registrationPayload, remoteIp, containerType)
 
-			if responsePayload != nil {
-				d.writeResponseToRegisteringKernelReplica(responsePayload, kernelRegistrationClient, containerType)
+			if kernelRegistrationResponse != nil {
+				payload, marshalErr := json.Marshal(kernelRegistrationResponse)
+				if marshalErr != nil {
+					d.log.Error("Failed to marshal kernel registration response: %v", marshalErr)
+					d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+						Title:            "Failed to Marshal Kernel Registration Response",
+						Id:               uuid.NewString(),
+						Message:          marshalErr.Error(),
+						NotificationType: messaging.ErrorNotification.Int32(),
+						Panicked:         false,
+					})
+					return
+				}
+
+				d.writeResponseToRegisteringKernelReplica(payload, kernelRegistrationClient, containerType)
 			}
 		}()
 	}
@@ -3019,8 +3072,8 @@ func (d *LocalScheduler) handleExecuteRequest(msg *messaging.JupyterMessage, ker
 				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), res.(error))
 			return res.(error)
 		default:
-			d.log.Debug("Received result for \"%s\" message \"%s\" targeting kernel \"%s\".",
-				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID())
+			d.log.Debug("Received result for \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), kernel.ID(), res)
 			return nil
 		}
 	}
@@ -3102,7 +3155,8 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	}
 
 	if shouldCallTrainingStopped {
-		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
+		_ = kernelClient.KernelStoppedTraining(
+			"Received \"execute_reply\" message, indicating that the training has stopped.", nil)
 
 		if d.prometheusManager != nil && d.prometheusEnabled {
 			d.prometheusManager.TrainingTimeGaugeVec.
@@ -3114,7 +3168,9 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 	kernelClient.ReceivedExecuteReply(msg, true)
 
 	if d.prometheusManager != nil && d.prometheusEnabled {
-		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
+		d.prometheusManager.NumTrainingEventsCompletedCounterVec.With(prometheus.Labels{
+			"node_id": d.id, "node_type": metrics.LocalDaemon.String(),
+		}).Inc()
 	}
 
 	return nil /* will be nil on success */
@@ -3392,29 +3448,29 @@ func (d *LocalScheduler) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetV
 	if d.KubernetesMode() {
 		return d.setTotalVirtualGPUsKubernetes(ctx, in)
 	} else {
-		return d.setTotalVirtualGPUsDocker(in)
+		return nil, domain.ErrNotImplemented
 	}
 }
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Docker mode.
-func (d *LocalScheduler) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
-	err := d.allocationManager.AdjustSpecGPUs(float64(in.GetValue()))
-	if err != nil {
-		response := &proto.VirtualGpuInfo{
-			TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
-			AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
-			FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
-		}
-		return response, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	response := &proto.VirtualGpuInfo{
-		TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
-		AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
-		FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
-	}
-	return response, nil
-}
+//func (d *LocalScheduler) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+//	err := d.allocationManager.AdjustSpecGPUs(float64(in.GetValue()))
+//	if err != nil {
+//		response := &proto.VirtualGpuInfo{
+//			TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
+//			AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
+//			FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
+//		}
+//		return response, status.Error(codes.InvalidArgument, err.Error())
+//	}
+//
+//	response := &proto.VirtualGpuInfo{
+//		TotalVirtualGPUs:     int32(d.allocationManager.SpecGPUs().InexactFloat64()),
+//		AllocatedVirtualGPUs: int32(d.allocationManager.CommittedGPUs().InexactFloat64()),
+//		FreeVirtualGPUs:      int32(d.allocationManager.IdleGPUs().InexactFloat64()),
+//	}
+//	return response, nil
+//}
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Kubernetes mode.
 func (d *LocalScheduler) setTotalVirtualGPUsKubernetes(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
@@ -3447,29 +3503,31 @@ func (d *LocalScheduler) setTotalVirtualGPUsKubernetes(ctx context.Context, in *
 
 // ResourcesSnapshot returns a *proto.NodeResourcesSnapshot struct encoding a snapshot of the current resource quantities on the node.
 func (d *LocalScheduler) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshotWithContainers, error) {
-	resourceSnapshot := d.allocationManager.ProtoResourcesSnapshot()
+	// resourceSnapshot := d.allocationManager.ProtoResourcesSnapshot()
 
-	containers := make([]*proto.ReplicaInfo, 0)
+	//containers := make([]*proto.ReplicaInfo, 0)
+	//
+	//d.kernels.Range(func(kernelId string, replicaClient scheduling.KernelReplica) (contd bool) {
+	//	replicaInfo := &proto.ReplicaInfo{
+	//		ReplicaId:    replicaClient.ReplicaID(),
+	//		KernelId:     replicaClient.ID(),
+	//		PersistentId: replicaClient.PersistentID(), // Probably don't need to include this here.
+	//	}
+	//
+	//	containers = append(containers, replicaInfo)
+	//
+	//	return true
+	//})
+	//
+	//snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
+	//	Id:               uuid.NewString(),
+	//	ResourceSnapshot: resourceSnapshot,
+	//	Containers:       containers,
+	//}
+	//
+	//return snapshotWithContainers, nil
 
-	d.kernels.Range(func(kernelId string, replicaClient scheduling.KernelReplica) (contd bool) {
-		replicaInfo := &proto.ReplicaInfo{
-			ReplicaId:    replicaClient.ReplicaID(),
-			KernelId:     replicaClient.ID(),
-			PersistentId: replicaClient.PersistentID(), // Probably don't need to include this here.
-		}
-
-		containers = append(containers, replicaInfo)
-
-		return true
-	})
-
-	snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
-		Id:               uuid.NewString(),
-		ResourceSnapshot: resourceSnapshot,
-		Containers:       containers,
-	}
-
-	return snapshotWithContainers, nil
+	return nil, domain.ErrNotImplemented
 }
 
 func (d *LocalScheduler) kernelFromMsg(msg *messaging.JupyterMessage) (kernel scheduling.KernelReplica, err error) {
@@ -3698,23 +3756,29 @@ func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, fram
 // in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
 func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
 	containerId := notification.ContainerId
+	containerName := notification.ContainerName
+
 	if containerId == "" || containerId == "N/A" {
 		kernel, _ := d.kernels.Load(notification.KernelId)
 		if kernel != nil {
-			containerId = kernel.GetPodOrContainerName()
+			containerId = kernel.GetPodOrContainerId()
 		}
 	}
 
-	if notification.NotificationType == 0 {
-		d.log.Warn("Received error notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
-	} else {
-		d.log.Debug("Received notification from replica %d of kernel %s in container %s. Title: %s. Message: %s.",
-			notification.ReplicaId, notification.KernelId, containerId, notification.Title, notification.Message)
+	if containerName == "" { //  || containerId == "N/A"
+		containerName = "N/A"
 	}
 
-	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d, Container=%s]",
-		notification.Message, notification.KernelId, notification.ReplicaId, containerId)
+	if notification.NotificationType == 0 {
+		d.log.Warn("Received error notification from replica %d of kernel %s in container %s (%s). Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, containerId, containerName, notification.Title, notification.Message)
+	} else {
+		d.log.Debug("Received notification from replica %d of kernel %s in container %s (%s). Title: %s. Message: %s.",
+			notification.ReplicaId, notification.KernelId, containerId, containerName, notification.Title, notification.Message)
+	}
+
+	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d, ContainerId=%s, ContainerName=%s, NodeName=%s]",
+		notification.Message, notification.KernelId, notification.ReplicaId, containerId, containerName, d.nodeName)
 
 	return d.provisioner.Notify(ctx, &proto.Notification{
 		Id:               uuid.NewString(),

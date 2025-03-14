@@ -48,15 +48,21 @@ type ClusterMetricsProvider struct {
 	numActiveExecutions *atomic.Int32
 }
 
-func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNodeProvider,
-	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics)),
-	incrResHost func(Host), decrResHost func(Host), numActiveExecutions *atomic.Int32) *ClusterMetricsProvider {
+type CallbackProvider interface {
+	LocalDaemonNodeProvider
+
+	IncrementResourceCountsForNewHost(host Host)
+	DecrementResourceCountsForRemovedHost(host Host)
+	UpdateClusterStatistics(updater func(statistics *ClusterStatistics))
+}
+
+func NewClusterMetricsProvider(port int, callbackProvider CallbackProvider, numActiveExecutions *atomic.Int32) *ClusterMetricsProvider {
 	provider := &ClusterMetricsProvider{
 		gatewayPrometheusManager:                      nil,
 		prometheusMetricsEnabled:                      false,
-		updateClusterStatsCallback:                    updateClusterStatsCallback,
-		incrementResourceCountsForNewHostCallback:     incrResHost,
-		decrementResourceCountsForRemovedHostCallback: decrResHost,
+		updateClusterStatsCallback:                    callbackProvider.UpdateClusterStatistics,
+		incrementResourceCountsForNewHostCallback:     callbackProvider.IncrementResourceCountsForNewHost,
+		decrementResourceCountsForRemovedHostCallback: callbackProvider.DecrementResourceCountsForRemovedHost,
 		numActiveExecutions:                           numActiveExecutions,
 	}
 
@@ -64,11 +70,15 @@ func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNode
 
 	if port > 0 {
 		provider.log.Debug("Creating GatewayPrometheusManager with port=%d.", port)
-		provider.gatewayPrometheusManager = NewGatewayPrometheusManager(port, localDaemonNodeProvider, updateClusterStatsCallback)
+		provider.gatewayPrometheusManager = NewGatewayPrometheusManager(port, callbackProvider)
 		provider.prometheusMetricsEnabled = true
 	}
 
 	return provider
+}
+
+func (p *ClusterMetricsProvider) SetNumActiveTrainingsPointer(numActiveTrainings *atomic.Int32) {
+	p.numActiveExecutions = numActiveTrainings
 }
 
 func (p *ClusterMetricsProvider) IncrementNumActiveExecutions() {
@@ -226,4 +236,52 @@ func (p *ClusterMetricsProvider) SentMessageUnique(nodeId string, nodeType NodeT
 	}
 
 	return p.gatewayPrometheusManager.SentMessageUnique(nodeId, nodeType, socketType, jupyterMessageType)
+}
+
+func (p *ClusterMetricsProvider) SpecGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.SpecGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) CommittedGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.CommittedGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) PendingGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.PendingGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) IdleGpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.IdleGpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) SpecCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.SpecCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) CommittedCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.CommittedCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) PendingCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.PendingCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) IdleCpuGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.IdleCpuGaugeVec
+}
+
+func (p *ClusterMetricsProvider) SpecMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.SpecMemoryGaugeVec
+}
+
+func (p *ClusterMetricsProvider) CommittedMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.CommittedMemoryGaugeVec
+}
+
+func (p *ClusterMetricsProvider) PendingMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.PendingMemoryGaugeVec
+}
+
+func (p *ClusterMetricsProvider) IdleMemoryGaugeVec() *prometheus.GaugeVec {
+	return p.gatewayPrometheusManager.IdleMemoryGaugeVec
 }

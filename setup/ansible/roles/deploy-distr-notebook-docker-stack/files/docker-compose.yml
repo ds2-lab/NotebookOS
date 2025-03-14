@@ -3,7 +3,10 @@ services:
     environment:
       - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
-    image: scusemua/jupyter-cpu:latest
+      - "NUM_CLUSTER_GATEWAYS=1"
+      - "GATEWAY_GRPC_PORT=8080"
+      - "_BASE_ADDRESS=gateway"
+    image: scusemua/jupyter-cpu-dev:latest
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
     networks:
       - traefik-public
@@ -93,7 +96,7 @@ services:
   daemon:
     environment:
       - "KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base"
-      - "KERNEL_IMAGE=scusemua/jupyter-cpu:latest"
+      - "KERNEL_IMAGE=scusemua/jupyter-cpu-dev:latest"
       - "HOST_MOUNT_DIR=/home/ubuntu/kernel_base"
       - "TARGET_MOUNT_DIR=/kernel_base"
       - "STORAGE=/home/ubuntu/kernel_storage"
@@ -141,6 +144,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.listen-address=0.0.0.0:8500"
       - "--storage.tsdb.retention.time=120d"
+      - "--web.enable-admin-api"
       # - "--web.external-url=http://18.211.101.117/prometheus"
       # - "--web.route-prefix=/"
       # - "--web.enable-admin-api"
@@ -312,28 +316,49 @@ services:
       - "traefik.enable=true"
       - "app=distributed_cluster"
       - "component=cadvisor"
+      - "prometheus.metrics.port=7126"
+      - "prometheus-metrics-provider=true"
+      - "prometheus.metrics.basepath=/metrics"
     deploy:
       mode: global
       labels:
         - "traefik.enable=true"
         - "app=distributed_cluster"
         - "component=cadvisor"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.cadvisor-http.entryPoints=http"
+        - "traefik.http.routers.cadvisor-http.rule=Host(`18.211.101.117`) && PathPrefix(`/cadvisor`)"
+        - "traefik.http.middlewares.cadvisor-strip.stripprefix.prefixes=/cadvisor"
+        - "traefik.http.routers.cadvisor-http.middlewares=cadvisor-strip"
+
+        - "traefik.http.services.cadvisor.loadbalancer.server.port=7126"
+        - "traefik.http.routers.cadvisor-http.service=cadvisor"
     volumes:
       - "/:/rootfs:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/sys:/sys:ro"
       - "/var/lib/docker/:/var/lib/docker:ro"
+    ports:
+      - "7126:7126"  # Expose the new port
     command:
       - "-port=7126"
     networks:
       - traefik-public
       - distributed_cluster_default
-
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', 'http://localhost:7126/healthz']
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   coredumps_volume:
   prometheus_data:
+    driver: local
   grafana_data:
+    driver: local
   loki_data:
   redis_data:
 

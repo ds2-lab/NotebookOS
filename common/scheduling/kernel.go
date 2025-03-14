@@ -203,7 +203,7 @@ type Kernel interface {
 
 	// ExecutionComplete(msg *messaging.JupyterMessage) error
 
-	RegisterActiveExecution(msg *messaging.JupyterMessage) error
+	RegisterActiveExecution(msg *messaging.JupyterMessage) (Execution, error)
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -276,8 +276,8 @@ type Kernel interface {
 	// MissingReplicaIds returns the replica IDs of the replicas that the kernel is missing.
 	MissingReplicaIds() []int32
 	NumActiveMigrationOperations() int
-	AddOperationStarted()
-	AddOperationCompleted()
+	AddOperationStarted(replicaId int32)
+	AddOperationCompleted(replicaId int32)
 	Replicas() []KernelReplica
 	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
@@ -397,6 +397,16 @@ type Kernel interface {
 
 	// YieldNextExecutionRequest takes note that we should yield the next execution request.
 	YieldNextExecutionRequest()
+
+	// IsActivelyMigratingReplica returns true if the specified replica of the target DistributedKernelClient
+	// is actively being migrated right now.
+	IsActivelyMigratingReplica(replicaId int32) bool
+
+	// IsActivelyMigratingAnyReplica returns true if any replica of the target DistributedKernelClient
+	// is actively being migrated right now.
+	IsActivelyMigratingAnyReplica() bool
+
+	HandleExecuteStatisticsIoPubMessage(sender KernelReplica, msg *messaging.JupyterMessage) error
 }
 
 type KernelReplica interface {
@@ -412,10 +422,12 @@ type KernelReplica interface {
 	ReplicaID() int32
 
 	// KernelStoppedTraining is called when the Replica has stopped training.
-	KernelStoppedTraining(reason string) error
+	KernelStoppedTraining(reason string, activeExecution Execution) error
 
 	Container() KernelContainer
 	Host() Host
+	// SetHost sets the KernelReplica's Host. It also calls SetHost on the KernelContainer of the KernelReplica.
+	SetHost(Host)
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
@@ -435,12 +447,14 @@ type KernelReplica interface {
 	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
-	GetPodOrContainerName() string
 	NodeName() string
 	ShellListenPort() int
 	IOPubListenPort() int
 	YieldNextExecutionRequest()
+	SetPodOrContainerId(id string)
+	GetPodOrContainerId() string
 	SetPodOrContainerName(name string)
+	GetPodOrContainerName() string
 	SetNodeName(name string)
 	InitializeIOForwarder() (*messaging.Socket, error)
 	YieldedNextExecutionRequest()

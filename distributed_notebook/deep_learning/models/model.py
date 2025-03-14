@@ -181,6 +181,8 @@ class DeepLearningModel(ABC):
     def test(self, loader):
         if self.gpu_available:
             self.to_gpu()
+        else:
+            self.to_gpu_simulated()
 
         self.model.eval()
         correct = 0
@@ -233,11 +235,9 @@ class DeepLearningModel(ABC):
         training_time_millis: float = 0.0
 
         if self.gpu_available:
-            st: float = time.time()
             self.to_gpu()
-            et: float = time.time()
-            copy_cpu2gpu_millis: float = (et - st) * 1.0e3
-            self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
+        else:
+            self.to_gpu_simulated()
 
         if num_epochs <= 0:
             return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
@@ -319,14 +319,20 @@ class DeepLearningModel(ABC):
             self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
             self.to_cpu()
+            torch.cuda.synchronize()
+            copy_end: float = time.time()
+            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
+            gc_start: float = time.time()
             gc.collect()
             with torch.no_grad():
                 torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            copy_end: float = time.time()
+            gc_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
-            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
+            self.log.debug(f"Performed GPU garbage collection in {round((gc_end - gc_start) * 1.0e3, 3)} ms.")
+        else:
+            self.to_cpu_simulated()
 
         self._requires_checkpointing = True
 
@@ -343,11 +349,9 @@ class DeepLearningModel(ABC):
         true_training_time_ms: float = 0.0
 
         if self.gpu_available:
-            st: float = time.time()
             self.to_gpu()
-            et: float = time.time()
-            copy_cpu2gpu_millis: float = (et - st) * 1.0e3
-            self.log.debug(f"Copied model from CPU to GPU device {self.gpu_device} in {copy_cpu2gpu_millis} ms.")
+        else:
+            self.to_gpu_simulated()
 
         if target_training_duration_millis <= 0:
             return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
@@ -503,14 +507,21 @@ class DeepLearningModel(ABC):
             self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
             self.to_cpu()
+            torch.cuda.synchronize()
+            copy_end: float = time.time()
+            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
+            gc_start: float = time.time()
             gc.collect()
             with torch.no_grad():
                 torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            copy_end: float = time.time()
+            gc_end: float = time.time()
+
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
-            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
+            self.log.debug(f"Performed GPU garbage collection in {round((gc_end - gc_start) * 1.0e3, 3)} ms.")
+        else:
+            self.to_cpu_simulated()
 
         self._requires_checkpointing = True
 
@@ -582,6 +593,13 @@ class DeepLearningModel(ABC):
         size_all_mb = (param_size + buffer_size) / 1024 ** 2
         return size_all_mb
 
+    def to_gpu_simulated(self):
+        simulated_copy_sec: float = self.size_mb / 1.3e3 # Based on empirical benchmarking
+        time.sleep(simulated_copy_sec)
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion from CPU to GPU 'simulated-cuda' "
+                       f"in {round(simulated_copy_sec * 1.0e3, 3)} ms. Model size: {round(self.size_mb, 6)} MB.")
+        self.cpu_to_gpu_times.append(simulated_copy_sec)
+
     def to_gpu(self) -> float:  # Return the total time elapsed in seconds.
         if self.gpu_device is None or not self.gpu_available:
             raise ValueError("GPU is unavailable. Cannot move {self.name} model, optimizer, and criterion to the GPU.")
@@ -608,15 +626,22 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device}. "
-                       f"Model size: {round(size_mb, 6)} MB.")
-        self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device} "
+                       f"in {round(total_time_elapsed * 1.0e3, 9)} ms. Model size: {round(size_mb, 6)} MB.")
+        self.log.debug(f"\t\tCopied model in {round((et_model - st) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied optimizer in {round((et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.cpu_to_gpu_times.append(total_time_elapsed)
 
         return total_time_elapsed
+
+    def to_cpu_simulated(self):
+        simulated_copy_sec: float = self.size_mb / 3.6e3 # Based on empirical benchmarking
+        time.sleep(simulated_copy_sec)
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion from GPU to CPU in "
+                       f"{round(simulated_copy_sec * 1.0e3, 3)} ms. Model size: {round(self.size_mb, 6)} MB.")
+        self.gpu_to_cpu_times.append(simulated_copy_sec)
 
     def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
@@ -641,9 +666,9 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU device {self.cpu_device}. "
-                       f"Model size: {round(size_mb, 6)} MB.")
-        self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU device {self.cpu_device} "
+                       f"in {round(total_time_elapsed * 1.0e3, 9)} ms. Model size: {round(size_mb, 6)} MB.")
+        self.log.debug(f"\t\tCopied model in {round((et_model - st) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied optimizer in {round((et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 

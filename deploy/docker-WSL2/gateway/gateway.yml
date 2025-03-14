@@ -81,6 +81,7 @@ littles_law_prewarmer_w: 25
 littles_law_prewarmer_lambda: 0.20
 replenish_on_use: false
 dynamically_maintain_capacity: true
-prewarming_policy: maintain_minimum_capacity
+prewarming_policy: no_maintenance
 # prewarming_policy: no_maintenance
 # prewarming_policy: little_law_capacity
+# prewarming_policy: maintain_minimum_capacity

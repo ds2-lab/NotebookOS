@@ -9,12 +9,13 @@ import (
 )
 
 var (
-	ErrNotSupported       = fmt.Errorf("not supported")
-	ErrNoCancelConfigured = fmt.Errorf("this request was not configured with a context that supported cancellation")
-	ErrKernelNotLaunched  = fmt.Errorf("kernel not launched")
-	ErrKernelNotReady     = fmt.Errorf("kernel not ready")
-	ErrKernelClosed       = fmt.Errorf("kernel closed")
-	ErrNoHandler          = fmt.Errorf("no handler")
+	ErrNotSupported          = fmt.Errorf("not supported")
+	ErrNoCancelConfigured    = fmt.Errorf("this request was not configured with a context that supported cancellation")
+	ErrKernelNotLaunched     = fmt.Errorf("kernel not launched")
+	ErrKernelNotReady        = fmt.Errorf("kernel not ready")
+	ErrKernelClosed          = fmt.Errorf("kernel closed")
+	ErrNoHandler             = fmt.Errorf("no handler")
+	ErrFailedToVerifyMessage = fmt.Errorf("failed to verify ZMQ message after (re)encoding it with modified contents")
 )
 
 const (

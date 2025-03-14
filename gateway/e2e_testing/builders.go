@@ -106,7 +106,7 @@ func (b *GatewayBuilder) Build() *gatewayDaemon.ClusterGatewayImpl {
 	var clusterGatewayDone sync.WaitGroup
 	clusterGatewaySig := make(chan os.Signal, 1)
 	clusterGatewayFinalize := func(fix bool, identity string, distributedCluster *gatewayDaemon.DistributedCluster) {
-		log.Printf("[WARNING] Cluster Gateway's finalizer called with fix=%v and identity=\"%s\"\n", fix, identity)
+		log.Printf("[WARNING] cluster Gateway's finalizer called with fix=%v and identity=\"%s\"\n", fix, identity)
 	}
 
 	if b.ConfigFunc != nil {
@@ -117,7 +117,7 @@ func (b *GatewayBuilder) Build() *gatewayDaemon.ClusterGatewayImpl {
 		&clusterGatewayDone, clusterGatewayFinalize, clusterGatewaySig)
 
 	if clusterGateway == nil {
-		panic("Failed to create Cluster Gateway")
+		panic("Failed to create cluster Gateway")
 	}
 
 	return clusterGateway

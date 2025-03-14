@@ -19,6 +19,18 @@ const (
 
 type SchedulerPoolType int
 
+func (t SchedulerPoolType) String() string {
+	if t == SchedulerPoolTypeUndersubscribed {
+		return "Undersubscribed"
+	}
+
+	if t == SchedulerPoolTypeOversubscribed {
+		return "Oversubscribed"
+	}
+
+	return fmt.Sprintf("UnknownSchedulerPoolType(%d)", t)
+}
+
 // ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
 type ErrorDuringScheduling struct {
 	// UnderlyingError is the underlying error.
@@ -57,13 +69,23 @@ type ScheduleReplicaArgs struct {
 	// on a new Host.
 	ForTraining bool
 
+	IgnoreOversubscriptionRisk bool
+
+	CanUsePrewarmContainer bool
+
 	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
 	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
 	// existing KernelReplica.
 	ForMigration bool
 }
 
+type KernelProvider interface {
+	GetKernel(kernelId string) (Kernel, bool)
+}
+
 type KernelScheduler interface {
+	SetKernelProvider(kernelProvider KernelProvider)
+
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	//
 	// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
@@ -101,7 +123,7 @@ type KernelScheduler interface {
 	//
 	// PRECONDITION: The specified KernelReplica should already be scheduled on the Host on which the resources are to
 	// be reserved.
-	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool) error
+	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool, ignoreOversubscriptionRisk bool) error
 
 	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
 	// pre-designated as the leader of a code execution.
@@ -129,7 +151,14 @@ type KernelScheduler interface {
 	ContainerPrewarmer() ContainerPrewarmer
 }
 
+type HostMapper interface {
+	// GetHostsOfKernel returns the Host instances on which the replicas of the specified kernel are scheduled.
+	GetHostsOfKernel(kernelId string) ([]Host, error)
+}
+
 type HostScheduler interface {
+	SetHostMapper(hostMapper HostMapper)
+
 	// RequestNewHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
 	RequestNewHost() error

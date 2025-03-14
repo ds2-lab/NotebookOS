@@ -146,6 +146,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			PrewarmerConfig: prewarm.NewPrewarmerConfig(
 				initSize, maxSize, 0 /* Default of 5sec will be used */),
 			MinPrewarmedContainersPerHost: minSize,
+			DynamicallyMaintainCapacity:   true,
 		}
 
 		prewarmer = prewarm.NewMinCapacityPrewarmer(mockCluster, prewarmerConfig, mockMetricsProvider)
@@ -220,7 +221,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			By("Correctly provisioning the initial round of prewarm containers")
 
 			// Empty cluster.
-			mockCluster.EXPECT().RangeOverHosts(gomock.Any()).Times(1)
+			mockCluster.EXPECT().RangeOverHosts(gomock.Any()).AnyTimes()
 
 			created, target := prewarmer.ProvisionInitialPrewarmContainers()
 
@@ -265,7 +266,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			mockCluster.
 				EXPECT().
 				RangeOverHosts(gomock.Any()).
-				Times(1).
+				AnyTimes().
 				DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
 					for idx, host := range hosts {
 						connInfo := &proto.KernelConnectionInfo{
@@ -448,7 +449,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				mockCluster.
 					EXPECT().
 					RangeOverHosts(gomock.Any()).
-					Times(1).
+					AnyTimes().
 					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
 						for _, host := range hosts {
 							preRunWg.Done()
@@ -502,7 +503,10 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 			Eventually(prewarmer.IsRunning, time.Millisecond*750, time.Millisecond*125).Should(BeTrue())
 
 			// Wait for prewarmer to call StartKernelReplica on each prov.
-			preRunWg.Wait()
+			Eventually(func() error {
+				preRunWg.Wait()
+				return nil
+			}, time.Second*1, time.Millisecond*250).Should(Succeed())
 
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
@@ -751,7 +755,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				mockCluster.
 					EXPECT().
 					RangeOverHosts(gomock.Any()).
-					Times(1).
+					AnyTimes().
 					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
 						for idx, host := range hosts {
 							connInfo := &proto.KernelConnectionInfo{
@@ -816,7 +820,7 @@ var _ = Describe("MinCapacity Prewarmer Tests", func() {
 				mockCluster.
 					EXPECT().
 					RangeOverHosts(gomock.Any()).
-					Times(1).
+					AnyTimes().
 					DoAndReturn(func(f func(key string, value scheduling.Host) bool) {
 						for idx, host := range hosts {
 							connInfo := &proto.KernelConnectionInfo{

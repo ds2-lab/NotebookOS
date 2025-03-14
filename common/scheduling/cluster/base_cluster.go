@@ -266,7 +266,7 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 		return
 	}
 
-	c.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	c.log.Info("✓ Successfully created %d/%d pre-warm containers. ✓", created, target)
 	// We deferred `prewarmer.Run()`, so that'll run when we return.
 }
 
@@ -614,7 +614,7 @@ func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	if removedFromIndex == 0 {
 		c.log.Warn("Host %s (ID=%s) was not removed from ANY indices...", host.GetNodeName(), host.GetID())
 	} else {
-		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID())
+		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID(), removedFromIndex)
 	}
 
 	c.scalingOpMutex.Lock()
@@ -661,6 +661,7 @@ func (c *BaseCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
 		}
 
 		if session.IsMigrating() {
+			demandGPUs += session.ResourceSpec().GPU()
 			numRunning += 1
 		} else if session.IsIdle() {
 			demandGPUs += session.ResourceSpec().GPU()
@@ -814,7 +815,9 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 
 	if c.activeScaleOperation != nil {
 		c.log.Debug("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, scheduling.ErrScalingActive
+		return nil, fmt.Errorf("%w from %d --> %d nodes that was created %v ago",
+			scheduling.ErrScalingActive, c.activeScaleOperation.InitialScale, c.activeScaleOperation.TargetScale,
+			time.Since(c.activeScaleOperation.StartTime))
 	}
 
 	currentClusterSize := int32(c.Len())
@@ -958,7 +961,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleOutEvents += 1
+			stats.NumActiveScaleOutEvents.Add(1)
 		})
 	}
 
@@ -1027,7 +1030,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleOutEvents -= 1
+			stats.NumActiveScaleOutEvents.Sub(1)
 		})
 	}
 
@@ -1148,7 +1151,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 				},
 			})
 
-			stats.NumActiveScaleInEvents -= 1
+			stats.NumActiveScaleInEvents.Sub(1)
 		})
 	}
 
@@ -1272,7 +1275,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleInEvents -= 1
+			stats.NumActiveScaleInEvents.Sub(1)
 		})
 	}
 

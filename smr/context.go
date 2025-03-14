@@ -7,14 +7,21 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-type smrContext interface {
+const (
+	defaultTimeout = time.Second * 60
+)
+
+type SmrContext interface {
 	context.Context
 
 	// ID returns the context ID.
 	ID() string
 
 	// Reset resets the context with a new timeout.
-	Reset(timeout time.Duration) smrContext
+	Reset(timeout time.Duration) SmrContext
+
+	// ResetWithPreviousTimeout resets the context with the same timeout it had originally/previously.
+	ResetWithPreviousTimeout() SmrContext
 
 	// Cancel cancels the context.
 	Cancel()
@@ -24,15 +31,28 @@ type SMRContext struct {
 	context.Context
 	id     string
 	cancel context.CancelFunc
+
+	Timeout time.Duration
 }
 
 func (ctx *SMRContext) ID() string {
 	return ctx.id
 }
 
-func (ctx *SMRContext) Reset(timeout time.Duration) smrContext {
-	context, cancel := context.WithTimeout(context.Background(), timeout)
-	ctx.Context = context
+func (ctx *SMRContext) Reset(timeout time.Duration) SmrContext {
+	_ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx.Context = _ctx
+	ctx.cancel = cancel
+	return ctx
+}
+
+func (ctx *SMRContext) ResetWithPreviousTimeout() SmrContext {
+	if ctx.Timeout == 0 {
+		ctx.Timeout = defaultTimeout
+	}
+
+	_ctx, cancel := context.WithTimeout(context.Background(), ctx.Timeout)
+	ctx.Context = _ctx
 	ctx.cancel = cancel
 	return ctx
 }
@@ -47,10 +67,11 @@ type proposalContext struct {
 }
 
 func NewProposalContext(id string, proposal []byte, timeout time.Duration) *proposalContext {
-	context, cancel := context.WithTimeout(context.Background(), timeout)
+	_ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	return &proposalContext{
 		SMRContext: SMRContext{
-			Context: context,
+			Context: _ctx,
+			Timeout: timeout,
 			id:      id,
 			cancel:  cancel,
 		},
@@ -58,16 +79,17 @@ func NewProposalContext(id string, proposal []byte, timeout time.Duration) *prop
 	}
 }
 
-type confChangeContext struct {
+type ConfChangeContext struct {
 	SMRContext
 	*raftpb.ConfChange
 }
 
-func NewConfChangeContext(id string, cc *raftpb.ConfChange, timeout time.Duration) *confChangeContext {
-	context, cancel := context.WithTimeout(context.Background(), timeout)
-	return &confChangeContext{
+func NewConfChangeContext(id string, cc *raftpb.ConfChange, timeout time.Duration) *ConfChangeContext {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	return &ConfChangeContext{
 		SMRContext: SMRContext{
-			Context: context,
+			Context: ctx,
+			Timeout: timeout,
 			id:      id,
 			cancel:  cancel,
 		},
@@ -75,10 +97,18 @@ func NewConfChangeContext(id string, cc *raftpb.ConfChange, timeout time.Duratio
 	}
 }
 
-func (ctx *confChangeContext) ID() string {
+func (ctx *ConfChangeContext) ID() string {
 	return ctx.SMRContext.id
 }
 
-func (ctx *confChangeContext) Reset(timeout time.Duration) smrContext {
+func (ctx *ConfChangeContext) Reset(timeout time.Duration) SmrContext {
 	return ctx.SMRContext.Reset(timeout)
+}
+
+func (ctx *ConfChangeContext) ResetWithPreviousTimeout() SmrContext {
+	if ctx.Timeout == 0 {
+		ctx.Timeout = defaultTimeout
+	}
+
+	return ctx.SMRContext.Reset(ctx.Timeout)
 }

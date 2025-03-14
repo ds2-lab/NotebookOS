@@ -20,7 +20,14 @@ It is also designed to provide a high degree of interactivity, making it well-su
 
   - Grafana for real-time data visualization and log viewing 📊
 
-### Running the Unit Tests
+## Design
+
+Please refer to the `docs/` directory for additional diagrams (including the architecture diagram for Kubernetes-based
+deployments) and a high-level description of the platform's core components.
+
+![Docker Swarm Architecture Diagram](docs/docker_swarm_arch.png)
+
+## Running the Unit Tests
 
 The `run_unit_tests_swarm.sh` file in the project root directory will run all Golang unit tests.
 
@@ -120,13 +127,9 @@ For a more in-depth discussion of the various options, consider reading the offi
 [AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html) documentation, or
 the [AWS SDK for Python (Boto3)](https://aws.amazon.com/sdk-for-python/) documentation.
 
-## Demo
-
-    python3 -m distributed_notebook.demo distributed_notebook/demo/script/script.py distributed_notebook/demo/script/script2.py
-
 ## Jupyter Kernel
 
-``distributed_kernel`` is a Jupyter kernel that can execute distributedly. 
+``distributed_kernel`` is a Jupyter kernel that can execute in a distributed (i.e., replicated) fashion. 
 
 ### Build
 
@@ -159,63 +162,14 @@ I have prepared built SMR for mac running on ARM. To build SMR for different arc
     # In other folder.
     git clone https://github.com/scusemua/gopy.git
     docker build -t scusemua/gopy .
-    # Go back to this folder.
 
-    # For mac using ARM
-    make build-smr-linux-arm64
+    # Go to the smr/ directory and build.
+    cd <root directory>/smr
+    make build-linux-amd64
 
-    # For other using x86
+    # Go back to the root directory and build.
+    cd ../
     make build-smr-linux-amd64
-
-### Installation
-
-Login to container
-
-    docker-compose exec Python /bin/bash  # "docker compose" again for new docker version on Mac.
-
-Install Pytorch
-
-    # For mac using ARM
-    python3 -m pip install torch==1.10.0 torchvision==0.11.0 -f https://torch.kmtea.eu/whl/stable.html
-
-    # For x86
-    python3 -m pip install torch torchvision
-
-Install ``distributed_kernel`` from PyPI::
-
-    cd distributed-notebook
-    ./install_kernel.sh
-
-### Using the Distributed Kernel
-
-**Notebook**: Go to http://localhost:8888/ , log in. The *New* menu in the notebook should show an option for an distributed notebook.
-
-**Console frontends**: To use it with the console frontends, add ``--kernel distributed`` to
-their command line arguments.
-
-### Try Demo
-
-In http://localhost:8888/, open training-test.ipynb, training-test2.ipynb, training-test3.ipynb. If any of the opened notebooks shows "loading" in browser, refresh that notebook page. Now it is ready to play.
-
-# Ben Note:
-I will fully update this README at some point. For now, I rebuild the SMR code on Linux AMD64 via:
-``` sh
-sudo env PATH=$PATH make build-linux-amd64
-```
-from the SMR directory. Note that you need to have certain environment variables set correctly. I've written some code to try to resolve these automatically, by the `PYTHON3_LIB_PATH` resolves to a slightly incorrect directory (for my Conda-based installation of Python), so I hard-coded it for now. 
-
-These environment variables are set in `/home/bcarver2/go/distributed-notebook/distributed_notebook/env.mk`.
-
-Resolving them on Mac/OSx/Darwin-based systems is different than Linux/AMD64. For now, they're set to AMD64 in that `env.mk` file. Swap the uncommented lines with the commented lines if you want to use a Mac/Darwin-based system.
-
-Again, the `PYTHON3_LIB_PATH` is hard-coded right now, at least for Linux/AMD64 systems. It needs to be the directory that has the `libpython3.11.so`, `libpython3.11.so.1.0`, and `libpython3.so` files in it. For me, this is `~/miniconda3/lib/`. 
-
-After running `sudo env PATH=$PATH make build-linux-amd64` in the `smr/` directory, I go back to the root project directory and execute:
-``` sh
-sudo make build-smr-linux-amd64
-```
-
-The command in the `smr/` directory does something along the lines of regenerate the Python/Golang/C bindings. The command from the root directory compiles the generated Go code. Something like that.
 
 ## Common Errors:
 
@@ -242,7 +196,7 @@ At the time of writing this, the glibc version found in the Gateway and Local Da
 
 The version found within the Jupyter Docker container is: `ldd (Ubuntu GLIBC 2.35-0ubuntu3.8) 2.35`
 
-### Kernel Replcia Containers/Pods Crashing with No Error Messages in Logs (Exit Code 134)
+### Kernel Replica Containers/Pods Crashing with No Error Messages in Logs (Exit Code 134)
 
 If the container/pod exits with error code 134, then this indicates that the application terminated with the 'Aborted' signal (SIGABRT) -- at least in the case of Docker containers. This indicates that there was a critical error during the application's execution. 
 

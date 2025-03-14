@@ -1,5 +1,5 @@
 import os.path
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, Callable, Any
 
 from distributed_notebook.deep_learning.data.nlp.base import NLPDataset
 from distributed_notebook.deep_learning.data.nlp.util import get_username
@@ -27,15 +27,23 @@ class CoLA(NLPDataset):
             root_dir: str = default_root_directory,
             shuffle: bool = True,
             num_workers: int = 2,
-            model_name: Optional[str] = None,
+            model_name: str = None,
             max_token_length: int = 128,
             batch_size: int = 1,
-            hugging_face_dataset_name = hugging_face_dataset_name,
-            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
-            text_feature_column_name = text_feature_column_name,
-            postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
+            hugging_face_dataset_name: str = hugging_face_dataset_name,
+            hugging_face_dataset_config_name: str = hugging_face_dataset_config_name,
+            text_feature_column_name: str = text_feature_column_name,
+            simulate_tokenization_overhead: float = 0.0,
+            postprocess_tokenized_dataset: Callable[[Any, str], Any] = cola_postprocess_tokenized_dataset,
+            force_s3_download_tokenized_dataset: bool = False,
+            aws_region:str = "us-east-1",
+            s3_bucket_name:str = "distributed-notebook-public",
             **kwargs
     ):
+        model_name = model_name.lower()
+        if model_name == "gpt-2":
+            model_name = "gpt2"
+
         super().__init__(
             root_dir = root_dir,
             model_name = model_name,
@@ -48,8 +56,16 @@ class CoLA(NLPDataset):
             max_token_length = max_token_length,
             tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
             batch_size = batch_size,
+            force_s3_download_tokenized_dataset=force_s3_download_tokenized_dataset,
+            simulate_tokenization_overhead=simulate_tokenization_overhead,
+            aws_region=aws_region,
+            s3_bucket_name=s3_bucket_name,
             **kwargs
         )
+
+    @property
+    def supports_aws_s3_download(self)->bool:
+        return True
 
     @staticmethod
     def category() -> str:
@@ -57,7 +73,8 @@ class CoLA(NLPDataset):
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str)->str:
-        return f'/home/{get_username()}/.cache/distributed_notebook/tokenized_datasets/glue/{model_name}'
+        model_name = model_name.lower()
+        return f'/home/{get_username()}/.cache/distributed_notebook/tokenized_datasets/glue/cola/{model_name}'
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:
@@ -73,3 +90,15 @@ class CoLA(NLPDataset):
     @property
     def name(self)->str:
         return CoLA.dataset_name()
+
+    @staticmethod
+    def dataset_shortname()->str:
+        return "cola"
+
+    @staticmethod
+    def tokenized_dataset_root_directory()->str:
+        return "glue/cola"
+
+    @staticmethod
+    def huggingface_directory_name()->str:
+        return "glue/cola"

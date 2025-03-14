@@ -53,7 +53,6 @@ def get_model_and_dataset(
         dataset_name: Optional[str] = None,
         batch_size: Optional[int] = None,
         dataset_kwargs: Dict[str, Any] = None,
-        iopub_notifier: Callable = None,
 ) -> Tuple[DeepLearningModel, CustomDataset]:
     """
     Assign a deep learning model to this kernel.
@@ -70,23 +69,26 @@ def get_model_and_dataset(
     dataset_arguments: Dict[str, Any] = {}
 
     if deep_learning_model_name is None or deep_learning_model_name == "":
-        logger.debug("No deep learning model specified. Using default model (ResNet-18).")
+        logger.info("No deep learning model specified. Using default model (ResNet-18).")
         deep_learning_model_name = "ResNet-18"
     else:
-        logger.debug(f"Will be creating instance of '{deep_learning_model_name}' model.")
+        logger.info(f"Will be creating instance of '{deep_learning_model_name}' model.")
 
     if deep_learning_model_name not in ModelClassesByName:
         raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
 
+    logger.info(f'Getting model "{deep_learning_model_name}" and dataset "{dataset_name}". '
+                 f'Will download them if necessary.')
+
     model_class: Type[DeepLearningModel] = ModelClassesByName[deep_learning_model_name]
     category: str = ModelNameToModelCategory[model_class.model_name()]
     if dataset_name is None or dataset_name == "":
-        logger.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
+        logger.info(f"No dataset specified. Will randomly select dataset from '{category}' category.")
 
         dataset_names: List[str] = DatasetNamesByCategory[category]
         dataset_name: str = random.choice(dataset_names)
 
-    logger.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
+    logger.info(f"Creating and assigning {dataset_name} dataset to this kernel.")
 
     if dataset_name not in DatasetClassesByName:
         logger.error(f'[ERROR] Unknown or unsupported dataset specified: "{dataset_name}"')
@@ -108,13 +110,6 @@ def get_model_and_dataset(
     if dataset_kwargs is not None:
         dataset_arguments.update(dataset_kwargs)
 
-    create_dataset_start: float = time.time()
-
-    dataset = dataset_class(**dataset_arguments)
-
-    logger.debug(f'Created instance of "{category}" DataSet "{dataset_name}" '
-                 f'in {round((time.time() - create_dataset_start) * 1.0e3, 3):,} milliseconds.')
-
     # If this particular dataset has a 'model_constructor_args' method, then call it.
     if hasattr(dataset_class, "model_constructor_args"):
         model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
@@ -124,7 +119,14 @@ def get_model_and_dataset(
 
     model = model_class(created_for_first_time=True, **model_arguments)
 
-    logger.debug(f'Created instance of "{category}" DeepLearningModel "{model_class.model_name()}" '
-                 f'in {round((time.time() - model_create_start) * 1.0e3, 3):,} milliseconds.')
+    logger.info(f'Created instance of "{category}" DeepLearningModel "{model_class.model_name()}" '
+                f'in {round((time.time() - model_create_start) * 1.0e3, 3):,} milliseconds.')
+
+    create_dataset_start: float = time.time()
+
+    dataset = dataset_class(**dataset_arguments)
+
+    logger.info(f'Created instance of "{category}" DataSet "{dataset_name}" '
+                 f'in {round((time.time() - create_dataset_start) * 1.0e3, 3):,} milliseconds.')
 
     return model, dataset

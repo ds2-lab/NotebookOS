@@ -92,7 +92,7 @@ func (s *AggregateKernelStatus) Status() string {
 }
 
 // Collect initiate the status collection with actual number of replicas.
-func (s *AggregateKernelStatus) Collect(ctx context.Context, numReplicas int, replica_slots int, expecting string, publish KernelStatusPublisher) {
+func (s *AggregateKernelStatus) Collect(ctx context.Context, numReplicas int, expecting string, publish KernelStatusPublisher) {
 	// s.kernel.log.Debug("Collecting aggregate status for kernel %s, %d replicas.", s.kernel.id, num_replicas)
 	s.expectingStatus = expecting
 	if expecting == messaging.MessageKernelStatusIdle {
@@ -141,7 +141,7 @@ func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *mess
 		s.lastErr = nil
 		err := publish(msg, status, fmt.Sprintf("Late resolution: %s", how))
 		if err != nil {
-			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			fmt.Printf(utils.OrangeStyle.Render("[WARNING] Error while publishing AggregateKernelStatus: %v\n"), err)
 			return
 		}
 	}
@@ -170,7 +170,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		// s.kernel.log.Debug("Publishing status \"%v\" for kernel %s; how \"%v\"", statusMsg.Status, s.kernel.id, statusMsg.How)
 		err = publish(statusMsg.JupyterMessage, statusMsg.Status, statusMsg.How)
 		if err != nil {
-			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			fmt.Printf(utils.OrangeStyle.Render("[WARNING] Error while publishing AggregateKernelStatus: %v\n"), err)
 			return
 		}
 	} else if s.sampleMsg != nil {
@@ -178,12 +178,12 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 		s.sampleMsg.JupyterFrames.ContentFrame().Set([]byte(fmt.Sprintf(KernelStatusFrameTemplate, status)))
 		_, signError := s.sampleMsg.JupyterFrames.Sign(s.kernel.ConnectionInfo().SignatureScheme, []byte(s.kernel.ConnectionInfo().Key)) // Ignore the error, log it if necessary.
 		if signError != nil {
-			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			fmt.Printf(utils.OrangeStyle.Render("[WARNING] Error while publishing AggregateKernelStatus: %v\n"), err)
 			return
 		}
-		err := publish(s.sampleMsg, status, "Synthesized status")
+		err = publish(s.sampleMsg, status, "Synthesized status")
 		if err != nil {
-			fmt.Printf(utils.RedStyle.Render("[ERROR] Error while publishing AggregateKernelStatus: %v\n"), err)
+			fmt.Printf(utils.OrangeStyle.Render("[WARNING] Error while publishing AggregateKernelStatus: %v\n"), err)
 			return
 		}
 	}

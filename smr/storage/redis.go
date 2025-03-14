@@ -76,9 +76,11 @@ func (p *RedisProvider) Connect() error {
 	p.status = Connecting
 
 	p.redisClient = redis.NewClient(&redis.Options{
-		Addr:     p.hostname,
-		Password: p.password,      // no password set
-		DB:       p.databaseIndex, // use default DB
+		Addr:                  p.hostname,
+		Password:              p.password,      // no password set
+		DB:                    p.databaseIndex, // use default DB
+		ContextTimeoutEnabled: true,
+		DialTimeout:           time.Second * 30,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)

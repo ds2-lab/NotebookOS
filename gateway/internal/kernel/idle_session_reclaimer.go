@@ -14,7 +14,7 @@ import (
 type IdleReclaimFunction func(kernel scheduling.Kernel, inSeparateGoroutine bool, noop bool) error
 
 type IdleSessionReclaimer struct {
-	// Kernels is a map from kernel and session IDs to Kernels.
+	// kernels is a map from kernel and session IDs to kernels.
 	// There may be duplicate values (i.e., multiple sessions mapping to the same kernel).
 	kernels hashmap.HashMap[string, scheduling.Kernel]
 
@@ -148,7 +148,7 @@ func (r *IdleSessionReclaimer) reclaimKernels(kernelsToReclaim []scheduling.Kern
 		nWorkers = numKernelsToReclaim / 4
 	}
 
-	r.log.Debug("Spawning %d workers to remove %d idle kernels in idle iteration %d.",
+	r.log.Debug("Spawning %d workers to remove %d idle Kernels in idle iteration %d.",
 		nWorkers, numKernelsToReclaim, iteration)
 
 	for i := 0; i < nWorkers; i++ {
@@ -185,7 +185,7 @@ func (r *IdleSessionReclaimer) run() {
 	var iteration atomic.Int64
 	iteration.Store(1)
 
-	// Keep running until the Cluster Gateway is stopped.
+	// Keep running until the cluster Gateway is stopped.
 	for r.closed.Load() == 0 {
 		startTime := time.Now()
 

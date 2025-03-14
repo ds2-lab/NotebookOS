@@ -6,7 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
-	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -229,7 +229,7 @@ type AllocationManager struct {
 	// availableGpuDevices is a queue.ThreadsafeFifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
-	metricsManager *metrics.LocalDaemonPrometheusManager
+	metricsManager scheduling.PrometheusMetricsProvider
 
 	updateIndex func(replicaId int32, kernelId string) error
 
@@ -457,7 +457,7 @@ func (m *AllocationManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapsho
 }
 
 // RegisterMetricsManager is used to set the metricsManager field of the AllocationManager.
-func (m *AllocationManager) RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager) {
+func (m *AllocationManager) RegisterMetricsManager(metricsManager scheduling.PrometheusMetricsProvider) {
 	if m.metricsManager != nil {
 		m.log.Warn("AllocationManager already has metrics manager assigned... will replace existing metrics manager.")
 	}
@@ -1410,7 +1410,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	// Verify that there does not already exist an allocation associated with the specified kernel replica.
 	key = getKey(ReplicaIdForReservation, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found. (under key \"%s\").",
+		m.log.Warn("Cannot release reservation for replica %d of kernel %s: no reservation found. (under key \"%s\").",
 			ReplicaIdForReservation, kernelId, key)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}
@@ -1512,6 +1512,12 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 			kernelId, numFailedReservations, allocation.String())
 		return fmt.Errorf("%w: existing resource allocation found for unspecified replica of kernel %s",
 			ErrInvalidAllocationRequest, kernelId)
+	}
+
+	if !usePending && !m.unsafeCanCommitResources(spec) {
+		m.log.Debug("Cannot create committed reservation for replica of kernel %s: insufficient idle resources available",
+			kernelId)
+		return scheduling.ErrInsufficientIdleResourcesAvailable
 	}
 
 	// Construct the new Allocation using the resource quantities specified in the spec argument.
@@ -1878,7 +1884,11 @@ func (m *AllocationManager) CanCommitResources(resourceRequest types.Spec) bool 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
+	return m.unsafeCanCommitResources(resourceRequest)
+}
+
+func (m *AllocationManager) unsafeCanCommitResources(resourceRequest types.Spec) bool {
+	return m.resourceManager.IdleResources().Validate(resourceRequest)
 }
 
 // CurrentResourcesToString returns all the current resource counts of the AllocationManager as a string and is
@@ -2402,28 +2412,37 @@ func (m *AllocationManager) unsafeUpdatePrometheusResourceMetrics() {
 	}
 
 	// CPU resource metrics.
-	m.metricsManager.IdleCpuGauge.
-		Set(m.resourceManager.idleResources.Millicpus())
-	m.metricsManager.PendingCpuGauge.
-		Set(m.resourceManager.pendingResources.Millicpus())
-	m.metricsManager.CommittedCpuGauge.
-		Set(m.resourceManager.committedResources.Millicpus())
+	m.metricsManager.IdleCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.Millicpus())
+	m.metricsManager.PendingCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.Millicpus())
+	m.metricsManager.CommittedCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.Millicpus())
 
 	// Memory resource metrics.
-	m.metricsManager.IdleMemoryGauge.
-		Set(m.resourceManager.idleResources.MemoryMB())
-	m.metricsManager.PendingMemoryGauge.
-		Set(m.resourceManager.pendingResources.MemoryMB())
-	m.metricsManager.CommittedMemoryGauge.
-		Set(m.resourceManager.committedResources.MemoryMB())
+	m.metricsManager.IdleMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.MemoryMB())
+	m.metricsManager.PendingMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.MemoryMB())
+	m.metricsManager.CommittedMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.MemoryMB())
 
 	// GPU resource metrics.
-	m.metricsManager.IdleGpuGauge.
-		Set(m.resourceManager.idleResources.GPUs())
-	m.metricsManager.PendingGpuGauge.
-		Set(m.resourceManager.pendingResources.GPUs())
-	m.metricsManager.CommittedGpuGauge.
-		Set(m.resourceManager.committedResources.GPUs())
+	m.metricsManager.IdleGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.GPUs())
+	m.metricsManager.PendingGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.GPUs())
+	m.metricsManager.CommittedGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.GPUs())
 }
 
 // UnitTestingAllocationManager is a wrapper around AllocationManager with a few additional methods to facilitate

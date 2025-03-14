@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, List, Dict
 
 from distributed_notebook.logs import ColoredLogFormatter
 
@@ -27,6 +27,10 @@ class RemoteStorageProvider(ABC):
         self._read_time: float = 0
         self._delete_time: float = 0
 
+        self._write_times: List[float] = []
+        self._read_times: List[float] = []
+        self._delete_times: List[float] = []
+
         self._bytes_read: int = 0
         self._bytes_written: int = 0
 
@@ -44,6 +48,10 @@ class RemoteStorageProvider(ABC):
         self._lifetime_num_objects_written: int = 0
         self._lifetime_num_objects_read: int = 0
         self._lifetime_num_objects_deleted: int = 0
+
+        self._lifetime_write_times: List[float] = []
+        self._lifetime_read_times: List[float] = []
+        self._lifetime_delete_times: List[float] = []
 
     @property
     def num_objects_written(self) -> int:
@@ -102,6 +110,27 @@ class RemoteStorageProvider(ABC):
         return self._delete_time
 
     @property
+    def read_times(self) -> List[float]:
+        """
+        Return the individual times spent reading data from remote storage in seconds.
+        """
+        return self._read_times
+
+    @property
+    def write_times(self) -> List[float]:
+        """
+        Return the individual times spent writing data to remote storage in seconds.
+        """
+        return self._write_times
+
+    @property
+    def delete_times(self) -> List[float]:
+        """
+        Return the individual times spent deleting data from remote storage in seconds.
+        """
+        return self._delete_times
+
+    @property
     def lifetime_num_objects_written(self) -> int:
         """
         :return: the number of objects written to remote storage.
@@ -157,6 +186,27 @@ class RemoteStorageProvider(ABC):
         """
         return self._lifetime_delete_time
 
+    @property
+    def lifetime_read_times(self) -> List[float]:
+        """
+        Return the individual times spent reading data from remote storage in seconds.
+        """
+        return self._lifetime_read_times
+
+    @property
+    def lifetime_write_times(self) -> List[float]:
+        """
+        Return the individual times spent writing data to remote storage in seconds.
+        """
+        return self._lifetime_write_times
+
+    @property
+    def lifetime_delete_times(self) -> List[float]:
+        """
+        Return the individual times spent deleting data from remote storage in seconds.
+        """
+        return self._lifetime_delete_times
+
     def clear_statistics(self):
         """
         This method resets all statistics that aren't prefixed with "lifetime" to 0.
@@ -171,6 +221,10 @@ class RemoteStorageProvider(ABC):
         self._num_objects_written = 0
         self._num_objects_read = 0
         self._num_objects_deleted = 0
+
+        self._write_times.clear()
+        self._read_times.clear()
+        self._delete_times.clear()
 
     def update_write_stats(self, time_elapsed_ms: float, size_bytes: int, num_values: int = 1):
         """
@@ -189,6 +243,9 @@ class RemoteStorageProvider(ABC):
         self._lifetime_write_time += time_elapsed_ms
         self._lifetime_bytes_written += size_bytes
 
+        self._write_times.append(time_elapsed_ms)
+        self._lifetime_write_times.append(time_elapsed_ms)
+
     def update_read_stats(self, time_elapsed_ms: float, size_bytes: int, num_values: int = 1):
         """
         Updates the write-related metrics of the RedisProvider.
@@ -206,6 +263,9 @@ class RemoteStorageProvider(ABC):
         self._lifetime_num_objects_read += num_values
         self._lifetime_bytes_read += size_bytes
 
+        self._read_times.append(time_elapsed_ms)
+        self._lifetime_read_times.append(time_elapsed_ms)
+
     def update_delete_stats(self, time_elapsed_ms: float, num_values: int = 1):
         """
         Updates the write-related metrics of the RedisProvider.
@@ -219,6 +279,9 @@ class RemoteStorageProvider(ABC):
 
         self._lifetime_delete_time += time_elapsed_ms
         self._lifetime_num_objects_deleted += num_values
+
+        self._delete_times.append(time_elapsed_ms)
+        self._lifetime_delete_times.append(time_elapsed_ms)
 
     @property
     @abstractmethod

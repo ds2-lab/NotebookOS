@@ -22,3 +22,9 @@
   num_training_events: 16
   large: false
   key: 4_sessions_varied_training
+- display_name: Adobe Sensei June 21
+  filepath: /etc/distributed-notebook-cluster/workload_templates/Adobe Sensei June 21.json
+  num_sessions: 64
+  num_training_events: 1316
+  large: True
+  key: adobe_sensei_June_21_2021_v3

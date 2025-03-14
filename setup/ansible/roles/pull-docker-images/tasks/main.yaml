@@ -41,7 +41,7 @@
 
 - name: Pull the kernel CPU Docker image
   community.docker.docker_image_pull:
-    name: "{{ jupyter_server_docker_username }}/jupyter-cpu"
+    name: "{{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}"
     pull: always
     tag: "{{ jupyter_server_docker_image_tag }}"
   environment:

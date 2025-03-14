@@ -827,6 +827,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 							Expect(err).To(BeNil())
 						}
 
+						localGatewayClient.EXPECT().
+							StartSyncLog(gomock.Any(), gomock.Any()).
+							AnyTimes().
+							Return(proto.VOID, nil)
+
 						hosts[i] = host
 						localGatewayClients[i] = localGatewayClient
 						resourceSpoofers[i] = resourceSpoofer
@@ -888,6 +893,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(loaded).To(BeTrue())
 					Expect(localGatewayClient1).ToNot(BeNil())
 
+					localGatewayClient1.EXPECT().
+						StartSyncLog(gomock.Any(), gomock.Any()).
+						AnyTimes().
+						Return(proto.VOID, nil)
+
 					host2, loaded := hosts[1]
 					Expect(loaded).To(BeTrue())
 					Expect(host2).ToNot(BeNil())
@@ -896,6 +906,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(loaded).To(BeTrue())
 					Expect(localGatewayClient2).ToNot(BeNil())
 
+					localGatewayClient2.EXPECT().
+						StartSyncLog(gomock.Any(), gomock.Any()).
+						AnyTimes().
+						Return(proto.VOID, nil)
+
 					host3, loaded := hosts[2]
 					Expect(loaded).To(BeTrue())
 					Expect(host3).ToNot(BeNil())
@@ -903,6 +918,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					localGatewayClient3, loaded := localGatewayClients[2]
 					Expect(loaded).To(BeTrue())
 					Expect(localGatewayClient3).ToNot(BeNil())
+
+					localGatewayClient3.EXPECT().
+						StartSyncLog(gomock.Any(), gomock.Any()).
+						AnyTimes().
+						Return(proto.VOID, nil)
 
 					localGatewayClient1.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.PrepareToMigrateResponse{
 						KernelId: kernelId,
@@ -960,6 +980,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					kernelReplica3.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
 					kernelReplica3.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec3)
 					kernelReplica3.EXPECT().PersistentID().AnyTimes().Return(dataDirectory)
+
+					kernelReplicas := []*mock_scheduling.MockKernelReplica{kernelReplica1, kernelReplica2, kernelReplica3}
+					gatewayClients := []*mock_proto.MockLocalGatewayClient{localGatewayClient1, localGatewayClient2, localGatewayClient3}
 
 					kernel := mock_scheduling.NewMockKernel(mockCtrl)
 					kernel.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
@@ -1024,10 +1047,10 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					var addOpActive atomic.Bool
 					addOpActive.Store(false)
 
-					kernel.EXPECT().AddOperationStarted().Times(1).Do(func() {
+					kernel.EXPECT().AddOperationStarted(gomock.Any()).Times(1).Do(func(replicaId int32) {
 						addOpActive.Store(true)
 					})
-					kernel.EXPECT().AddOperationCompleted().Times(1).Do(func() {
+					kernel.EXPECT().AddOperationCompleted(int32(1)).Times(1).Do(func(replicaId int32) {
 						addOpActive.Store(false)
 					})
 					kernel.EXPECT().NumActiveMigrationOperations().AnyTimes().DoAndReturn(func() int {
@@ -1045,7 +1068,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						ReplicaId:    int32(1),
 					}
 					kernel.EXPECT().PrepareNewReplica(dataDirectory, int32(1)).Times(1).Return(returnedSpec)
-					kernel.EXPECT().GetReplicaByID(int32(1)).Times(1).Return(kernelReplica1, nil)
+					kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(kernelReplica1, nil)
 					kernelReplica1.EXPECT().SetReady().Times(1)
 
 					targetGatewayClient := localGatewayClients[5]
@@ -1075,8 +1098,34 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					var wg sync.WaitGroup
 					wg.Add(1)
 
+					session.EXPECT().AddReplica(gomock.Any()).Times(1).Return(nil)
+					kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+					kernel.EXPECT().PersistentID().AnyTimes().Return(dataDirectory)
+
 					kernel.EXPECT().MigrationStarted().Times(1).Return(nil)
 					kernel.EXPECT().MigrationConcluded().Times(1)
+					kernel.EXPECT().GetSession().AnyTimes().Return(session)
+					kernel.EXPECT().GetReadyReplica().Times(1).DoAndReturn(func() scheduling.KernelReplica {
+						// Return a mocked kernel replica that is NOT the one that is being migrated.
+						var i int32
+						for i = 1; i < 4; i++ {
+							if i == 1 {
+								continue
+							}
+
+							replica := kernelReplicas[i-1]
+							replica.EXPECT().IsReady().Times(1).Return(true)
+
+							mockedGatewayClient := gatewayClients[i-1]
+							mockedGatewayClient.EXPECT().UpdateReplicaAddr(gomock.Any(), gomock.Any()).Times(1).Return(&proto.Void{}, nil)
+
+							return replica
+						}
+
+						panic("Failed to find ready replica of mocked kernel")
+					})
+
+					kernelReplica1.EXPECT().Address().AnyTimes().Return("10.0.0.1")
 
 					go func() {
 						// defer GinkgoRecover()

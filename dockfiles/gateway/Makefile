@@ -8,16 +8,23 @@ all: docker
 build-gateway-linux:
 	GOOS=linux go build -buildvcs=false -o gateway ../../gateway 
 
+build-gateway-linux-new:
+	GOOS=linux go build -buildvcs=false -o gateway ../../gateway/cmd/main.go
+
 # This moves to the root project directory and executes `make build-gateway`
 # This mounts the project within the 'base image' docker container and builds the gateway there.
 # The process of building the gateway calls `make build-gateway-linux` in this directory.
 build-in-container:
-	cd ../../ && make build-gateway 
+	cd ../../ && make build-gateway
 
 docker: build-in-container
 	docker build ${PARAMS} -t $(DOCKER_USER)gateway .
-#	rm gateway
-# ../clean.sh
+
+build-in-container-new:
+	cd ../../ && make build-gateway-new
+
+docker-new: build-in-container-new
+	docker build ${PARAMS} -t $(DOCKER_USER)gateway .
 
 build-and-push: docker
 	docker push $(DOCKER_USER)gateway:latest

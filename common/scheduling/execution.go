@@ -74,6 +74,9 @@ type ExecutionManager interface {
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
 
+	// IsExecutionComplete returns true if the execution associated with the given message ID is complete.
+	IsExecutionComplete(executeRequestId string) bool
+
 	// ReplicaRemoved is used to notify the ExecutionManager that a particular KernelReplica has been removed.
 	// This allows the ExecutionManager to set the LastPrimaryReplica field to nil if the removed KernelReplica
 	// is the LastPrimaryReplica.
@@ -86,6 +89,15 @@ type ExecutionManager interface {
 	// training when LastTrainingStartedAt is called, then LastTrainingStartedAt will return the time at which
 	// the active training began.
 	LastTrainingStartedAt() time.Time
+
+	// GetSmrLeadTaskMessage returns the "smr_lead_task" IO pub message that was sent by the primary replica of the
+	// execution triggered by the "execute_request" message with the specified ID.
+	GetSmrLeadTaskMessage(executeRequestId string) (*messaging.JupyterMessage, bool)
+
+	// GetExecuteReplyMessage returns the "execute_reply" message that was sent in response to the "execute_request"
+	// message with the specified ID, if one exists. Specifically, it would be the "execute_reply" sent by the primary
+	// replica when it finished executing the user-submitted code.
+	GetExecuteReplyMessage(executeRequestId string) (*messaging.JupyterMessage, bool)
 
 	// LastTrainingSubmittedAt returns the time at which the last training to occur was submitted to the kernel.
 	// If there is an active training when LastTrainingSubmittedAt is called, then LastTrainingSubmittedAt will return
@@ -110,6 +122,16 @@ type ExecutionManager interface {
 	// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
 	ExecutionIndexIsLarger(executionIndex int32) bool
 
+	// LastPrimaryReplicaId returns the SMR node ID of the KernelReplica that served as the primary replica for the
+	// previous code execution, or nil if no code executions have occurred.
+	//
+	// LastPrimaryReplicaId is preserved even if the last primary replica is removed/migrated.
+	LastPrimaryReplicaId() int32
+
+	// NumExecutionsByReplica returns the number of times that the specified replica served as the primary replica
+	// and successfully executed user-submitted code.
+	NumExecutionsByReplica(replicaId int32) int
+
 	// HasActiveTraining returns true if the target DistributedKernelClient has an active training -- meaning that the
 	// Kernel has submitted an "execute_request" and is still awaiting a response.
 	//
@@ -130,9 +152,11 @@ type Execution interface {
 	OriginalTimestampOrCreatedAt() time.Time
 	Msg() *messaging.JupyterMessage
 	HasExecuted() bool
-	SetExecuted()
+	SetExecuted(receivedExecuteReplyAt time.Time)
 	String() string
-	ReceivedLeadNotification(smrNodeId int32) error
+	// ReceivedSmrLeadTaskMessage records that the specified kernel replica was selected as the primary replica
+	// and will be executing the code.
+	ReceivedSmrLeadTaskMessage(replica KernelReplica, receivedAt time.Time) error
 	ReceivedYieldNotification(smrNodeId int32, yieldReason string) error
 	NumRolesReceived() int
 	NumLeadReceived() int
@@ -144,6 +168,7 @@ type Execution interface {
 	IsErred() bool
 	GetNumReplicas() int
 	SetActiveReplica(replica KernelReplica)
+	GetActiveReplica() KernelReplica
 	GetOriginallySentAtTime() time.Time
 	GetWorkloadId() string
 	GetExecuteRequestMessageId() string
@@ -154,7 +179,33 @@ type Execution interface {
 
 	// GetExecutionIndex returns the ExecutionIndex of the target Execution.
 	GetExecutionIndex() int32
+
+	// GetTrainingStartedAt returns the time at which the training began, as indicated in the payload of the
+	// "smr_lead_task" message that we received from the primary replica.
+	// GetTrainingStartedAt() time.Time
+
+	// GetReceivedSmrLeadTaskAt returns the time at which we received a "smr_lead_task" message from the primary replica.
+	GetReceivedSmrLeadTaskAt() time.Time
+
+	// GetReceivedExecuteReplyAt returns the time at which the "execute_reply" message that indicated that the execution
+	// had finished was received.
+	GetReceivedExecuteReplyAt() time.Time
+
+	// GetMigrationRequired returns a bool indicating whether a migration was required in order to serve this training.
+	GetMigrationRequired() bool
+	SetMigrationRequired(required bool)
+
+	// GetNumViableReplicas returns the number of replicas that were viable to serve this training request.
+	GetNumViableReplicas() int
+	SetNumViableReplicas(n int)
+
+	// GetGpuDeviceIDs returns the GPU device IDs assigned to the kernel for this execution.
+	GetGpuDeviceIDs() []int
+
+	// SetGpuDeviceIDs sets the GPU device IDs assigned to the kernel for this execution.
+	SetGpuDeviceIDs(gpuDeviceIDs []int)
 }
+
 type Proposal interface {
 	GetKey() ProposalKey
 	GetReason() string

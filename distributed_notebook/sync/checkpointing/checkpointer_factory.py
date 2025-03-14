@@ -1,4 +1,5 @@
-from typing import Any, Optional, Dict
+import asyncio
+from typing import Any, Optional, Dict, List
 
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer

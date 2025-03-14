@@ -55,7 +55,7 @@ func NewGatewayProvisioner(gatewayGrpcAddress string) (*GatewayProvisioner, erro
 	var err error
 	gatewayProvisioner.Conn, err = grpc.NewClient(gatewayGrpcAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		gatewayProvisioner.log.Error("Failed to connect to Cluster Gateway via gRPC: %v", err)
+		gatewayProvisioner.log.Error("Failed to connect to cluster Gateway via gRPC: %v", err)
 		return nil, err
 	}
 

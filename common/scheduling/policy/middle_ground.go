@@ -49,7 +49,7 @@ func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions, clusterProvider sc
 		opts.InitialClusterSize = opts.MaximumNumNodes
 	}
 
-	basePolicy, err := newBaseSchedulingPolicy(opts, false, false, clusterProvider)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -122,46 +122,50 @@ func (p *MiddleGroundPolicy) getContainerPrewarmer() scheduling.ContainerPrewarm
 
 // HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
 // instances to serve the KernelReplica instance(s) of a particular Kernel.
-func (p *MiddleGroundPolicy) HandleFailedAttemptToGetViableHosts(_ context.Context, kernelSpec *proto.KernelSpec,
+func (p *MiddleGroundPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
 	numHosts int32, hosts []scheduling.Host) (bool, error) {
 
-	containerPrewarmer := p.getContainerPrewarmer()
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
 
-	hostMap := make(map[string]scheduling.Host, len(hosts))
-	for _, host := range hosts {
-		hostMap[host.GetID()] = host
-	}
+	return shouldContinue, nil
 
-	kernelResourceSpec := kernelSpec.ResourceSpec.ToDecimalSpec()
-
-	// Note that a host that passes these criteria could fail to do so later.
-	// This isn't a promise/guarantee. Likewise, a host that fails could later be eligible.
-	criteriaFunc := func(host scheduling.Host) error {
-		if _, ok := hostMap[host.GetID()]; ok {
-			return fmt.Errorf("host \"%s\" is already selected as a candidate host for kernel \"%s\"",
-				host.GetNodeName(), kernelSpec.Id)
-		}
-
-		if !host.CanServeContainer(kernelResourceSpec) {
-			return fmt.Errorf("host \"%s\" does not have sufficient resources to serve kernel \"%s\"",
-				host.GetNodeName(), kernelSpec.Id)
-		}
-
-		if !host.CanCommitResources(kernelResourceSpec) {
-			return fmt.Errorf("host \"%s\" does not have sufficient idle resources to commit to kernel \"%s\"",
-				host.GetNodeName(), kernelSpec.Id)
-		}
-
-		return nil // Host is viable (as of right now, at least...)
-	}
-
-	provisioned, err := containerPrewarmer.RequestProvisionContainers(int(numHosts), criteriaFunc, true)
-	if err != nil {
-		p.log.Warn("Error while provisioning prewarm containers on hosts: %v", err)
-		return len(provisioned) > 0, err
-	}
-
-	return len(provisioned) > 0, nil
+	//containerPrewarmer := p.getContainerPrewarmer()
+	//
+	//hostMap := make(map[string]scheduling.Host, len(hosts))
+	//for _, host := range hosts {
+	//	hostMap[host.GetID()] = host
+	//}
+	//
+	//kernelResourceSpec := kernelSpec.ResourceSpec.ToDecimalSpec()
+	//
+	//// Note that a host that passes these criteria could fail to do so later.
+	//// This isn't a promise/guarantee. Likewise, a host that fails could later be eligible.
+	//criteriaFunc := func(host scheduling.Host) error {
+	//	if _, ok := hostMap[host.GetID()]; ok {
+	//		return fmt.Errorf("host \"%s\" is already selected as a candidate host for kernel \"%s\"",
+	//			host.GetNodeName(), kernelSpec.Id)
+	//	}
+	//
+	//	if !host.CanServeContainer(kernelResourceSpec) {
+	//		return fmt.Errorf("host \"%s\" does not have sufficient resources to serve kernel \"%s\"",
+	//			host.GetNodeName(), kernelSpec.Id)
+	//	}
+	//
+	//	if !host.CanCommitResources(kernelResourceSpec) {
+	//		return fmt.Errorf("host \"%s\" does not have sufficient idle resources to commit to kernel \"%s\"",
+	//			host.GetNodeName(), kernelSpec.Id)
+	//	}
+	//
+	//	return nil // Host is viable (as of right now, at least...)
+	//}
+	//
+	//provisioned, err := containerPrewarmer.RequestProvisionContainers(int(numHosts), criteriaFunc, true)
+	//if err != nil {
+	//	p.log.Warn("Error while provisioning prewarm containers on hosts: %v", err)
+	//	return len(provisioned) > 0, err
+	//}
+	//
+	//return len(provisioned) > 0, nil
 }
 
 // ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that
@@ -262,7 +266,7 @@ func (p *MiddleGroundPolicy) ValidateCapacity(cluster scheduling.Cluster) {
 // SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
 // the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
 func (p *MiddleGroundPolicy) SupportsPredictiveAutoscaling() bool {
-	return false
+	return true
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
@@ -337,7 +341,7 @@ func (p *MiddleGroundPolicy) ScalingOutEnabled() bool {
 // ScalingInEnabled is disabled for the MiddleGroundPolicy, as the MiddleGroundPolicy uses a fixed-size cluster
 // on which a warm container pool is created and maintained.
 func (p *MiddleGroundPolicy) ScalingInEnabled() bool {
-	return false
+	return true
 }
 
 /////////////////////////////////////////////

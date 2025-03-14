@@ -35,8 +35,8 @@ func (t Type) String() string {
 type Provider struct {
 	HostSpec               types.Spec                   // Required.
 	Placer                 scheduling.Placer            // Required.
-	HostMapper             scheduler.HostMapper         // Required.
-	KernelProvider         scheduler.KernelProvider     // Required.
+	HostMapper             scheduling.HostMapper        // Required.
+	KernelProvider         scheduling.KernelProvider    // Required.
 	ClusterMetricsProvider scheduling.MetricsProvider   // Optional.
 	NotificationBroker     scheduler.NotificationBroker // Optional.
 	SchedulingPolicy       scheduling.Policy            // Optional, will be extracted from Options if not specified.
@@ -79,12 +79,12 @@ func (b *Provider) WithSchedulingPolicy(sp scheduling.Policy) *Provider {
 	return b
 }
 
-func (b *Provider) WithHostMapper(hm scheduler.HostMapper) *Provider {
+func (b *Provider) WithHostMapper(hm scheduling.HostMapper) *Provider {
 	b.HostMapper = hm
 	return b
 }
 
-func (b *Provider) WithKernelProvider(kp scheduler.KernelProvider) *Provider {
+func (b *Provider) WithKernelProvider(kp scheduling.KernelProvider) *Provider {
 	b.KernelProvider = kp
 	return b
 }
@@ -133,15 +133,15 @@ func (b *Provider) Validate() error {
 		return fmt.Errorf("%w: Placer", ErrMissingRequiredArgument)
 	}
 
-	if b.HostMapper == nil {
-		b.log.Error("Cannot create %s cluster. Missing HostMapper argument.", b.ClusterType.String())
-		return fmt.Errorf("%w: HostMapper", ErrMissingRequiredArgument)
-	}
+	//if b.HostMapper == nil {
+	//	b.log.Error("Cannot create %s cluster. Missing HostMapper argument.", b.ClusterType.String())
+	//	return fmt.Errorf("%w: HostMapper", ErrMissingRequiredArgument)
+	//}
 
-	if b.KernelProvider == nil {
-		b.log.Error("Cannot create %s cluster. Missing KernelProvider argument.", b.ClusterType.String())
-		return fmt.Errorf("%w: KernelProvider", ErrMissingRequiredArgument)
-	}
+	//if b.KernelProvider == nil {
+	//	b.log.Error("Cannot create %s cluster. Missing KernelProvider argument.", b.ClusterType.String())
+	//	return fmt.Errorf("%w: KernelProvider", ErrMissingRequiredArgument)
+	//}
 
 	if b.Options == nil {
 		b.log.Error("Cannot create %s cluster. Missing ClusterGatewayOptions argument.", b.ClusterType.String())

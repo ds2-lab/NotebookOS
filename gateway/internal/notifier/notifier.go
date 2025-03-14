@@ -25,6 +25,10 @@ func NewDashboardNotifier(clusterDashboard proto.ClusterDashboardClient) *Dashbo
 	}
 }
 
+func (n *DashboardNotifier) SetClusterDashboardClient(clusterDashboardClient proto.ClusterDashboardClient) {
+	n.clusterDashboard = clusterDashboardClient
+}
+
 func (n *DashboardNotifier) NotificationCallback(name string, content string, typ messaging.NotificationType) {
 	n.NotifyDashboard(name, content, typ)
 }
@@ -45,7 +49,7 @@ func (n *DashboardNotifier) NotifyDashboard(name string, content string, typ mes
 	})
 
 	if err != nil {
-		n.log.Error("Failed to send notification to Cluster Dashboard because: %s", err.Error())
+		n.log.Error("Failed to send notification to cluster Dashboard because: %s", err.Error())
 		n.log.Error("Notification name: %s", name)
 		n.log.Error("Notification message: %s", content)
 		n.log.Error("Notification type: %s", typ.String())
@@ -53,6 +57,16 @@ func (n *DashboardNotifier) NotifyDashboard(name string, content string, typ mes
 		n.log.Debug("Successfully sent \"%s\" (typ=%s (%n)) notification to internalCluster Dashboard.",
 			name, typ.String(), typ.Int32())
 	}
+}
+
+// SendErrorNotification sends an 'error' notification to the Cluster Dashboard in a separate goroutine.
+func (n *DashboardNotifier) SendErrorNotification(errorName string, errorMessage string) {
+	go n.NotifyDashboardOfError(errorName, errorMessage)
+}
+
+// SendInfoNotification sends an 'info' notification to the Cluster Dashboard in a separate goroutine.
+func (n *DashboardNotifier) SendInfoNotification(title string, message string) {
+	go n.NotifyDashboardOfInfo(title, message)
 }
 
 // NotifyDashboardOfInfo is used to issue an "info" notification to the internalCluster Dashboard.

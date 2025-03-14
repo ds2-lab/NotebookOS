@@ -6,19 +6,20 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 )
 
-// StatisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
-// for updating Prometheus metrics.
-type StatisticsProvider interface {
-	MetricsProvider
-
-	// UpdateClusterStatistics accepts a function as an argument.
-	//
-	// The parameter function accepts one parameter of type *statistics.ClusterStatistics and
-	// is used to update cluster-level metrics and statistics.
-	UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics))
-}
-
 type PrometheusMetricsProvider interface {
+	SpecGpuGaugeVec() *prometheus.GaugeVec
+	CommittedGpuGaugeVec() *prometheus.GaugeVec
+	PendingGpuGaugeVec() *prometheus.GaugeVec
+	IdleGpuGaugeVec() *prometheus.GaugeVec
+	SpecCpuGaugeVec() *prometheus.GaugeVec
+	CommittedCpuGaugeVec() *prometheus.GaugeVec
+	PendingCpuGaugeVec() *prometheus.GaugeVec
+	IdleCpuGaugeVec() *prometheus.GaugeVec
+	SpecMemoryGaugeVec() *prometheus.GaugeVec
+	CommittedMemoryGaugeVec() *prometheus.GaugeVec
+	PendingMemoryGaugeVec() *prometheus.GaugeVec
+	IdleMemoryGaugeVec() *prometheus.GaugeVec
+
 	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram
 	GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram
 	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec

@@ -95,10 +95,10 @@ func main() {
 	// Ensure that the options/configuration is valid.
 	ValidateOptions()
 
-	logger.Info("Starting Cluster Gateway with the following options:\n%s\n", options.String())
+	logger.Info("Starting cluster Gateway with the following options:\n%s\n", options.String())
 
 	if options.PrettyPrintOptions {
-		logger.Info("Cluster Gateway ClusterGatewayOptions pretty-printed:\n%s\n", options.PrettyString(2))
+		logger.Info("cluster Gateway ClusterGatewayOptions pretty-printed:\n%s\n", options.PrettyString(2))
 	}
 
 	if options.ClusterDaemonOptions.CommonOptions.DebugMode {

@@ -36,3 +36,4 @@ torchaudio @ https://download.pytorch.org/whl/cpu/torchaudio-2.5.1%2Bcpu-cp312-c
 torchvision @ https://download.pytorch.org/whl/cpu/torchvision-0.20.1%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=5f46c7ac7f00a065cb40bfb1e1bfc4ba16a35f5d46b3fe70cca6b3cea7f822f7
 aioboto3>=13.4.0
 moto
+uhashring>=2.3

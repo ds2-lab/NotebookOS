@@ -210,6 +210,15 @@ class LibriSpeech(CustomDataset):
         else:
             self._test_loader: Optional[WrappedLoader] = None
 
+    def __getstate__(self):
+        self.log.warning("LibriSpeech::__getstate__ has been called.")
+        state = self.__dict__.copy()
+
+        for key, value in state.items():
+            self.log.warning(f'Entry "{key}" has type "{type(value).__name__}".')
+
+        return state
+
     def __init_dataset_no_download(self, train_split:str, test_split: str, root_dir: str, folder_in_archive: str):
         """
         Attempts to create the LibriSpeech dataset using the TorchAudio module without downloading anything.
@@ -279,7 +288,8 @@ class LibriSpeech(CustomDataset):
         self._download_end = time.time()
         self._download_duration_sec = self._download_end - self._download_start
 
-        self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+        self.log.debug(f"The {self.name} dataset was downloaded to root directory "
+                       f"\"{root_dir}\" in {self._download_duration_sec} seconds.")
 
 
     def __init_dataset(self, train_split:str, test_split: str, root_dir: str, folder_in_archive: str):
@@ -308,6 +318,8 @@ class LibriSpeech(CustomDataset):
                         root_dir=root_dir,
                         folder_in_archive=folder_in_archive,
                     )
+
+                    self.log.debug(f'Successfully downloaded the "{self.dataset_name()}" dataset.')
 
                     # If we got through the above with no exceptions, then we're good to go.
                     return

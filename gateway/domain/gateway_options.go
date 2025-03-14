@@ -48,7 +48,7 @@ type ClusterDaemonOptions struct {
 	// value of the IdleSessionReclamationEnabled flag.
 	IdleSessionReclamationIntervalSec int `name:"idle_session_reclamation_interval_sec" json:"idle_session_reclamation_interval_sec" yaml:"idle_session_reclamation_interval_sec"`
 
-	SubmitExecuteRequestsOneAtATime bool `name:"submit_execute_requests_one_at_a_time" json:"submit_execute_requests_one_at_a_time" yaml:"submit_execute_requests_one_at_a_time" description:"If true, the Cluster Gateway will submit 'execute_request' messages one-at-a-time to kernels."`
+	SubmitExecuteRequestsOneAtATime bool `name:"submit_execute_requests_one_at_a_time" json:"submit_execute_requests_one_at_a_time" yaml:"submit_execute_requests_one_at_a_time" description:"If true, the cluster Gateway will submit 'execute_request' messages one-at-a-time to kernels."`
 	UseStatefulSet                  bool `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
 
 	// IdleSessionReclamationEnabled if a flag that, when true, instructs the system to consider sessions to be idle

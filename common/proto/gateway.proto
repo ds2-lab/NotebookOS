@@ -58,6 +58,16 @@ service DistributedCluster {
   // Used to test connectivity with kernels.
   rpc PingKernel(PingInstruction) returns (Pong) {}
 
+  // IsKernelTraining is used to query whether or not a particular kernel is actively training.
+  rpc IsKernelActivelyTraining(KernelId) returns (IsKernelTrainingReply) {}
+
+  // IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated.
+  rpc IsKernelActivelyMigrating(KernelId) returns (IsKernelMigratingReply) {}
+
+  // IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated
+  // or if it is actively training.
+  rpc IsKernelActivelyTrainingOrMigrating(KernelId) returns (IsKernelTrainingOrMigratingReply) {}
+
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
@@ -66,6 +76,10 @@ service DistributedCluster {
 
   // Return the current GPU resource metrics on the node.
   rpc GetClusterActualGpuInfo(Void) returns (ClusterActualGpuInfo) {}
+
+  // GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+  // the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+  rpc GetJupyterMessage(GetJupyterMessageRequest) returns (GetJupyterMessageResponse) {}
 
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
   rpc GetClusterVirtualGpuInfo(Void) returns (ClusterVirtualGpuInfo) {}
@@ -152,6 +166,54 @@ service DistributedCluster {
   //
   // ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
   rpc ClearClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+}
+
+message GetJupyterMessageRequest {
+  string kernelId = 1;
+  string jupyterMessageId = 2;
+  string messageType = 3;
+}
+
+message GetJupyterMessageResponse {
+  string kernelId = 1;
+  string jupyterMessageId = 2;
+  string messageType = 3;
+  JupyterMessage message = 4;
+  int64 receivedAtUnixMillis = 5;
+}
+
+message JupyterMessageHeader {
+  string messageId = 1;
+  string session = 2;
+  string username = 3;
+  string date = 4;
+  string messageType = 5;
+  string version = 6;
+  optional string subshellId = 7;
+}
+
+message JupyterMessage {
+    JupyterMessageHeader header = 1;
+    JupyterMessageHeader parentHeader = 2;
+    bytes metadata = 3;
+    bytes content = 4;
+    repeated bytes buffers = 5;
+}
+
+message IsKernelMigratingReply {
+  string kernelId = 1;
+  bool isMigrating = 2;
+}
+
+message IsKernelTrainingReply {
+  string kernelId = 1;
+  bool isTraining = 2;
+}
+
+message IsKernelTrainingOrMigratingReply {
+  string kernelId = 1;
+  bool isMigrating = 2;
+  bool isTraining = 3;
 }
 
 message ClusterStatisticsRequest {
@@ -506,6 +568,15 @@ message RequestTrace {
   float e2eLatencyMilliseconds = 31;
   // Time spent tokenizing the dataset.
   float tokenizeDatasetMicroseconds = 32;
+  float tokenizeDatasetStart = 33;
+  float tokenizeDatasetEnd = 34;
+
+  float synchronizeUpdatedStateMilliseconds = 35;
+  float commitExecutionCompleteNotificationMilliseconds = 36;
+
+  repeated float largeObjectWriteLatenciesMillis = 37;
+  repeated float largeObjectReadLatenciesMillis = 38;
+  repeated float synchronizationTimes = 39;
 }
 
 message PingInstruction {
@@ -544,6 +615,8 @@ message JupyterKernelReplica {
   int32 replicaId = 2;
   string podId = 3;
   string nodeId = 4;
+  bool wasLastPrimaryReplica = 5;
+  int32 numExecutions = 6;
 }
 
 message DistributedJupyterKernel {
@@ -596,6 +669,7 @@ message KernelNotification {
   string kernelId = 4;
   int32 replicaId = 5;
   string containerId = 6;
+  string containerName = 7;
 }
 
 // The Jupyter gateway service for host local kernels.

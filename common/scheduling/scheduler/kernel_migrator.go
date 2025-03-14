@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
@@ -14,6 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sync"
 	"time"
 )
@@ -28,10 +30,11 @@ type MigrationArgs struct {
 // kernelMigrator encapsulates the logic for migrating scheduling.KernelReplica
 // instances from one scheduling.Host to another.
 type kernelMigrator struct {
-	kernelProvider     KernelProvider
+	kernelProvider     scheduling.KernelProvider
 	log                logger.Logger
 	scheduler          clusterSchedulerInternal
 	notificationBroker NotificationBroker
+	statisticsProvider scheduling.MetricsProvider
 	smrPort            int32
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
@@ -44,16 +47,21 @@ type kernelMigrator struct {
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
+
+	cluster scheduling.Cluster
 }
 
-func newKernelMigrator(kernelProvider KernelProvider, scheduler clusterSchedulerInternal, smrPort int32) *kernelMigrator {
+func newKernelMigrator(kernelProvider scheduling.KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal,
+	statisticsProvider scheduling.MetricsProvider, smrPort int32) *kernelMigrator {
 	return &kernelMigrator{
 		kernelProvider:                        kernelProvider,
 		scheduler:                             scheduler,
+		cluster:                               cluster,
 		log:                                   config.GetLogger("KernelMigrator "),
 		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
 		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
 		smrPort:                               smrPort,
+		statisticsProvider:                    statisticsProvider,
 	}
 }
 
@@ -73,7 +81,7 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
 	}
 
-	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s. ForTraining=%v.",
+	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: \"%s\". ForTraining=%v.",
 		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId, forTraining)
 
 	kernelContainer := kernelReplica.Container()
@@ -97,6 +105,23 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 			nil, types.ErrKernelNotFound
 	}
 
+	// Record that there's an active migration.
+	if km.statisticsProvider != nil {
+		km.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+			statistics.NumActiveMigrations.Add(1)
+		})
+	}
+
+	// When we return -- either because we succeeded or because we failed -- we'll decrement the counter for
+	// the number of active migration operations.
+	defer func() {
+		if km.statisticsProvider != nil {
+			km.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+				statistics.NumActiveMigrations.Sub(1)
+			})
+		}
+	}()
+
 	//
 	// Step 1: Record that migration has started
 	//
@@ -115,14 +140,54 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 	// Step 2: Find viable target host (or validate provided/specified target host)
 	//
 
-	var targetHost scheduling.Host
-	targetHost, resp, reason, err = km.validateAndGetTargetHost(args, originalHost)
-	if reason != nil || err != nil {
-		return resp, reason, err
+	maxAttempts := 5
+	retryParameters := wait.Backoff{
+		Duration: time.Duration(float64(km.cluster.MeanScaleOutTime()) * 0.5),
+		Factor:   1.25,
+		Jitter:   1.125,
+		Steps:    maxAttempts,
+		Cap:      time.Duration(float64(km.cluster.MeanScaleOutTime()) * 1.50),
 	}
 
-	km.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
+	var targetHost scheduling.Host
+	for retryParameters.Steps > 0 {
+		targetHost, resp, reason, err = km.validateAndGetTargetHost(args, originalHost)
+
+		// If we simply cannot scale-out due to an ongoing scaling operation, then we'll wait before trying again.
+		if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(reason, scheduling.ErrScalingActive) {
+			sleepInterval := retryParameters.Step()
+
+			km.log.Debug("Sleeping for %v before retrying to find a candidate host for replica %d of kernel %s.",
+				sleepInterval, args.kernelReplica.ReplicaID(), args.kernelReplica.ID())
+
+			time.Sleep(sleepInterval)
+
+			continue
+		}
+
+		// If the error/reason is something other than there being an active scaling operation, then we'll give up.
+		if reason != nil || err != nil {
+			return resp, reason, err
+		}
+
+		// If we found a host, then break out of the loop.
+		if targetHost != nil {
+			km.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
+			break
+		}
+
+		sleepInterval := retryParameters.Step()
+
+		km.log.Debug("Sleeping for %v before retrying to find a candidate host for replica %d of kernel %s.",
+			sleepInterval, args.kernelReplica.ReplicaID(), args.kernelReplica.ID())
+
+		time.Sleep(sleepInterval)
+	}
+
+	if targetHost == nil {
+		return resp, reason, err
+	}
 
 	//
 	// Step 3: Start new replica on viable target host
@@ -253,7 +318,7 @@ func (km *kernelMigrator) MigrateKernelReplica(ctx context.Context, args *Migrat
 			panic(fmt.Sprintf("Could not find any ready replicas for kernel %s.", kernel.ID()))
 		}
 
-		err = km.issueUpdateReplicaRequest(readyReplica, args.kernelReplica.ReplicaID(), newlyAddedReplica.Address())
+		err = km.issueUpdateReplicaRequest(readyReplica, args.kernelReplica.ReplicaID(), addReplicaOp.NewKernelIp)
 		if err != nil {
 			return &proto.MigrateKernelResponse{
 				Id:          -1,
@@ -367,7 +432,10 @@ func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.Kern
 		persistentId = targetReplica.PersistentID()
 	}
 
-	_, err := host.StartSyncLog(context.Background(), &proto.ReplicaInfo{
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	_, err := host.StartSyncLog(ctx, &proto.ReplicaInfo{
 		ReplicaId:    targetReplica.ReplicaID(),
 		KernelId:     targetReplica.ID(),
 		PersistentId: persistentId,
@@ -382,180 +450,6 @@ func (km *kernelMigrator) issueStartSyncLogRequest(targetReplica scheduling.Kern
 		targetReplica.ReplicaID(), targetReplica.ID())
 
 	return nil
-}
-
-// MigrateKernelReplicaOld tries to migrate the given kernel to another Host.
-//
-// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
-// It simply provides an explanation for why the migration failed.
-//
-// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-func (km *kernelMigrator) MigrateKernelReplicaOld(ctx context.Context, args *MigrationArgs) (resp *proto.MigrateKernelResponse, reason error, err error) {
-	kernelReplica := args.kernelReplica
-	targetHostId := args.targetHostId
-	forTraining := args.forTraining
-
-	if kernelReplica == nil {
-		km.log.Error("MigrateContainer received nil KernelReplica")
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
-	}
-
-	km.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s.",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
-
-	kernelContainer := kernelReplica.Container()
-	if kernelContainer == nil {
-		km.log.Error("Cannot migrate replica %d of kernel %s; kernel's kernelContainer is nil",
-			kernelReplica.ReplicaID(), kernelReplica.ID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilContainer
-	}
-
-	originalHost := kernelContainer.Host()
-	if originalHost == nil {
-		km.log.Error("Cannot migrate kernelContainer %s. Container's host is nil.", kernelContainer.ContainerID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilOriginalHost
-	}
-
-	kernel, loaded := km.kernelProvider.GetKernel(kernelReplica.ID())
-	if !loaded {
-		km.log.Error("Could not find kernel \"%s\" associated with replica %d being migrated...",
-			kernelReplica.ID(), kernelReplica.ReplicaID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, types.ErrKernelNotFound
-	}
-
-	var targetHost scheduling.Host
-	targetHost, resp, reason, err = km.validateAndGetTargetHost(args, originalHost)
-	if reason != nil || err != nil {
-		return resp, reason, err
-	}
-
-	km.log.Debug("Found viable migration target for replica %d of kernel %s: host %s",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetNodeName())
-
-	// Record that the migration operation is starting.
-	err = kernel.MigrationStarted()
-	if err != nil {
-		km.log.Error("Could not initiate migration of replica %d of kernel \"%s\": %v",
-			kernelReplica.ReplicaID(), kernelReplica.ReplicaID(), err)
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, types.ErrKernelNotFound
-	}
-
-	defer kernel.MigrationConcluded()
-
-	dataDirectory, err := km.prepareReplicaForMigration(kernelReplica, originalHost, targetHost)
-	if err != nil {
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	}
-
-	err = km.removeTargetReplicaFromHost(kernelReplica, targetHost)
-	if err != nil {
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	}
-
-	replicaSpec := &proto.ReplicaInfo{
-		KernelId:     kernelReplica.ID(),
-		ReplicaId:    kernelReplica.ReplicaID(),
-		PersistentId: kernelReplica.PersistentID(),
-	}
-
-	// AddHost a new replica. We pass "true" for both options (registration and SMR-joining) so we wait
-	// for the replica to start fully.
-	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
-
-	var addReplicaOp *scheduling.AddReplicaOperation
-	addReplicaOp, err = km.addReplicaDuringMigration(ctx, replicaSpec, targetHost, opts, dataDirectory,
-		[]scheduling.Host{originalHost}, forTraining)
-
-	// If there's an error here, it's presumably a "real" error, as we already picked out a viable host up above.
-	if err != nil {
-		km.log.Error("Failed to add new replica %d to kernel %s: %v",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-
-		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
-		if releaseReservationError != nil {
-			km.log.Error(
-				"Failed to release reservation for replica %d of kernel %s after failing to recreate replica during migration: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			err = errors.Join(err, releaseReservationError)
-		}
-
-		updateIndexErr := km.scheduler.UpdateIndex(targetHost)
-		if updateIndexErr != nil {
-			km.log.Error("Failed to update index containing host %s: %v",
-				targetHost.GetNodeName(), updateIndexErr)
-			err = errors.Join(err, updateIndexErr)
-		}
-
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	}
-
-	km.log.Debug("Successfully added new replica %d of kernel \"%s\" during migration (not quite done yet)",
-		addReplicaOp.ReplicaId(), kernelReplica.ID())
-
-	var newlyAddedReplica scheduling.KernelReplica
-	newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
-	if err != nil {
-		km.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v",
-			addReplicaOp.ReplicaId(), kernelReplica.ID(), err)
-
-		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
-		if releaseReservationError != nil {
-			km.log.Error("Failed to release reservation for replica %d of kernel %s after not being able to find the replica after supposedly successful migration: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			err = errors.Join(err, releaseReservationError)
-		}
-
-		updateIndexErr := km.scheduler.UpdateIndex(targetHost)
-		if updateIndexErr != nil {
-			km.log.Error("Failed to update index containing host %s: %v",
-				targetHost.GetNodeName(), updateIndexErr)
-			err = errors.Join(err, updateIndexErr)
-		}
-
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	} else {
-		km.log.Debug("Successfully added new replica %d to kernel %s during migration operation.",
-			addReplicaOp.ReplicaId(), kernelReplica.ID())
-	}
-
-	km.log.Debug("Designating new replica %d of kernel \"%s\" as \"ready\"",
-		addReplicaOp.ReplicaId(), kernelReplica.ID())
-
-	// The replica is fully operational at this point, so record that it is ready.
-	newlyAddedReplica.SetReady()
-
-	resp = &proto.MigrateKernelResponse{
-		Id:          addReplicaOp.ReplicaId(),
-		Hostname:    addReplicaOp.ReplicaPodHostname(),
-		NewNodeId:   targetHost.GetID(),
-		NewNodeName: targetHost.GetNodeName(),
-		Success:     true,
-	}
-	return resp, nil, err
 }
 
 // removeTargetReplicaFromHost terminates the target scheduling.KernelReplica.
@@ -731,7 +625,7 @@ func (km *kernelMigrator) issuePrepareToMigrateRequest(kernelReplica scheduling.
 		}
 	}
 
-	km.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
+	km.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of old replica %d of kernel %s now.",
 		originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
 
 	replicaInfo := &proto.ReplicaInfo{
@@ -810,6 +704,9 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 	opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host,
 	forTraining bool) (*scheduling.AddReplicaOperation, error) {
 
+	km.log.Debug("Adding replica %d of kernel \"%s\" during migration operation",
+		in.ReplicaId, in.KernelId)
+
 	kernelId := in.KernelId
 	persistentId := in.PersistentId
 
@@ -818,8 +715,6 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 		km.log.Error("Cannot add replica %d to kernel %s: cannot find kernel %s", in.ReplicaId, kernelId, kernelId)
 		return nil, types.ErrKernelNotFound
 	}
-
-	kernel.AddOperationStarted()
 
 	smrNodeId := int32(-1)
 
@@ -830,6 +725,11 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 
 	// The spec to be used for the new replica that is created during the migration.
 	newReplicaSpec := kernel.PrepareNewReplica(persistentId, smrNodeId)
+
+	km.log.Debug("Officially starting 'add' operation for replica %d of kernel \"%s\" during migration operation",
+		newReplicaSpec.ReplicaId, in.KernelId)
+
+	kernel.AddOperationStarted(newReplicaSpec.ReplicaId)
 
 	forMigration := true
 	newReplicaSpec.ForMigration = &forMigration
@@ -866,11 +766,12 @@ func (km *kernelMigrator) addReplicaDuringMigration(ctx context.Context, in *pro
 		defer sem.Release(1)
 
 		args := &scheduling.ScheduleReplicaArgs{
-			ReplicaSpec:      newReplicaSpec,
-			TargetHost:       targetHost,
-			BlacklistedHosts: blacklistedHosts,
-			ForTraining:      forTraining,
-			ForMigration:     true,
+			ReplicaSpec:            newReplicaSpec,
+			TargetHost:             targetHost,
+			BlacklistedHosts:       blacklistedHosts,
+			ForTraining:            forTraining,
+			ForMigration:           true,
+			CanUsePrewarmContainer: true,
 		}
 
 		//
@@ -983,7 +884,7 @@ func (km *kernelMigrator) waitForNewReplicaToJoinSmrCluster(kernel scheduling.Ke
 
 		close(replicaJoinedSmrChannel)
 		km.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernel.ID())
-		kernel.AddOperationCompleted()
+		kernel.AddOperationCompleted(addReplicaOp.ReplicaId())
 		smrWg.Done()
 
 		if !addReplicaOp.Completed() {
@@ -1037,7 +938,9 @@ func (km *kernelMigrator) GetAddReplicaOperationManager() hashmap.HashMap[string
 //
 // readyReplica is one of the other replicas of the kernel.
 func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.KernelReplica, targetReplicaId int32, newAddress string) error {
-	km.log.Info("Issuing 'update-replica' request to replica %d of kernel %s for replica %s, newAddr = %s.",
+	km.log.Debug(
+		utils.LightPurpleStyle.Render(
+			"Issuing 'update-replica' request to replica %d of kernel %s for replica %d, newAddr = %s."),
 		readyReplica.ReplicaID(), readyReplica.ID(), targetReplicaId, newAddress)
 
 	if !readyReplica.IsReady() {
@@ -1051,8 +954,8 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 			readyReplica.ReplicaID(), readyReplica.ID()))
 	}
 
-	km.log.Debug("Issuing UpdateReplicaAddr RPC for replica %s of kernel %s to replica %km. Sending request to Local Daemon of replica %s.",
-		targetReplicaId, readyReplica.ID(), readyReplica.ReplicaID())
+	km.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s to replica %d. Sending request to Local Daemon of replica %d.",
+		targetReplicaId, readyReplica.ID(), readyReplica.ReplicaID(), readyReplica.ReplicaID())
 	replicaInfo := &proto.ReplicaInfoWithAddr{
 		Id:       targetReplicaId,
 		KernelId: readyReplica.ID(),
@@ -1061,11 +964,12 @@ func (km *kernelMigrator) issueUpdateReplicaRequest(readyReplica scheduling.Kern
 
 	// Issue the 'update-replica' request. We panic if there was an error.
 	if _, err := host.UpdateReplicaAddr(context.Background(), replicaInfo); err != nil {
-		km.log.Debug("Failed to add replica %s of kernel %s to SMR cluster because: %v", targetReplicaId, readyReplica.ID(), err)
-		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", targetReplicaId, readyReplica.ID()))
+		km.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
+			targetReplicaId, readyReplica.ID(), err)
+		return err
 	}
 
-	km.log.Debug("Successfully updated peer address of replica %d of kernel %s to %s.", targetReplicaId, readyReplica.ID(), newAddress)
-
+	km.log.Debug(utils.LightGreenStyle.Render("Successfully updated peer address of replica %d of kernel %s to %s."),
+		targetReplicaId, readyReplica.ID(), newAddress)
 	return nil
 }

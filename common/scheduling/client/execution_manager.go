@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -28,7 +30,7 @@ func validateRequest(msg *messaging.JupyterMessage) error {
 
 // validateReply ensures that the given *messaging.JupyterMessage is an "execute_reply"
 func validateReply(msg *messaging.JupyterMessage) error {
-	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+	if msg.JupyterMessageType() != messaging.ShellExecuteReply { // && msg.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
 		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
 			ErrInvalidExecuteRegistrationMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
 	}
@@ -45,11 +47,16 @@ type ExecutionManager struct {
 
 	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
 	// code execution. It will be nil if no code executions have occurred.
-	lastPrimaryReplica scheduling.KernelReplica
+	lastPrimaryReplica   scheduling.KernelReplica
+	lastPrimaryReplicaId int32
 
 	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
 	// for updating Prometheus metrics.
-	statisticsProvider scheduling.StatisticsProvider
+	statisticsProvider scheduling.MetricsProvider
+
+	// numTimesAsPrimaryReplicaMap keeps track of the number of times that each replica served as the primary
+	// replica and successfully executed user-submitted code.
+	numTimesAsPrimaryReplicaMap map[int32]int
 
 	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
 	// the code submission with the aforementioned ID.
@@ -113,6 +120,14 @@ type ExecutionManager struct {
 
 	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
 	nextExecutionIndex atomic.Int32
+
+	// executeReplyMessages maintains a mapping from jupyter message ID to the associated "execute_reply" message
+	// that was sent when an execution completed.
+	executeReplyMessages map[string]*messaging.JupyterMessage
+
+	// smrLeadTaskMessages is a map from Jupyter msg ID for the associated "execute_request" to the "smr_lead_task"
+	// message that was sent by the primary replica that handled the "execute_request".
+	smrLeadTaskMessages map[string]*messaging.JupyterMessage
 
 	// submittedExecutionIndex is used to decide if a KernelReplicaClient should actually transition into training upon
 	// receiving a "smr_lead_task" message, or if it should essentially just ignore the message.
@@ -182,7 +197,7 @@ type ExecutionManager struct {
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
-func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvider scheduling.StatisticsProvider,
+func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvider scheduling.MetricsProvider,
 	callbackProvider scheduling.CallbackProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{
@@ -193,6 +208,9 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 		executionIndicesToExecutions: make(map[int32]*Execution),
 		executionIndices:             make(map[string]int32),
 		failedExecutions:             make(map[string]*Execution),
+		smrLeadTaskMessages:          make(map[string]*messaging.JupyterMessage),
+		executeReplyMessages:         make(map[string]*messaging.JupyterMessage),
+		numTimesAsPrimaryReplicaMap:  make(map[int32]int),
 		NumReplicas:                  numReplicas,
 		Kernel:                       kernel,
 		submittedExecutionIndex:      -1,
@@ -200,6 +218,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 		completedExecutionIndex:      -1,
 		callbackProvider:             callbackProvider,
 		statisticsProvider:           statsProvider,
+		lastPrimaryReplicaId:         -1,
 	}
 
 	config.InitLogger(&manager.log, manager)
@@ -207,10 +226,42 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvide
 	return manager
 }
 
+// GetSmrLeadTaskMessage returns the "smr_lead_task" IO pub message that was sent by the primary replica of the
+// execution triggered by the "execute_request" message with the specified ID.
+func (m *ExecutionManager) GetSmrLeadTaskMessage(executeRequestId string) (*messaging.JupyterMessage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	msg, ok := m.smrLeadTaskMessages[executeRequestId]
+	return msg, ok
+}
+
+// GetExecuteReplyMessage returns the "execute_reply" message that was sent in response to the "execute_request"
+// message with the specified ID, if one exists. Specifically, it would be the "execute_reply" sent by the primary
+// replica when it finished executing the user-submitted code.
+func (m *ExecutionManager) GetExecuteReplyMessage(executeRequestId string) (*messaging.JupyterMessage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	msg, ok := m.executeReplyMessages[executeRequestId]
+	return msg, ok
+}
+
 // ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
 // fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
 func (m *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
 	return executionIndex > m.submittedExecutionIndex && executionIndex > m.activeExecutionIndex && executionIndex > m.completedExecutionIndex
+}
+
+// NumExecutionsByReplica returns the number of times that the specified replica served as the primary replica
+// and successfully executed user-submitted code.
+func (m *ExecutionManager) NumExecutionsByReplica(replicaId int32) int {
+	numTimes, loaded := m.numTimesAsPrimaryReplicaMap[replicaId]
+	if !loaded {
+		return 0
+	}
+
+	return numTimes
 }
 
 // SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
@@ -303,14 +354,26 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	defer m.mu.Unlock()
 
 	requestId := msg.JupyterMessageId()
-	if _, loaded := m.finishedExecutions[requestId]; loaded {
+	if completedExecution, loaded := m.finishedExecutions[requestId]; loaded {
 		m.log.Error("Attempt made to re-register completed execution \"%s\"", requestId)
+
+		err = m.encodeExecutionIndexInExecuteRequest(msg, completedExecution.GetExecutionIndex())
+		if err != nil {
+			return nil, err
+		}
+
 		return nil, fmt.Errorf("%w: execution ID=\"%s\"", ErrDuplicateExecution, requestId)
 	}
 
 	existingExecution, loaded := m.failedExecutions[requestId]
 	if loaded {
 		nextExecutionAttempt := m.registerExecutionAttempt(msg, existingExecution)
+
+		err = m.encodeExecutionIndexInExecuteRequest(msg, existingExecution.GetExecutionIndex())
+		if err != nil {
+			return nextExecutionAttempt, err
+		}
+
 		return nextExecutionAttempt, nil
 	}
 
@@ -325,7 +388,37 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	m.log.Debug("Registered new execution \"%s\" (idx=%d) for kernel \"%s\"",
 		requestId, executionIndex, m.Kernel.ID())
 
+	err = m.encodeExecutionIndexInExecuteRequest(msg, executionIndex)
+	if err != nil {
+		return newExecution, err
+	}
+
 	return newExecution, nil
+}
+
+// encodeExecutionIndexInExecuteRequest encodes the execution index that is or will be associated with the execution
+// in the given, associated messaging.JupyterMessage.
+func (m *ExecutionManager) encodeExecutionIndexInExecuteRequest(msg *messaging.JupyterMessage, index int32) error {
+	metadata, err := msg.DecodeMetadata()
+	if err != nil {
+		m.log.Error("Failed to decode metadata of \"execute_request\" message \"%s\": %v",
+			msg.JupyterMessageId(), err)
+		return err
+	}
+
+	metadata["execution_index"] = index
+
+	err = msg.EncodeMetadata(metadata)
+	if err != nil {
+		m.log.Error("Failed to re-encode metadata of \"execute_request\" message \"%s\" after adding execution index %d: %v",
+			msg.JupyterMessageId(), index, err)
+		return err
+	}
+
+	m.log.Debug("Successfully encoded execution index %d in \"execute_request\" message \"%s\" targeting kernel \"%s\".",
+		index, msg.JupyterMessageId(), m.Kernel.ID())
+
+	return nil
 }
 
 func (m *ExecutionManager) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
@@ -342,6 +435,14 @@ func (m *ExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
 	return m.lastPrimaryReplica
 }
 
+// LastPrimaryReplicaId returns the SMR node ID of the KernelReplica that served as the primary replica for the
+// previous code execution, or nil if no code executions have occurred.
+//
+// LastPrimaryReplicaId is preserved even if the last primary replica is removed/migrated.
+func (m *ExecutionManager) LastPrimaryReplicaId() int32 {
+	return m.lastPrimaryReplicaId
+}
+
 // YieldProposalReceived is called when we receive a YieldProposal from a replica of a kernel.
 //
 // YieldProposalReceived registers the YieldProposal with the kernel's associated Execution struct.
@@ -351,11 +452,11 @@ func (m *ExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
 func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica,
 	executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error {
 
-	replica.ReceivedExecuteReply(executeReplyMsg, true)
-
 	if err := validateReply(executeReplyMsg); err != nil {
 		return err
 	}
+
+	replica.ReceivedExecuteReply(executeReplyMsg, true)
 
 	m.log.Debug("Received 'YIELD' proposal from replica %d for execution \"%s\"",
 		replica.ReplicaID(), executeReplyMsg.JupyterParentMessageId())
@@ -515,8 +616,8 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 	}
 
 	kernelId := m.Kernel.ID()
-	m.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from replica %d of kernel %s.",
-		msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
+	m.log.Debug("Received \"%s\" message with JupyterID=\"%s\" from replica %d of kernel %s.",
+		msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
 
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
@@ -537,7 +638,21 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 		return false, err
 	}
 
-	isYieldProposal := msgErr.ErrName == messaging.MessageErrYieldExecution
+	var isYieldProposal bool
+	if msgErr.Status != messaging.MessageStatusOK {
+		isYieldProposal = (msgErr.ErrName == messaging.MessageErrYieldExecution) || msgErr.YieldReason != "" || msgErr.Yielded
+
+		if msgErr.ErrName != messaging.MessageErrYieldExecution {
+			m.log.Error("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue)
+
+			title := "Kernel Encountered Error During Code Execution"
+			m.sendNotification(title, fmt.Sprintf("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue), messaging.ErrorNotification, true)
+		}
+	}
 
 	activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
 	if activeExec != nil {
@@ -563,11 +678,171 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 	return false, err // Will be nil if everything went OK in the call to ExecutionComplete
 }
 
+func (m *ExecutionManager) HandleExecuteStatisticsMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) error {
+	if msg.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
+		return /* false, */ fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
+			ErrInvalidExecuteRegistrationMessage, messaging.MessageTypeExecutionStatistics, msg.JupyterMessageType())
+	}
+
+	kernelId := m.Kernel.ID()
+	m.log.Debug("Received \"%s\" message with JupyterID=\"%s\" from replica %d of kernel %s.",
+		msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
+
+	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
+		m.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)",
+			replica.ReplicaID(), kernelId)
+		return /* false, */ messaging.ErrInvalidJupyterMessage
+	}
+
+	if len(*msg.JupyterFrames.ContentFrame()) == 0 {
+		m.log.Warn("Received shell '%v' response with empty content.", msg.JupyterMessageType())
+		return /* false, */ nil
+	}
+
+	//msgErr, isYieldProposal, decodeErr := m.checkIfMessageIsYield(msg, replica)
+	//if decodeErr != nil {
+	//	m.log.Error("Decoding failed while checking for yield message: %v", decodeErr)
+	//	return false, decodeErr
+	//}
+	//
+	//m.mu.Lock()
+	//defer m.mu.Unlock()
+	//
+	//activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
+	//if activeExec != nil {
+	//	err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
+	//	if err != nil && !errors.Is(err, ErrReplyAlreadyRegistered) {
+	//		m.log.Error("Failed to register \"execute_reply\" message: %v", err)
+	//		return isYieldProposal, err
+	//	}
+	//}
+	//
+	//if isYieldProposal {
+	//	err := m.YieldProposalReceived(replica, msg, msgErr)
+	//	if err != nil {
+	//		msg.IsFailedExecuteRequest = true
+	//		return true, errors.Join(err, fmt.Errorf("%s: %s", msgErr.ErrName, msgErr.ErrValue))
+	//	}
+	//
+	//	return true, messaging.ErrExecutionYielded
+	//}
+	//
+	//_, err := m.unsafeExecutionComplete(msg, replica)
+
+	// Update the ClusterStatistics using the data encoded in the "execute_statistics" message.
+	//
+	// We'll only update the parts of the ClusterStatistics that won't/wouldn't be updated
+	// upon receiving the "execute_reply" sent for the same execution. We're also operating
+	// under the assumption that we only receive "execute_statistics" IOPub messages while
+	// using SMR-enabled, multiple-replica-based policies, such as "static" and "dynamic".
+	m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		// TODO: Implement me!
+		panic("Implement me!")
+	})
+
+	return nil /* false, err */ // Will be nil if everything went OK in the call to ExecutionComplete
+}
+
+func (m *ExecutionManager) checkIfExecuteReplyMessageIsYield(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (*messaging.MessageErrorWithYieldReason, bool, error) {
+	var msgErr *messaging.MessageErrorWithYieldReason
+	if err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr); err != nil {
+		m.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v",
+			replica.ReplicaID(), replica.ID(), err)
+		return nil, false, err
+	}
+
+	var isYieldProposal bool
+	if msgErr.Status != messaging.MessageStatusOK {
+		isYieldProposal = (msgErr.ErrName == messaging.MessageErrYieldExecution) || msgErr.YieldReason != "" || msgErr.Yielded
+
+		if msgErr.ErrName != messaging.MessageErrYieldExecution {
+			m.log.Error("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue)
+
+			title := "Kernel Encountered Error During Code Execution"
+			m.sendNotification(title, fmt.Sprintf("Received error in \"%s\" message \"%s\" from replica %d of kernel \"%s\": %s %s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), replica.ID(), msgErr.ErrName,
+				msgErr.ErrValue), messaging.ErrorNotification, true)
+		}
+	}
+
+	return msgErr, isYieldProposal, nil
+}
+
+func (m *ExecutionManager) checkIfMessageIsYield(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (*messaging.MessageErrorWithYieldReason, bool, error) {
+	if msg.JupyterMessageType() == messaging.ShellExecuteReply {
+		return m.checkIfExecuteReplyMessageIsYield(msg, replica)
+	}
+
+	var content map[string]interface{}
+	err := msg.JupyterFrames.DecodeContent(&content)
+	if err != nil {
+		m.log.Error("Failed to decode content of \"%s\" message \"%s\": %v",
+			msg.JupyterMessageType(), msg.JupyterMessageId(), err)
+
+		return nil, false, err
+	}
+
+	var (
+		msgErr          messaging.MessageErrorWithYieldReason
+		isYieldProposal bool
+		loaded          bool
+		val             interface{}
+	)
+
+	val, loaded = content["status"]
+	if !loaded {
+		return nil, false, nil
+	}
+	msgErr.Status = val.(string)
+
+	// If the "status" field is "ok", then it's not a YIELD message.
+	if msgErr.Status == messaging.MessageStatusOK {
+		return nil, false, nil
+	}
+
+	val, loaded = content["ename"]
+	if !loaded {
+		return nil, false, nil
+	}
+	msgErr.ErrName = val.(string)
+
+	val, loaded = content["evalue"]
+	if !loaded {
+		return nil, false, nil
+	}
+	msgErr.ErrValue = val.(string)
+
+	val, loaded = content["yield-reason"]
+	if loaded {
+		msgErr.YieldReason = val.(string)
+	}
+
+	val, loaded = content["yielded"]
+	if loaded {
+		msgErr.Yielded = val.(bool)
+	}
+
+	isYieldProposal = (msgErr.ErrName == messaging.MessageErrYieldExecution) || msgErr.YieldReason != "" || msgErr.Yielded
+	return &msgErr, isYieldProposal, nil
+}
+
 // ExecutionComplete should be called by the Kernel associated with the target ExecutionManager when an "execute_reply"
 // message is received.
 //
 // ExecutionComplete returns nil on success.
 func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.unsafeExecutionComplete(msg, replica)
+}
+
+func (m *ExecutionManager) unsafeExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
+	receivedAt := time.Now()
+
 	err := validateReply(msg)
 	if err != nil {
 		return nil, err
@@ -590,12 +865,15 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId)
 	}
 
-	err = activeExecution.ReceivedLeadNotification(msg.ReplicaId)
-	if err != nil {
-		return nil, err
+	// If the execution is already marked as complete, then we'll log an error.
+	// We can't just return because we shouldn't have found the active execution struct in the "activeExecutions"
+	// map if it was already completed.
+	if activeExecution.IsCompleted() {
+		m.log.Error("Execution \"%s\" was already completed %v ago...",
+			executeRequestId, time.Since(activeExecution.GetReceivedExecuteReplyAt()))
 	}
 
-	activeExecution.SetExecuted()
+	activeExecution.SetExecuted(receivedAt)
 
 	// Update the execution's state.
 	activeExecution.State = Completed
@@ -605,6 +883,13 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 	// Store the execution in the "finished" map.
 	m.finishedExecutions[executeRequestId] = activeExecution
+	m.executeReplyMessages[executeRequestId] = msg
+
+	if numTimes, loadedNumTimes := m.numTimesAsPrimaryReplicaMap[replica.ReplicaID()]; loadedNumTimes {
+		m.numTimesAsPrimaryReplicaMap[replica.ReplicaID()] = numTimes + 1
+	} else {
+		m.numTimesAsPrimaryReplicaMap[replica.ReplicaID()] = 1
+	}
 
 	// If our statistics provider field is non-nil, then we'll update some statistics.
 	if m.statisticsProvider != nil {
@@ -614,8 +899,15 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		}
 
 		m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-			statistics.CompletedTrainings += 1
-			statistics.NumIdleSessions += 1
+			statistics.CompletedTrainings.Add(1)
+			statistics.NumIdleSessions.Add(1)
+
+			resourceRequest := replica.ResourceSpec()
+
+			statistics.BusyCPUs.Sub(resourceRequest.CPU())
+			statistics.BusyMemory.Sub(resourceRequest.MemoryMB())
+			statistics.BusyGPUs.Sub(resourceRequest.GPU())
+			statistics.BusyVRAM.Sub(resourceRequest.VRAM())
 		})
 	}
 
@@ -626,7 +918,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
-		m.lastTrainingEndedAt = time.Now()
+		m.lastTrainingEndedAt = receivedAt
 
 		// No longer waiting for "execute_reply" for most-recently-submitted "execute_request".
 		m.hasActiveTraining.Store(false)
@@ -684,6 +976,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 		activeExecution.SetActiveReplica(replica)
 		m.lastPrimaryReplica = replica
+		m.lastPrimaryReplicaId = replica.ReplicaID()
 	}
 
 	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {
@@ -691,7 +984,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	}
 
 	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
-	err = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
+	err = activeExecution.ActiveReplica.KernelStoppedTraining(reason, activeExecution)
 	if err != nil {
 		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
 			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
@@ -790,6 +1083,8 @@ func (m *ExecutionManager) ReplicaRemoved(replica scheduling.KernelReplica) {
 
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
 func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
+	receivedAt := time.Now()
+
 	// Decode the jupyter.MessageSMRLeadTask message.
 	leadMessage, err := m.decodeLeadMessageContent(msg)
 	if err != nil {
@@ -801,6 +1096,8 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.smrLeadTaskMessages[executeRequestMsgId] = msg
 
 	activeExecution := m.getActiveExecution(executeRequestMsgId)
 	if activeExecution == nil {
@@ -842,7 +1139,20 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		m.activeExecutionIndex = executionIndex
 	}
 
-	activeExecution.SetActiveReplica(replica)
+	err = activeExecution.ReceivedSmrLeadTaskMessage(replica, receivedAt)
+	if err != nil {
+		return err
+	}
+
+	var (
+		samePrimaryReplicaAsLastTime bool
+		isFirstTraining              = m.lastPrimaryReplica == nil
+	)
+
+	if m.lastPrimaryReplica != nil {
+		samePrimaryReplicaAsLastTime = m.lastPrimaryReplica.ReplicaID() == replica.ReplicaID()
+	}
+
 	m.lastPrimaryReplica = replica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
@@ -874,6 +1184,59 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 			m.Kernel.ID()), err.Error(), messaging.ErrorNotification, true)
 
 		return err
+	}
+
+	if m.statisticsProvider != nil {
+		m.statisticsProvider.UpdateClusterStatistics(func(stats *metrics.ClusterStatistics) {
+			stats.NumTrainingSessions.Add(1)
+
+			resourceRequest := replica.ResourceSpec()
+
+			stats.BusyCPUs.Add(resourceRequest.CPU())
+			stats.BusyMemory.Add(resourceRequest.MemoryMB())
+			stats.BusyGPUs.Add(resourceRequest.GPU())
+			stats.BusyVRAM.Add(resourceRequest.VRAM())
+
+			var (
+				gpuDeviceIds     []int
+				hostId, hostName string
+			)
+
+			// Get the name and ID of the host on which the active replica is running,
+			// if that information is available right now.
+			if activeExecution != nil {
+				activeReplica := activeExecution.ActiveReplica
+				if activeReplica != nil {
+					host := activeReplica.Host()
+					if host != nil {
+						hostId = host.GetID()
+						hostName = host.GetNodeName()
+					}
+				}
+
+				gpuDeviceIds = activeExecution.GetGpuDeviceIDs()
+			}
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.KernelTrainingStarted,
+				KernelId:            m.Kernel.ID(),
+				ReplicaId:           replica.ReplicaID(),
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"resource_request":                resourceRequest.ToMap(),
+					"is_first_training":               isFirstTraining,
+					"reused_previous_primary_replica": samePrimaryReplicaAsLastTime,
+					"num_viable_replicas":             activeExecution.NumViableReplicas,
+					"migration_required":              activeExecution.MigrationWasRequired,
+					"gpu_device_ids":                  gpuDeviceIds,
+					"host_id":                         hostId,
+					"host_name":                       hostName,
+				},
+			})
+		})
 	}
 
 	m.log.Debug("Session \"%s\" has successfully started training on replica %d.",
@@ -913,14 +1276,14 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 		m.log.Warn("Calling KernelStoppedTraining on the replica recorded on the Execution struct for execution '%s'",
 			requestId)
 
-		err1 = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
+		err1 = activeExecution.ActiveReplica.KernelStoppedTraining(reason, activeExecution)
 	}
 
 	if replica.IsTraining() {
 		m.log.Warn("Calling KernelStoppedTraining on the replica that sent the \"execute_reply\" message for execution '%s'",
 			requestId)
 
-		err2 = replica.KernelStoppedTraining(reason)
+		err2 = replica.KernelStoppedTraining(reason, activeExecution)
 	}
 
 	// We recorded the errors of each call to KernelStoppedTraining separately.
@@ -1070,13 +1433,13 @@ func (m *ExecutionManager) HasActiveTraining() bool {
 // messaging.ShellYieldRequest.
 //
 // If a single target replica is identified, then the ExecutionManager will register this with the associated Execution.
-func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.JupyterMessage, exec scheduling.Execution) error {
+func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.JupyterMessage, activeExecution scheduling.Execution) error {
 	if len(messages) == 0 {
 		m.log.Error("ExecutionManager::SendingExecuteRequest: messages slice is empty.")
 		return ErrEmptyMessagesSlice
 	}
 
-	if exec == nil {
+	if activeExecution == nil {
 		m.log.Error("ExecutionManager::checkAndSetTargetReplica: scheduling.Execution argument is nil.")
 		return fmt.Errorf("execution argument is nil")
 	}
@@ -1090,7 +1453,7 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 		// If the execution index is already set, then we've found two messages of type "execute_request".
 		if execRequestIndex != -1 {
 			m.log.Debug("Messages %d and %d are both of type \"%s\". No single target replica identified for execution \"%s\" (index=%d).",
-				execRequestIndex, i, messaging.ShellExecuteRequest, messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+				execRequestIndex, i, messaging.ShellExecuteRequest, messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex())
 			return nil
 		}
 
@@ -1099,13 +1462,63 @@ func (m *ExecutionManager) checkAndSetTargetReplica(messages []*messaging.Jupyte
 
 	if execRequestIndex == -1 {
 		m.log.Debug("No single target replica identified for execution \"%s\" (index=%d).",
-			messages[0].JupyterMessageId(), exec.GetExecutionIndex())
+			messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex())
 		return nil
 	}
 
 	targetReplicaId := int32(execRequestIndex + 1) // Replica IDs start at 1.
 	m.log.Debug("Identified target replica for execution \"%s\" (index=%d): replica %d.",
-		messages[0].JupyterMessageId(), exec.GetExecutionIndex(), targetReplicaId)
+		messages[0].JupyterMessageId(), activeExecution.GetExecutionIndex(), targetReplicaId)
 
-	return exec.SetTargetReplica(targetReplicaId)
+	err := activeExecution.SetTargetReplica(targetReplicaId)
+	if err != nil {
+		m.log.Error("Failed to set target replica for active execution \"%s\": %v",
+			activeExecution.GetExecuteRequestMessageId(), err)
+		return err
+	}
+
+	// If we already have assigned the GPU device IDs, then we can just return.
+	if activeExecution.GetGpuDeviceIDs() != nil && len(activeExecution.GetGpuDeviceIDs()) > 0 {
+		return nil
+	}
+
+	execRequest := messages[execRequestIndex]
+
+	var metadataDict map[string]interface{}
+	err = execRequest.JupyterFrames.DecodeMetadata(&metadataDict)
+	if err != nil {
+		m.log.Error("Failed to decode the metadata dictionary of \"%s\" message \"%s\": %v",
+			execRequest.JupyterMessageType(), execRequest.JupyterMessageId(), err)
+		return err
+	}
+
+	// Attempt to decode it this way.
+	var requestMetadata *messaging.ExecuteRequestMetadata
+	err = mapstructure.Decode(metadataDict, &requestMetadata)
+	if err == nil {
+		activeExecution.SetGpuDeviceIDs(requestMetadata.GpuDeviceIds)
+	} else {
+		// Fallback if the mapstructure way is broken.
+		m.log.Warn(utils.OrangeStyle.Render("[WARNING] Failed to decode request metadata via mapstructure: %v\n"), err)
+
+		deviceIds, ok := metadataDict["gpu_device_ids"]
+		if ok {
+			activeExecution.SetGpuDeviceIDs(deviceIds.([]int))
+		}
+	}
+
+	return nil
+}
+
+// IsExecutionComplete returns true if the execution associated with the given message ID is complete.
+func (m *ExecutionManager) IsExecutionComplete(executeRequestId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	exec, loaded := m.activeExecutions[executeRequestId]
+	if !loaded {
+		return false
+	}
+
+	return exec.IsCompleted()
 }

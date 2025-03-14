@@ -345,9 +345,7 @@ func (p *BaseContainerPrewarmer) Run() error {
 		default:
 		}
 
-		if p.instance != nil {
-			p.ValidatePoolCapacity()
-		}
+		p.ValidatePoolCapacity()
 
 		if p.GuardChannel != nil {
 			p.log.Debug("Polling on GuardChannel")
@@ -504,7 +502,7 @@ func (p *BaseContainerPrewarmer) RequestProvisionContainers(n int, criteria sche
 
 			p.log.Warn(
 				utils.YellowStyle.Render(
-					"Prewarmed 0/%d container(s) this iter. Total so far: %d/%d. Consecutive failures: %d. Time elapsed: %v. Sleeping for %v."),
+					"Prewarmed %d/%d container(s) this iter. Total so far: %d/%d. Consecutive failures: %d. Time elapsed: %v. Sleeping for %v."),
 				numCreatedThisIteration, numToCreate, totalNumCreated, n, consecutiveFailures, time.Since(startTime), sleepInterval)
 
 			// Sleep for a small amount of time, as sometimes things can change if you wait a little.
@@ -922,7 +920,7 @@ func (p *BaseContainerPrewarmer) provisionContainers(host scheduling.Host, n int
 
 // ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
 
 	// TODO: Make the executable path configurable or passed via an environment variable.
@@ -950,16 +948,21 @@ func (p *BaseContainerPrewarmer) provisionContainer(host scheduling.Host) error 
 		PrewarmContainer:          true,
 	}
 
-	p.log.Debug("Calling StartKernelReplica on host %s...", host.GetNodeName())
+	p.log.Debug("provisionContainer: calling StartKernelReplica on host %s", host.GetNodeName())
+	startTime := time.Now()
 
 	resp, err := host.StartKernelReplica(ctx, spec)
 	if err != nil {
-		p.log.Error("Failed to provision pre-warmed container on host %s because: %v", host.GetNodeName(), err)
+		p.log.Error("Failed to provision pre-warmed container on host %s after %v because: %v",
+			host.GetNodeName(), time.Since(startTime), err)
 
 		p.decrementProvisioning(1, host)
 
 		return err
 	}
+
+	p.log.Debug("provisionContainer: successfully called StartKernelReplica on host %s in %v",
+		host.GetNodeName(), time.Since(startTime))
 
 	prewarmedContainer := NewPrewarmedContainerBuilder().
 		WithHost(host).

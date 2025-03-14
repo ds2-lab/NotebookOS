@@ -151,12 +151,77 @@ func (msg *Message) String() string {
 // http://jupyter-client.readthedocs.io/en/latest/messaging.html#general-message-format
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type MessageHeader struct {
-	MsgID    string             `json:"msg_id"`
-	Username string             `json:"username"`
-	Session  string             `json:"session"`
-	Date     string             `json:"date"`
-	MsgType  JupyterMessageType `json:"msg_type"`
-	Version  string             `json:"version"`
+	MsgID      string             `json:"msg_id"`
+	Username   string             `json:"username"`
+	Session    string             `json:"session"`
+	Date       string             `json:"date"`
+	MsgType    JupyterMessageType `json:"msg_type"`
+	Version    string             `json:"version"`
+	SubshellId *string            `json:"subshell_id,omitempty"`
+}
+
+func (header *MessageHeader) Equals(o interface{}) bool {
+	header2, ok := o.(*MessageHeader)
+	if !ok {
+		return false
+	}
+
+	return header.MsgType == header2.MsgType && header.MsgID == header2.MsgID && header.Session == header2.Session &&
+		header.Username == header2.Username && header.Date == header2.Date && header.Version == header2.Version &&
+		header.SubshellId == header2.SubshellId
+}
+
+// MessageHeaderFromProto creates a new MessageHeader struct with the data from the corresponding fields of the given
+// proto.JupyterMessageHeader struct.
+func MessageHeaderFromProto(protoHeader *proto.JupyterMessageHeader) *MessageHeader {
+	if protoHeader == nil {
+		return nil
+	}
+
+	header := &MessageHeader{}
+
+	header.MsgID = protoHeader.MessageId
+	header.Username = protoHeader.Username
+	header.Session = protoHeader.Session
+	header.Date = protoHeader.Date
+	header.MsgType = JupyterMessageType(protoHeader.MessageType)
+	header.Version = protoHeader.Version
+	header.SubshellId = protoHeader.SubshellId
+
+	return header
+}
+
+// FromProto populates the fields of the target MessageHeader struct with the data from the corresponding fields
+// of the given proto.JupyterMessageHeader struct.
+func (header *MessageHeader) FromProto(msg *proto.JupyterMessageHeader) {
+	if header == nil || msg == nil {
+		return
+	}
+
+	header.MsgID = msg.MessageId
+	header.Username = msg.Username
+	header.Session = msg.Session
+	header.Date = msg.Date
+	header.MsgType = JupyterMessageType(msg.MessageType)
+	header.Version = msg.Version
+	header.SubshellId = msg.SubshellId
+}
+
+// ToProto converts the target MessageHeader to an equivalent *proto.JupyterMessageHeader struct.
+func (header *MessageHeader) ToProto() *proto.JupyterMessageHeader {
+	if header == nil {
+		return nil
+	}
+
+	return &proto.JupyterMessageHeader{
+		MessageId:   header.MsgID,
+		Username:    header.Username,
+		Session:     header.Session,
+		Date:        header.Date,
+		MessageType: header.MsgType.String(),
+		Version:     header.Version,
+		SubshellId:  nil,
+	}
 }
 
 func (header *MessageHeader) Clone() *MessageHeader {
@@ -211,6 +276,12 @@ func (m *MessageErrorWithOldContent) String() string {
 	return string(out)
 }
 
+type ExecuteStatisticsMessage struct {
+	MessageErrorWithYieldReason `json:"message_error_with_yield_reason"`
+	KernelId                    string `json:"kernel_id"`
+	ReplicaId                   int32  `json:"replica_id"`
+}
+
 // MessageErrorWithYieldReason is a wrapper around MessageError with an additional YieldReason field, in case
 // the error is an 'execution yielded' error, and the replica that encountered this error was explicitly instructed
 // to yield, and a reason was provided.
@@ -218,6 +289,7 @@ type MessageErrorWithYieldReason struct {
 	*MessageError
 
 	YieldReason string `json:"yield-reason"`
+	Yielded     bool   `json:"yielded"`
 }
 
 func (m *MessageErrorWithYieldReason) String() string {
@@ -367,6 +439,18 @@ func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Lo
 	}
 }
 
+// ExtractRequestTraceFromJupyterMessage will attempt to extract and return a *proto.RequestTrace from the (first)
+// buffers frame of the given JupyterMessage.
+//
+// It is the caller's responsibility to ensure that the given JupyterMessage has a buffers frame.
+func ExtractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Logger) (*proto.RequestTrace, error) {
+	_, requestTrace, err := extractRequestTraceFromJupyterMessage(msg, logger)
+
+	msg.RequestTrace = requestTrace
+
+	return requestTrace, err
+}
+
 // AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given messaging.JupyterMessage's metadata frame.
 // If there is already a RequestTrace within the messaging.JupyterMessage's metadata frame, then no change is made.
 //
@@ -383,17 +467,12 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 		err          error
 	)
 
-	//logger.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.", msg.JupyterMessageType())
-
 	// Check if the message has enough frames to have a RequestTrace in it (i.e., if there are buffers frames or not).
 	// If not, then we'll assume that the message does not have a buffers frame/RequestTrace (as there aren't enough
 	// frames for that to be the case), and we'll add additional frames and then add a new RequestTrace to the new
 	// buffer frame.
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) <= JupyterFrameRequestTrace {
 		for msg.JupyterFrames.LenWithoutIdentitiesFrame(false) <= JupyterFrameRequestTrace {
-			// logger.Debug("Jupyter \"%s\" request has just %d frames (after skipping identities frame). Adding additional frame. Offset: %d. Frames: %s",
-			//	msg.JupyterMessageType(), msg.JupyterFrames.LenWithoutIdentitiesFrame(false), msg.Offset(), msg.JupyterFrames.String())
-
 			// If the request doesn't already have a JupyterFrameRequestTrace frame, then we'll add one.
 			msg.JupyterFrames.Frames = append(msg.JupyterFrames.Frames, make([]byte, 0))
 		}
@@ -405,25 +484,17 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 
 		// Create the wrapper/frame itself.
 		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
-
-		// logger.Debug("Added RequestTrace to Jupyter \"%s\" message.", msg.JupyterMessageType())
 	} else {
-		// logger.Debug("Extracting Jupyter RequestTrace frame from \"%s\" message (offset=%d): %s", msg.JupyterMessageType(), msg.JupyterFrames.Offset, msg.JupyterFrames.String())
-
 		// The message has at least one buffers frame, so let's try to extract an existing RequestTrace.
 		wrapper, requestTrace, err = extractRequestTraceFromJupyterMessage(msg, logger)
 		if err != nil {
 			// We failed to extract the RequestTrace for some reason.
 			return nil, false, err
 		}
-
-		// logger.Debug("Extracted existing RequestTrace from Jupyter \"%s\" message.", msg.JupyterMessageType())
 	}
 
 	// Update the appropriate timestamp field of the RequestTrace.
-	requestTrace.PopulateNextField(timestamp.UnixMilli(), logger)
-
-	// logger.Debug("New/updated RequestTrace: %s.", requestTrace.String())
+	requestTrace.PopulateNextField(timestamp.UnixMilli())
 
 	marshalledFrame, err := json.Marshal(wrapper)
 	if err != nil {
@@ -432,8 +503,6 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 	}
 
 	msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+JupyterFrameRequestTrace] = marshalledFrame
-
-	// logger.Debug("Updated frames: %s.", msg.JupyterFrames.String())
 
 	msg.RequestTrace = requestTrace
 
@@ -518,6 +587,8 @@ type ExecuteRequestMetadata struct {
 	// ElectionMetadata is metadata from the Python Election that took place to determine which
 	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
+
+	ExecutionIndex int32 `json:"execution_index" mapstructure:"execution_index"`
 
 	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
 	// checkpointing its state.
@@ -1060,7 +1131,7 @@ func (m *JupyterMessage) String() string {
 
 func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d,IsFailedExecuteRequest=%v]; JupyterMessage's JupyterFrames=\n%s",
-		m.RequestId, m.DestinationId, m.Offset, m.IsFailedExecuteRequest, m.JupyterFrames.StringFormatted())
+		m.RequestId, m.DestinationId, m.Offset(), m.IsFailedExecuteRequest, m.JupyterFrames.StringFormatted())
 }
 
 // CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.
@@ -1134,3 +1205,62 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage(targetReplicaId int3
 
 	return jMsg, nil
 }
+
+// ToProto creates a new *proto.JupyterMessage struct, populating its fields with the data from the corresponding
+// fields of the target JupyterMessage struct.
+//
+// The Header and ParentHeader fields are populated as deserialized/decoded proto.JupyterMessageHeader structs,
+// whereas the metadata, content, and buffers frames are included in the new proto.JupyterMessage struct as []byte.
+func (m *JupyterMessage) ToProto() (*proto.JupyterMessage, error) {
+	var (
+		header, parentHeader           *MessageHeader
+		protoHeader, protoParentHeader *proto.JupyterMessageHeader
+		metadataFrame, contentFrame    []byte
+		buffersFrames                  [][]byte
+		err                            error
+	)
+
+	header, err = m.GetHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	parentHeader = m.GetParentHeader()
+
+	protoHeader = header.ToProto()
+
+	if parentHeader != nil {
+		protoParentHeader = parentHeader.ToProto()
+	}
+
+	if m.JupyterFrames.MetadataFrame() != nil {
+		metadataFrame = m.JupyterFrames.MetadataFrame().Frame()
+	}
+
+	if m.JupyterFrames.ContentFrame() != nil {
+		contentFrame = m.JupyterFrames.ContentFrame().Frame()
+	}
+
+	if m.JupyterFrames.BuffersFrame() != nil {
+		buffersJFrames := m.JupyterFrames.BuffersFrames()
+
+		buffersFrames = make([][]byte, 0, len(buffersJFrames))
+		for _, bufferFrame := range buffersJFrames {
+			buffersFrames = append(buffersFrames, bufferFrame.Frame())
+		}
+	}
+
+	protoMessage := &proto.JupyterMessage{
+		Header:       protoHeader,
+		ParentHeader: protoParentHeader,
+		Metadata:     metadataFrame,
+		Content:      contentFrame,
+		Buffers:      buffersFrames,
+	}
+
+	return protoMessage, nil
+}
+
+// GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+// the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
+// rpc GetJupyterMessage(GetJupyterMessageRequest) returns (GetJupyterMessageResponse) {}

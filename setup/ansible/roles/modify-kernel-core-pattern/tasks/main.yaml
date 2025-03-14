@@ -1,0 +1,3 @@
+- name: Set core pattern
+  command: sudo echo '/cores/core.exec=%e-pid=%p-sig=%s-ts=%t' | sudo tee /proc/sys/kernel/core_pattern
+  become: yes

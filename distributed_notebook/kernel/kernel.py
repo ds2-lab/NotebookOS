@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 import inspect
 import json
 import logging
+import math
 import os
 import random
 import signal
 import socket
+import sys
+import time
 import traceback
 import typing as t
 import uuid
@@ -19,12 +23,8 @@ from threading import Lock
 from typing import Union, Optional, Dict, Any, Tuple, Awaitable
 
 import debugpy
-import faulthandler
 import grpc
-import math
 import numpy as np
-import sys
-import time
 import zmq
 from IPython.core.interactiveshell import ExecutionResult
 from ipykernel import jsonutil
@@ -379,7 +379,6 @@ class DistributedKernel(IPythonKernel):
     # The path to each dataset would be: "s3://<bucket_name>/datasets/<dataset_filename>"
     # Each dataset would be stored downloaded as a tar.gz file.
     retrieve_datasets_from_s3: Bool = Bool(default_value=False).tag(
-        default_value=False,
         config=True,
     )
 
@@ -388,7 +387,7 @@ class DistributedKernel(IPythonKernel):
     # Each dataset would be stored downloaded as a tar.gz file.
     datasets_s3_bucket: Union[str, Unicode] = Unicode(
         default_value="distributed-notebook-storage"
-    ).tag(config=True, default_value="distributed-notebook-storage")
+    ).tag(config=True)
 
     prewarm_container: Bool = Bool(False,
                                    help="Indicates whether this Kernel was created to serve as a pre-warm container, "
@@ -426,6 +425,8 @@ class DistributedKernel(IPythonKernel):
     smr_nodes_map: dict
 
     def __init__(self, **kwargs):
+        start_time: float = time.time()
+
         faulthandler.enable()
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
@@ -467,6 +468,8 @@ class DistributedKernel(IPythonKernel):
         for handler in self.log.handlers:
             handler.setLevel(logging.DEBUG)
 
+        self.log.info("DistributedKernel initializing.")
+
         # self.log.info("INFO")
         # self.log.debug("DEBUG")
         # self.log.warning("WARNING")
@@ -476,7 +479,6 @@ class DistributedKernel(IPythonKernel):
         self.background_tasks = set()
         self.next_execute_request_msg_id: Optional[str] = None
         self.old_run_cell = None
-        self.daemon_registration_socket = None
         self.prometheus_thread = None
         self.prometheus_server = None
         self.source = None
@@ -486,7 +488,8 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
-        self.synclog: Optional[SyncLog] = None
+        self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = None
+        self._remote_checkpointer: Optional[Checkpointer] = None  # created in start method.
 
         # Normally, we start the SyncLog in DistributedKernel::start.
         #
@@ -536,6 +539,16 @@ class DistributedKernel(IPythonKernel):
             self.smr_enabled = kwargs_smr_enabled
         else:
             self.log.debug(f"smr_enabled={self.smr_enabled}")
+
+        # Arguments not relevant to the specified remote storage will be ignored.
+        self._remote_checkpointer: Optional[Checkpointer] = get_checkpointer(
+            remote_storage_name=self.remote_storage,
+            host=self.remote_storage_hostname,
+            aws_region=self.aws_region,
+            redis_port=self.redis_port,
+            redis_database=self.redis_database,
+            redis_password=self.redis_password,
+        )
 
         # Committed DatasetPointers that we encounter while catching-up after a migration.
         # Once we're caught-up, we download all of these.
@@ -635,16 +648,6 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(f'Remote storage hostname: "{self.remote_storage_hostname}"')
 
-        # Arguments not relevant to the specified remote storage will be ignored.
-        self._remote_checkpointer: Checkpointer = get_checkpointer(
-            remote_storage_name=self.remote_storage,
-            host=self.remote_storage_hostname,
-            aws_region=self.aws_region,
-            redis_port=self.redis_port,
-            redis_database=self.redis_database,
-            redis_password=self.redis_password,
-        )
-
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
             "AWS S3 (Default)": SimulatedCheckpointer(
@@ -658,28 +661,20 @@ class DistributedKernel(IPythonKernel):
             )
         }
 
-        self.current_resource_request: Optional[
-            Dict[str, float | int | List[float] | List[int]]
-        ] = {
+        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = {
             "cpus": self.spec_cpus,
             "gpus": self.spec_gpus,
             "memory": self.spec_mem_mb,
             "vram": self.spec_vram_gb,
         }
-        self.resource_requests: list[Dict[str, Number | List[Number]]] = [
-            self.current_resource_request
-        ]
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = [self.current_resource_request]
 
         self.log.debug(f"Initial resource request: {self.current_resource_request}")
-        self.log.debug(
-            f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec"
-        )
+        self.log.debug(f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec")
 
         if "local_tcp_server_port" in kwargs:
-            self.log.warning(
-                f"Overwriting default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
-                f"value from keyword arguments: {kwargs['local_tcp_server_port']}"
-            )
+            self.log.warning(f"Overwriting default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                             f"value from keyword arguments: {kwargs['local_tcp_server_port']}")
             self.local_tcp_server_port = kwargs["local_tcp_server_port"]
 
         self.prometheus_enabled: bool = True
@@ -688,29 +683,22 @@ class DistributedKernel(IPythonKernel):
         try:
             self.prometheus_port: int = int(prometheus_port_str)
         except ValueError as ex:
-            self.log.error(
-                f'Failed to parse "PROMETHEUS_METRICS_PORT" environment variable value "{prometheus_port_str}": {ex}'
-            )
+            self.log.error(f'Failed to parse "PROMETHEUS_METRICS_PORT" environment '
+                           f'variable value "{prometheus_port_str}": {ex}')
             self.log.error("Will use default prometheus metrics port of 8089.")
             self.prometheus_port: int = 8089
 
         if self.prometheus_port > 0:
-            self.log.debug(
-                f"Starting Prometheus HTTP server on port {self.prometheus_port}."
-            )
+            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
             try:
-                self.prometheus_server, self.prometheus_thread = start_http_server(
-                    self.prometheus_port
-                )
+                self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
             except OSError as exc:
                 self.log.error(f"Failed to start Prometheus Server because: {exc}")
                 self.log.error("Disabling Prometheus.")
                 self.prometheus_enabled = False
         else:
-            self.log.warning(
-                f"Prometheus Port is configured as {self.prometheus_port}. "
-                f"Skipping creation of Prometheus HTTP server."
-            )
+            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
+                             f"Skipping creation of Prometheus HTTP server.")
             self.prometheus_enabled = False
 
         if self.prometheus_enabled:
@@ -944,6 +932,9 @@ class DistributedKernel(IPythonKernel):
         # be shutdown, as important state needs to be checkpointed first.
         self.preparing_to_migrate: bool = False
 
+        self.checkpointing_state_cv: asyncio.Condition = asyncio.Condition()
+        self.checkpointing_state: bool = False
+
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
 
@@ -965,6 +956,8 @@ class DistributedKernel(IPythonKernel):
             registration_start: float = time.time()
             self.register_with_local_daemon(self.connection_info, session_id)
             registration_duration: float = (time.time() - registration_start) * 1.0e3
+
+            self.log.debug(f"Finished registration procedure in {round(registration_duration, 3):,} ms.")
 
             if self.prometheus_enabled:
                 self.registration_time_milliseconds.observe(registration_duration)
@@ -1051,64 +1044,7 @@ class DistributedKernel(IPythonKernel):
 
         return md
 
-    def register_with_local_daemon(self, connection_info: dict, session_id: str):
-        self.log.info("Registering with local daemon now.")
-
-        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
-        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
-        try:
-            server_port = int(server_port)
-        except ValueError:
-            server_port = 8075
-
-        self.log.info(
-            'Local Daemon network address: "%s:%d"'
-            % (local_daemon_service_name, server_port)
-        )
-
-        self.daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-        start_time: float = time.time()
-        try:
-            self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
-        except Exception as ex:
-            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
-            self.log.error("Reason: %s" % str(ex))
-            raise ex
-
-        registration_payload = {
-            "op": "register",
-            "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
-            "key": connection_info["key"],
-            "replicaId": self.smr_node_id,
-            "numReplicas": len(self.smr_nodes_map),
-            "join": self.smr_join,
-            "podName": self.docker_container_name,
-            "nodeName": self.node_name,
-            "connection-info": connection_info,
-            "workload_id": self.workload_id,
-            "prewarm_container": self.prewarm_container,
-            "kernel": {
-                "id": self.kernel_id,
-                "session": session_id,
-                "signature_scheme": connection_info["signature_scheme"],
-                "key": connection_info["key"],
-            },
-        }
-
-        self.log.info(
-            "Sending registration payload to local daemon: %s"
-            % str(registration_payload)
-        )
-
-        bytes_sent: int = self.daemon_registration_socket.send(
-            json.dumps(registration_payload).encode()
-        )
-
-        self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
-
-        response: bytes = self.daemon_registration_socket.recv(1024)
-
+    def handle_registration_response(self, response: bytes, start_time: float, local_daemon_service_name: str):
         if len(response) == 0:
             self.log.error("Received empty response from local daemon during registration...")
             raise ValueError("received empty response from local daemon during registration procedure")
@@ -1159,10 +1095,16 @@ class DistributedKernel(IPythonKernel):
             raise ValueError('registration response from local daemon did not contained a "replicas" entry')
 
         self.num_replicas: int = len(replicas)
-        self.smr_nodes_map = {
-            int(node_id_str): (node_addr + ":" + str(self.smr_port))
-            for node_id_str, node_addr in replicas.items()
-        }
+        if "smr_port" in response_dict:  # Only occurs during testing.
+            self.smr_port = int(response_dict["smr_port"])
+            self.log.debug(f"Set SMR port to value from Local Daemon registration response: {self.smr_port}")
+
+            self.smr_nodes_map = {int(node_id_str): node_addr for node_id_str, node_addr in replicas.items()}
+        else:
+            self.smr_nodes_map = {
+                int(node_id_str): (node_addr + ":" + str(self.smr_port))
+                for node_id_str, node_addr in replicas.items()
+            }
 
         # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
@@ -1202,18 +1144,185 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
-        assert self.smr_nodes_map[self.smr_node_id] == (self.hostname + ":" + str(self.smr_port))
+        if self.smr_nodes_map[self.smr_node_id] != (self.hostname + ":" + str(self.smr_port)):
+            expected_hostname: str = self.hostname + ":" + str(self.smr_port)
+            self.log.error("Invalid Configuration")
+            self.log.error(f'Expected our entry in SMR nodes map to equal "{expected_hostname}".')
+            self.log.error(f'Instead, entry {self.smr_node_id} is equal to "{self.smr_nodes_map[self.smr_node_id]}"')
+            raise ValueError(f'Invalid configuration: SMR node map entry {self.smr_node_id} '
+                             f'has unexpected value "{expected_hostname}"')
 
         grpc_port: int = response_dict.get("grpc_port", -1)
         if grpc_port == -1:
-            self.log.error("Received -1 for gRPC port from registration payload.")
-            exit(1)
+            self.log.warning("Received -1 for gRPC port from registration payload.")
+        else:
+            self.log.debug(f'Creating gRPC connection to Local Daemon at "{local_daemon_service_name}:{grpc_port}"')
+            # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
+            self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
+            self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
 
-        # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
-        self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
-        self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
+    async def register_with_local_daemon_async(self, connection_info: dict, session_id: str):
+        self.log.info("Registering with local daemon now.")
 
-        self.daemon_registration_socket.close()
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
+        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
+        try:
+            server_port = int(server_port)
+        except ValueError:
+            server_port = 8075
+
+        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port))
+
+        start_time: float = time.time()
+        try:
+            reader, writer = await asyncio.open_connection(local_daemon_service_name, server_port)
+        except Exception as ex:
+            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
+            self.log.error("Reason: %s" % str(ex))
+            raise ex
+
+        self.log.info(f"Successfully connected to Local Daemon at {local_daemon_service_name}:{server_port} "
+                      f"in {round((time.time() - start_time) * 1.0e3, 3):,} ms.")
+
+        try:
+            registration_payload = {
+                "op": "register",
+                "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                "key": connection_info.get("key", ""),
+                "replicaId": self.smr_node_id,
+                "numReplicas": len(self.smr_nodes_map),
+                "join": self.smr_join,
+                "podName": self.docker_container_name,
+                "nodeName": self.node_name,
+                "connection-info": connection_info,
+                "workload_id": self.workload_id,
+                "prewarm_container": self.prewarm_container,
+                "kernel": {
+                    "id": self.kernel_id,
+                    "session": session_id,
+                    "signature_scheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                    "key": connection_info.get("key", ""),
+                },
+            }
+        except Exception as ex:
+            self.log.error(f"Failed to create registration payload: {ex}")
+            raise ex  # Re-raise
+
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
+
+        writer.write(json.dumps(registration_payload).encode())
+        await writer.drain()
+
+        self.log.info("Asynchronously sent registration payload to local daemon.")
+
+        num_tries: int = 0
+        registered_successfully: bool = False
+
+        while num_tries < 3 and not registered_successfully:
+            response: bytes = await reader.read(1024)
+
+            try:
+                self.handle_registration_response(response, start_time, local_daemon_service_name)
+                registered_successfully = True
+                break
+            except ValueError as ex:
+                self.log.error(ex)
+                num_tries += 1
+                await asyncio.sleep(num_tries * 2)
+                continue
+
+        if not registered_successfully:
+            self.report_error("Failed to Register with Local Daemon", "")
+
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception as ex:
+            self.log.warning(f"Error while closing writer to Local Daemon: {ex}")
+            self.log.warning(traceback.format_exc())
+
+        try:
+            reader.close()
+            await reader.close()
+        except Exception as ex:
+            self.log.warning(f"Error while closing writer to Local Daemon: {ex}")
+            self.log.warning(traceback.format_exc())
+
+    def register_with_local_daemon(self, connection_info: dict, session_id: str):
+        self.log.info("Registering with local daemon now.")
+
+        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
+        server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
+        try:
+            server_port = int(server_port)
+        except ValueError:
+            server_port = 8075
+
+        self.log.info('Local Daemon network address: "%s:%d"' % (local_daemon_service_name, server_port))
+
+        daemon_registration_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        start_time: float = time.time()
+        try:
+            daemon_registration_socket.connect((local_daemon_service_name, server_port))
+        except Exception as ex:
+            self.log.error(f"Failed to connect to LocalDaemon at {local_daemon_service_name}:{server_port}")
+            self.log.error("Reason: %s" % str(ex))
+            raise ex
+
+        self.log.info(f"Successfully connected to Local Daemon at {local_daemon_service_name}:{server_port} "
+                      f"in {round((time.time() - start_time) * 1.0e3, 3):,} ms.")
+
+        try:
+            registration_payload = {
+                "op": "register",
+                "signatureScheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                "key": connection_info.get("key", ""),
+                "replicaId": self.smr_node_id,
+                "numReplicas": len(self.smr_nodes_map),
+                "join": self.smr_join,
+                "podName": self.docker_container_name,
+                "nodeName": self.node_name,
+                "connection-info": connection_info,
+                "workload_id": self.workload_id,
+                "prewarm_container": self.prewarm_container,
+                "kernel": {
+                    "id": self.kernel_id,
+                    "session": session_id,
+                    "signature_scheme": connection_info.get("signature_scheme", "hmac-sha256"),
+                    "key": connection_info.get("key", ""),
+                },
+            }
+        except Exception as ex:
+            self.log.error(f"Failed to create registration payload: {ex}")
+            raise ex  # Re-raise
+
+        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
+
+        bytes_sent: int = daemon_registration_socket.send(json.dumps(registration_payload).encode())
+
+        self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
+
+        num_tries: int = 0
+        registered_successfully: bool = False
+
+        while num_tries < 3 and not registered_successfully:
+            response: bytes = daemon_registration_socket.recv(1024)
+
+            try:
+                self.handle_registration_response(response, start_time, local_daemon_service_name)
+                registered_successfully = True
+                break
+            except ValueError as ex:
+                self.log.error(ex)
+                num_tries += 1
+                time.sleep(num_tries * 2)
+                continue
+
+        daemon_registration_socket.close()
+
+        if not registered_successfully:
+            self.report_error("Failed to Register with Local Daemon", "")
 
     def init_debugpy(self):
         if not self.debugpy_enabled or self.debug_port < 0:
@@ -1276,18 +1385,23 @@ class DistributedKernel(IPythonKernel):
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
 
+        rsp = None
+
         try:
             self.store = await self.init_persistent_store_with_persistent_id(persistent_id)
             self.log.info(f"Persistent store confirmed on start: {self.store}")
+            rsp = self.gen_simple_response()
+            self.log.info("Persistent store confirmed: " + self.store)
+            return True
         except Exception as ex:
             self.log.error(f'Failed to initialize persistent store with ID "{persistent_id}" because: {ex}')
             self.log.error(traceback.format_exc())
+            self.report_error("Failed to Init Persistent Store During Start", str(ex))
+            rsp = gen_error_response(ex)
+            future.set_result(rsp)
             return False
-
-        rsp = self.gen_simple_response()
-        future.set_result(rsp)
-        self.log.info("Persistent store confirmed: " + self.store)
-        return True
+        finally:
+            future.set_result(rsp)
 
     async def kernel_info_request(self, stream, ident, parent):
         """Handle a kernel info request."""
@@ -1298,9 +1412,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell or process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
 
         msg = self.session.send(
             stream, "kernel_info_reply", content, parent, ident, buffers=buffers
@@ -1323,6 +1435,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Received SHELL message, but our Session is None...")
             self.log.error(f"Will be discarding SHELL message: {msg}")
             return
+
+        self.log.debug(f'Received new SHELL message. Flushing control queue before processing: {msg}')
 
         # flush control queue before handling shell requests
         await self._flush_control_queue()
@@ -1409,9 +1523,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("=============================================================================================")
         sys.stderr.flush()
         sys.stdout.flush()
-        self.send_ack(
-            self.shell_stream, msg_type, msg_id, idents, msg, stream_name="shell"
-        )  # Send an ACK.
+        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg, stream_name="shell")  # Send an ACK.
 
         # Only abort execute requests
         if self._aborting and msg_type == "execute_request":
@@ -1434,9 +1546,7 @@ class DistributedKernel(IPythonKernel):
 
         # The first time we call 'extract_and_process_request_trace' for this request.
         # The second time will be in the handler itself.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            msg, self.shell_received_at
-        )
+        buffers, _ = self.extract_and_process_request_trace(msg, self.shell_received_at)
 
         handler = self.shell_handlers.get(msg_type, None)
         if handler is None:
@@ -1479,7 +1589,7 @@ class DistributedKernel(IPythonKernel):
                         error_message=str(ex),
                     )
 
-        self.log.debug(f'← Finished processing shell message {msg_id} of type "{msg_type}"')
+        self.log.debug(f'Finished processing shell message {msg_id} of type "{msg_type}"')
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1626,7 +1736,7 @@ class DistributedKernel(IPythonKernel):
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
 
-        self.log.debug(f'← Finished processing control message {msg_id} of type "{msg_type}"')
+        self.log.debug(f'Finished processing control message {msg_id} of type "{msg_type}"')
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1657,11 +1767,19 @@ class DistributedKernel(IPythonKernel):
                 self.persistent_id = self.shell.user_ns[key_persistent_id]
 
             self.log.info('Persistent ID set: "%s"' % self.persistent_id)
+
             # Initialize persistent store
-            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+            try:
+                self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+                self.log.info(f"Persistent store confirmed on start: {self.store}")
+                rsp = self.gen_simple_response()
+            except Exception as ex:
+                self.log.error(f'Failed to initialize persistent store with ID "{self.persistent_id}" because: {ex}')
+                self.log.error(traceback.format_exc())
+                self.report_error("Failed to Init Persistent Store", str(ex))
+                rsp = gen_error_response(ex)
 
             # Resolve future
-            rsp = self.gen_simple_response()
             future.set_result(rsp)
             self.log.info("Persistent store confirmed: " + self.store)
 
@@ -1714,7 +1832,7 @@ class DistributedKernel(IPythonKernel):
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         try:
-            self.synchronizer = Synchronizer(
+            self.synchronizer: Optional[Synchronizer] = Synchronizer(
                 sync_log,
                 store_path=self.store_path,
                 module=self.shell.user_module,
@@ -1723,6 +1841,7 @@ class DistributedKernel(IPythonKernel):
                 node_id=self.smr_node_id,
                 large_object_pointer_committed=self.large_object_pointer_committed,
                 remote_checkpointer=self._remote_checkpointer,
+                report_error_callback=self.report_error,
             )  # type: ignore
         except Exception as ex:
             self.log.error("Creation of Synchronizer failed: %s" % str(ex))
@@ -1782,9 +1901,21 @@ class DistributedKernel(IPythonKernel):
         if self.synclog.needs_to_catch_up:
             self.log.debug('Need to restore user namespace via the SyncLog.')
 
-            await self.synclog.catchup_with_peers()
+            try:
+                await self.synclog.catchup_with_peers()
+            except Exception as ex:
+                self.log.error("Error whilst catching up with peer replicas: %s" % str(ex))
+                self.log.error(traceback.format_exc())
+                self.report_error("Error While Catching Up with Peer Replicas", str(ex))
+                raise ex  # Re-raise
 
-            await self.__download_pointers_committed_while_catching_up()
+            try:
+                await self.__download_pointers_committed_while_catching_up()
+            except Exception as ex:
+                self.log.error("Error whilst downloading pointers committed while catching up: %s" % str(ex))
+                self.log.error(traceback.format_exc())
+                self.report_error("Error While Downloading Committed Pointers", str(ex))
+                raise ex  # Re-raise
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
@@ -1866,7 +1997,7 @@ class DistributedKernel(IPythonKernel):
             self, remote_storage_definition: Dict[str, Any]
     ) -> Optional[str]:
         if len(remote_storage_definition) == 0:
-            return
+            return None
 
         remote_storage_name: str = remote_storage_definition.get("name", "")
 
@@ -1943,19 +2074,19 @@ class DistributedKernel(IPythonKernel):
                 continue
 
             if metadata[required_key] != resource_request[resource_request_key]:
-                self.log.error(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
-                               f"and current resource request '{resource_request_key}' "
-                               f"({resource_request[resource_request_key]}).")
-
-                self.report_error(f"Inconsistent '{required_key}' Field and "
-                                  f"Resource Request '{resource_request_key}' Field",
-                                  f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
-                                  f"and current resource request '{resource_request_key}' "
-                                  f"({resource_request[resource_request_key]}).")
-
-                raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                self.log.warning(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
                                  f"and current resource request '{resource_request_key}' "
                                  f"({resource_request[resource_request_key]}).")
+
+                self.report_warning(f"Inconsistent '{required_key}' Field and "
+                                    f"Resource Request '{resource_request_key}' Field",
+                                    f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                                    f"and current resource request '{resource_request_key}' "
+                                    f"({resource_request[resource_request_key]}).")
+
+                # raise ValueError(f"Inconsistent '{required_key}' field ({metadata[required_key]}) "
+                #                  f"and current resource request '{resource_request_key}' "
+                #                  f"({resource_request[resource_request_key]}).")
 
     async def process_execute_request_metadata(
             self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
@@ -1995,6 +2126,22 @@ class DistributedKernel(IPythonKernel):
         gpu_device_ids: list[int] = metadata.get("gpu_device_ids", [])
 
         return remote_storage_name, gpu_device_ids
+
+    async def set_checkpointing_state(self, val: bool) -> None:
+        """
+        This method updates the value of the 'checkpoint_state' field.
+
+        This method should only be called within the Control thread's IO loop.
+        """
+        self.log.debug(f"Setting value of 'Checkpointing State' flag from {self.checkpointing_state} to {val}.")
+
+        async with self.checkpointing_state_cv:
+            self.checkpointing_state = val
+            self.log.debug(f"Set value of 'Checkpointing State' flag to {val}.")
+
+            if not self.checkpointing_state:
+                self.log.debug(f"Notifying any waiters of the 'Checkpointing State' CV.")
+                self.checkpointing_state_cv.notify_all()
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -2092,6 +2239,7 @@ class DistributedKernel(IPythonKernel):
             batch_size=batch_size,
             parent_header=parent_header,
             target_replica_id=target_replica_id,
+            parent=parent,
         )
 
         if inspect.isawaitable(reply_content):
@@ -2131,7 +2279,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled:
             # Embed the election metadata if we've been configured to do so.
             current_election: Election = self.synchronizer.current_election
-            if self.include_election_metadata:
+            if current_election is not None and self.include_election_metadata:
                 metadata["election_metadata"] = current_election.get_election_metadata()
                 metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
                 metadata["election_metadata"]["leader_id"] = self.synclog.leader_id
@@ -2145,10 +2293,10 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Sending 'execute_reply' message now.")
 
             # Send the reply now.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            buffers, _ = self.extract_and_process_request_trace(
                 parent, -1, execution_stats=self.current_execution_stats
             )
-            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+            reply_msg: t.Dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
                 stream,
                 "execute_reply",
                 reply_content,
@@ -2162,26 +2310,12 @@ class DistributedKernel(IPythonKernel):
 
         # Synchronize updated state if we executed the user-submitted code.
         if was_primary_replica:
-            self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
-
-            # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
-            # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
-            # or Redis, depending on the system's configuration.
-            await self.synchronize_updated_state(term_number)
-
-            # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
-            #
-            # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
-            # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
-            #
-            # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
-            # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
-            # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
-            # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
-            # runtime state.
-            await self.schedule_notify_execution_complete(term_number)
+            await self.synchronize_updated_state_and_notify_execution_complete(
+                term_number = term_number,
+                parent_header = parent_header,
+            )
         else:
-            self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronizion step.")
+            self.log.debug(f"We were not the primary replica for term {term_number}. Skipping synchronization step.")
 
         # Record synchronization and checkpointing overhead.
         # For replica-based approaches, this won't be included in what is sent back to the client.
@@ -2224,38 +2358,12 @@ class DistributedKernel(IPythonKernel):
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(write_time_sec * 1e3)
 
-        self.synchronizer.clear_sync_time()
-        self._remote_checkpointer.storage_provider.clear_statistics()
-        self.synclog.clear_restoration_time()
-        self.synclog.clear_restore_namespace_time_seconds()
-
-        if not self.smr_enabled:
-            self.log.debug("Sending 'execute_reply' message now.")
-
-            # Send the reply now.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-                parent, -1, execution_stats=self.current_execution_stats
-            )
-            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
-                stream,
-                "execute_reply",
-                reply_content,
-                parent,
-                metadata=metadata,
-                ident=ident,
-                buffers=buffers,
-            )
-
-            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
-
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
 
         await_election_end_task: Optional[asyncio.Task] = None
         if self.smr_enabled and not was_primary_replica:
-            await_election_end_task = asyncio.create_task(
-                self.synchronizer.wait_for_election_to_end(term_number)
-            )
+            await_election_end_task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
             # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
             # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
@@ -2271,10 +2379,8 @@ class DistributedKernel(IPythonKernel):
             # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
             #       message before the others, and possibly starts a new election and proposes something before the
             #       others do?
-            self.log.debug(
-                f"Waiting for election {term_number} "
-                "to be totally finished before returning from execute_request function."
-            )
+            self.log.debug(f"Waiting for election {term_number} "
+                           "to be totally finished before returning from execute_request function.")
 
         # If we're supposed to write-after-execute, but the write operation is not supposed to be on the critical path,
         # then we'll perform the write now, as we already sent the "execute_reply" back to the Local Daemon. That will
@@ -2287,12 +2393,10 @@ class DistributedKernel(IPythonKernel):
                 and self.simulate_write_after_execute
                 and not self.simulate_write_after_execute_on_critical_path
         ):
-            self.log.debug(
-                f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path."
-            )
-            duration: float = await self.simulate_remote_checkpointing(
-                remote_storage_name, io_type="upload"
-            )
+            self.log.debug(f"Performing post-execution simulated network write "
+                           f"operation to '{remote_storage_name}' off of critical path.")
+
+            duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
             # TODO: What if we receive next message before this completes?
             if duration > 0 and self.prometheus_enabled and hasattr(self, "remote_storage_write_latency_milliseconds"):
@@ -2300,9 +2404,66 @@ class DistributedKernel(IPythonKernel):
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(duration * 1e3)
 
-        if self.smr_enabled and not was_primary_replica:
-            assert await_election_end_task is not None
-            await await_election_end_task
+        # If SMR is disabled, then we send the "execute_reply" now.
+        if not self.smr_enabled:
+            self.log.debug("Sending 'execute_reply' message now.")
+
+            # Send the reply now.
+            buffers, _ = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+
+            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+                stream,
+                "execute_reply",
+                reply_content,
+                parent=parent,
+                metadata=metadata,
+                ident=ident,
+                buffers=buffers,
+            )
+
+            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
+        else:
+            # smr is enabled
+            #
+            # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
+            # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
+            future = asyncio.run_coroutine_threadsafe(
+                self.set_checkpointing_state(False),
+                loop=self.control_thread.io_loop.asyncio_loop
+            )
+
+            future.result()
+
+            execute_request_id: str = parent["header"]["msg_id"]
+
+            # Make sure the 'buffers' variable is defined.
+            buffers, request_trace = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+
+            # If SMR is enabled, then we send an IO pub message with the completed execute trace.
+            self.session.send(
+                self.iopub_socket,
+                IOPubNotification.ExecuteStatistics,
+                {
+                    "execute_reply_content": reply_content,
+                    "kernel_id": self.kernel_id,
+                    "replica_id": self.smr_node_id,
+                },
+                parent=parent,
+                metadata=metadata,
+                buffers=buffers,
+                ident=self._topic(IOPubNotification.ExecuteStatistics),
+            )
+
+            self.log.debug(f'Sent IOPub message containing completed execution '
+                           f'statistics for execution "{execute_request_id}".')
+
+            if not was_primary_replica:
+                assert await_election_end_task is not None
+                await await_election_end_task
 
         end_time: float = time.time()
         duration_ms: float = (end_time - start_time) * 1.0e3
@@ -2312,6 +2473,86 @@ class DistributedKernel(IPythonKernel):
 
         # Reset the current ExecutionStats object.
         self.current_execution_stats = ExecutionStats()
+
+        self.synchronizer.clear_sync_time()
+        self._remote_checkpointer.storage_provider.clear_statistics()
+        self.synclog.clear_restoration_time()
+        self.synclog.clear_restore_namespace_time_seconds()
+
+    async def synchronize_updated_state_and_notify_execution_complete(
+            self,
+            term_number: int,
+            parent_header: Dict[str, Any]
+    ):
+        self.log.debug(f"We were the primary replica for term {term_number}. Synchronizing updated state/AST.")
+
+        # Update the value of the 'checkpointing_state' flag on the control thread's IO loop, so that
+        # the 'checkpointing_state_cv' is accessed only on the control thread's IO loop.
+        future = asyncio.run_coroutine_threadsafe(
+            self.set_checkpointing_state(True),
+            loop=self.control_thread.io_loop.asyncio_loop
+        )
+
+        # Wait for the above to finish.
+        future.result()
+
+        execute_request_id: str = parent_header["msg_id"]
+
+        try:
+            sync_start: float = time.time()
+            # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
+            # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
+            # or Redis, depending on the system's configuration.
+            await asyncio.wait_for(self.synchronize_updated_state(term_number, execute_request_id), timeout = 120)
+
+            self.current_execution_stats.synchronize_updated_state_time_millis = (time.time() - sync_start) * 1.0e3
+        except TimeoutError as ex:
+            self.log.error(f'Timed-out while synchronizing updated state for term {term_number} '
+                           f'and execution "{execute_request_id}": {ex}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Synchronize Updated State in Term {term_number} '
+                              f'for Execution "{execute_request_id}"', str(ex))
+        except Exception as ex:
+            self.log.error(f'Error while synchronizing updated state for term {term_number} '
+                           f'and execution "{execute_request_id}": {ex}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Synchronize Updated State in Term {term_number} '
+                              f'for Execution "{execute_request_id}"', str(ex))
+
+        notify_complete_task: Optional[asyncio.Task] = None
+        commit_notify_exec_complete_start: float = time.time()
+        try:
+            # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+            #
+            # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
+            # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
+            #
+            # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
+            # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
+            # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
+            # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
+            # runtime state.
+            notify_complete_task = await self.schedule_notify_execution_complete(term_number)
+        except Exception as ex:
+            self.log.error(f'Error while scheduling "Execution Complete" notification for term {term_number} '
+                           f'and execution "{execute_request_id}": {ex}')
+            self.log.error(traceback.format_exc())
+            self.report_error(f'Failed to Schedule "Execute Complete" Notification {term_number} '
+                              f'for Execution "{execute_request_id}"', str(ex))
+
+        # Wait for the notification to be committed to the RaftLog.
+        if notify_complete_task is not None:
+            try:
+                await asyncio.wait([notify_complete_task], return_when=asyncio.FIRST_COMPLETED)
+                commit_notify_exec_complete_dur_millis = (time.time() - commit_notify_exec_complete_start) * 1.0e3
+                self.current_execution_stats.commit_exec_end_millis = commit_notify_exec_complete_dur_millis
+            except Exception as ex:
+                self.log.error(
+                    f'Error while waiting for commitment of "Execution Complete" notification for term {term_number} '
+                    f'and execution "{execute_request_id}" to RaftLog: {ex}')
+                self.log.error(traceback.format_exc())
+                self.report_error(f'Potential Failure to Commit "Execute Complete" Notification {term_number} '
+                                  f'for Execution "{execute_request_id}"', str(ex))
 
     async def __reset_user_namespace_state(self) -> Tuple[dict, bool]:
         """
@@ -2417,8 +2658,8 @@ class DistributedKernel(IPythonKernel):
         if hasattr(self, "synchronizer") and self.synchronizer is not None:
             self.synchronizer.close()
 
-        self.synchronizer = None
-        self.synclog = None
+        self.synchronizer: Optional[Synchronizer] = None
+        self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = None
 
         self.smr_node_id = 0
         self.kernel_id = prewarm_container_id
@@ -2455,9 +2696,16 @@ class DistributedKernel(IPythonKernel):
         # Create future to avoid duplicate initialization
         future: asyncio.Future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
-        self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
-        rsp = self.gen_simple_response()
+        try:
+            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+            rsp = self.gen_simple_response()
+        except Exception as ex:
+            self.log.error(f"Failed to initialize persistent store during start-synclog request: {ex}")
+            self.log.error(traceback.format_exc())
+            self.report_error("Failed to Init Persistent Store While Handling 'Start SyncLog' Request", str(ex))
+            rsp = gen_error_response(ex)
+
         future.set_result(rsp)
         self.log.info("Persistent store confirmed: " + self.store)
 
@@ -2480,7 +2728,7 @@ class DistributedKernel(IPythonKernel):
 
         reply_content: Dict[str, str] = await self.__handle_start_synclog_request(parent)
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "start_synclog_reply",
@@ -2520,9 +2768,7 @@ class DistributedKernel(IPythonKernel):
             if ok:
                 reply_content["prewarm_container"] = False
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "reset_kernel_reply",
@@ -2571,7 +2817,7 @@ class DistributedKernel(IPythonKernel):
         self.prewarm_container = False
 
         registration_start: float = time.time()
-        self.register_with_local_daemon(self.connection_info, self.kernel_id)
+        await self.register_with_local_daemon_async(self.connection_info, self.kernel_id)
         registration_duration: float = (time.time() - registration_start) * 1.0e3
 
         if self.prometheus_enabled:
@@ -2591,16 +2837,23 @@ class DistributedKernel(IPythonKernel):
             # Create future to avoid duplicate initialization
             future: asyncio.Future = asyncio.Future(loop=asyncio.get_running_loop())
             self.store = future
-            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
 
-            rsp = self.gen_simple_response()
+            try:
+                self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+                rsp = self.gen_simple_response()
+                self.log.info("Persistent store confirmed: " + self.store)
+            except Exception as ex:
+                self.log.error(f"Failed to initialize persistent store during prewarm promotion: {ex}")
+                self.log.error(traceback.format_exc())
+                self.report_error("Failed to Init Persistent Store During Prewarm Promotion", str(ex))
+                rsp = gen_error_response(ex)
+
             future.set_result(rsp)
-            self.log.info("Persistent store confirmed: " + self.store)
         else:
             self.log.info(f'Waiting to start SyncLog until explicitly instructed to do so. '
                           f'Persistent ID: "{self.persistent_id}"')
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "promote_prewarm_reply",
@@ -2619,9 +2872,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -2658,9 +2909,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
 
         self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -2674,7 +2923,7 @@ class DistributedKernel(IPythonKernel):
         )
         self.log.debug(f"Sent ping_reply (shell): {str(reply_msg)}")
 
-    async def check_previous_election(self):
+    async def check_status_of_previous_election(self):
         """
         Check the status of the previous election, and wait for it to complete if it isn't done yet.
         """
@@ -2746,20 +2995,52 @@ class DistributedKernel(IPythonKernel):
         if not self.smr_enabled:
             return -1
 
-        existing_election: Optional[Election] = self.synclog.get_election(-1, msg_id)
+        term: int = -1
+        existing_election: Optional[Election] = self.synclog.get_election(term, msg_id)
+
+        # If we did not recover an existing election using the term, then we'll check if we've received any
+        # synchronized values via the RaftLog for the Jupyter msg ID of the code submission message.
         if existing_election is None:
-            return -1
+            term = self.synclog.check_for_term_with_jupyter_id(msg_id)
 
-        if not existing_election.is_in_failed_state and existing_election.voting_phase_completed_successfully:
-            self.log.warning(f'At a minimum, the voting phase for existing election associated with Jupyter '
-                             f'message "{msg_id}" has already completed. No need for us to participate.')
-            raise ElectionAbortedException(f'election associated with Jupyter message "{msg_id}" '
-                                           f'is already voting-complete')
+            # If the term is negative, then we can just return -1. We've come up dry.
+            if term < 0:
+                return -1
 
-        self.log.debug(f'Found existing election in state {existing_election.state.get_name()} with term number '
-                       f'{existing_election.term_number} associated with Jupyter message "{msg_id}"')
+            self.log.debug(f'Found mapping from Jupyter message ID "{msg_id}" to '
+                           f'term number {term} in Synchronizer.')
 
-        return existing_election.term_number
+            # Since we found the term, we'll just double-check -- try to recover the election again,
+            # this time using the term number.
+            existing_election = self.synclog.get_election(term, msg_id)
+
+        # If the existing election is non-null at this point...
+        if existing_election is not None:
+
+            # Then let's check if it's (a) not failed and (b) past the voting phase.
+            # If so, then we'll just abort -- the winner has already been chosen.
+            vote_done: bool = existing_election.voting_phase_completed_successfully
+            election_failed: bool = existing_election.is_in_failed_state
+
+            if not election_failed and vote_done and existing_election.winner_id == self.smr_node_id:
+                self.log.debug(f'Found voting-complete existing election in state {existing_election.state.get_name()} '
+                               f'with term number {existing_election.term_number} associated with Jupyter '
+                               f'message "{msg_id}" -- and I was the winner!')
+                return existing_election.term_number
+
+            if not election_failed and vote_done:
+                self.log.warning(f'At a minimum, the voting phase for existing election associated with Jupyter '
+                                 f'message "{msg_id}" has already completed. No need for us to participate.')
+                raise ElectionAbortedException(f'election associated with Jupyter message "{msg_id}" '
+                                               f'is already voting-complete')
+
+            self.log.debug(f'Found existing election in state {existing_election.state.get_name()} with term number '
+                           f'{existing_election.term_number} associated with Jupyter message "{msg_id}"')
+
+            return existing_election.term_number
+
+        # The term number may be valid at this point, or it may be -1.
+        return term
 
     async def yield_request(self, stream, ident, parent):
         """
@@ -2812,9 +3093,10 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
-        target_replica_id: int = metadata.get("target_replica_id", -1)
+        target_replica_id: int = parent["metadata"].get("target_replica_id", -1)
 
-        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"],
+                                                    parent["metadata"])
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -2835,6 +3117,13 @@ class DistributedKernel(IPythonKernel):
 
             if current_term_number < 0:
                 current_term_number = self.synchronizer.execution_count + 1
+
+                execution_index: int = parent["metadata"].get("execution_index", -1)
+                if execution_index >= 1 and execution_index != current_term_number:
+                    self.log.warning(f'Computed term number {current_term_number} != "execution_index" entry '
+                                     f'in metadata ({execution_index}). Will use {execution_index} instead.')
+
+                    current_term_number = execution_index
 
             self.log.info(f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal.")
 
@@ -2883,9 +3172,7 @@ class DistributedKernel(IPythonKernel):
         except ElectionAbortedException as e:
             self.log.warning(e)
             # We intentionally raise ElectionAbortedException to abort early if we determine we can/should.
-            reply_content: dict[str, Any] = gen_error_response(
-                err_failed_to_lead_execution
-            )
+            reply_content: dict[str, Any] = gen_error_response(err_failed_to_lead_execution)
         except Exception as e:
             self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
             reply_content = gen_error_response(e)
@@ -2904,6 +3191,7 @@ class DistributedKernel(IPythonKernel):
         # recover partial output (that could have been generated early in a
         # block, before an error) and always clear the payload system.
         reply_content["payload"] = self.shell.payload_manager.read_payload()
+        reply_content["yielded"] = True
 
         # If there was a reason for why we were explicitly told to YIELD included in the metadata of the
         # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
@@ -2919,13 +3207,13 @@ class DistributedKernel(IPythonKernel):
         self.shell.payload_manager.clear_payload()
 
         # Send the reply.
-        reply_content: dict[str, Any] = jsonutil.json_clean(reply_content)
+        reply_content: Dict[str, Any] = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
-        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
+        reply_msg: Dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
             reply_content,
@@ -2949,6 +3237,14 @@ class DistributedKernel(IPythonKernel):
         # Block until the leader finishes executing the code, or until we know that all replicas yielded,
         # in which case we can just return, as the code will presumably be resubmitted shortly.
         current_election: Election = self.synchronizer.current_election
+        if current_election is None:
+            self.log.error(f"Expected to have non-null election at this point in yield_request...")
+            self.report_error(
+                "Election is Null in yield_request",
+                "Election should not be null at this point.")
+            await asyncio.sleep(5)
+            return
+
         term_number: int = current_election.term_number
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from yield_request function.")
@@ -3164,12 +3460,10 @@ class DistributedKernel(IPythonKernel):
             copy_data_to_gpu_start: float = time.time()
             self.copy_data_from_cpu_to_gpu(size_gb=vram_size_gb)
             copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
-            self.log.debug(
-                f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms."
-            )
-            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = (
-                    copy_data_to_gpu_ms * 1.0e3
-            )  # it's already in milliseconds
+            self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
+
+            # it's already in milliseconds
+            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3
 
     @property
     def get_creation_code_called(self) -> int:
@@ -3333,14 +3627,10 @@ class DistributedKernel(IPythonKernel):
             jupyter_message_id, term_number, lead=True, target_replica_id=target_replica_id
         )
 
-        self.current_execution_stats.leader_election_microseconds = int(
-            (time.time() - election_start) * 1.0e6
-        )
+        self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
-        self.log.info(
-            f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
-            f"shell.execution_count: {self.shell.execution_count}"
-        )
+        self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+                      f"shell.execution_count: {self.shell.execution_count}")
 
         if self.prometheus_enabled:
             self.num_lead_proposals.inc()
@@ -3366,6 +3656,7 @@ class DistributedKernel(IPythonKernel):
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
             parent_header: Dict[str, Any] = None,
+            parent=None,
             target_replica_id: int = -1,
             *,
             cell_meta=None,
@@ -3376,6 +3667,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param parent: the parent message in its entirety
             :param target_replica_id: smr node ID of target, pre-selected primary replica, or -1 if none pre-selected
             :param parent_header: header of execute_request message.
             :param execute_request_metadata: the metadata of the execute request.
@@ -3436,7 +3728,15 @@ class DistributedKernel(IPythonKernel):
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
         # Check the status of the last election before proceeding.
-        await self.check_previous_election()
+        try:
+            await self.check_status_of_previous_election()
+        except Exception as ex:
+            self.log.error(f"Error while checking previous election: {ex}")
+            self.log.error(traceback.format_exc())
+
+            title: str = f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Erred While Checking Prev. Election"
+            content: str = f'"execute_request" ID="{self.next_execute_request_msg_id}", error: {ex}'
+            self.report_error(error_title=title, error_message=content)
 
         current_term_number: int = -1
         try:
@@ -3449,6 +3749,13 @@ class DistributedKernel(IPythonKernel):
             current_term_number = self.__check_for_existing_election(parent_header["msg_id"])
             if current_term_number < 0:
                 current_term_number = self.synchronizer.execution_count + 1
+
+                execution_index: int = execute_request_metadata.get("execution_index", -1)
+                if 1 <= execution_index != current_term_number:
+                    self.log.warning(f'Computed term number {current_term_number} != "execution_index" entry '
+                                     f'in metadata ({execution_index}). Will use {execution_index} instead.')
+
+                    current_term_number = execution_index
 
             self.log.info(f"Calling synchronizer.ready({current_term_number}) now with LEAD proposal.")
 
@@ -3483,8 +3790,12 @@ class DistributedKernel(IPythonKernel):
                 self.iopub_socket,
                 SMR_LEAD_TASK,
                 content,
+                parent=parent,
                 ident=self._topic(SMR_LEAD_TASK),
             )  # type: ignore
+
+            self.log.debug(f'Sent "smr_lead_task" message for "execute_request" '
+                           f'message "{self.next_execute_request_msg_id}".')
 
             reply_content, performed_dl_training, code = await self.execute_user_code(
                 target_training_duration_millis=training_duration_millis,
@@ -3494,6 +3805,7 @@ class DistributedKernel(IPythonKernel):
                 dataset=dataset,
                 batch_size=batch_size,
                 execute_request_metadata=execute_request_metadata,
+                execute_request_msg_id=self.next_execute_request_msg_id,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -3503,6 +3815,7 @@ class DistributedKernel(IPythonKernel):
             reply_content["term_number"] = current_term_number
             reply_content["performed_dl_training"] = performed_dl_training
             reply_content["code"] = code
+            reply_content["yielded"] = False
         except ElectionAbortedException as ex:
             self.log.warning("ElectionAbortedException: {ex}")
 
@@ -3512,18 +3825,19 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Execution yielded: {}".format(eye))
 
             reply_content = gen_error_response(eye)
+            reply_content["yielded"] = True
         except DiscardMessageError as dme:
-            self.log.warning(
-                f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
-                f"as election for term {current_term_number} was skipped: {dme}"
-            )
+            self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
+                             f"as election for term {current_term_number} was skipped: {dme}")
 
-            self.send_notification(
-                notification_title=f"Election {current_term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
-                notification_body=f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
-                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={current_term_number}) was skipped.",
-                notification_type=WarningNotification,
-            )
+            title: str = (f"Election {current_term_number} Skipped by Replica {self.smr_node_id} "
+                          f"of Kernel {self.kernel_id}")
+            body: str = (f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
+                         f'{self.smr_node_id} of kernel {self.kernel_id}, as associated election '
+                         f'(term={current_term_number}) was skipped.')
+            typ: int = WarningNotification
+
+            self.send_notification(notification_title=title, notification_body=body, notification_type=typ)
 
             reply_content = gen_error_response(dme)
         except Exception as e:
@@ -3532,6 +3846,7 @@ class DistributedKernel(IPythonKernel):
             self.report_error("Execution Error", f"{type(e).__name__}: {e}")
 
             reply_content = gen_error_response(e)
+            reply_content["yielded"] = False
 
         return reply_content
 
@@ -3594,6 +3909,7 @@ class DistributedKernel(IPythonKernel):
             dataset: Optional[str] = None,
             batch_size: Optional[int] = 1,
             execute_request_metadata: Optional[Dict[str, Any]] = None,
+            execute_request_msg_id: str = "",
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3657,24 +3973,19 @@ class DistributedKernel(IPythonKernel):
                 self.current_execution_stats.execution_end_unix_millis
                 - self.current_execution_stats.execution_start_unix_millis
         )
-        self.current_execution_stats.execution_time_microseconds = (
-                exec_duration_millis * 1.0e3
-        )
-        reply_content["execution_start_unix_millis"] = (
-            self.current_execution_stats.execution_start_unix_millis
-        )
-        reply_content["execution_finished_unix_millis"] = (
-            self.current_execution_stats.execution_end_unix_millis
-        )
+        self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
+        reply_content["execution_start_unix_millis"] = self.current_execution_stats.execution_start_unix_millis
+        reply_content["execution_finished_unix_millis"] = self.current_execution_stats.execution_end_unix_millis
 
-        self.log.info(
-            f"Finished executing user-submitted code in {exec_duration_millis} ms. "
-            f"Returning the following content: {reply_content}"
-        )
+        if 'status' in reply_content and reply_content['status'] == 'error':
+            self.log.error(f"Error while executing user-submitted code: {reply_content}")
+        else:
+            self.log.info(f"Finished executing user-submitted code in {exec_duration_millis:,} ms. "
+                          f"Returning the following content: {reply_content}")
 
         return reply_content, performed_dl_training, code
 
-    async def synchronize_updated_state(self, term_number: int):
+    async def synchronize_updated_state(self, term_number: int, jupyter_message_id: str):
         """
         Synchronize any state updated during the last execution with peer replicas.
 
@@ -3682,6 +3993,7 @@ class DistributedKernel(IPythonKernel):
 
         Warning: as of right now, any synchronization errors are simply caught and logged.
 
+        :param jupyter_message_id: the associated jupyter message id
         :param term_number: the term for which we're performing the state synchronization.
         """
         if self.execution_ast is None:
@@ -3696,7 +4008,11 @@ class DistributedKernel(IPythonKernel):
 
         try:
             # Do the synchronization
-            synchronized_successfully: bool = await self.synchronizer.sync(self.execution_ast, self.source)
+            synchronized_successfully: bool = await self.synchronizer.sync(
+                execution_ast=self.execution_ast,
+                source=self.source,
+                jupyter_message_id=jupyter_message_id
+            )
         except Exception as exc:
             self.log.error(f"Synchronization failed: {exc}")
             self.kernel_notification_service_stub.Notify(
@@ -3729,10 +4045,7 @@ class DistributedKernel(IPythonKernel):
         if self.execution_count is None:
             raise ValueError(f'Execution Count is None.')
 
-    async def extract_mem_copy_times(
-            self,
-            code: str = "",
-    ):
+    async def extract_mem_copy_times(self, code: str = ""):
         """
         Extract the latencies of copying memory from the CPU to the GPU and from the GPU to the CPU from the model
         variable that was used in the last user-executed code.
@@ -3746,33 +4059,23 @@ class DistributedKernel(IPythonKernel):
             return
 
         if "model" not in code:
-            self.log.debug(
-                "Found 'model' variable in user namespace; "
-                "however, 'model' was not referenced in last executed user-submitted code."
-            )
+            self.log.debug("Found 'model' variable in user namespace; "
+                           "however, 'model' was not referenced in last executed user-submitted code.")
             return
 
-        if cuda_available:
-            assert len(model.gpu_to_cpu_times) > 0
-            assert len(model.cpu_to_gpu_times) > 0
-
-            # Grab the most-recent copy time for both directions.
-            cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+        if len(model.gpu_to_cpu_times) > 0:
             gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
-
-            # Store the most recent copy times for both directions in the current ExecutionStats.
-            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
-
-            self.log.debug(f"Retrieved most recent CPU to GPU time from model "
-                           f"in shell user namespace: {cpu2gpu_micros} µs")
             self.log.debug(f"Retrieved most recent GPU to CPU time from model "
                            f"in shell user namespace: {gpu2cpu_micros} µs")
 
-    async def extract_dataset_tokenization_latency(
-            self,
-            code: str = "",
-    ):
+        if len(model.cpu_to_gpu_times) > 0:
+            cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
+            self.log.debug(f"Retrieved most recent CPU to GPU time from model "
+                           f"in shell user namespace: {cpu2gpu_micros} µs")
+
+    async def extract_dataset_tokenization_latency(self, code: str = ""):
         """
         Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
         latency for the execution request that we're currently processing.
@@ -3790,10 +4093,8 @@ class DistributedKernel(IPythonKernel):
             return
 
         if "dataset" not in code:
-            self.log.debug(
-                "Found 'dataset' variable in user namespace; "
-                "however, 'dataset' was not referenced in the last executed user-submitted code."
-            )
+            self.log.debug("Found 'dataset' variable in user namespace; "
+                           "however, 'dataset' was not referenced in the last executed user-submitted code.")
             return
 
         # TODO: Does this not ultimately get double-counted?
@@ -3813,10 +4114,7 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats.tokenize_training_data_start_unix_millis = dataset.tokenization_start
         self.current_execution_stats.tokenize_training_data_end_unix_millis = dataset.tokenization_end
 
-    async def extract_dataset_download_latency(
-            self,
-            code: str = "",
-    ):
+    async def extract_dataset_download_latency(self, code: str = ""):
         """
         Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
         latency for the execution request that we're currently processing.
@@ -3829,10 +4127,8 @@ class DistributedKernel(IPythonKernel):
             return
 
         if "dataset" not in code:
-            self.log.debug(
-                "Found 'dataset' variable in user namespace; "
-                "however, 'dataset' was not referenced in the last executed user-submitted code."
-            )
+            self.log.debug("Found 'dataset' variable in user namespace; "
+                           "however, 'dataset' was not referenced in the last executed user-submitted code.")
             return
 
         # TODO: Does this not ultimately get double-counted?
@@ -3864,24 +4160,19 @@ class DistributedKernel(IPythonKernel):
             copy_data_to_cpu_start: float = time.time()
             self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
             copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
-            self.log.debug(
-                f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms."
-            )
-            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = (
-                    copy_data_to_cpu_ms * 1.0e3
-            )  # it's already in milliseconds
+            self.log.debug(f"Copied {vram_size_gb} GB of data from GPU to main memory in {copy_data_to_cpu_ms} ms.")
+            # it's already in milliseconds
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3
 
             if (
                     remote_storage_name is not None
                     and self.simulate_write_after_execute
                     and self.simulate_write_after_execute_on_critical_path
             ):
-                self.log.debug(
-                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path."
-                )
-                duration_sec: float = await self.simulate_remote_checkpointing(
-                    remote_storage_name, io_type="upload"
-                )
+                self.log.debug(f"Performing post-execution simulated network "
+                               f"write operation to '{remote_storage_name}' on critical path.")
+
+                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
                 if duration_sec > 0 and self.prometheus_enabled:
                     self.remote_storage_write_latency_milliseconds.labels(
@@ -3892,10 +4183,8 @@ class DistributedKernel(IPythonKernel):
                         session_id=self.kernel_id, workload_id=self.workload_id
                     ).inc(duration_sec * 1e3)
 
-                self.current_execution_stats.upload_runtime_dependencies_microseconds = (
-                        duration_sec * 1.0e6
-                )
-        elif not self.simulate_training_using_sleep and performed_dl_training and cuda_available:
+                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+        elif not self.simulate_training_using_sleep and performed_dl_training:
             await self.extract_mem_copy_times(code=code)
             await self.extract_dataset_download_latency(code=code)
             await self.extract_dataset_tokenization_latency(code=code)
@@ -4045,7 +4334,7 @@ class DistributedKernel(IPythonKernel):
 
         return duration
 
-    async def schedule_notify_execution_complete(self, term_number: int):
+    async def schedule_notify_execution_complete(self, term_number: int) -> Optional[asyncio.Task]:
         """
         Schedule the proposal of an "execution complete" notification for this election.
 
@@ -4061,6 +4350,9 @@ class DistributedKernel(IPythonKernel):
         Specifically, we'll read the list of keys, and then we'll read the data for each key in the list. Doing
         so will restore our runtime state.
         """
+        if not hasattr(self, "synchronizer") or self.synchronizer is None:
+            self.log.warning("No Sychronizer. Cannot notify that execution is complete.")
+            return None
 
         # Add task to the set. This creates a strong reference.
         # We don't await this here so that we can go ahead and send the shell response back.
@@ -4075,6 +4367,8 @@ class DistributedKernel(IPythonKernel):
         # from the "background tasks" set after completion.
         task.add_done_callback(self.background_tasks.discard)
 
+        return task
+
     async def do_shutdown(self, restart):
         self.log.info("Replica %d of kernel %s is shutting down.", self.smr_node_id, self.kernel_id)
 
@@ -4085,9 +4379,15 @@ class DistributedKernel(IPythonKernel):
                 self.log.warning("We are currently preparing to migrate. "
                                  "Will wait until migration completes before shutting down.")
 
-                self.preparing_to_migrate_cv.wait()
+                await self.preparing_to_migrate_cv.wait()
 
             self.log.debug("We are not (or are no longer) preparing to migrate and can safely shut down.")
+
+        async with self.checkpointing_state_cv:
+            while self.checkpointing_state:
+                self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+
+                await self.checkpointing_state_cv.wait()
 
         if hasattr(self, "synchronizer"):
             self.log.info("Closing the Synchronizer.")
@@ -4167,7 +4467,7 @@ class DistributedKernel(IPythonKernel):
         type RaftLog. In that case, the remote storage client must be closed explicitly via the
         DistributedKernel's __close_synclog_remote_storage_client method.
         """
-        if not self.synclog:
+        if not hasattr(self, "synclog") or self.synclog is None:
             self.log.warning("We do not have a SyncLog. Cannot close SyncLog.")
             return {
                 "status": "ok",
@@ -4178,11 +4478,8 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Closing the SyncLog now.")
         try:
             self.synclog.close()
-
             self.synclog_stopped = True
-            self.log.info(
-                "SyncLog closed successfully. Writing SyncLog data directory to RemoteStorage now."
-            )
+            self.log.info("SyncLog closed successfully. Writing SyncLog data directory to RemoteStorage now.")
         except Exception as e:
             self.log.error(
                 "Failed to close the SyncLog for replica %d of kernel %s.",
@@ -4289,13 +4586,19 @@ class DistributedKernel(IPythonKernel):
         # on another node.
         self.remove_on_shutdown = False
 
-        if not self.synclog:
+        if not hasattr(self, "synclog") or self.synclog is None:
             self.log.warning("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
             return {
                 "status": "ok",
                 "id": self.smr_node_id,
                 "kernel_id": self.kernel_id,
             }, True  # Didn't fail, we just have nothing to migrate.
+
+        async with self.checkpointing_state_cv:
+            while self.checkpointing_state:
+                self.log.debug("We're currently checkpointing state. Waiting to return from 'Prepare to Migrate'.")
+
+                await self.checkpointing_state_cv.wait()
 
         # When using RaftLog, we must first stop the SyncLog (RaftLog) before copying the data directory.
         #
@@ -4357,9 +4660,7 @@ class DistributedKernel(IPythonKernel):
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
-                self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request."
-                )
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
                 await self.persistent_store_cv.wait()
 
         async with self.preparing_to_migrate_cv:
@@ -4381,7 +4682,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         sent_message = self.session.send(
             stream,
             "prepare_to_migrate_reply",
@@ -4391,7 +4692,7 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debugf("Sent 'prepare_to_migrate_reply' message: {sent_message}")
+        self.log.debug(f"Sent 'prepare_to_migrate_reply' message: {sent_message}")
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
@@ -4411,9 +4712,7 @@ class DistributedKernel(IPythonKernel):
             self.log.error("A replica fails to join: {}...".format(e))
             return gen_error_response(e), False
 
-    def decode_request_trace_from_buffers(
-            self, buffers, msg_id: str = "N/A", msg_type: str = "N/A"
-    ) -> dict[str, Any]:
+    def decode_request_trace_from_buffers(self, buffers, msg_id: str = "N/A", msg_type: str = "N/A") -> dict[str, Any]:
         """
         Attempt to decode a RequestTrace from the first buffers frame.
 
@@ -4427,10 +4726,8 @@ class DistributedKernel(IPythonKernel):
         Returns:
             The first buffers frame, extracted and decoded, or an empty dictionary.
         """
-        # self.log.debug(f"Buffers is a list of length {len(buffers)} for \"{msg_type}\" message \"{msg_id}\".")
         if len(buffers) > 0:
             first_buffers_frame = buffers[0]
-            # self.log.debug(f"First buffers frame of \"{msg_type}\" message \"{msg_id}\": {str(first_buffers_frame)}")
         else:
             return {}
 
@@ -4444,25 +4741,117 @@ class DistributedKernel(IPythonKernel):
 
         try:
             buffers_decoded = json.loads(first_buffers_frame)
-            # self.log.debug(f"Successfully decoded buffers \"{msg_type}\" message \"{msg_id}\" "
-            #                f"using JSON (type={type(buffers_decoded).__name__}): {buffers_decoded}")
             return buffers_decoded
         except json.decoder.JSONDecodeError as ex:
-            self.log.warning(
-                f'Failed to decode buffers of "{msg_type}" message "{msg_id}" using JSON because: {ex}'
-            )
-            self.log.debug(
-                f'Returning empty dictionary for buffers from "{msg_type}" '
-                f'message "{msg_id}" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}'
-            )
+            self.log.warning(f'Failed to decode buffers of "{msg_type}" message "{msg_id}" using JSON because: {ex}')
+            self.log.debug(f'Returning empty dictionary for buffers from "{msg_type}" '
+                           f'message "{msg_id}" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}')
             return {}
+
+    def update_request_trace(
+            self,
+            request_trace_frame: Dict[str, Any],
+            execution_stats: ExecutionStats,
+            msg_id: str,
+            msg_type: str,
+            received_at: float = 0,
+    ):
+        """
+        Important: this may be called multiple times, such as when sending an "execute_reply" during static, and then
+        again later when sending an "execute_statistics" IOPub message. So, we should SET everything in here, rather
+        than add/append.
+        """
+        request_trace: dict[str, Any] = request_trace_frame["request_trace"]
+
+        if received_at > 0:
+            received_at = int(math.floor(received_at))
+            request_trace["requestReceivedByKernelReplica"] = received_at
+        else:
+            reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
+            request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
+
+        request_trace["replicaId"] = self.smr_node_id
+
+        if execution_stats is None:
+            return request_trace
+
+        # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
+        request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
+
+        request_trace["downloadModelMicroseconds"] = int(execution_stats.download_model_microseconds)
+
+        request_trace["downloadDatasetMicroseconds"] = int(execution_stats.download_training_data_microseconds)
+        request_trace["downloadDatasetStartUnixMillis"] = int(execution_stats.download_training_data_start_unix_millis)
+
+        request_trace["downloadDatasetEndUnixMillis"] = int(execution_stats.download_training_data_end_unix_millis)
+        request_trace["uploadModelAndTrainingDataMicroseconds"] = int(
+            execution_stats.upload_model_and_training_data_microseconds
+        )
+
+        request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
+        request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
+        request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
+
+        request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+        request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+
+        request_trace["copyFromCpuToGpuMicroseconds"] = int(execution_stats.copy_data_from_cpu_to_gpu_microseconds)
+        request_trace["copyFromGpuToCpuMicroseconds"] = int(execution_stats.copy_data_from_gpu_to_cpu_microseconds)
+        request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
+
+        request_trace["syncStartUnixMillis"] = execution_stats.sync_start_unix_millis
+        request_trace["syncEndUnixMillis"] = execution_stats.sync_end_unix_millis
+        request_trace["syncDurationMillis"] = execution_stats.sync_duration_millis
+
+        request_trace["tokenizeDatasetStart"] = execution_stats.tokenize_training_data_start_unix_millis
+        request_trace["tokenizeDatasetEnd"] = execution_stats.tokenize_training_data_end_unix_millis
+        request_trace["tokenizeDatasetMicroseconds"] = execution_stats.tokenize_dataset_microseconds
+
+        request_trace["synchronizeUpdatedStateMilliseconds"] = execution_stats.synchronize_updated_state_time_millis
+        request_trace["commitExecutionCompleteNotificationMilliseconds"] = execution_stats.commit_exec_end_millis
+
+        request_trace["largeObjectWriteLatenciesMillis"] = self._remote_checkpointer.storage_provider.write_times
+        request_trace["largeObjectReadLatenciesMillis"] = self._remote_checkpointer.storage_provider.read_times
+
+        request_trace["synchronizationTimes"] = self.synchronizer.synchronization_times
+
+        # We only want to embed election statistics if this request trace is being embedded in an
+        # "execute_request" or "yield_request" message (i.e., a code submission).
+        if not self.smr_enabled or (msg_type != "execute_request" and msg_type != "yield_request"):
+            return request_trace
+
+        current_election: Election = self.synchronizer.current_election
+
+        # It shouldn't be None, but let's double-check, just to be safe.
+        if current_election is None:
+            self.log.warning(f"Current Election is None while embedding "
+                             f"request trace in '{msg_type}' request '{msg_id}'")
+            return request_trace
+
+        # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
+        # if-statement to ensure that it is a valid, non-null reference.
+        current_election_timestamps: Optional[ElectionTimestamps] = current_election.current_election_timestamps
+        if current_election_timestamps is None:
+            self.log.warning(f"Current Election's timestamp data is "
+                             f"None while embedding request trace in '{msg_type}' request '{msg_id}'")
+            return request_trace
+
+        request_trace["electionCreationTime"] = int(current_election_timestamps.creation_time)
+        request_trace["electionProposalPhaseStartTime"] = int(current_election_timestamps.proposal_phase_start_time)
+        request_trace["electionExecutionPhaseStartTime"] = int(current_election_timestamps.execution_phase_start_time)
+        request_trace["electionEndTime"] = int(current_election_timestamps.end_time)
+
+        self.log.debug(f"Embedding the following RequestTrace in response "
+                       f"to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}")
+
+        return request_trace
 
     def extract_and_process_request_trace(
             self,
-            msg: dict[str, Any],
+            msg: Dict[str, Any],
             received_at: float,
             execution_stats: Optional[ExecutionStats] = None,
-    ) -> Optional[list[bytes]]:
+    ) -> Optional[List[bytes], Dict[str, Any]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
 
@@ -4484,158 +4873,41 @@ class DistributedKernel(IPythonKernel):
         msg_header: dict[str, Any] = msg.get("header", {})
         msg_type: str = msg_header.get("msg_type", "N/A")
         msg_id: str = msg_header.get("msg_id", "N/A")
-        # self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
 
         if "buffers" in msg:
-            # self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\".")
             buffers = msg["buffers"]
         else:
-            # frame_names: str = ", ".join(list(msg.keys()))
-            # self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
-            #                  f"Message only has the following frames: {frame_names}")
             buffers = []
 
         request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(
             buffers, msg_id=msg_id, msg_type=msg_type
         )
-        if (
-                isinstance(request_trace_frame, dict)
-                and "request_trace" in request_trace_frame
-        ):
-            request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
-            if received_at > 0:
-                received_at = int(math.floor(received_at))
-                # self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
-                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
-                request_trace["requestReceivedByKernelReplica"] = received_at
-            else:
-                reply_sent_by_kernel_replica: int = int(
-                    math.floor((time.time() * 1.0e3))
-                )
-                # self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
-                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
-                #                f"{reply_sent_by_kernel_replica} now.")
-                request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
-
-            request_trace["replicaId"] = self.smr_node_id
-
-            # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
-            if execution_stats is not None:
-                request_trace["cudaInitMicroseconds"] = int(
-                    execution_stats.cuda_init_microseconds
-                )
-                request_trace["downloadModelMicroseconds"] = int(
-                    execution_stats.download_model_microseconds
-                )
-                request_trace["downloadDatasetMicroseconds"] = int(
-                    execution_stats.download_training_data_microseconds
-                )
-                request_trace["downloadDatasetStartUnixMillis"] = int(
-                    execution_stats.download_training_data_start_unix_millis
-                )
-                request_trace["downloadDatasetEndUnixMillis"] = int(
-                    execution_stats.download_training_data_end_unix_millis
-                )
-                request_trace["uploadModelAndTrainingDataMicroseconds"] = int(
-                    execution_stats.upload_model_and_training_data_microseconds
-                )
-                request_trace["executionTimeMicroseconds"] = int(
-                    execution_stats.execution_time_microseconds
-                )
-                request_trace["executionStartUnixMillis"] = int(
-                    execution_stats.execution_start_unix_millis
-                )
-                request_trace["executionEndUnixMillis"] = int(
-                    execution_stats.execution_end_unix_millis
-                )
-                request_trace["replayTimeMicroseconds"] = int(
-                    execution_stats.replay_time_microseconds
-                )
-                request_trace["replayTimeMicroseconds"] = int(
-                    execution_stats.replay_time_microseconds
-                )
-                request_trace["copyFromCpuToGpuMicroseconds"] = int(
-                    execution_stats.copy_data_from_cpu_to_gpu_microseconds
-                )
-                request_trace["copyFromGpuToCpuMicroseconds"] = int(
-                    execution_stats.copy_data_from_gpu_to_cpu_microseconds
-                )
-                request_trace["leaderElectionTimeMicroseconds"] = int(
-                    execution_stats.leader_election_microseconds
-                )
-                request_trace["syncStartUnixMillis"] = (
-                    execution_stats.sync_start_unix_millis
-                )
-                request_trace["syncEndUnixMillis"] = (
-                    execution_stats.sync_end_unix_millis
-                )
-                request_trace["syncDurationMillis"] = (
-                    execution_stats.sync_duration_millis
-                )
-
-                # We only want to embed election statistics if this request trace is being embedded in an
-                # "execute_request" or "yield_request" message (i.e., a code submission).
-                if self.smr_enabled and (msg_type == "execute_request" or msg_type == "yield_request"):
-                    current_election: Election = self.synchronizer.current_election
-
-                    # It shouldn't be None, but let's double-check, just to be safe.
-                    if current_election is not None:
-                        # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
-                        # if-statement to ensure that it is a valid, non-null reference.
-                        current_election_timestamps: Optional[ElectionTimestamps] = (
-                            current_election.current_election_timestamps
-                        )
-                        if current_election_timestamps is not None:
-                            request_trace["electionCreationTime"] = int(
-                                current_election_timestamps.creation_time
-                            )
-                            request_trace["electionProposalPhaseStartTime"] = int(
-                                current_election_timestamps.proposal_phase_start_time
-                            )
-                            request_trace["electionExecutionPhaseStartTime"] = int(
-                                current_election_timestamps.execution_phase_start_time
-                            )
-                            request_trace["electionEndTime"] = int(
-                                current_election_timestamps.end_time
-                            )
-                        else:
-                            self.log.warning(
-                                f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'"
-                            )
-                    else:
-                        self.log.warning(
-                            f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'"
-                        )
-
-                self.log.debug(
-                    f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}"
-                )
+        if isinstance(request_trace_frame, dict) and "request_trace" in request_trace_frame:
+            request_trace = self.update_request_trace(
+                request_trace_frame=request_trace_frame,
+                execution_stats=execution_stats,
+                received_at=received_at,
+                msg_type=msg_type,
+                msg_id=msg_id,
+            )
 
             buffers[0] = json.dumps(request_trace_frame).encode("utf-8")
-            # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
             msg["buffers"] = buffers
-            return buffers
-        # else:
-        #     self.log.warning(f"Could not find \"request_trace\" entry in request_trace_frame: {request_trace_frame}")
+            return buffers, request_trace
 
-        return None
+        return None, None
 
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
         """Add a replica to the SMR cluster"""
         params = parent["content"]
-        self.log.info(
-            "Received 'add-replica' request for replica with id %d, addr %s"
-            % (params["id"], params["addr"])
-        )
+        self.log.info("Received 'add-replica' request for replica with id %d, addr %s" % (params["id"], params["addr"]))
 
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
-                self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request."
-                )
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
                 await self.persistent_store_cv.wait()
 
         if "id" not in params or "addr" not in params:
@@ -4643,9 +4915,8 @@ class DistributedKernel(IPythonKernel):
 
             # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
             # The first was in dispatch_shell.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-                parent, -1
-            )
+            buffers, _ = self.extract_and_process_request_trace(parent, -1)
+
             self.session.send(
                 stream,
                 "add_replica_reply",
@@ -4654,6 +4925,7 @@ class DistributedKernel(IPythonKernel):
                 ident=ident,
                 buffers=buffers,
             )
+
             return
 
         content, success = await self.do_add_replica(params["id"], params["addr"])
@@ -4689,12 +4961,8 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
-        self.session.send(
-            stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers
-        )  # type: ignore
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
+        self.session.send(stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers)  # type: ignore
 
     async def do_update_replica(self, replicaId, addr) -> tuple:
         """
@@ -4728,9 +4996,7 @@ class DistributedKernel(IPythonKernel):
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
-                self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'update-replica' request."
-                )
+                self.log.debug("Persistent store is not ready yet. Waiting to handle 'update-replica' request.")
                 await self.persistent_store_cv.wait()
 
         if "id" not in params or "addr" not in params:
@@ -4775,9 +5041,7 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1
-        )
+        buffers, _ = self.extract_and_process_request_trace(parent, -1)
         self.session.send(
             stream,
             "update_replica_reply",
@@ -4792,14 +5056,12 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
-            self.log.warning(
-                f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup."
-            )
+            self.log.warning(f"Cannot send 'error_report' for error \"{error_title}\" "
+                             f"as our gRPC connection was never setup.")
             return
 
-        self.log.debug(
-            f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}"
-        )
+        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now. "
+                       f"Error message: {error_message}")
         self.kernel_notification_service_stub.Notify(
             gateway_pb2.KernelNotification(
                 title=error_title,
@@ -4808,12 +5070,13 @@ class DistributedKernel(IPythonKernel):
                 kernelId=self.kernel_id,
                 replicaId=self.smr_node_id,
                 containerId=self.docker_container_id,
+                containerName=self.docker_container_name,
             )
         )
 
     def report_warning(self, warning_title: str = "", warning_message: str = ""):
         """
-        Send an warning report/message to our local daemon via our IOPub socket.
+        Send a warning report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
             self.log.warning(
@@ -4999,7 +5262,7 @@ class DistributedKernel(IPythonKernel):
         """
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
-        if (len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0):
+        if len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0:
             self.log.debug("There were no models or data committed during catch-up phase.")
             return
 
@@ -5299,7 +5562,7 @@ class DistributedKernel(IPythonKernel):
         if self.smr_enabled and self.num_replicas > 1:
             try:
                 self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
-                self.synclog: Optional[SyncLog] = RaftLog(
+                self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = RaftLog(
                     self.smr_node_id,
                     base_path=store,
                     kernel_id=self.kernel_id,
@@ -5317,7 +5580,7 @@ class DistributedKernel(IPythonKernel):
                     deployment_mode=self.deployment_mode,
                     election_timeout_seconds=self.election_timeout_seconds,
                     loaded_serialized_state_callback=self.loaded_serialized_state_callback,
-                    shell_io_loop=self.io_loop,
+                    shell_io_loop=self.io_loop.asyncio_loop,
                     send_iopub_notification=self.send_iopub_notification,
                 )
             except Exception as exc:
@@ -5368,7 +5631,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.error("Remote storage provider should not be None at this point.")
                 raise ValueError("Remote storage provider is None, but it should have been created by now.")
 
-            self.synclog: Optional[SyncLog] = RemoteStorageLog(
+            self.synclog: Optional[SyncLog|RemoteStorageLog|RaftLog] = RemoteStorageLog(
                 node_id=self.smr_node_id,
                 remote_storage_provider=remote_storage_provider,
                 base_path=store,

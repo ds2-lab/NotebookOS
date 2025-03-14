@@ -28,6 +28,8 @@ class ExecutionStats(object):
             tokenize_dataset_microseconds: float = 0,
             tokenize_training_data_start_unix_millis: float = 0,
             tokenize_training_data_end_unix_millis: float = 0,
+            synchronize_updated_state_time_millis: float = 0,
+            commit_exec_end_millis: float = 0,
             won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
     ):
         """
@@ -70,3 +72,6 @@ class ExecutionStats(object):
 
         self.upload_model_start_unix_millis: float = upload_model_start_unix_millis
         self.upload_model_end_unix_millis: float = upload_model_end_unix_millis
+
+        self.synchronize_updated_state_time_millis: float = synchronize_updated_state_time_millis
+        self.commit_exec_end_millis: float = commit_exec_end_millis

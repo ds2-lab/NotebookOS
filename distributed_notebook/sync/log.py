@@ -46,6 +46,7 @@ class SynchronizedValue(object):
             election_term: int = -1,  # The election term on which this value is intended to be proposed.
             prmap: Optional[list[str]] = None,
             should_end_execution: bool = False,
+            jupyter_message_id: str = "",
             key: str = KEY_NONE,
             operation: str = OP_NONE,
     ):
@@ -57,16 +58,28 @@ class SynchronizedValue(object):
         self._id: str = str(uuid.uuid4())
         self._timestamp: float = time.time()
         self._operation: str = operation
+        self._jupyter_message_id: str = jupyter_message_id
 
         self._should_end_execution: bool = should_end_execution
         self._prmap: Optional[list[str]] = prmap
         self._key: str = key
 
-    def get_metadata(self) -> dict[str, any]:
+    @property
+    def jupyter_message_id(self)->Optional[str]:
+        if hasattr(self, "_jupyter_message_id"):
+            return self._jupyter_message_id
+
+        return None
+
+    @jupyter_message_id.setter
+    def jupyter_message_id(self, _jupyter_message_id: str):
+        self._jupyter_message_id = _jupyter_message_id
+
+    def get_metadata(self) -> Dict[str, Any]:
         """
         Returns a dictionary containing this SynchronizedValue's fields, suitable for JSON serialization.
         """
-        metadata: dict[str, any] = {
+        metadata: Dict[str, Any] = {
             "key": self._key,
             "op": self._operation,
             "end": self._should_end_execution,
@@ -436,6 +449,12 @@ class SyncLog(Protocol):
         """
         Close the LogNode's RemoteStorage client.
         """
+
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        pass
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        pass
 
     async def write_data_dir_to_remote_storage(
             self,

@@ -16,8 +16,8 @@ import (
 type DockerClusterBuilder struct {
 	hostSpec                  types.Spec
 	placer                    scheduling.Placer
-	hostMapper                scheduler.HostMapper
-	kernelProvider            scheduler.KernelProvider
+	hostMapper                scheduling.HostMapper
+	kernelProvider            scheduling.KernelProvider
 	clusterMetricsProvider    scheduling.MetricsProvider
 	notificationBroker        scheduler.NotificationBroker
 	schedulingPolicy          scheduling.Policy
@@ -35,12 +35,12 @@ func (b *DockerClusterBuilder) WithPlacer(placer scheduling.Placer) *DockerClust
 	return b
 }
 
-func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduler.HostMapper) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduling.HostMapper) *DockerClusterBuilder {
 	b.hostMapper = hostMapper
 	return b
 }
 
-func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduler.KernelProvider) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduling.KernelProvider) *DockerClusterBuilder {
 	b.kernelProvider = kernelProvider
 	return b
 }
@@ -97,7 +97,7 @@ type DockerCluster struct {
 // NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
+func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduling.HostMapper, kernelProvider scheduling.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
 	schedulingPolicy scheduling.Policy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerCluster {
@@ -231,7 +231,7 @@ func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan inte
 			c.log.Warn("❗ Cannot scale-out from %d → %d nodes as there are no disabled hosts.",
 				initialScale, targetScale)
 
-			doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+			doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by Docker clusters",
 				scheduling.ErrUnsupportedOperation)
 			return
 		}
@@ -270,7 +270,7 @@ func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan inte
 				"❗ Could not satisfy scale-out request to %d nodes using disabled nodes."), targetScale)
 		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
 			len(hostsToEnable), targetScale-int32(initialScale))
-		doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+		doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by Docker clusters",
 			scheduling.ErrUnsupportedOperation)
 	}
 }
@@ -390,19 +390,17 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 
 		disabledHosts := make([]string, 0, len(targetHosts))
 		errs := make([]error, 0)
-		for _, id := range targetHosts {
+
+		var scaleInDuration time.Duration
+		for i, id := range targetHosts {
 			err := c.unsafeDisableHost(id)
 			if err != nil {
 				c.log.Error("Could not remove host \"%s\" from Docker Compose Cluster because: %v", id, err)
 				errs = append(errs, err)
 				break
-			} else {
-				disabledHosts = append(disabledHosts, id)
 			}
-		}
 
-		var scaleInDuration time.Duration
-		for i := 0; i < int(numAffectedNodes); i++ {
+			disabledHosts = append(disabledHosts, id)
 			scaleInForHost := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
 			c.log.Debug("Simulated scale-in duration for target host #%d (%s): %v",
 				i+1, targetHosts[i], scaleInForHost)
@@ -414,12 +412,9 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			}
 		}
 
-		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
-		time.Sleep(scaleInDuration)
-
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {
-			c.log.Warn("Could not identify all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
+			c.log.Warn("Could not disable all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
 				len(targetHosts), len(disabledHosts))
 			for _, disabledHostId := range disabledHosts {
 				enableErr := c.unsafeEnableHost(disabledHostId)
@@ -434,6 +429,9 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			coreLogicDoneChan <- err
 			return
 		}
+
+		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
+		time.Sleep(scaleInDuration)
 
 		coreLogicDoneChan <- struct{}{}
 	}, nil

@@ -1,5 +1,5 @@
 - name: Build gRPC bindings.
-  shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-grpc"
+  shell: ". {{ profile_file }} && . {{ python_virtual_env_dir }}/bin/activate && make build-rpc"
   args:
     chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
   vars:

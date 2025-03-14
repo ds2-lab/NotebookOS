@@ -45,8 +45,8 @@ type DockerScheduler struct {
 }
 
 // newDockerScheduler is called internally by "constructors" of other schedulers that "extend" DockerScheduler.
-func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	hostSpec types.Spec, kernelProvider scheduling.KernelProvider, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 	if cluster == nil {
 		panic("Cluster cannot be nil")
@@ -82,8 +82,8 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 	return dockerScheduler, nil
 }
 
-func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	hostSpec types.Spec, kernelProvider scheduling.KernelProvider, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 
 	dockerScheduler, err := newDockerScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider,
@@ -115,7 +115,7 @@ func (s *DockerScheduler) setInstance(instance clusterSchedulerInternal) {
 // selectViableHostForReplica searches for a viable host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
 func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec,
-	blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	blacklistedHosts []scheduling.Host, forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
 
 	kernelId := replicaSpec.ID()
 
@@ -140,7 +140,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host)
 	}
 
-	host, err := s.placer.FindHost(blacklist, replicaSpec, forTraining)
+	host, err := s.placer.FindHost(blacklist, replicaSpec, forTraining, ignoreOversubscriptionRisk)
 	if err != nil {
 		s.log.Error("Error while finding host for replica %d of kernel %s: %v",
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)
@@ -159,11 +159,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *DockerScheduler) HostAdded(host scheduling.Host) {
-	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
-	heap.Push(s.idleHosts, &idleSortedHost{
-		Host: host,
-	})
-	s.log.Debug("Length of idle hosts: %d", s.idleHosts.Len())
+	s.baseHostAdded(host)
 }
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
@@ -245,6 +241,8 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 	targetHost := args.TargetHost
 	blacklistedHosts := args.BlacklistedHosts
 	forTraining := args.ForTraining
+	ignoreOversubscriptionRisk := args.IgnoreOversubscriptionRisk
+	canUsePrewarmContainer := args.CanUsePrewarmContainer
 
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
@@ -252,7 +250,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 		s.log.Debug("No target host specified when scheduling replica %d of kernel %s. Searching for one now...",
 			replicaSpec.ReplicaId, kernelId)
 
-		targetHost, err = s.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining)
+		targetHost, err = s.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining, ignoreOversubscriptionRisk)
 		if err != nil {
 			s.log.Warn("Could not find viable targetHost for replica %d of kernel %s: %v",
 				replicaSpec.ReplicaId, kernelId, err)
@@ -278,7 +276,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(ctx context.Context, args *sched
 			replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, kernelId)
 	}
 
-	if s.prewarmer != nil {
+	if s.prewarmer != nil && canUsePrewarmContainer {
 		container, unavailErr := s.prewarmer.RequestPrewarmedContainer(targetHost)
 		if container != nil {
 			s.log.Debug("Found pre-warmed container on host %s (ID=%s). Using for replica %d of kernel %s.",
@@ -458,11 +456,12 @@ func (s *DockerScheduler) scheduleKernelReplicas(ctx context.Context, in *proto.
 				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
 
 			args := &scheduling.ScheduleReplicaArgs{
-				ReplicaSpec:      replicaSpec,
-				TargetHost:       targetHost,
-				BlacklistedHosts: blacklistedHosts,
-				ForTraining:      forTraining,
-				ForMigration:     false,
+				ReplicaSpec:            replicaSpec,
+				TargetHost:             targetHost,
+				BlacklistedHosts:       blacklistedHosts,
+				ForTraining:            forTraining,
+				ForMigration:           false,
+				CanUsePrewarmContainer: false,
 			}
 			schedulingError := s.ScheduleKernelReplica(ctx, args)
 			if schedulingError != nil {

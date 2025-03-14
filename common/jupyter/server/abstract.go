@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
-	"github.com/scusemua/distributed-notebook/common/proto"
 	"io"
 	"log"
 	"math"
@@ -582,7 +581,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					return
 				}
 			} else if err != nil {
-				s.Log.Error(utils.RedStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
 
 				// s.Log.Debug("[gid=%d] Will NOT abort serving for now.", goroutineId)
 				if contd != nil {
@@ -1015,28 +1014,6 @@ func (s *AbstractServer) shouldAddRequestTrace(msg *messaging.JupyterMessage, so
 	return false
 }
 
-func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto.RequestTrace) {
-	if s.StatisticsAndMetricsProvider == nil {
-		return
-	}
-
-	gatewayRequestProcessTime := trace.RequestSentByGateway - trace.RequestReceivedByGateway
-	localDaemonRequestProcessTime := trace.RequestSentByLocalDaemon - trace.RequestReceivedByLocalDaemon
-	kernelProcessingTime := trace.ReplySentByKernelReplica - trace.RequestReceivedByKernelReplica
-
-	gatewayResponseProcessTime := trace.ReplySentByGateway - trace.ReplyReceivedByGateway
-	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
-
-	s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		statistics.CumulativeRequestProcessingTimeClusterGateway.Add(gatewayRequestProcessTime)
-		statistics.CumulativeRequestProcessingTimeLocalDaemon.Add(localDaemonRequestProcessTime)
-		statistics.CumulativeRequestProcessingTimeKernel.Add(kernelProcessingTime)
-
-		statistics.CumulativeResponseProcessingTimeClusterGateway.Add(gatewayResponseProcessTime)
-		statistics.CumulativeResponseProcessingTimeLocalDaemon.Add(localDaemonResponseProcessTime)
-	})
-}
-
 // sendRequestWithRetries encapsulates the logic of sending the given messaging.Request using the given messaging.Socket
 // in a reliable way; that is, sendRequestWithRetries will resubmit the given messaging.Request if an ACK is not received
 // within the messaging.Request's configured timeout window, up to the messaging.Request's configured maximum number of attempts.
@@ -1053,17 +1030,11 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 		//	socket.Type.String(), request.JupyterMessageType())
-		trace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
+		_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
 			panic(err)
-		}
-
-		// If the trace is non-nil and there's a value populated for the last entry of the trace, then we can
-		// extract the data from the trace.
-		if trace != nil && trace.RequestSentByGateway != proto.DefaultTraceTimingValue {
-			s.tryUpdateClusterStatisticsFromRequestTrace(trace)
 		}
 	}
 
@@ -1340,7 +1311,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			// s.Log.Debug("[gid=%d] %v socket %s is waiting to be instructed to continue.", goroutineId, socket.Type, socket.Name)
 			proceed := <-contd
 			if !proceed {
-				s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping.",
+				s.Log.Debug("[gid=%d] Polling on %s socket %s is stopping.",
 					goroutineId, socket.Type.String(), socket.Name)
 				return
 			}
@@ -1425,7 +1396,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 		if handler != nil {
 			err := handler(info, msgType, msg)
 			if err != nil {
-				s.Log.Error(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
+				s.Log.Warn(utils.OrangeStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
 			}
 
 			_, err = request.SetComplete()

@@ -21,7 +21,8 @@ type clusterSchedulerInternal interface {
 	// selectViableHostForReplica is most often called for kernels that need to begin training immediately.
 	//
 	// Important: selectViableHostForReplica will reserve resources on the Host.
-	selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error)
+	selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host,
+		forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error)
 
 	// findViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
 	// as searching for viable hosts before trying to schedule the container).
