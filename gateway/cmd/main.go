@@ -222,10 +222,12 @@ func main() {
 
 	forwarder := routing.NewForwarder(&options.ConnectionInfo, dashboardNotifier, metricsProvider, &options)
 
+	dockerCluster, schedulingPolicy := initCluster(&options.ClusterDaemonOptions, metricsProvider)
+
 	kernelManager, err := kernel.NewManagerBuilder().
 		SetID(clusterGatewayId).
-		SetCluster(nil).
-		SetSchedulingPolicy(nil).
+		SetCluster(dockerCluster).
+		SetSchedulingPolicy(schedulingPolicy).
 		SetMetricsProvider(metricsProvider).
 		SetNotifier(dashboardNotifier).
 		SetOptions(&options).
@@ -244,7 +246,7 @@ func main() {
 		WithId(clusterGatewayId).
 		WithNotifier(dashboardNotifier).
 		WithForwarder(forwarder).
-		WithCluster(nil).
+		WithCluster(dockerCluster).
 		WithKernelManager(kernelManager).
 		WithMetricsManager(metricsProvider).
 		WithConnectionOptions(&options.ConnectionInfo).
@@ -371,7 +373,7 @@ func main() {
 	done.Wait()
 }
 
-func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvider scheduling.MetricsProvider) scheduling.Cluster {
+func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvider scheduling.MetricsProvider) (scheduling.Cluster, scheduling.Policy) {
 	clusterProvider := func() scheduling.Cluster {
 		if clusterGateway == nil {
 			return nil
@@ -497,7 +499,7 @@ func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvi
 		panic(err)
 	}
 
-	return distributedNotebookCluster
+	return distributedNotebookCluster, schedulingPolicy
 }
 
 func finalize(fix bool, identity string, handler PanicHandler) {
