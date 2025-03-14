@@ -79,7 +79,13 @@ type ScheduleReplicaArgs struct {
 	ForMigration bool
 }
 
+type KernelProvider interface {
+	GetKernel(kernelId string) (Kernel, bool)
+}
+
 type KernelScheduler interface {
+	SetKernelProvider(kernelProvider KernelProvider)
+
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	//
 	// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
@@ -145,7 +151,14 @@ type KernelScheduler interface {
 	ContainerPrewarmer() ContainerPrewarmer
 }
 
+type HostMapper interface {
+	// GetHostsOfKernel returns the Host instances on which the replicas of the specified kernel are scheduled.
+	GetHostsOfKernel(kernelId string) ([]Host, error)
+}
+
 type HostScheduler interface {
+	SetHostMapper(hostMapper HostMapper)
+
 	// RequestNewHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
 	RequestNewHost() error

@@ -81,6 +81,11 @@ type KernelManager interface {
 	IsKernelActivelyTraining(kernelId string) (bool, error)
 	IsKernelActivelyMigrating(kernelId string) (bool, error)
 
+	GetKernel(kernelId string) (scheduling.Kernel, bool)
+
+	// GetHostsOfKernel returns the scheduling.Host instances on which replicas of the specified kernel are scheduled.
+	GetHostsOfKernel(kernelId string) ([]scheduling.Host, error)
+
 	SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error)
 	SmrNodeAdded(ctx context.Context, in *proto.ReplicaInfo) (*proto.Void, error)
 
@@ -196,6 +201,10 @@ type GatewayDaemon struct {
 	options         *domain.ClusterGatewayOptions
 	dockerNodeMutex sync.Mutex
 	log             logger.Logger
+}
+
+func (g *GatewayDaemon) GetKernel(kernelId string) (scheduling.Kernel, bool) {
+	return g.kernelManager.GetKernel(kernelId)
 }
 
 func (g *GatewayDaemon) ConnectionInfo() *jupyter.ConnectionInfo {
@@ -742,6 +751,12 @@ func (g *GatewayDaemon) ClearClusterStatistics() []byte {
 	return serializedStatistics
 }
 
+// GetHostsOfKernel returns the scheduling.Host instances on which replicas of the specified kernel are scheduled.
+func (g *GatewayDaemon) GetHostsOfKernel(kernelId string) ([]scheduling.Host, error) {
+	return g.kernelManager.GetHostsOfKernel(kernelId)
+}
+
+// IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
 func (g *GatewayDaemon) IsKernelActivelyTraining(kernelId string) (bool, error) {
 	isTraining, err := g.kernelManager.IsKernelActivelyTraining(kernelId)
 	if err != nil {

@@ -191,6 +191,21 @@ func (km *Manager) CallbackProvider() scheduling.CallbackProvider {
 	return km
 }
 
+// GetHostsOfKernel returns the scheduling.Host instances on which replicas of the specified kernel are scheduled.
+func (km *Manager) GetHostsOfKernel(kernelId string) ([]scheduling.Host, error) {
+	kernel, ok := km.provider.GetKernel(kernelId)
+	if !ok {
+		return nil, types.ErrKernelNotFound
+	}
+
+	hosts := make([]scheduling.Host, 0, len(kernel.Replicas()))
+	for _, replica := range kernel.Replicas() {
+		hosts = append(hosts, replica.Host())
+	}
+
+	return hosts, nil
+}
+
 func (km *Manager) ExecutionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
 	milliseconds := float64(latency.Milliseconds())
 
@@ -1043,6 +1058,10 @@ func (km *Manager) tryGetKernel(kernelOrSessionId string) (scheduling.Kernel, bo
 
 	// Now try by searching the sessions mapping.
 	return km.sessions.Load(kernelOrSessionId)
+}
+
+func (km *Manager) GetKernel(kernelId string) (scheduling.Kernel, bool) {
+	return km.tryGetKernel(kernelId)
 }
 
 // ControlHandler is responsible for forwarding a message received on the CONTROL socket to

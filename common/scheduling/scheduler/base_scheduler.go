@@ -57,10 +57,6 @@ type schedulingNotification struct {
 	Successful bool
 }
 
-type KernelProvider interface {
-	GetKernel(kernelId string) (scheduling.Kernel, bool)
-}
-
 type NotificationBroker interface {
 	SendErrorNotification(errorName string, errorMessage string)
 	SendInfoNotification(title string, message string)
@@ -69,9 +65,9 @@ type NotificationBroker interface {
 type baseSchedulerBuilder struct {
 	cluster                     scheduling.Cluster
 	placer                      scheduling.Placer
-	hostMapper                  HostMapper
+	hostMapper                  scheduling.HostMapper
 	hostSpec                    types.Spec
-	kernelProvider              KernelProvider
+	kernelProvider              scheduling.KernelProvider
 	clusterProvider             scheduling.ClusterProvider
 	notificationBroker          NotificationBroker
 	metricsProvider             scheduling.MetricsProvider
@@ -95,7 +91,7 @@ func (b *baseSchedulerBuilder) WithPlacer(placer scheduling.Placer) *baseSchedul
 	return b
 }
 
-func (b *baseSchedulerBuilder) WithHostMapper(hostMapper HostMapper) *baseSchedulerBuilder {
+func (b *baseSchedulerBuilder) WithHostMapper(hostMapper scheduling.HostMapper) *baseSchedulerBuilder {
 	b.hostMapper = hostMapper
 	return b
 }
@@ -115,7 +111,7 @@ func (b *baseSchedulerBuilder) WithMetricsProvider(provider scheduling.MetricsPr
 	return b
 }
 
-func (b *baseSchedulerBuilder) WithKernelProvider(kernelProvider KernelProvider) *baseSchedulerBuilder {
+func (b *baseSchedulerBuilder) WithKernelProvider(kernelProvider scheduling.KernelProvider) *baseSchedulerBuilder {
 	b.kernelProvider = kernelProvider
 	return b
 }
@@ -289,9 +285,9 @@ type BaseScheduler struct {
 	lastCapacityValidation time.Time // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	instance               clusterSchedulerInternal
 	cluster                scheduling.Cluster
-	hostMapper             HostMapper
+	hostMapper             scheduling.HostMapper
 	placer                 scheduling.Placer
-	kernelProvider         KernelProvider
+	kernelProvider         scheduling.KernelProvider
 	notificationBroker     NotificationBroker
 	kernelMigrator         *kernelMigrator
 
@@ -365,7 +361,7 @@ func (s *BaseScheduler) WithNotificationBroker(notificationBroker NotificationBr
 	s.notificationBroker = notificationBroker
 }
 
-func (s *BaseScheduler) WithHostMapper(mapper HostMapper) {
+func (s *BaseScheduler) WithHostMapper(mapper scheduling.HostMapper) {
 	s.hostMapper = mapper
 }
 
@@ -1735,6 +1731,14 @@ func (s *BaseScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRepl
 	}
 
 	return host, err
+}
+
+func (s *BaseScheduler) SetHostMapper(hostMapper scheduling.HostMapper) {
+	s.hostMapper = hostMapper
+}
+
+func (s *BaseScheduler) SetKernelProvider(kernelProvider KernelProvider) {
+	s.kernelProvider = kernelProvider
 }
 
 func (s *BaseScheduler) ScheduleKernelReplica(ctx context.Context, args *scheduling.ScheduleReplicaArgs) error {

@@ -4,7 +4,6 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/charmbracelet/lipgloss"
-	dockerClient "github.com/docker/docker/client"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/muesli/termenv"
@@ -50,9 +49,10 @@ const (
 )
 
 var (
-	options      = domain.ClusterGatewayOptions{}
-	globalLogger = config.GetLogger("")
-	sig          = make(chan os.Signal, 1)
+	dockerCluster scheduling.Cluster
+	options       = domain.ClusterGatewayOptions{}
+	globalLogger  = config.GetLogger("")
+	sig           = make(chan os.Signal, 1)
 )
 
 func init() {
@@ -223,11 +223,11 @@ func main() {
 
 	forwarder := routing.NewForwarder(&options.ConnectionInfo, dashboardNotifier, metricsProvider, &options)
 
-	dockerCluster, schedulingPolicy := initCluster(&options, metricsProvider, dashboardNotifier)
+	_dockerCluster, schedulingPolicy := initCluster(&options, metricsProvider, dashboardNotifier)
 
 	kernelManager, err := kernel.NewManagerBuilder().
 		SetID(clusterGatewayId).
-		SetCluster(dockerCluster).
+		SetCluster(_dockerCluster).
 		SetSchedulingPolicy(schedulingPolicy).
 		SetMetricsProvider(metricsProvider).
 		SetNotifier(dashboardNotifier).
@@ -247,7 +247,7 @@ func main() {
 		WithId(clusterGatewayId).
 		WithNotifier(dashboardNotifier).
 		WithForwarder(forwarder).
-		WithCluster(dockerCluster).
+		WithCluster(_dockerCluster).
 		WithKernelManager(kernelManager).
 		WithMetricsManager(metricsProvider).
 		WithConnectionOptions(&options.ConnectionInfo).
@@ -255,6 +255,8 @@ func main() {
 		Build()
 
 	kernelManager.SetNetworkProvider(globalScheduler)
+	_dockerCluster.Scheduler().SetHostMapper(globalScheduler)
+	_dockerCluster.Scheduler().SetKernelProvider(globalScheduler)
 
 	gatewayGrpcServer := rpc.NewClusterGatewayServer(clusterGatewayId, globalScheduler, dashboardNotifier)
 	distributedClusterGrpcServer := rpc.NewDistributedGateway(globalScheduler, dashboardNotifier)
@@ -378,11 +380,11 @@ func initCluster(clusterGatewayOptions *domain.ClusterGatewayOptions, metricsPro
 	dashboardNotifier scheduler.NotificationBroker) (scheduling.Cluster, scheduling.Policy) {
 
 	clusterProvider := func() scheduling.Cluster {
-		if clusterGateway == nil {
+		if dockerCluster == nil {
 			return nil
 		}
 
-		return clusterGateway.cluster
+		return dockerCluster
 	}
 
 	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
@@ -406,7 +408,6 @@ func initCluster(clusterGatewayOptions *domain.ClusterGatewayOptions, metricsPro
 	case "local":
 		{
 			globalLogger.Info("Running in LOCAL mode.")
-			deploymentMode = types.LocalMode
 			panic("Not supported")
 		}
 	case "docker":
@@ -469,8 +470,6 @@ func initCluster(clusterGatewayOptions *domain.ClusterGatewayOptions, metricsPro
 		WithHostSpec(hostSpec).
 		WithPlacer(clusterPlacer).
 		WithSchedulingPolicy(schedulingPolicy).
-		WithHostMapper(clusterGateway).
-		WithKernelProvider(clusterGateway).
 		WithClusterMetricsProvider(metricsProvider).
 		WithNotificationBroker(dashboardNotifier).
 		WithStatisticsUpdateProvider(metricsProvider.UpdateClusterStatistics).
@@ -480,6 +479,8 @@ func initCluster(clusterGatewayOptions *domain.ClusterGatewayOptions, metricsPro
 	if err != nil {
 		panic(err)
 	}
+
+	dockerCluster = distributedNotebookCluster
 
 	return distributedNotebookCluster, schedulingPolicy
 }

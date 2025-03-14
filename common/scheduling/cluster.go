@@ -57,9 +57,6 @@ type ClusterHostManager interface {
 	// This is called when a Local Daemon loses connection.
 	RemoveHost(hostId string)
 
-	// SetGpusOnNode sets the number of GPUs available on the given node to the specified value.
-	SetGpusOnNode(in *proto.SetVirtualGPUsRequest) error
-
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 	// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 	// task of locking the required structures during scaling operations.
