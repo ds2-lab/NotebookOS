@@ -1,4 +1,4 @@
-package grpc
+package rpc
 
 import (
 	"context"
@@ -27,7 +27,7 @@ type GatewayDaemon interface {
 	Close() error
 	Start() error
 
-	NewHostConnected(gConn *grpc.ClientConn, conn net.Conn, incoming net.Conn) error
+	NewHostConnected(gConn *grpc.ClientConn, incoming net.Conn) error
 
 	RemoveHost(ctx context.Context, in *proto.HostId) (*proto.Void, error)
 	GetClusterActualGpuInfo() (*proto.ClusterActualGpuInfo, error)
@@ -41,8 +41,6 @@ type GatewayDaemon interface {
 	NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error)
 	PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error)
 	IsKernelActivelyTraining(kernelId string) (bool, error)
-
-	PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error)
 
 	SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error)
 	SmrNodeAdded(ctx context.Context, in *proto.ReplicaInfo) (*proto.Void, error)
@@ -120,7 +118,7 @@ func (srv *ClusterGatewayGrpcServer) Accept() (net.Conn, error) {
 		return nil, connectionError
 	}
 
-	return conn, srv.daemon.NewHostConnected(gConn, conn, incoming)
+	return conn, srv.daemon.NewHostConnected(gConn, incoming)
 }
 
 // acceptHostConnection accepts an incoming connection from a Local Daemon and establishes a bidirectional
@@ -246,7 +244,7 @@ func (srv *ClusterGatewayGrpcServer) StartKernel(ctx context.Context, in *proto.
 // PromotePrewarmedContainer is similar to StartKernelReplica, except that PromotePrewarmedContainer launches the new
 // kernel using an existing, pre-warmed container that is already available on this host.
 func (srv *ClusterGatewayGrpcServer) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
-	return srv.daemon.PromotePrewarmedContainer(ctx, in)
+	return nil, ErrNotImplemented
 }
 
 // GetKernelStatus returns the status of a kernel.

@@ -52,7 +52,7 @@ type ExecutionManager struct {
 
 	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
 	// for updating Prometheus metrics.
-	statisticsProvider scheduling.StatisticsProvider
+	statisticsProvider scheduling.MetricsProvider
 
 	// numTimesAsPrimaryReplicaMap keeps track of the number of times that each replica served as the primary
 	// replica and successfully executed user-submitted code.
@@ -197,7 +197,7 @@ type ExecutionManager struct {
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
-func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvider scheduling.StatisticsProvider,
+func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, statsProvider scheduling.MetricsProvider,
 	callbackProvider scheduling.CallbackProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{

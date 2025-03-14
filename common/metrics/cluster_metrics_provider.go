@@ -77,6 +77,10 @@ func NewClusterMetricsProvider(port int, callbackProvider CallbackProvider, numA
 	return provider
 }
 
+func (p *ClusterMetricsProvider) SetNumActiveTrainingsPointer(numActiveTrainings *atomic.Int32) {
+	p.numActiveExecutions = numActiveTrainings
+}
+
 func (p *ClusterMetricsProvider) IncrementNumActiveExecutions() {
 	p.numActiveExecutions.Add(1)
 }

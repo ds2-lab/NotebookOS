@@ -1,4 +1,4 @@
-package grpc
+package rpc
 
 import (
 	"fmt"
@@ -160,7 +160,7 @@ func (dg *DashboardGateway) Accept() (net.Conn, error) {
 	dg.log.Debug("Accepted new session for cluster Dashboard. Dialing to create reverse connection with dummy dialer now...")
 
 	// Dial to create a reversion connection with dummy dialer.
-	gConn, err := grpc.Dial(":0", // grpc.NewClient("passthrough://:0",
+	gConn, err := grpc.Dial(":0", // rpc.NewClient("passthrough://:0",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			conn, err := cliSession.Open()

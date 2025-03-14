@@ -24,7 +24,7 @@ package client
 //	debugMode          bool
 //	execFailedCallback scheduling.ExecutionFailedCallback
 //	latencyCallback    scheduling.ExecutionLatencyCallback
-//	statsProvider      scheduling.StatisticsProvider
+//	statsProvider      scheduling.MetricsProvider
 //	notifyCallback     scheduling.NotificationCallback
 //}
 //
@@ -77,7 +77,7 @@ package client
 //	return b
 //}
 //
-//func (b *DistributedKernelClientBuilder) WithStatisticsProvider(provider scheduling.StatisticsProvider) *DistributedKernelClientBuilder {
+//func (b *DistributedKernelClientBuilder) WithStatisticsProvider(provider scheduling.MetricsProvider) *DistributedKernelClientBuilder {
 //	b.statsProvider = provider
 //	return b
 //}

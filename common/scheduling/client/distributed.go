@@ -175,7 +175,7 @@ type DistributedKernelClient struct {
 
 	debugMode bool
 
-	statisticsProvider scheduling.StatisticsProvider
+	statisticsProvider scheduling.MetricsProvider
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
@@ -184,13 +184,13 @@ type DistributedKernelClientProvider struct{}
 //func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 //	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 //	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-//	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+//	statisticsProvider scheduling.MetricsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 // NewDistributedKernelClient creates a new DistributedKernelClient struct and returns
 // a pointer to it in the form of an AbstractDistributedKernelClient interface.
 func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-	statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
+	statisticsProvider scheduling.MetricsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
 
 	kernelClient := &DistributedKernelClient{
 		id:                 spec.Id,

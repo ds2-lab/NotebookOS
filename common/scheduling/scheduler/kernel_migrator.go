@@ -34,7 +34,7 @@ type kernelMigrator struct {
 	log                logger.Logger
 	scheduler          clusterSchedulerInternal
 	notificationBroker NotificationBroker
-	statisticsProvider scheduling.StatisticsProvider
+	statisticsProvider scheduling.MetricsProvider
 	smrPort            int32
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
@@ -52,7 +52,7 @@ type kernelMigrator struct {
 }
 
 func newKernelMigrator(kernelProvider KernelProvider, cluster scheduling.Cluster, scheduler clusterSchedulerInternal,
-	statisticsProvider scheduling.StatisticsProvider, smrPort int32) *kernelMigrator {
+	statisticsProvider scheduling.MetricsProvider, smrPort int32) *kernelMigrator {
 	return &kernelMigrator{
 		kernelProvider:                        kernelProvider,
 		scheduler:                             scheduler,

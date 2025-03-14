@@ -25,6 +25,7 @@ import (
 	"log"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,7 +57,7 @@ func logKernelNotFound(log logger.Logger, kernelId string, stoppedKernels hashma
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-		statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
+		statisticsProvider scheduling.MetricsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
 }
 
 type NetworkProvider interface {
@@ -72,6 +73,14 @@ type KernelProvider interface {
 	domain.KernelProvider
 	GetKernels() hashmap.HashMap[string, scheduling.Kernel]
 	GetKernelsByKernelId() hashmap.HashMap[string, scheduling.Kernel]
+}
+
+type metricsProvider interface {
+	scheduling.MetricsProvider
+
+	GetGatewayPrometheusManager() *metrics.GatewayPrometheusManager
+
+	SetNumActiveTrainingsPointer(numActiveTrainings *atomic.Int32)
 }
 
 type Provisioner struct {
@@ -105,7 +114,7 @@ type Provisioner struct {
 	kernelRegisteredNotifications hashmap.HashMap[string, *proto.KernelRegistrationNotification]
 
 	// metricsProvider provides all metrics to the members of the scheduling package.
-	metricsProvider *metrics.ClusterMetricsProvider
+	metricsProvider metricsProvider
 
 	// notifier is used to send notifications to the cluster dashboard.
 	notifier domain.Notifier
@@ -124,9 +133,9 @@ type Provisioner struct {
 	log logger.Logger
 }
 
-func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider *metrics.ClusterMetricsProvider,
-	networkProvider NetworkProvider, kernelShellHandler scheduling.KernelMessageHandler, provider KernelProvider,
-	kernelCallbackProvider scheduling.CallbackProvider, opts *domain.ClusterGatewayOptions) *Provisioner {
+func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider metricsProvider,
+	kernelShellHandler scheduling.KernelMessageHandler, provider KernelProvider, kernelCallbackProvider scheduling.CallbackProvider,
+	opts *domain.ClusterGatewayOptions) *Provisioner {
 
 	provisioner := &Provisioner{
 		id:                            id,
@@ -135,7 +144,6 @@ func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notif
 		notifier:                      notifier,
 		metricsProvider:               metricsProvider,
 		opts:                          opts,
-		networkProvider:               networkProvider,
 		kernelShellHandler:            kernelShellHandler,
 		kernelCallbackProvider:        kernelCallbackProvider,
 		kernelSpecs:                   hashmap.NewConcurrentMap[*proto.KernelSpec](32),
@@ -146,6 +154,10 @@ func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notif
 	config.InitLogger(&provisioner.log, provisioner)
 
 	return provisioner
+}
+
+func (p *Provisioner) SetNetworkProvider(networkProvider NetworkProvider) {
+	p.networkProvider = networkProvider
 }
 
 func (p *Provisioner) RegisterDistributedClientProvider(distributedClientProvider DistributedClientProvider) {
@@ -1171,7 +1183,13 @@ func (p *Provisioner) handleMigratedReplicaRegistered(in *proto.KernelRegistrati
 	}
 
 	// Initialize kernel client
-	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo), p.id, p.opts.NumResendAttempts, in.PodOrContainerName, in.NodeName, nil, nil, p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId, metrics.ClusterGateway, true, true, p.opts.DebugMode, p.metricsProvider, p.kernelReconnectionFailed, p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics, p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
+	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
+		jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo), p.id, p.opts.NumResendAttempts,
+		in.PodOrContainerName, in.NodeName, nil, nil,
+		p.opts.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId, metrics.ClusterGateway,
+		true, true, p.opts.DebugMode, p.metricsProvider, p.kernelReconnectionFailed,
+		p.kernelRequestResubmissionFailedAfterReconnection, p.metricsProvider.UpdateClusterStatistics,
+		p.opts.SubmitExecuteRequestsOneAtATime, scheduling.StandardContainer)
 
 	err := replica.Validate()
 	if err != nil {
@@ -1224,7 +1242,7 @@ func (p *Provisioner) handleMigratedReplicaRegistered(in *proto.KernelRegistrati
 	p.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during migration \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
 
-	err = addReplicaOp.SetReplicaRegistered(replica)
+	err = addReplicaOp.SetReplicaRegistered(replica, in.KernelIp)
 	if err != nil {
 		errorMessage := fmt.Sprintf("We're using the WRONG AddReplicaOperation... AddReplicaOperation \"%s\" has already recorded that its replica has registered: %v",
 			addReplicaOp.OperationID(), addReplicaOp.String())

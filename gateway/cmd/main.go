@@ -4,18 +4,26 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/charmbracelet/lipgloss"
+	dockerClient "github.com/docker/docker/client"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/muesli/termenv"
 	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
-	daemon2 "github.com/scusemua/distributed-notebook/gateway/internal"
-	domain2 "github.com/scusemua/distributed-notebook/gateway/internal/domain"
-	grpc2 "github.com/scusemua/distributed-notebook/gateway/internal/grpc"
-	notifier2 "github.com/scusemua/distributed-notebook/gateway/internal/notifier"
+	daemon "github.com/scusemua/distributed-notebook/gateway/internal"
+	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
+	"github.com/scusemua/distributed-notebook/gateway/internal/kernel"
+	gatewayMetrics "github.com/scusemua/distributed-notebook/gateway/internal/metrics"
+	"github.com/scusemua/distributed-notebook/gateway/internal/notifier"
+	"github.com/scusemua/distributed-notebook/gateway/internal/routing"
+	"github.com/scusemua/distributed-notebook/gateway/internal/rpc"
 	"google.golang.org/grpc/keepalive"
 	"log"
 	"net"
@@ -41,7 +49,7 @@ const (
 )
 
 var (
-	options      = domain2.ClusterGatewayOptions{}
+	options      = domain.ClusterGatewayOptions{}
 	globalLogger = config.GetLogger("")
 	sig          = make(chan os.Signal, 1)
 )
@@ -107,7 +115,7 @@ func ValidateOptions() {
 	}
 }
 
-func CreateConsulAndTracer(options *domain2.ClusterGatewayOptions) (opentracing.Tracer, *consul.Client) {
+func CreateConsulAndTracer(options *domain.ClusterGatewayOptions) (opentracing.Tracer, *consul.Client) {
 	var (
 		tracer       opentracing.Tracer
 		consulClient *consul.Client
@@ -205,20 +213,48 @@ func main() {
 
 	clusterGatewayId := uuid.NewString()
 
-	notifier := notifier2.NewDashboardNotifier(nil)
+	dashboardNotifier := notifier.NewDashboardNotifier(nil)
 
-	globalScheduler := daemon2.NewGatewayDaemonBuilder(&options).
+	metricsProvider := gatewayMetrics.NewManagerBuilder().
+		SetID(clusterGatewayId).
+		SetPrometheusPort(options.PrometheusPort).
+		Build()
+
+	forwarder := routing.NewForwarder(&options.ConnectionInfo, dashboardNotifier, metricsProvider, &options)
+
+	kernelManager, err := kernel.NewManagerBuilder().
+		SetID(clusterGatewayId).
+		SetCluster(nil).
+		SetSchedulingPolicy(nil).
+		SetMetricsProvider(metricsProvider).
+		SetNotifier(dashboardNotifier).
+		SetOptions(&options).
+		SetRequestLog(forwarder.RequestLog).
+		SetResponseForwarder(forwarder).
+		Build()
+
+	if err != nil {
+		panic(err)
+	}
+
+	forwarder.RegisterKernelForwarder(kernelManager)
+	metricsProvider.SetNumActiveKernelProvider(kernelManager)
+
+	globalScheduler := daemon.NewGatewayDaemonBuilder(&options).
 		WithId(clusterGatewayId).
-		WithNotifier(nil).
-		WithForwarder(nil).
+		WithNotifier(dashboardNotifier).
+		WithForwarder(forwarder).
 		WithCluster(nil).
-		WithKernelManager(nil).
+		WithKernelManager(kernelManager).
+		WithMetricsManager(metricsProvider).
+		WithConnectionOptions(&options.ConnectionInfo).
 		WithDistributedClientProvider(&client.DistributedKernelClientProvider{}).
 		Build()
 
-	gatewayGrpcServer := grpc2.NewClusterGatewayServer(clusterGatewayId, globalScheduler, notifier)
+	kernelManager.SetNetworkProvider(globalScheduler)
 
-	distributedClusterGrpcServer := grpc2.NewDistributedGateway(globalScheduler, notifier)
+	gatewayGrpcServer := rpc.NewClusterGatewayServer(clusterGatewayId, globalScheduler, dashboardNotifier)
+	distributedClusterGrpcServer := rpc.NewDistributedGateway(globalScheduler, dashboardNotifier)
 
 	distributedClusterServiceListener, err := distributedClusterGrpcServer.Listen(
 		"tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
@@ -333,6 +369,135 @@ func main() {
 	}()
 
 	done.Wait()
+}
+
+func initCluster(clusterDaemonOptions *domain.ClusterDaemonOptions, metricsProvider scheduling.MetricsProvider) scheduling.Cluster {
+	clusterProvider := func() scheduling.Cluster {
+		if clusterGateway == nil {
+			return nil
+		}
+
+		return clusterGateway.cluster
+	}
+
+	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions, clusterProvider)
+	if policyError != nil {
+		panic(policyError)
+	}
+
+	// Note: we don't construct the scheduling.cluster struct within the switch statement below.
+	// We construct the scheduling.cluster struct immediately following the switch statement.
+	var (
+		clusterPlacer  scheduling.Placer
+		clusterType    cluster.Type
+		deploymentMode types.DeploymentMode
+		err            error
+	)
+	switch clusterDaemonOptions.DeploymentMode {
+	case "":
+		{
+			globalLogger.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
+			panic("Not supported")
+		}
+	case "local":
+		{
+			globalLogger.Info("Running in LOCAL mode.")
+			deploymentMode = types.LocalMode
+			panic("Not supported")
+		}
+	case "docker":
+		{
+			globalLogger.Error("\"docker\" mode is no longer a valid deployment mode")
+			globalLogger.Error("The supported deployment modes are: ")
+			globalLogger.Error("- \"docker-swarm\"")
+			globalLogger.Error("- \"docker-compose\"")
+			globalLogger.Error("- \"kubernetes\"")
+			globalLogger.Error("- \"local\"")
+			os.Exit(1)
+		}
+	case "docker-compose":
+		{
+			globalLogger.Info("Running in DOCKER COMPOSE mode.")
+			deploymentMode = types.DockerComposeMode
+
+			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
+			if err != nil {
+				panic(err)
+			}
+
+			clusterGateway.dockerApiClient = apiClient
+
+			dockerEventHandler := NewDockerEventHandler()
+			clusterGateway.containerEventHandler = dockerEventHandler
+
+			clusterType = cluster.DockerCompose
+			break
+		}
+	case "docker-swarm":
+		{
+			globalLogger.Info("Running in DOCKER SWARM mode.")
+			deploymentMode = types.DockerSwarmMode
+
+			apiClient, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv)
+			if err != nil {
+				panic(err)
+			}
+
+			clusterGateway.dockerApiClient = apiClient
+
+			clusterType = cluster.DockerSwarm
+
+			break
+		}
+	case "kubernetes":
+		{
+			globalLogger.Info("Running in KUBERNETES mode.")
+			deploymentMode = types.KubernetesMode
+
+			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
+			clusterGateway.containerEventHandler = clusterGateway.kubeClient
+
+			clusterType = cluster.Kubernetes
+
+			break
+		}
+	default:
+		{
+			globalLogger.Error("Unknown/unsupported deployment mode: \"%s\"", clusterDaemonOptions.DeploymentMode)
+			globalLogger.Error("The supported deployment modes are: ")
+			globalLogger.Error("- \"kubernetes\"")
+			globalLogger.Error("- \"docker-swarm\"")
+			globalLogger.Error("- \"docker-compose\"")
+			globalLogger.Error("- \"local\"")
+			os.Exit(1)
+		}
+	}
+
+	clusterPlacer, err = schedulingPolicy.GetNewPlacer(metricsProvider)
+	if err != nil {
+		globalLogger.Error("Failed to create Random Placer: %v", err)
+		panic(err)
+	}
+
+	// This is where we actually construct the scheduling.cluster struct.
+	distributedNotebookCluster, err := cluster.NewBuilder(clusterType).
+		WithKubeClient(clusterGateway.kubeClient).
+		WithHostSpec(clusterGateway.hostSpec).
+		WithPlacer(clusterPlacer).
+		WithSchedulingPolicy(schedulingPolicy).
+		WithHostMapper(clusterGateway).
+		WithKernelProvider(clusterGateway).
+		WithClusterMetricsProvider(metricsProvider).
+		WithNotificationBroker(clusterGateway).
+		WithStatisticsUpdateProvider(metricsProvider.UpdateClusterStatistics).
+		WithOptions(&clusterSchedulerOptions).
+		BuildCluster()
+
+	if err != nil {
+		panic(err)
+	}
+
+	return distributedNotebookCluster
 }
 
 func finalize(fix bool, identity string, handler PanicHandler) {

@@ -17,10 +17,10 @@ except ImportError:
 
 if _version_not_supported:
     raise RuntimeError(
-        f'The grpc package installed is at version {GRPC_VERSION},'
+        f'The rpc package installed is at version {GRPC_VERSION},'
         + f' but the generated code in gateway_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
-        + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
+        + f' Please upgrade your rpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
@@ -34,7 +34,7 @@ class ClusterGatewayStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.ID = channel.unary_unary(
                 '/gateway.ClusterGateway/ID',
@@ -424,7 +424,7 @@ class DistributedClusterStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.InducePanic = channel.unary_unary(
                 '/gateway.DistributedCluster/InducePanic',
@@ -1772,7 +1772,7 @@ class ClusterDashboardStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.SendNotification = channel.unary_unary(
                 '/gateway.ClusterDashboard/SendNotification',
@@ -1854,7 +1854,7 @@ class KernelErrorReporterStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.Notify = channel.unary_unary(
                 '/gateway.KernelErrorReporter/Notify',
@@ -1940,7 +1940,7 @@ class LocalGatewayStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.SetID = channel.unary_unary(
                 '/gateway.LocalGateway/SetID',

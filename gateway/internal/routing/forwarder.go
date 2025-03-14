@@ -36,6 +36,15 @@ type KernelForwarder interface {
 	ForwardRequestToKernel(id string, msg *messaging.JupyterMessage, socketTyp messaging.MessageType) error
 }
 
+type metricsProvider interface {
+	GetGatewayPrometheusManager() *metrics.GatewayPrometheusManager
+
+	// UpdateClusterStatistics is passed to Distributed kernel Clients so that they may atomically update statistics.
+	UpdateClusterStatistics(updaterFunc func(statistics *metrics.ClusterStatistics))
+
+	PrometheusMetricsEnabled() bool
+}
+
 // The Forwarder is responsible for forwarding messages received from the Jupyter Server to the appropriate
 // scheduling.Kernel (and subsequently any scheduling.KernelReplica instances associated with the scheduling.Kernel).
 type Forwarder struct {
@@ -48,16 +57,16 @@ type Forwarder struct {
 	// to forward the messages that it receives to the appropriate/target scheduling.Kernel.
 	Router *router.Router
 
-	// KernelManager is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
+	// KernelForwarder is responsible for creating, maintaining, and routing messages to scheduling.Kernel and
 	// scheduling.KernelReplica instances running within the cluster.
-	KernelManager KernelForwarder
+	KernelForwarder KernelForwarder
 
 	// DebugMode indicates that the cluster is running in "debug" mode and extra time may be spent
 	// recording metrics and embedding additional metadata in messages.
 	DebugMode bool
 
-	// MetricsProvider provides all metrics to the members of the scheduling package.
-	MetricsProvider *metrics.ClusterMetricsProvider
+	// metricsProvider provides all metrics to the members of the scheduling package.
+	metricsProvider metricsProvider
 
 	Notifier domain.Notifier
 
@@ -73,14 +82,14 @@ type Forwarder struct {
 }
 
 // NewForwarder creates a new Forwarder struct and returns a pointer to it.
-func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder KernelForwarder, notifier domain.Notifier,
+func NewForwarder(connectionOptions *jupyter.ConnectionInfo, notifier domain.Notifier, metricsProvider metricsProvider,
 	opts *domain.ClusterGatewayOptions) *Forwarder {
 
 	forwarder := &Forwarder{
 		GatewayId:         uuid.NewString(),
-		connectionOptions: connectionOptions,
-		KernelManager:     kernelForwarder,
 		Notifier:          notifier,
+		metricsProvider:   metricsProvider,
+		connectionOptions: connectionOptions,
 	}
 
 	config.InitLogger(&forwarder.log, forwarder)
@@ -94,9 +103,13 @@ func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder Ker
 
 	forwarder.Router = router.New(context.Background(), "ClusterGateway", connectionOptions, forwarder,
 		opts.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
-		metrics.ClusterGateway, forwarder.DebugMode, forwarder.MetricsProvider.GetGatewayPrometheusManager())
+		metrics.ClusterGateway, forwarder.DebugMode, forwarder.metricsProvider.GetGatewayPrometheusManager())
 
 	return forwarder
+}
+
+func (f *Forwarder) RegisterKernelForwarder(kernelForwarder KernelForwarder) {
+	f.KernelForwarder = kernelForwarder
 }
 
 func (f *Forwarder) HasRequestLog() bool {
@@ -184,7 +197,7 @@ func (f *Forwarder) ForwardRequest(socketType messaging.MessageType, msg *messag
 	f.log.Debug("Forwarding[SocketType=%v, MsgId='%s', MsgTyp='%s', TargetKernelId='%s']",
 		socketType.String(), msg.JupyterMessageId(), msgType, kernelId)
 
-	return f.KernelManager.ForwardRequestToKernel(kernelId, msg, socketType)
+	return f.KernelForwarder.ForwardRequestToKernel(kernelId, msg, socketType)
 }
 
 // ForwardResponse forwards a response from a scheduling.Kernel / scheduling.KernelReplica back to the Jupyter client.
@@ -220,7 +233,7 @@ func (f *Forwarder) ForwardResponse(from router.Info, typ messaging.MessageType,
 	err := f.sendZmqMessage(msg, socket, from.ID())
 
 	if err == nil {
-		f.MetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		f.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 			statistics.NumJupyterRepliesSentByClusterGateway += 1
 		})
 	}
@@ -255,8 +268,8 @@ func (f *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messag
 	}
 
 	// Update prometheus metrics, if enabled and available.
-	if f.MetricsProvider != nil && f.MetricsProvider.PrometheusMetricsEnabled() {
-		metricError := f.MetricsProvider.
+	if f.metricsProvider != nil && f.metricsProvider.PrometheusMetricsEnabled() {
+		metricError := f.metricsProvider.
 			GetGatewayPrometheusManager().
 			SentMessage(f.GatewayId, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
 
@@ -264,7 +277,7 @@ func (f *Forwarder) sendZmqMessage(msg *messaging.JupyterMessage, socket *messag
 			f.log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
-		metricError = f.MetricsProvider.
+		metricError = f.metricsProvider.
 			GetGatewayPrometheusManager().
 			SentMessageUnique(f.GatewayId, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType())
 

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/petermattis/goid"
@@ -52,6 +52,14 @@ var (
 	ErrKernelIDRequired                        = errors.New("kernel id frame is required for kernel_info_request")
 	ErrUnsupportedMsgTypeForArtificialResponse = errors.New("unsupported message type for artificial response")
 )
+
+type metricsProvider interface {
+	scheduling.MetricsProvider
+
+	GetGatewayPrometheusManager() *metrics.GatewayPrometheusManager
+
+	SetNumActiveTrainingsPointer(numActiveTrainings *atomic.Int32)
+}
 
 func errorf(err error) error {
 	if err == nil {
@@ -116,6 +124,8 @@ type Manager struct {
 
 	log logger.Logger
 
+	schedulingPolicy scheduling.Policy
+
 	// debugMode causes more information to be included in Jupyter requests, among other things.
 	debugMode bool
 
@@ -132,7 +142,7 @@ type Manager struct {
 	requestLog *metrics.RequestLog
 
 	// metricsProvider provides all metrics to the members of the scheduling package.
-	metricsProvider *metrics.ClusterMetricsProvider
+	metricsProvider metricsProvider
 
 	// responseForwarder is responsible for forwarding responses from scheduling.Kernel and scheduling.KernelReplica
 	// instances back to the associated Jupyter client.
@@ -167,54 +177,6 @@ type Manager struct {
 	notifier domain.Notifier
 
 	provider *Provider
-}
-
-// NewManager creates a new Manager struct and returns a pointer to it.
-func NewManager(id string, cluster scheduling.Cluster, requestLog *metrics.RequestLog, responseForwarder ResponseForwarder,
-	metricsProvider *metrics.ClusterMetricsProvider, networkProvider provisioner.NetworkProvider, notifier domain.Notifier,
-	opts *domain.ClusterGatewayOptions) *Manager {
-
-	manager := &Manager{
-		id:                id,
-		provider:          NewProvider(),
-		sessions:          hashmap.NewConcurrentMap[scheduling.Kernel](32),
-		kernelsStarting:   hashmap.NewCornelkMap[string, chan struct{}](64),
-		handlers:          make(map[messaging.MessageType]MessageHandler),
-		responseForwarder: responseForwarder,
-		cluster:           cluster,
-		requestLog:        requestLog,
-		debugMode:         opts.DebugMode,
-		metricsProvider:   metricsProvider,
-	}
-
-	manager.handlers[messaging.ControlMessage] = manager.controlHandler
-	manager.handlers[messaging.ShellMessage] = manager.shellHandler
-	manager.handlers[messaging.StdinMessage] = manager.stdinHandler
-	manager.handlers[messaging.HBMessage] = manager.heartbeatHandler
-
-	failedExecutionHandler := execution_failed.NewHandler(opts, manager, notifier)
-	manager.failedExecutionHandler = failedExecutionHandler
-
-	kernelProvisioner := provisioner.NewProvisioner(id, cluster, notifier, metricsProvider, networkProvider,
-		manager.shellHandlerWrapper, manager.provider, manager.CallbackProvider(), opts)
-	manager.kernelProvisioner = kernelProvisioner
-
-	if opts.IdleSessionReclamationEnabled && opts.IdleSessionReclamationIntervalSec > 0 {
-		interval := time.Duration(opts.IdleSessionReclamationIntervalSec) * time.Second
-		numReplicasPerKernel := manager.cluster.Scheduler().Policy().NumReplicas()
-
-		manager.idleSessionReclaimer = NewIdleSessionReclaimer(
-			manager.provider.Kernels, interval, numReplicasPerKernel, nil)
-
-		manager.idleSessionReclaimer.Start()
-	}
-
-	manager.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](
-		manager.notifier.NotifyDashboard, nil)
-
-	config.InitLogger(&manager.log, manager)
-
-	return manager
 }
 
 func (km *Manager) CallbackProvider() scheduling.CallbackProvider {
@@ -796,6 +758,10 @@ func (km *Manager) PingKernel(ctx context.Context, in *proto.PingInstruction) (*
 	}, nil
 }
 
+func (km *Manager) SetNetworkProvider(provider provisioner.NetworkProvider) {
+	km.kernelProvisioner.SetNetworkProvider(provider)
+}
+
 func (km *Manager) SmrReady(_ context.Context, in *proto.SmrReadyNotification) (*proto.Void, error) {
 	err := km.kernelProvisioner.SmrReady(in)
 	if err != nil {
@@ -1002,7 +968,7 @@ func (km *Manager) forwardResponseFromKernel(from scheduling.KernelReplicaInfo, 
 // will either terminate the scheduling.KernelContainer instance(s) or return them to the warm container pool.
 func (km *Manager) cleanUpBeforeForwardingExecuteReply(from router.Info, execReplyMsg *messaging.JupyterMessage) {
 	// If the scheduling policy isn't a single-training-event policy, then we can just return immediately.
-	if km.cluster.Scheduler().Policy().ContainerLifetime() != scheduling.SingleTrainingEvent {
+	if km.schedulingPolicy.ContainerLifetime() != scheduling.SingleTrainingEvent {
 		return
 	}
 
@@ -1021,13 +987,13 @@ func (km *Manager) cleanUpBeforeForwardingExecuteReply(from router.Info, execRep
 
 	km.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
-	if !km.cluster.Scheduler().Policy().ReuseWarmContainers() {
+	if !km.schedulingPolicy.ReuseWarmContainers() {
 		_ = km.removeAllReplicasOfKernel(kernel, true, false, false)
 		return
 	}
 
 	// For the "middle ground" policy, we return the kernel's container to the warm container pool.
-	if km.cluster.Scheduler().Policy().ReuseWarmContainers() {
+	if km.schedulingPolicy.ReuseWarmContainers() {
 		km.log.Debug("Reusing warm kernel container.")
 
 		// Send 'reset' request.
@@ -1221,7 +1187,7 @@ func (km *Manager) shellHandler(kernel scheduling.Kernel, socketTyp messaging.Me
 	}
 
 	km.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
-	err := km.forwardRequest(kernel, messaging.ShellMessage, msg)
+	err := kernel.RequestWithHandler(context.Background(), "Forwarding", socketTyp, msg, km.forwardResponseFromKernel, nil)
 	if err != nil {
 		km.log.Error("Error while handling/forwarding shell \"%s\" message \"%s\" (JupyterID=\"%s\"): %v.",
 			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
@@ -1230,6 +1196,137 @@ func (km *Manager) shellHandler(kernel scheduling.Kernel, socketTyp messaging.Me
 		// send a reply, and the error came from something that occurred after sending our response (I think?).
 		_ = km.responseForwarder.SendErrorResponse(kernel, msg, err, messaging.ShellMessage)
 
+		return err
+	}
+
+	return nil
+}
+
+// executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for
+// "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
+// to the replicas (well, to the Local Schedulers first).
+func (km *Manager) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
+	// First, update the kernel's resource request (for replica-based policies) if there's an updated
+	// resource request in the metadata of the "execute_request" message.
+	//
+	// We do this before even checking if the replicas are scheduled.
+	// If they aren't scheduled, then it would be best for the spec to be up to date before we bother scheduling them.
+	// And if they're already scheduled, then their specs will be updated.
+	err := km.processExecuteRequestMetadata(jMsg, kernel)
+	if err != nil {
+		jMsg.IsFailedExecuteRequest = true
+		// We'll send an error message to the associated client here.
+		go func() {
+			sendErr := km.responseForwarder.SendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+			if sendErr != nil {
+				km.log.Error("executeRequestHandler: Failed to send error response for shell \"%s\" message \"%s\": %v",
+					jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), sendErr)
+			}
+		}()
+		return err
+	}
+
+	// Now we check if the replicas are scheduled. For static and dynamic, they will be, as well as with reservation,
+	// unless idle session reclamation is enabled.
+	//
+	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
+	_, replicasAlreadyScheduled, err := km.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
+	if err != nil {
+		km.log.Warn("executeRequestHandler: Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+			kernel.ID(), jMsg.JupyterMessageType(), err)
+
+		// We'll send an error message to the associated client here.
+		go func() {
+			sendErr := km.responseForwarder.SendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+			if sendErr != nil {
+				km.log.Error("executeRequestHandler: Failed to send error response for shell \"%s\" message \"%s\": %v",
+					jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), sendErr)
+			}
+		}()
+		return err
+	}
+
+	// For policies that create replicas on-demand each time code is submitted,
+	// 'replicasAlreadyScheduled' will always be false.
+	if !replicasAlreadyScheduled {
+		km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+			statistics.NumTimesKernelReplicaNotAvailableImmediately.Add(1)
+		})
+	}
+
+	targetReplica, processingError := km.processExecuteRequest(jMsg, kernel)
+	if processingError != nil {
+		// Send a response with the error as the content.
+		_ = km.responseForwarder.SendErrorResponse(kernel, jMsg, processingError, messaging.ShellMessage)
+		return processingError
+	}
+
+	if targetReplica != nil {
+		km.log.Debug("executeRequestHandler: Identified target replica %d of kernel '%s' to lead \"execute_request\" \"%s\"",
+			targetReplica.ReplicaID(), targetReplica.ID(), jMsg.JupyterMessageId())
+	}
+
+	// Broadcast an "execute_request" to all eligible replicas and a "yield_request" to all ineligible replicas.
+	err = km.forwardExecuteRequest(jMsg, kernel, targetReplica)
+	if err != nil {
+		_ = km.responseForwarder.SendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+	}
+
+	return err // Will be nil on success.
+}
+
+// processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
+// The main thing we do here is possibly update the resource request of the associated kernel.
+func (km *Manager) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.Kernel) error {
+	// If there is nothing in the message's metadata frame, then we just return immediately.
+	if len(*msg.JupyterFrames.MetadataFrame()) == 0 {
+		return nil
+	}
+
+	metadataDict, err := msg.DecodeMetadata()
+	if err != nil {
+		km.log.Error("processExecuteRequestMetadata: Failed to decode metadata frame of \"execute_request\" message \"%s\" with JSON: %v",
+			msg.JupyterMessageId(), err)
+		return err
+	}
+
+	var requestMetadata *messaging.ExecuteRequestMetadata
+	if err := mapstructure.Decode(metadataDict, &requestMetadata); err != nil {
+		km.log.Error("processExecuteRequestMetadata: Failed to parse decoded metadata frame of \"execute_request\" message \"%s\" with mapstructure: %v",
+			msg.JupyterMessageId(), err)
+		return err
+	}
+
+	km.log.Debug("processExecuteRequestMetadata: Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
+
+	// If there is no resource request embedded in the request metadata, then we can just return at this point.
+	if requestMetadata.ResourceRequest == nil {
+		return nil
+	}
+
+	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
+	if !km.schedulingPolicy.SupportsDynamicResourceAdjustments() {
+		return nil
+	}
+
+	// If there is a resource request in the metadata, but it is equal to the kernel's current resources,
+	// then we can just return.
+	specsAreEqual, firstUnequalField := kernel.ResourceSpec().EqualsWithField(requestMetadata.ResourceRequest)
+	if specsAreEqual {
+		km.log.Debug("processExecuteRequestMetadata: Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
+			requestMetadata.ResourceRequest.String(), kernel.ResourceSpec().String(), kernel.ID())
+		return nil
+	}
+
+	km.log.Debug("processExecuteRequestMetadata: Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\". "+
+		"Old spec: %v. New spec: %v. Differ in field '%v' [old=%f, new=%f].",
+		kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec().String(), requestMetadata.ResourceRequest.String(),
+		firstUnequalField, kernel.ResourceSpec().GetResourceQuantity(firstUnequalField),
+		requestMetadata.ResourceRequest.GetResourceQuantity(firstUnequalField))
+
+	err = km.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest)
+	if err != nil {
+		km.log.Warn("processExecuteRequestMetadata: Failed to update resource spec of kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
 
@@ -1264,7 +1361,7 @@ func (km *Manager) heartbeatHandler(kernel scheduling.Kernel, socketTyp messagin
 
 // numReplicasPerKernel returns the number of replicas that each scheduling.Kernel is supposed to have.
 func (km *Manager) numReplicasPerKernel() int {
-	return km.cluster.Scheduler().Policy().NumReplicas()
+	return km.schedulingPolicy.NumReplicas()
 }
 
 // shouldReplicasBeRunning returns a flag indicating whether the containers of Kernels should be running already.
@@ -1286,7 +1383,7 @@ func (km *Manager) shouldReplicasBeRunning(kernel scheduling.Kernel) bool {
 		return false
 	}
 
-	return km.cluster.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning
+	return km.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning
 }
 
 // newKernelCreated is to be called from StartKernel if and when the procedure succeeds.
@@ -1457,7 +1554,7 @@ func (km *Manager) resetKernel(kernel scheduling.Kernel, revertToPrewarm bool) e
 		return jupyter.ErrFailedToVerifyMessage
 	}
 
-	respChan := make(chan *resetKernelReply, km.cluster.Scheduler().Policy().NumReplicas())
+	respChan := make(chan *resetKernelReply, km.schedulingPolicy.NumReplicas())
 	startTime := time.Now()
 	numRepliesReceived := atomic.Int32{}
 
@@ -1500,7 +1597,7 @@ func (km *Manager) resetKernel(kernel scheduling.Kernel, revertToPrewarm bool) e
 	}
 
 	replies := make([]*resetKernelReply, 0, kernel.Size())
-	for numRepliesReceived.Load() < int32(km.cluster.Scheduler().Policy().NumReplicas()) {
+	for numRepliesReceived.Load() < int32(km.schedulingPolicy.NumReplicas()) {
 		select {
 		case <-ctx.Done():
 			{
@@ -1567,7 +1664,7 @@ func (km *Manager) removeAllReplicasOfKernel(kernel scheduling.Kernel, inSeparat
 			km.log.Debug(
 				utils.LightBlueStyle.Render(
 					"Started 'descheduling' attempt to remove %d replica container(s) for kernel \"%s\"."),
-				km.cluster.Scheduler().Policy().NumReplicas(), kernel.ID())
+				km.schedulingPolicy.NumReplicas(), kernel.ID())
 			break
 		}
 
@@ -1964,6 +2061,141 @@ func (km *Manager) generateArtificialResponse(kernel scheduling.Kernel, msg *mes
 		typ.String(), jupyterMsgType, resp.RequestId, resp.JupyterMessageId(), resp)
 
 	return resp, nil
+}
+
+// processExecuteRequest is an important step of the path of handling an "execute_request".
+//
+// processExecuteRequest handles pre-committing resources, migrating a replica if no replicas are viable, etc.
+func (km *Manager) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	kernelId := kernel.ID()
+	km.log.Debug("Processing shell \"execute_request\" message targeting kernel %s: %s", kernelId, msg.StringFormatted())
+
+	// Get the session associated with the kernel.
+	session, ok := km.cluster.GetSession(kernelId)
+	if !ok {
+		km.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
+		msg.IsFailedExecuteRequest = true
+		return nil, fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
+	}
+
+	// Verify that the session isn't already training.
+	if session.IsTraining() {
+		km.log.Debug("Session %s is already training.", session.ID())
+		msg.IsFailedExecuteRequest = true
+		return nil, fmt.Errorf("session \"%s\" is already training", kernel.ID())
+	}
+
+	// Transition the session to the "expecting to start training soon" state.
+	err := session.SetExpectingTraining().Error()
+	if err != nil {
+		km.notifier.NotifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
+		msg.IsFailedExecuteRequest = true
+		return nil, err
+	}
+
+	// Register the execution with the kernel.
+	activeExecution, registrationError := kernel.RegisterActiveExecution(msg)
+	if registrationError != nil {
+		km.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), registrationError)
+		return nil, registrationError
+	}
+
+	if kernel.SupposedToYieldNextExecutionRequest() {
+		return nil, nil
+	}
+
+	// Find a "ready" replica to handle this execution request.
+	targetReplica, err := km.selectTargetReplicaForExecuteRequest(msg, kernel)
+	if err != nil {
+		// If an error is returned, then we should return the error here so that we send an
+		// error message back to the client.
+		km.log.Error("Error while searching for ready replica of kernel '%s': %v", kernel.ID(), err)
+		msg.IsFailedExecuteRequest = true
+		return nil, err
+	}
+
+	// If the target replica is non-nil at this point, then we can just return it.
+	if targetReplica != nil {
+		// If we're using a long-running, replica-based scheduling policy, then we'll
+		// increment the metric about a kernel replica being available right away.
+		if km.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
+			km.clusterStatisticsMutex.Lock()
+			km.ClusterStatistics.NumTimesKernelReplicaAvailableImmediately.Add(1)
+			km.clusterStatisticsMutex.Unlock()
+		}
+
+		// If the kernel has a valid (i.e., non-nil) "previous primary replica", then we'll update another statistic...
+		if kernel.LastPrimaryReplica() != nil {
+			km.clusterStatisticsMutex.Lock()
+			// If we selected the same replica again, then update the corresponding metric.
+			if kernel.LastPrimaryReplica().ReplicaID() == targetReplica.ReplicaID() {
+				km.ClusterStatistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively.Add(1)
+			} else {
+				km.ClusterStatistics.NumTimesPreviousPrimaryReplicaUnavailable.Add(1)
+			}
+			km.clusterStatisticsMutex.Unlock()
+		}
+
+		activeExecution.SetMigrationRequired(false) // Record that we didn't have to migrate a replica.
+
+		// Determine how many replicas could have served the request (including the selected target replica).
+		replicas := kernel.Replicas()
+		numViableReplicas := 1
+		resourceRequest := targetReplica.ResourceSpec()
+		for idx, replica := range replicas {
+			// If the replica is nil for some reason, then we just skip it.
+			if replica == nil {
+				km.log.Warn("Replica #%d of kernel \"%s\" is nil...", idx+1, kernel.ID())
+				continue
+			}
+
+			// We initialized numViableReplicas to 1, so we just skip the target replica.
+			if replica.ReplicaID() == targetReplica.ReplicaID() {
+				continue
+			}
+
+			// If the host is nil (which it shouldn't be), then we'll just skip it.
+			host := replica.Host()
+			if host == nil {
+				km.log.Warn("Host of replica #%d (idx=%d) of kernel \"%s\" is nil...",
+					replica.ReplicaID(), idx, kernel.ID())
+				continue
+			}
+
+			// If the host of the other replica (i.e., the non-target replica) could commit resources
+			// to the replica, then we'll increment the numViableReplicas counter.
+			if host.CanCommitResources(resourceRequest) {
+				numViableReplicas += 1
+			}
+		}
+
+		activeExecution.SetNumViableReplicas(numViableReplicas)
+
+		return targetReplica, nil
+	} else {
+		activeExecution.SetMigrationRequired(true) // Record that we did (or will) have to migrate a replica.
+		activeExecution.SetNumViableReplicas(0)
+	}
+
+	// If we're using a long-running, replica-based scheduling policy, then we'll
+	// increment the metric about a kernel replica not being available right away.
+	if km.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
+		km.clusterStatisticsMutex.Lock()
+		km.ClusterStatistics.NumTimesKernelReplicaNotAvailableImmediately.Add(1)
+		km.clusterStatisticsMutex.Unlock()
+	}
+
+	// TODO: Update this code.
+	// 		 Specifically, the dynamic policies should return a list of replicas to migrate.
+	targetReplica, err = km.tryPerformMigration(kernel, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	km.log.Debug("Returning eligible replica %d of kernel '%s' for \"execute_request\" message %s.",
+		targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
+	return targetReplica, nil
 }
 
 // getArtificialKernelInfoReply creates and returns a "kernel_info_reply"

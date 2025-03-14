@@ -17,11 +17,13 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -36,7 +38,7 @@ var (
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-		statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
+		statisticsProvider scheduling.MetricsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
 }
 
 type MetricsManager interface {
@@ -45,19 +47,10 @@ type MetricsManager interface {
 	GetClusterStatistics() *metrics.ClusterStatistics
 	LastFullStatisticsUpdate() time.Time
 
-	// RecomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
-	//
-	// Important: RecomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
-	//
-	// RecomputeResourceCounts returns a tuple such that:
-	// - 1st element is the number of non-empty hosts
-	// - 2nd element is the number of empty hosts
-	RecomputeResourceCounts() (int, int)
-
 	// GatherClusterStatistics updates all the values in the ClusterStatistics field.
 	//
 	// GatherClusterStatistics is thread-safe.
-	GatherClusterStatistics()
+	GatherClusterStatistics(cluster scheduling.Cluster)
 
 	// ClearClusterStatistics clears the current metrics.ClusterStatistics struct.
 	//
@@ -88,8 +81,6 @@ type KernelManager interface {
 	IsKernelActivelyTraining(kernelId string) (bool, error)
 	IsKernelActivelyMigrating(kernelId string) (bool, error)
 
-	PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error)
-
 	SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error)
 	SmrNodeAdded(ctx context.Context, in *proto.ReplicaInfo) (*proto.Void, error)
 
@@ -104,8 +95,10 @@ type GatewayDaemonBuilder struct {
 	kernelManager             KernelManager
 	router                    *router.Router
 	distributedClientProvider DistributedClientProvider
+	connectionOptions         *jupyter.ConnectionInfo
 	cluster                   scheduling.Cluster
 	options                   *domain.ClusterGatewayOptions
+	metricsManager            MetricsManager
 	id                        string
 }
 
@@ -113,6 +106,11 @@ func NewGatewayDaemonBuilder(options *domain.ClusterGatewayOptions) *GatewayDaem
 	return &GatewayDaemonBuilder{
 		options: options,
 	}
+}
+
+func (b *GatewayDaemonBuilder) WithMetricsManager(metricsManager MetricsManager) *GatewayDaemonBuilder {
+	b.metricsManager = metricsManager
+	return b
 }
 
 func (b *GatewayDaemonBuilder) WithId(id string) *GatewayDaemonBuilder {
@@ -145,20 +143,27 @@ func (b *GatewayDaemonBuilder) WithCluster(cluster scheduling.Cluster) *GatewayD
 	return b
 }
 
+func (b *GatewayDaemonBuilder) WithConnectionOptions(connectionOptions *jupyter.ConnectionInfo) *GatewayDaemonBuilder {
+	b.connectionOptions = connectionOptions
+	return b
+}
+
 func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 	if b.id == "" {
 		b.id = uuid.NewString()
 	}
 
 	gatewayDaemon := &GatewayDaemon{
-		id:            b.id,
-		notifier:      b.notifier,
-		forwarder:     b.forwarder,
-		kernelManager: b.kernelManager,
-		options:       b.options,
-		router:        b.router,
-		createdAt:     time.Now(),
-		cleaned:       make(chan struct{}),
+		id:                b.id,
+		notifier:          b.notifier,
+		forwarder:         b.forwarder,
+		kernelManager:     b.kernelManager,
+		options:           b.options,
+		router:            b.router,
+		metricsManager:    b.metricsManager,
+		connectionOptions: b.connectionOptions,
+		createdAt:         time.Now(),
+		cleaned:           make(chan struct{}),
 	}
 
 	config.InitLogger(&gatewayDaemon.log, gatewayDaemon)
@@ -179,6 +184,8 @@ type GatewayDaemon struct {
 
 	deploymentMode types.DeploymentMode
 
+	connectionOptions *jupyter.ConnectionInfo
+
 	notifier       domain.Notifier
 	forwarder      MessageForwarder
 	kernelManager  KernelManager
@@ -189,6 +196,10 @@ type GatewayDaemon struct {
 	options         *domain.ClusterGatewayOptions
 	dockerNodeMutex sync.Mutex
 	log             logger.Logger
+}
+
+func (g *GatewayDaemon) ConnectionInfo() *jupyter.ConnectionInfo {
+	return g.connectionOptions
 }
 
 func (g *GatewayDaemon) GetId() string {
@@ -289,10 +300,6 @@ func (g *GatewayDaemon) NotifyKernelRegistered(ctx context.Context, in *proto.Ke
 
 func (g *GatewayDaemon) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
 	return g.kernelManager.PingKernel(ctx, in)
-}
-
-func (g *GatewayDaemon) PromotePrewarmedContainer(ctx context.Context, in *proto.PrewarmedKernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
-	return g.kernelManager.PromotePrewarmedContainer(ctx, in)
 }
 
 func (g *GatewayDaemon) SmrReady(ctx context.Context, in *proto.SmrReadyNotification) (*proto.Void, error) {
@@ -422,7 +429,7 @@ func (g *GatewayDaemon) Close() error {
 	return nil
 }
 
-func (g *GatewayDaemon) NewHostConnected(gConn *grpc.ClientConn, conn net.Conn, incoming net.Conn) error {
+func (g *GatewayDaemon) NewHostConnected(gConn *grpc.ClientConn, incoming net.Conn) error {
 	// Create a host scheduler client and register it.
 	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), g.cluster.NumReplicas(),
 		g.cluster, g.cluster, g.metricsManager, gConn, g.cluster.Scheduler().Policy(), g.localDaemonDisconnected)
@@ -431,21 +438,23 @@ func (g *GatewayDaemon) NewHostConnected(gConn *grpc.ClientConn, conn net.Conn, 
 		if errors.Is(err, entity.ErrRestoreRequired) {
 			err = g.restoreHost(host)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			return conn, nil
+			return nil
 		} else {
 			g.log.Error("Failed to create host scheduler client: %v", err)
-			return nil, err
+			return err
 		}
 	}
 
-	registrationError := g.RegisterNewHost(host)
+	registrationError := g.registerNewHost(host)
 	if registrationError != nil {
 		g.log.Error("Failed to register new host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), registrationError)
-		return nil, registrationError
+		return registrationError
 	}
+
+	return nil
 }
 
 func (g *GatewayDaemon) ListKernels() ([]*proto.DistributedJupyterKernel, error) {
@@ -728,7 +737,7 @@ func (g *GatewayDaemon) ClearClusterStatistics() []byte {
 	g.metricsManager.ClearClusterStatistics()
 
 	// Basically initialize the statistics with some values, but in a separate goroutine.
-	go g.metricsManager.GatherClusterStatistics()
+	go g.metricsManager.GatherClusterStatistics(g.cluster)
 
 	return serializedStatistics
 }
@@ -774,4 +783,76 @@ func (g *GatewayDaemon) localDaemonDisconnected(localDaemonId string, nodeName s
 	go g.notifier.NotifyDashboard(errorName, errorMessage, messaging.WarningNotification)
 
 	return err
+}
+
+// registerNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
+// to the Cluster Gateway.
+//
+// This will return nil on success.
+func (g *GatewayDaemon) registerNewHost(host scheduling.Host) error {
+	if !host.IsProperlyInitialized() {
+		log.Fatalf(utils.RedStyle.Render("Newly-connected Host %s (ID=%s) was NOT properly initialized..."),
+			host.GetNodeName(), host.GetID())
+	}
+
+	g.log.Info("Incoming Local Scheduler %s (ID=%s) connected", host.GetNodeName(), host.GetID())
+
+	err := g.cluster.NewHostAddedOrConnected(host)
+	if err != nil {
+		g.log.Error("Error while adding newly-connected host %s (ID=%s) to the cluster: %v",
+			host.GetNodeName(), host.GetID(), err)
+		return err
+	}
+
+	go g.notifier.NotifyDashboardOfInfo("Local Scheduler Connected", fmt.Sprintf("Local Scheduler %s (ID=%s) has connected to the cluster Gateway.",
+		host.GetNodeName(), host.GetID()))
+
+	return nil
+}
+
+// restoreHost is used to restore an existing Host when a Local Daemon loses connection with the Cluster Gateway
+// and then reconnects. This will return nil on success.
+//
+// If the cluster gateway recently crashed and the container restarted, then the restoration will fail, and
+// restoreHost will simply treat the scheduling.Host as if it were a new host and pass it to RegisterNewHost,
+// the result of which will be returned from restoreHost.
+func (g *GatewayDaemon) restoreHost(host scheduling.Host) error {
+	g.log.Warn("Newly-connected Local Daemon actually already exists.")
+
+	// Sanity check.
+	if host == nil {
+		errorMessage := "We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"
+		g.notifier.NotifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
+		log.Fatalf(utils.RedStyle.Render(errorMessage))
+	}
+
+	// Restore the Local Daemon.
+	// This replaces the gRPC connection of the existing Host struct with that of a new one,
+	// as well as a few other fields.
+	registered, loaded := g.cluster.GetHost(host.GetID())
+	if loaded {
+		err := registered.Restore(host, g.localDaemonDisconnected)
+		if err != nil {
+			g.log.Error("Error while restoring host %v: %v", host, err)
+			return err
+		}
+
+		g.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).",
+			registered.GetNodeName(), registered.GetID())
+
+		go g.notifier.NotifyDashboardOfInfo(
+			fmt.Sprintf("Local Daemon %s Reconnected", registered.GetNodeName()),
+			fmt.Sprintf("Local Daemon %s on node %s has reconnected to the cluster Gateway.",
+				registered.GetID(),
+				registered.GetNodeName()))
+
+		return nil
+	}
+
+	// This may occur if the cluster Gateway crashes and restarts.
+	g.log.Warn("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
+		"Node claims to be Local Daemon %s (ID=%s).", host.GetID(), host.GetNodeName())
+
+	// Just register the Host as a new Local Daemon, despite the fact that the Host thinks it already exists.
+	return g.registerNewHost(host)
 }

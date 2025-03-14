@@ -103,7 +103,7 @@ type DistributedClientBuilder interface {
 	WithDebugMode(debugMode bool) DistributedClientBuilder
 	WithExecutionFailedCallback(callback scheduling.ExecutionFailedCallback) DistributedClientBuilder
 	WithExecutionLatencyCallback(callback scheduling.ExecutionLatencyCallback) DistributedClientBuilder
-	WithStatisticsProvider(provider scheduling.StatisticsProvider) DistributedClientBuilder
+	WithStatisticsProvider(provider scheduling.MetricsProvider) DistributedClientBuilder
 	WithNotificationCallback(callback scheduling.NotificationCallback) DistributedClientBuilder
 	BuildKernel() scheduling.Kernel
 }
@@ -111,12 +111,12 @@ type DistributedClientBuilder interface {
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-		statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
+		statisticsProvider scheduling.MetricsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel
 
 	//NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	//	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 	//	executionFailedCallback scheduling.ExecutionFailedCallback, ExecutionLatencyCallback scheduling.ExecutionLatencyCallback,
-	//	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+	//	statisticsProvider scheduling.MetricsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 
 	// GetBuilder() DistributedClientBuilder
 }
