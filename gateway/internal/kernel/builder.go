@@ -134,9 +134,16 @@ func (b *ManagerBuilder) Build() (*Manager, error) {
 	failedExecutionHandler := execution_failed.NewHandler(b.opts, manager, b.notifier)
 	manager.failedExecutionHandler = failedExecutionHandler
 
-	kernelProvisioner := provisioner.NewProvisioner(b.id, b.cluster, b.notifier, b.metricsProvider,
-		manager.shellHandlerWrapper, manager.provider, manager.CallbackProvider(), b.opts)
-	manager.kernelProvisioner = kernelProvisioner
+	manager.kernelProvisioner = provisioner.NewBuilder().
+		SetID(b.id).
+		SetCluster(b.cluster).
+		SetNotifier(b.notifier).
+		SetMetricsProvider(b.metricsProvider).
+		SetKernelShellHandler(manager.shellHandlerWrapper).
+		SetKernelProvider(manager.provider).
+		SetKernelCallbackProvider(manager.CallbackProvider()).
+		SetOptions(b.opts).
+		Build()
 
 	if b.opts.IdleSessionReclamationEnabled && b.opts.IdleSessionReclamationIntervalSec > 0 {
 		interval := time.Duration(b.opts.IdleSessionReclamationIntervalSec) * time.Second

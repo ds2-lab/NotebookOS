@@ -2,7 +2,6 @@ package provisioner
 
 import (
 	"fmt"
-	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
@@ -131,29 +130,6 @@ type Provisioner struct {
 	opts *domain.ClusterGatewayOptions
 
 	log logger.Logger
-}
-
-func NewProvisioner(id string, cluster scheduling.Cluster, notifier domain.Notifier, metricsProvider metricsProvider,
-	kernelShellHandler scheduling.KernelMessageHandler, provider KernelProvider, kernelCallbackProvider scheduling.CallbackProvider,
-	opts *domain.ClusterGatewayOptions) *Provisioner {
-
-	provisioner := &Provisioner{
-		id:                            id,
-		cluster:                       cluster,
-		kernelProvider:                provider,
-		notifier:                      notifier,
-		metricsProvider:               metricsProvider,
-		opts:                          opts,
-		kernelShellHandler:            kernelShellHandler,
-		kernelCallbackProvider:        kernelCallbackProvider,
-		kernelSpecs:                   hashmap.NewConcurrentMap[*proto.KernelSpec](32),
-		waitGroups:                    hashmap.NewConcurrentMap[*RegistrationWaitGroups](32),
-		kernelRegisteredNotifications: hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](64),
-	}
-
-	config.InitLogger(&provisioner.log, provisioner)
-
-	return provisioner
 }
 
 func (p *Provisioner) SetNetworkProvider(networkProvider NetworkProvider) {
