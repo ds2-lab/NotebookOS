@@ -69,3 +69,10 @@ Docker Swarm deployment mode.
 The following diagram displays how all the components are connected together via ZMQ sockets.
 
 ![Socket Connection Diagram](socket_connections.png)
+
+# Key Steps Along Critical Path of `"execute_request"` Messages
+
+This diagram displays the key steps along the critical path taken by `"execute_request"` messages (i.e., user-submitted 
+code execution requests).
+
+![Execute Request Critical Path](execute_request_steps.png)
