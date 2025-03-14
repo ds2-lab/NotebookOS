@@ -1,4 +1,4 @@
-# Project Architecture - Docker Swarm
+# High-Level Project Architecture - Docker Swarm
 
 The following diagram reflects the current system architecture when the system is deployed atop a Docker Swarm cluster.
 
@@ -55,7 +55,14 @@ The platform supports multiple different distributed data store implementations,
 [Redis](https://www.redis.io/). Adding support for additional storage backends is trivial and involves implementing a 
 simple Python interface.
 
-# Project Architecture - Kubernetes
+# Detailed Project Architecture - Docker Swarm
+
+This diagram displays a *detailed* view of the platform's architecture. Note that the use of HDFS is not a requirement,
+and typically AWS S3 is used (though both are fully supported).
+
+![Detailed Docker Swarm Architecture Diagram](full_arch_diagram.png)
+
+# High-Level Project Architecture - Kubernetes
 
 The following diagram reflects the current system architecture when the system is deployed atop a Kubernetes cluster.
 
