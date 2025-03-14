@@ -22,7 +22,10 @@ It is also designed to provide a high degree of interactivity, making it well-su
 
 ## Design
 
-Refer to the `docs/` directory for some architecture diagrams.
+Please refer to the `docs/` directory for additional diagrams (including the architecture diagram for Kubernetes-based
+deployments) and a high-level description of the platform's core components.
+
+![Docker Swarm Architecture Diagram](docs/docker_swarm_arch.png)
 
 ## Running the Unit Tests
 
