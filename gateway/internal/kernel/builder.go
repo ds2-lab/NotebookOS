@@ -6,7 +6,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/internal/domain"
 	"github.com/scusemua/distributed-notebook/gateway/internal/kernel/execution_failed"
@@ -155,8 +154,11 @@ func (b *ManagerBuilder) Build() (*Manager, error) {
 		manager.idleSessionReclaimer.Start()
 	}
 
-	manager.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](
-		manager.notifier.NotifyDashboard, nil)
+	executeRequestHandler := NewExecuteRequestHandler(manager, manager.provider, b.cluster, b.notifier, b.metricsProvider,
+		b.responseForwarder, b.opts)
+
+	manager.executeRequestHandler = executeRequestHandler
+	manager.executeRequestForwarder = executeRequestHandler.executeRequestForwarder
 
 	return manager, nil
 }
