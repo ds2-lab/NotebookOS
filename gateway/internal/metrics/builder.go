@@ -7,11 +7,11 @@ import (
 )
 
 type ManagerBuilder struct {
-	id                      string
-	localDaemonProvider     metrics.LocalDaemonNodeProvider
-	prometheusPort          int
-	numActiveTrainings      *atomic.Int32
-	numActiveKernelProvider NumActiveKernelProvider
+	id                       string
+	localDaemonProvider      metrics.LocalDaemonNodeProvider
+	prometheusPort           int
+	numActiveTrainings       *atomic.Int32
+	kernelStatisticsProvider KernelStatisticsProvider
 }
 
 // NewManagerBuilder initializes a new builder instance.
@@ -44,8 +44,8 @@ func (b *ManagerBuilder) SetNumActiveTrainings(numActiveTrainings *atomic.Int32)
 }
 
 // SetNumActiveKernelProvider sets the NumActiveKernelProvider.
-func (b *ManagerBuilder) SetNumActiveKernelProvider(provider NumActiveKernelProvider) *ManagerBuilder {
-	b.numActiveKernelProvider = provider
+func (b *ManagerBuilder) SetNumActiveKernelProvider(provider KernelStatisticsProvider) *ManagerBuilder {
+	b.kernelStatisticsProvider = provider
 	return b
 }
 
@@ -54,7 +54,7 @@ func (b *ManagerBuilder) Build() *Manager {
 	manager := &Manager{
 		id:                       b.id,
 		localDaemonProvider:      b.localDaemonProvider,
-		kernelStatisticsProvider: b.numActiveKernelProvider,
+		kernelStatisticsProvider: b.kernelStatisticsProvider,
 	}
 
 	metricsProvider := metrics.NewClusterMetricsProvider(b.prometheusPort, manager, b.numActiveTrainings)
