@@ -102,9 +102,9 @@ func (b *ManagerBuilder) Build() (*Manager, error) {
 		return nil, fmt.Errorf("metricsProvider is required")
 	}
 
-	if b.networkProvider == nil {
-		return nil, fmt.Errorf("networkProvider is required")
-	}
+	//if b.networkProvider == nil {
+	//	return nil, fmt.Errorf("networkProvider is required")
+	//}
 
 	manager := &Manager{
 		id:                              b.id,

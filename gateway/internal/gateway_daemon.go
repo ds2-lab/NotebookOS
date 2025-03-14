@@ -44,6 +44,38 @@ type DistributedClientProvider interface {
 type MetricsManager interface {
 	scheduling.PrometheusMetricsProvider
 
+	// AddMessageE2ELatencyObservation records an observation of end-to-end latency, in microseconds, for a single message.
+	//
+	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+	// error is returned.
+	AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType metrics.NodeType,
+		socketType messaging.MessageType, jupyterMessageType string) error
+
+	// AddNumSendAttemptsRequiredObservation enables the caller to record an observation of the number of times a
+	// message had to be (re)sent before an ACK was received from the recipient.
+	//
+	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+	// error is returned.
+	AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType metrics.NodeType,
+		socketType messaging.MessageType, jupyterMessageType string) error
+
+	// AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
+	AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType metrics.NodeType,
+		socketType messaging.MessageType, jupyterMessageType string) error
+
+	// AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
+	//
+	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
+	// error is returned.
+	AddFailedSendAttempt(nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error
+
+	// SentMessage record that a message was sent (including cases where the message sent was resubmitted and not
+	// sent for the very first time).
+	SentMessage(nodeId string, sendLatency time.Duration, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error
+
+	// SentMessageUnique records that a message was sent. This should not be incremented for resubmitted messages.
+	SentMessageUnique(nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error
+
 	GetClusterStatistics() *metrics.ClusterStatistics
 	LastFullStatisticsUpdate() time.Time
 
@@ -67,6 +99,14 @@ type MessageForwarder interface {
 	NumRequestLogEntriesByJupyterMsgId() int
 	HasRequestLog() bool
 	RequestLogLength() int
+
+	ControlHandler(router.Info, *messaging.JupyterMessage) error
+
+	ShellHandler(router.Info, *messaging.JupyterMessage) error
+
+	StdinHandler(router.Info, *messaging.JupyterMessage) error
+
+	HBHandler(router.Info, *messaging.JupyterMessage) error
 }
 
 type KernelManager interface {
@@ -98,7 +138,6 @@ type GatewayDaemonBuilder struct {
 	notifier                  domain.Notifier
 	forwarder                 MessageForwarder
 	kernelManager             KernelManager
-	router                    *router.Router
 	distributedClientProvider DistributedClientProvider
 	connectionOptions         *jupyter.ConnectionInfo
 	cluster                   scheduling.Cluster
@@ -170,6 +209,10 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 		createdAt:         time.Now(),
 		cleaned:           make(chan struct{}),
 	}
+
+	gatewayDaemon.router = router.New(context.Background(), b.id, b.connectionOptions, b.forwarder,
+		b.options.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
+		metrics.ClusterGateway, b.options.DebugMode, b.metricsManager)
 
 	config.InitLogger(&gatewayDaemon.log, gatewayDaemon)
 
