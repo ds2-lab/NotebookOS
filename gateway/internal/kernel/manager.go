@@ -28,7 +28,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"math/rand"
+	"reflect"
 	"runtime/debug"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -37,14 +39,16 @@ const (
 	// initialMapSize is the initial size used when instantiating the map elements of the Manager struct.
 	initialMapSize = 128
 
-	forwarding = "Forwarding"
+	GpuDeviceIdsArg = "gpu_device_ids"
+	forwarding      = "Forwarding"
 )
 
 var (
 	// gRPC Errors
 
-	ErrEmptyKernelId  = status.Error(codes.InvalidArgument, "kernel ID is empty")
-	ErrNotImplemented = status.Error(codes.Unimplemented, "not implemented in daemon")
+	ErrEmptyKernelId   = status.Error(codes.InvalidArgument, "kernel ID is empty")
+	ErrNotImplemented  = status.Error(codes.Unimplemented, "not implemented in daemon")
+	ErrSessionNotFound = status.Error(codes.InvalidArgument, "could not locate the requested scheduling.Session instance")
 
 	// Internal Errrors
 
@@ -128,6 +132,10 @@ type Manager struct {
 
 	// debugMode causes more information to be included in Jupyter requests, among other things.
 	debugMode bool
+
+	// submitExecuteRequestsOneAtATime indicates whether the client.ExecuteRequestForwarder should be used to submit
+	// execute requests, which forces requests to be submitted one-at-a-time.
+	submitExecuteRequestsOneAtATime bool
 
 	// sessions is a mapping from Jupyter session ID to scheduling.Kernel.
 	sessions hashmap.HashMap[string, scheduling.Kernel]
@@ -1275,6 +1283,192 @@ func (km *Manager) executeRequestHandler(kernel scheduling.Kernel, jMsg *messagi
 	return err // Will be nil on success.
 }
 
+// forwardExecuteRequest forwards the given "execute_request" message to all eligible replicas of the
+// specified kernel and a converted "yield_request" to all ineligible replicas of the kernel.
+func (km *Manager) forwardExecuteRequest(originalJupyterMessage *messaging.JupyterMessage, kernel scheduling.Kernel,
+	targetReplica scheduling.KernelReplica) error {
+
+	targetReplicaId := int32(-1)
+	if targetReplica != nil {
+		targetReplicaId = targetReplica.ReplicaID()
+	}
+
+	replicas := kernel.Replicas()
+
+	originalJupyterMessage.AddDestFrameIfNecessary(kernel.ID())
+
+	jupyterMessages := make([]*messaging.JupyterMessage, kernel.Size())
+	for _, replica := range replicas {
+		// TODO: If we make it so we can toggle on/off the gateway-assisted replica selection,
+		// 		 then we need to update the logic here to only convert a message to a yield request
+		//		 if gateway-assisted replica selection is enabled and the target replica is nil.
+		// 		 This is because if gateway-assisted replica selection is disabled, then target replica
+		//		 will be nil, but that'll be okay -- with gateway-assisted replica selection disabled,
+		//		 the target replica is supposed to be nil.
+		if replica.ReplicaID() == targetReplicaId {
+			jupyterMessage := originalJupyterMessage.Clone()
+
+			err := km.updateTargetedExecuteRequestMetadata(jupyterMessage, replica)
+			if err != nil {
+				km.log.Error("Failed to embed GPU device IDs in \"%s\" message \"%s\" targeting replica %d of kernel \"%s\": %v",
+					jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), replica.ReplicaID(), kernel.ID(), err)
+				return err
+			}
+
+			jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
+			continue
+		}
+
+		// Convert the "execute_request" message to a "yield_request" message.
+		// The returned message is initially created as a clone of the target message.
+		jupyterMessage, err := originalJupyterMessage.CreateAndReturnYieldRequestMessage(targetReplicaId)
+		if err != nil {
+			km.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
+				originalJupyterMessage.JupyterMessageId(), err)
+
+			km.log.Error("Original \"execute_request\" message that we failed to convert: %v", originalJupyterMessage)
+
+			km.notifier.NotifyDashboard("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message",
+				err.Error(), messaging.ErrorNotification)
+
+			originalJupyterMessage.IsFailedExecuteRequest = true
+
+			// We'll send an error message to the associated client here.
+			_ = km.responseForwarder.SendErrorResponse(kernel, originalJupyterMessage, err, messaging.ShellMessage)
+
+			return err
+		}
+
+		km.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\" [targetReplicaId=%d]: %v",
+			originalJupyterMessage.JupyterMessageId(), replica.ReplicaID(), replica.ID(), targetReplicaId, jupyterMessage.JupyterFrames.StringFormatted())
+
+		// We subtract 1 because replica IDs start at 1.
+		jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
+	}
+
+	var numExecRequests, numYieldRequests int
+	for idx, msg := range jupyterMessages {
+		km.log.Debug("Execution request \"%s\" targeting replica %d of kernel \"%s\" is a(n) \"%s\" message.",
+			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
+
+		if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
+			numExecRequests += 1
+		} else {
+			numYieldRequests += 1
+		}
+	}
+
+	if kernel.SupposedToYieldNextExecutionRequest() {
+		// Sanity check.
+		if numExecRequests > 0 {
+			km.log.Error("Kernel \"%s\" is supposed to yield/fail its next execution, but only %d/%d replica-specific messages have type \"%s\"...",
+				kernel.ID(), numYieldRequests, numExecRequests+numYieldRequests, messaging.ShellYieldRequest)
+
+			return fmt.Errorf("ClusterGatewayImpl::forwardExecuteRequest: kernel \"%s\" should be yielding next execution, but it's not")
+		}
+
+		// Record that we yielded the request.
+		kernel.YieldedNextExecutionRequest()
+	}
+
+	if km.submitExecuteRequestsOneAtATime {
+		return km.forwardExecuteRequestOneAtATime(jupyterMessages, kernel)
+	}
+
+	// We're not using the request forwarder, apparently. So, we'll call RequestWithHandlerAndReplicas ourselves.
+	// We call RequestWithHandlerAndReplicas instead of RequestWithHandler because RequestWithHandler essentially does
+	// what we just did up above before calling RequestWithHandlerAndReplicas; however, RequestWithHandler assumes that
+	// all replicas are to receive an identical message.
+	//
+	// That's obviously not what we want to happen here, and so we manually created the different messages for the
+	// different replicas ourselves.
+	return kernel.RequestWithHandlerAndReplicas(context.Background(), "Forwarding", messaging.ShellMessage, jupyterMessages,
+		km.forwardResponseFromKernel, nil, replicas...)
+}
+
+func (km *Manager) forwardExecuteRequestOneAtATime(jupyterMessages []*messaging.JupyterMessage, kernel scheduling.Kernel) error {
+	jupyterMessageId := jupyterMessages[0].JupyterMessageId()
+
+	km.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
+		jupyterMessageId, kernel.ID())
+
+	resultChan, closeFlag, err := km.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel, jupyterMessageId)
+
+	if err != nil {
+		km.log.Error("Failed to enqueue \"%s\" message(s) \"%s\" targeting kernel \"%s\": %v",
+			messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID(), err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*8)
+	defer cancel()
+
+	handleRes := func(res interface{}) error {
+		// Return the result as an error or nil if there was no error.
+		switch res.(type) {
+		case error:
+			return res.(error)
+		default:
+			return nil
+		}
+	}
+
+	// Wait for the result.
+	// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
+	select {
+	case res := <-resultChan:
+		{
+			return handleRes(res)
+		}
+	case <-ctx.Done():
+		{
+			ctxErr := ctx.Err()
+			km.log.Error("Timed-out waiting for response to \"%s\" message \"%s\" targeting kernel \"%s\": %v.",
+				messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID(), ctxErr)
+
+			if kernel.IsTraining() {
+				km.log.Warn("Kernel \"%s\" is still training, supposedly.", kernel.ID())
+			} else {
+				km.log.Error("Kernel \"%s\" is not even training.", kernel.ID())
+
+				// TODO: Release resources from that replica.
+				// TODO: Fix this
+				activeExecution := kernel.GetExecutionManager().GetActiveExecution(jupyterMessageId)
+
+				if activeExecution != nil {
+					targetReplicaId := activeExecution.GetTargetReplicaId()
+					replica, _ := kernel.GetReplicaByID(targetReplicaId)
+
+					if replica != nil {
+						host := replica.Host()
+
+						if host != nil {
+							releaseResErr := host.ForceReleaseResources(replica.Container(), jupyterMessageId)
+
+							if releaseResErr != nil {
+								km.log.Error("Failed to forcibly release resources for replcia %d of kernel %s from host %s: %v",
+									replica.ReplicaID(), replica.ID(), host.GetNodeName(), releaseResErr)
+							}
+						}
+					}
+				}
+			}
+
+			// Record that we're giving up, so if a result comes later, the execute request forwarder won't get
+			// stuck trying to send it over the channel when we're never going to be around to receive it.
+			if !closeFlag.CompareAndSwap(0, 1) {
+				km.log.Warn("Failed to flip ClosedFlag. There should be a result available now for \"%s\" message \"%s\" targeting kernel \"%s\".",
+					messaging.ShellExecuteRequest, jupyterMessageId, kernel.ID())
+
+				res := <-resultChan
+				return handleRes(res)
+			}
+
+			return ctxErr
+		}
+	}
+}
+
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
 // The main thing we do here is possibly update the resource request of the associated kernel.
 func (km *Manager) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.Kernel) error {
@@ -1297,7 +1491,8 @@ func (km *Manager) processExecuteRequestMetadata(msg *messaging.JupyterMessage, 
 		return err
 	}
 
-	km.log.Debug("processExecuteRequestMetadata: Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
+	km.log.Debug("processExecuteRequestMetadata: Decoded metadata of \"execute_request\" message \"%s\": %s",
+		msg.JupyterMessageId(), requestMetadata.String())
 
 	// If there is no resource request embedded in the request metadata, then we can just return at this point.
 	if requestMetadata.ResourceRequest == nil {
@@ -1326,7 +1521,8 @@ func (km *Manager) processExecuteRequestMetadata(msg *messaging.JupyterMessage, 
 
 	err = km.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest)
 	if err != nil {
-		km.log.Warn("processExecuteRequestMetadata: Failed to update resource spec of kernel \"%s\": %v", kernel.ID(), err)
+		km.log.Warn("processExecuteRequestMetadata: Failed to update resource spec of kernel \"%s\": %v",
+			kernel.ID(), err)
 		return err
 	}
 
@@ -2223,6 +2419,201 @@ func (km *Manager) processExecuteRequest(msg *messaging.JupyterMessage, kernel s
 	km.log.Debug("Returning eligible replica %d of kernel '%s' for \"execute_request\" message %s.",
 		targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
 	return targetReplica, nil
+}
+
+// tryPerformMigration attempts to migrate one of the replicas of the specified kernel during the handling of
+// a code execution request. If successful, tryPerformMigration will return the ID of the migrated replica.
+func (km *Manager) tryPerformMigration(kernel scheduling.Kernel, msg *messaging.JupyterMessage) (scheduling.KernelReplica, error) {
+	km.log.Debug("All %d replicas of kernel \"%s\" are ineligible to execute code. Initiating migration.",
+		len(kernel.Replicas()), kernel.ID())
+
+	targetReplica, err := km.cluster.Scheduler().SelectReplicaForMigration(kernel)
+	if targetReplica == nil {
+		return nil, fmt.Errorf("could not identify replica eligible for migration because: %w", err)
+	}
+
+	km.log.Debug(utils.LightBlueStyle.Render("Preemptively migrating replica %d of kernel %s now."),
+		targetReplica.ReplicaID(), kernel.ID())
+	req := &proto.MigrationRequest{
+		TargetReplica: &proto.ReplicaInfo{
+			KernelId:     kernel.ID(),
+			ReplicaId:    targetReplica.ReplicaID(),
+			PersistentId: kernel.PersistentID(),
+		},
+		ForTraining:      true,
+		CanCreateNewHost: true,
+		TargetNodeId:     nil,
+	}
+
+	resp, migrationError := km.MigrateKernelReplica(context.Background(), req)
+	if migrationError != nil {
+		km.log.Warn("Failed to preemptively migrate replica %d of kernel \"%s\": %v",
+			targetReplica.ReplicaID(), kernel.ID(), migrationError)
+		msg.IsFailedExecuteRequest = true
+		return nil, migrationError
+	}
+
+	km.log.Debug("Successfully, preemptively migrated replica %d of kernel \"%s\" to host \"%s\"",
+		targetReplica.ReplicaID(), kernel.ID(), resp.NewNodeId)
+
+	return targetReplica, nil
+}
+
+// selectTargetReplicaForExecuteRequest selects a target scheduling.KernelReplica of the given scheduling.Kernel for
+// the specified "execute_request" message.
+//
+// selectTargetReplicaForExecuteRequest checks if there is a target replica specified in the request's metadata. If so,
+// then that replica is selected. If not, then selectTargetReplicaForExecuteRequest will invoke the scheduling.Scheduler
+// and the configured scheduling.Policy to select a target scheduling.KernelReplica.
+func (km *Manager) selectTargetReplicaForExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	metadata, err := msg.DecodeMetadata()
+	if err != nil {
+		km.log.Error("Failed to decode metadata of \"%s\" request \"%s\": %v", msg.JupyterMessageType(),
+			msg.JupyterParentMessageId(), err)
+
+		return nil, err
+	}
+
+	// Check if a specific replica was explicitly specified.
+	val, loaded := metadata[messaging.TargetReplicaArg]
+	if !loaded {
+		km.log.Debug("Target replica unspecified for execution \"%s\" targeting kernel \"%s\".",
+			msg.JupyterMessageId(), kernel.ID())
+		return km.cluster.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
+	}
+
+	var targetReplicaId int32
+	switch val.(type) {
+	case string:
+		var targetReplicaIdAsInt int
+		targetReplicaIdAsInt, err = strconv.Atoi(val.(string))
+
+		if err != nil {
+			km.log.Error("Failed to convert string target replica ID \"%s\" to valid integer: %v", val, err)
+			return nil, err
+		} else {
+			targetReplicaId = int32(targetReplicaIdAsInt)
+		}
+	case float32:
+		targetReplicaId = int32(val.(float32))
+	case float64:
+		targetReplicaId = int32(val.(float64))
+	case int:
+		targetReplicaId = int32(val.(int))
+	case int32:
+		targetReplicaId = val.(int32)
+	case int64:
+		targetReplicaId = int32(val.(int64))
+	default:
+		errorMessage := fmt.Sprintf("Unknown or unexpected type of target replica ID found in metadata of \"%s\" request \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), reflect.TypeOf(val).Name())
+		km.log.Error(errorMessage)
+		km.notifier.NotifyDashboardOfError("Failed to Extract Target Replica ID", errorMessage)
+		panic(errorMessage)
+	}
+
+	// If the specified target replica is invalid (e.g., less than or equal to 0), then we'll just
+	// use the scheduler/scheduling policy to select a target replica.
+	//
+	// Typically, a value of -1 is specified when no explicit target is indicated, so this is an
+	// expected outcome.
+	if targetReplicaId <= 0 {
+		km.log.Debug("Target replica unspecified for execution \"%s\" targeting kernel \"%s\".",
+			msg.JupyterMessageId(), kernel.ID())
+		return km.cluster.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
+	}
+
+	km.log.Debug("Target replica specified as replica %d for execution \"%s\" targeting kernel \"%s\".",
+		targetReplicaId, msg.JupyterMessageId(), kernel.ID())
+
+	// TODO: Could there be a race here where we migrate the new replica right after scheduling it, such as
+	// 		 while using dynamic scheduling? (Yes, almost certainly.)
+	targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
+	if err != nil {
+		km.log.Error("Failed to get replica %d of kernel \"%s\": %v", targetReplicaId, kernel.ID(), err)
+		return nil, err
+	}
+
+	// Reserve resources for the target kernel if resources are not already reserved.
+	if !targetReplica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
+		km.log.Debug("Specified target replica %d of kernel \"%s\" does not have resources committed to it on host %s yet. Pre-committing resources now.",
+			targetReplica.ReplicaID(), kernel.ID(), targetReplica.Host().GetNodeName())
+
+		// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
+		_, err = targetReplica.Host().PreCommitResources(targetReplica.Container(), msg.JupyterMessageId(), nil)
+		if err != nil {
+			km.log.Error("Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v",
+				targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)
+			return nil, err
+		}
+
+		km.log.Debug("Successfully pre-committed resources for explicitly-specified target replica %d of kernel \"%s\" on host %s.",
+			targetReplica.ReplicaID(), kernel.ID(), targetReplica.Host().GetNodeName())
+	}
+
+	return targetReplica, nil
+}
+
+// updateTargetedExecuteRequestMetadata is used to embed the GPU device IDs in the metadata frame of the given
+// "execute_request" message targeting the specified scheduling.KernelReplica.
+//
+// Warning: this modifies the given messaging.JupyterMessage.
+func (km *Manager) updateTargetedExecuteRequestMetadata(jMsg *messaging.JupyterMessage, targetReplica scheduling.KernelReplica) error {
+	// Validate that the message is of the proper type.
+	if jMsg.JupyterMessageType() != messaging.ShellExecuteRequest {
+		return fmt.Errorf("%w: expected message of type \"%s\"; however, message \"%s\" targeting kernel \"%s\" is of type \"%s\"",
+			client.ErrInvalidExecuteRegistrationMessage, messaging.ShellExecuteRequest, jMsg.JupyterMessageId(), targetReplica.ID(), jMsg.JupyterMessageType())
+	}
+
+	// Deserialize the message's metadata frame into a dictionary.
+	var metadataDict map[string]interface{}
+	if err := jMsg.JupyterFrames.DecodeMetadata(&metadataDict); err != nil {
+		km.log.Error("Failed to decode metadata frame of \"execute_request\" message \"%s\" targeting kernel \"%s\" with JSON: %v",
+			jMsg.JupyterMessageId(), targetReplica.ID(), err)
+		return err
+	}
+
+	// Get the GPU device IDs assigned to the target kernel replica.
+	gpuDeviceIds, err := targetReplica.Host().GetGpuDeviceIdsAssignedToReplica(targetReplica.ReplicaID(), targetReplica.ID())
+	if err != nil {
+		km.log.Error("Failed to retrieve GPU device IDs assigned to replica %d of kernel \"%s\" because: %v",
+			targetReplica.ReplicaID(), targetReplica.ID(), err)
+
+		return err
+	}
+
+	// Embed the GPU device IDs in the metadata dictionary, which we'll re-encode into the message's metadata frame.
+	metadataDict[GpuDeviceIdsArg] = gpuDeviceIds
+	metadataDict[messaging.TargetReplicaArg] = targetReplica.ReplicaID()
+
+	// Re-encode the metadata frame. It will have the number of idle GPUs available,
+	// as well as the reason that the request was yielded (if it was yielded).
+	err = jMsg.EncodeMetadata(metadataDict)
+	if err != nil {
+		km.log.Error("Failed to encode metadata frame because: %v", err)
+		km.notifier.NotifyDashboardOfError("Failed to Encode Metadata Frame", err.Error())
+		panic(err)
+	}
+
+	// Regenerate the signature.
+	_, err = jMsg.JupyterFrames.Sign(targetReplica.ConnectionInfo().SignatureScheme, []byte(targetReplica.ConnectionInfo().Key))
+	if err != nil {
+		message := fmt.Sprintf("Failed to sign updated JupyterFrames for \"%s\" message because: %v",
+			jMsg.JupyterMessageType(), err)
+		km.notifier.NotifyDashboardOfError("Failed to Sign JupyterFrames", message)
+		panic(err)
+	}
+
+	// Validate the updated message/frames.
+	verified := messaging.ValidateFrames([]byte(targetReplica.ConnectionInfo().Key),
+		targetReplica.ConnectionInfo().SignatureScheme, jMsg.JupyterFrames)
+	if !verified {
+		km.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v'",
+			targetReplica.ConnectionInfo().SignatureScheme, targetReplica.ConnectionInfo().Key)
+		km.log.Error("This message will likely be rejected by the kernel:\n%v", jMsg.StringFormatted())
+	}
+
+	return nil
 }
 
 // getArtificialKernelInfoReply creates and returns a "kernel_info_reply"

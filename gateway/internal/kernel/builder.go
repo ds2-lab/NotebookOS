@@ -107,18 +107,19 @@ func (b *ManagerBuilder) Build() (*Manager, error) {
 	}
 
 	manager := &Manager{
-		id:                b.id,
-		cluster:           b.cluster,
-		requestLog:        b.requestLog,
-		responseForwarder: b.responseForwarder,
-		metricsProvider:   b.metricsProvider,
-		notifier:          b.notifier,
-		schedulingPolicy:  b.schedulingPolicy,
-		provider:          NewProvider(),
-		sessions:          hashmap.NewConcurrentMap[scheduling.Kernel](32),
-		kernelsStarting:   hashmap.NewCornelkMap[string, chan struct{}](64),
-		handlers:          make(map[messaging.MessageType]MessageHandler),
-		debugMode:         b.opts.DebugMode,
+		id:                              b.id,
+		cluster:                         b.cluster,
+		requestLog:                      b.requestLog,
+		responseForwarder:               b.responseForwarder,
+		metricsProvider:                 b.metricsProvider,
+		notifier:                        b.notifier,
+		schedulingPolicy:                b.schedulingPolicy,
+		provider:                        NewProvider(),
+		sessions:                        hashmap.NewConcurrentMap[scheduling.Kernel](32),
+		kernelsStarting:                 hashmap.NewCornelkMap[string, chan struct{}](64),
+		handlers:                        make(map[messaging.MessageType]MessageHandler),
+		debugMode:                       b.opts.DebugMode,
+		submitExecuteRequestsOneAtATime: b.opts.SubmitExecuteRequestsOneAtATime,
 	}
 
 	config.InitLogger(&manager.log, manager)
