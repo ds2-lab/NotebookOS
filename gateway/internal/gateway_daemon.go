@@ -204,6 +204,7 @@ func (b *GatewayDaemonBuilder) Build() *GatewayDaemon {
 		forwarder:         b.forwarder,
 		kernelManager:     b.kernelManager,
 		options:           b.options,
+		cluster:           b.cluster,
 		metricsManager:    b.metricsManager,
 		connectionOptions: b.connectionOptions,
 		router:            b.forwarder.GetRouter(),
