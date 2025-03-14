@@ -138,7 +138,7 @@ distributed_notebook/smr/_smr.*.h
 smr/demo/store
 out
 distributed_notebook/kernel/store
-distributed_notebook/smr/bak
+distributed_notebook/smr/bak 2
 demo_notebook/.jupyter
 .bash_history
 demo_notebook/.local

@@ -10,7 +10,7 @@ import time
 import os
 
 class RandomDataset(Dataset):
-    def __init__(self, tensor_size: int, num_samples: int = 100):
+    def __init__(self, tensor_size: int, num_samples: int = 100, **kwargs):
         """
         Args:
             num_samples (int): Number of samples to generate.
@@ -52,11 +52,11 @@ class RandomCustomDataset(CustomDataset):
             num_training_samples: int = 512,
             num_test_samples: int = 64,
             root_dir:str = 'data',
-            batch_size: int = 64,
+            batch_size: int = 1,
             shuffle: bool = True,
             num_workers: int = 2,
             **kwargs):
-        super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
+        super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers, **kwargs)
 
         assert batch_size <= num_training_samples
 
@@ -88,6 +88,9 @@ class RandomCustomDataset(CustomDataset):
         pass
 
     def set_recorded_tokenization_overhead(self, val: bool = True):
+        pass
+
+    def remove_local_files(self):
         pass
 
     @staticmethod

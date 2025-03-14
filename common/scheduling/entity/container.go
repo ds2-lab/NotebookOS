@@ -38,7 +38,6 @@ type Container struct {
 
 // NewContainer creates and returns a new *Container.
 func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host, kernelIp string) *Container {
-
 	id := session.ID()
 	container := &Container{
 		KernelReplica:  kernelReplica,
@@ -285,11 +284,11 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 
 	c.log.Debug("Training stopping on host %s (ID=%s) after %v. Outputting TransactionResources before training officially stops. ResourceSpec of %s: %s",
 		c.host.GetNodeName(), c.host.GetID(), time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
-	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+	c.log.Debug("Pending CPU: %.0f, Memory: %f, GPUs: %.0f, VRAM: %.6f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
-	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+	c.log.Debug("Idle CPU: %.0f, Memory: %f, GPUs: %.0f, VRAM: %.6f.",
 		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs(), c.host.Stats().IdleVRAM())
-	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+	c.log.Debug("Committed CPU: %.0f, Memory: %f, GPUs: %.0f, VRAM: %.6f.",
 		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 
 	err := c.host.ContainerStoppedTraining(c)
@@ -298,11 +297,11 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 	}
 
 	c.log.Debug("Training stopped. Outputting TransactionResources now that training has officially stopped.")
-	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+	c.log.Debug("Pending CPU: %.0f, Memory: %f, GPUs: %.0f, VRAM: %.6f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
-	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+	c.log.Debug("Idle CPU: %.0f, Memory: %f, GPUs: %.0f, VRAM: %.6f.",
 		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs(), c.host.Stats().IdleVRAM())
-	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+	c.log.Debug("Committed CPU: %.0f, Memory: %f, GPUs: %.0f, VRAM: %.6f.",
 		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 
 	c.numTrainingEventsProcessed += 1

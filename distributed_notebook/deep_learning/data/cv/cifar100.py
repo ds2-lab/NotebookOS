@@ -17,12 +17,13 @@ class CIFAR100(ComputerVisionDataset):
     def __init__(
             self,
             root_dir: str = default_root_directory,
-            batch_size: int = 4,
+            batch_size: int = 1,
             shuffle: bool = True,
             num_workers: int = 2,
             image_size: int = 224,
+            **kwargs
     ):
-        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size, **kwargs)
 
         self.log.debug(f'Creating {self.dataset_name()} dataset with root directory "{root_dir}", batch size = {batch_size}, '
                        f'shuffle = {shuffle}, number of workers = {num_workers}, '
@@ -55,10 +56,10 @@ class CIFAR100(ComputerVisionDataset):
                                           num_workers=num_workers, dataset_name=self.dataset_name())
 
         if self._dataset_already_downloaded:
-            print(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
+            self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
-            print(
-                f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" "
+                           f"in {self._download_duration_sec} seconds.")
 
     @staticmethod
     def category() -> str:

@@ -70,7 +70,16 @@ class SyncAST(ast.NodeVisitor):
     def diff(self, raw, meta=None) -> Optional[SynchronizedValue]:
         """Update AST with the AST of incremental execution and return SynchronizedValue
            for synchronization. The execution_count will increase by 1."""
-        assert meta is not None and isinstance(meta, str)
+
+        if meta is None:
+            self._log.error(f"meta is None during SyncAST::diff with raw={raw}")
+            raise ValueError("meta is None during SyncAST::diff")
+
+        if not isinstance(meta, str):
+            self._log.error(f"meta is of unexpected/invalid type {type(meta).__name__} during SyncAST::diff: {meta}")
+            self._log.error(f"raw={raw}")
+            raise ValueError(f"meta is of unexpected/invalid type during SyncAST::diff: {type(meta).__name__}")
+
         # The AST we're comparing against, raw, may be None if the user's code had a syntax error.
         # In this case, we'll just increment our executions and return the existing self._tree field.
         if raw is not None:
@@ -103,11 +112,11 @@ class SyncAST(ast.NodeVisitor):
             self._tree = val.data[0]
         elif val.tag <= self._executions:
             # Update but execution count mismatch.
-            self._log.error(
-                f"Failed to update AST. Expected tag to be greater than {self._executions}, but but SynchronizedValue had tag={val.tag}")
+            self._log.error(f"Failed to update AST. Expected tag to be greater than {self._executions}, "
+                            f"but but SynchronizedValue had tag={val.tag}")
             self._log.error(f"Synchronization value in question: {val}")
-            raise SyncError(
-                f"Failed to update AST. Expected tag to be greater than {self._executions}, but SynchronizedValue had tag={val.tag}")
+            raise SyncError(f"Failed to update AST. Expected tag to be greater than {self._executions}, "
+                            f"but SynchronizedValue had tag={val.tag}")
         else:
             # Update
             self._tree.body.extend(val.data[0].body)

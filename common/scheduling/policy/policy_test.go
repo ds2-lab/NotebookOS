@@ -14,7 +14,7 @@ var _ = Describe("Policy", func() {
 		options = *scheduling.DefaultFcfsSchedulerOptions
 
 		instantiatePolicy := func() {
-			_, _ = policy.NewStaticPolicy(&options)
+			_, _ = policy.NewStaticPolicy(&options, nil)
 		}
 
 		Expect(instantiatePolicy).To(Panic())
@@ -26,7 +26,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			fcfs, err := policy.NewFcfsBatchSchedulingPolicy(&options)
+			fcfs, err := policy.NewFcfsBatchSchedulingPolicy(&options, nil)
 			Expect(err).To(BeNil())
 			Expect(fcfs).ToNot(BeNil())
 			Expect(fcfs.PolicyKey()).To(Equal(scheduling.FcfsBatch))
@@ -40,7 +40,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			dynamicV3, err := policy.NewDynamicV3Policy(&options)
+			dynamicV3, err := policy.NewDynamicV3Policy(&options, nil)
 			Expect(err).To(BeNil())
 			Expect(dynamicV3).ToNot(BeNil())
 			Expect(dynamicV3.PolicyKey()).To(Equal(scheduling.DynamicV3))
@@ -55,7 +55,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			dynamicV4, err := policy.NewDynamicV4Policy(&options)
+			dynamicV4, err := policy.NewDynamicV4Policy(&options, nil)
 			Expect(err).To(BeNil())
 			Expect(dynamicV4).ToNot(BeNil())
 			Expect(dynamicV4.PolicyKey()).To(Equal(scheduling.DynamicV4))
@@ -70,7 +70,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			gandiva, err := policy.NewGandivaPolicy(&options)
+			gandiva, err := policy.NewGandivaPolicy(&options, nil)
 			Expect(err).To(BeNil())
 			Expect(gandiva).ToNot(BeNil())
 			Expect(gandiva.PolicyKey()).To(Equal(scheduling.Gandiva))
@@ -85,7 +85,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			reservation, err := policy.NewReservationPolicy(&options)
+			reservation, err := policy.NewReservationPolicy(&options, nil)
 			Expect(err).To(BeNil())
 			Expect(reservation).ToNot(BeNil())
 			Expect(reservation.PolicyKey()).To(Equal(scheduling.Reservation))
@@ -99,7 +99,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			static, err := policy.NewStaticPolicy(&options)
+			static, err := policy.NewStaticPolicy(&options, nil)
 			Expect(err).To(BeNil())
 			Expect(static).ToNot(BeNil())
 			Expect(static.PolicyKey()).To(Equal(scheduling.Static))

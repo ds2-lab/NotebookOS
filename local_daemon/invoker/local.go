@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,7 +33,7 @@ const (
 // Use throttle to simulate Lambda network: https://github.com/sitespeedio/throttle
 // throttle --up 800000 --down 800000 --rtt 1 (800MB/s, 1ms)
 // throttle stop
-// kernel replica is not supported so far. Add if needed.
+// kernel replica is not supported so far. AddHost if needed.
 type LocalInvoker struct {
 	// closedAt is the time at which the KernelInvoker closed or stopped its kernel.
 	closedAt time.Time
@@ -40,7 +41,12 @@ type LocalInvoker struct {
 	// createdAt is the time at which the KernelInvoker first created its kernel.
 	createdAt time.Time
 
+	nodeId string
+
 	log logger.Logger
+
+	connectionFilePath string
+	configFilePath     string
 
 	// connInfo is the Jupyter connection info used to connect/communicate with the kernel.
 	connInfo *jupyter.ConnectionInfo
@@ -99,6 +105,13 @@ type LocalInvoker struct {
 	BindDebugpyPort                      bool    // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
 	SaveStoppedKernelContainers          bool    // If true, then do not fully remove stopped kernel containers.
 	SmrEnabled                           bool    // SmrEnabled indicates if SMR is enabled.
+	RetrieveDatasetsFromS3               bool    // RetrieveDatasetsFromS3 is a bool flag that, when true, instructs the KernelInvoker to configure the kernels to retrieve datasets from an S3 bucket.
+	DatasetsS3Bucket                     string  // DatasetsS3Bucket is the S3 bucket from which the kernels retrieve the datasets when RetrieveDatasetsFromS3 is set to true.
+
+	// CreatedForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
+	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
+	// existing KernelReplica.
+	CreatedForMigration bool
 
 	status jupyter.KernelStatus
 
@@ -301,6 +314,8 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupy
 		return "", err
 	}
 
+	ivk.connectionFilePath = path.Join(dir, fmt.Sprintf(ConnectionFileFormat, name))
+
 	ivk.log.Debug("Created connection file \"%s\" in directory \"%s\"", f.Name(), targetDirForLogging)
 	ivk.log.Debug("Writing the following contents to connection file \"%s\": \"%v\"", f.Name(), string(jsonContent))
 	_, err = f.Write(jsonContent)
@@ -339,6 +354,9 @@ func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.
 		ivk.log.Error("CreateTemp(\"%s\", \"%s\") failed because: %v", targetDirForLogging, fmt.Sprintf(ConnectionFileFormat, name), err)
 		return "", err
 	}
+
+	ivk.configFilePath = path.Join(dir, fmt.Sprintf(ConfigFileFormat, name))
+
 	ivk.log.Debug("Created config file \"%s\"", f.Name())
 	ivk.log.Debug("Writing the following contents to config file \"%s\": \"%v\"", f.Name(), string(jsonContent))
 	_, err = f.Write(jsonContent)
@@ -424,4 +442,16 @@ func (ivk *LocalInvoker) TimeSinceKernelCreated() (time.Duration, bool) {
 	}
 
 	return time.Since(ivk.createdAt), true
+}
+
+func (ivk *LocalInvoker) ConnectionInfo() *jupyter.ConnectionInfo {
+	return ivk.connInfo
+}
+
+func (ivk *LocalInvoker) ConnectionFilePath() string {
+	return ivk.connectionFilePath
+}
+
+func (ivk *LocalInvoker) ConfigFilePath() string {
+	return ivk.configFilePath
 }

@@ -2,7 +2,9 @@ package scheduling
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"golang.org/x/net/context"
 	"time"
 )
 
@@ -64,7 +66,7 @@ func (rbm ResourceBindingMode) String() string {
 	return string(rbm)
 }
 
-// ContainerLifetime defines how long containers of a kernel live. Options include for the duration of a single
+// ContainerLifetime defines how long containers of a kernel live. ClusterGatewayOptions include for the duration of a single
 // training event or long-running.
 type ContainerLifetime string
 
@@ -72,10 +74,7 @@ func (cl ContainerLifetime) String() string {
 	return string(cl)
 }
 
-// Policy defines a high-level scheduling policy.
-//
-// Scheduling policies encapsulate configuration parameters that are common to multiple/all scheduling policies.
-type Policy interface {
+type PolicyMetadataProvider interface {
 	// PolicyKey returns the PolicyKey of the target scheduling Policy.
 	//
 	// A PolicyKey is a unique identifier that isn't necessarily meant to be human-readable (at least, the formatting
@@ -85,7 +84,9 @@ type Policy interface {
 	// Name returns a human-readable, nicely-formatted name of the scheduling Policy suitable for logging, printing,
 	// and/or displaying to users.
 	Name() string
+}
 
+type PolicyParameterProvider interface {
 	// GetGpusPerHost returns the number of GPUs available on each host.
 	GetGpusPerHost() int
 
@@ -99,8 +100,12 @@ type Policy interface {
 	// for the lifetime of the associated UserSession.
 	ResourceBindingMode() ResourceBindingMode
 
-	// GetNewPlacer returns a concrete Placer implementation based on the Policy.
-	GetNewPlacer(metricsProvider MetricsProvider) (Placer, error)
+	// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+	RequirePrewarmContainer() bool
+
+	// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+	// a prewarm container available or not factor that into the placement decision.
+	PrioritizePrewarmContainers() bool
 
 	// SupportsMigration returns true if the Policy allows for the migration of one or more replicas of
 	// a kernel when no replicas are able to serve a code execution request.
@@ -121,6 +126,27 @@ type Policy interface {
 	// But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
 	ReuseWarmContainers() bool
 
+	// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+	// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+	SupportsPredictiveAutoscaling() bool
+
+	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
+	ScalingConfiguration() *ScalingConfiguration
+
+	// SmrEnabled returns a flag indicating whether the kernel containers should participate in SMR.
+	// This is generally only enabled for the static and dynamic policies.
+	SmrEnabled() bool
+
+	// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+	// resource request of an existing/scheduled kernel after it has already been created, or if the
+	// initial resource request/allocation is static and cannot be changed after the kernel is created.
+	SupportsDynamicResourceAdjustments() bool
+
+	// GetClusterProviderFunc returns the ClusterProvider func used by the target Policy.
+	GetClusterProviderFunc() ClusterProvider
+}
+
+type SubPolicyProvider interface {
 	// PostExecutionStatePolicy returns the PostExecutionStatePolicy of the target scheduling Policy.
 	//
 	// A PostExecutionStatePolicy defines the behavior of a kernel after completing an execution of user code with
@@ -138,28 +164,36 @@ type Policy interface {
 	// ResourceScalingPolicy returns the ResourceScalingPolicy of the target scheduling Policy.
 	ResourceScalingPolicy() ResourceScalingPolicy
 
-	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
-	ScalingConfiguration() *ScalingConfiguration
+	// IdleSessionReclamationPolicy returns the IdleSessionReclamationPolicy of the target Policy.
+	IdleSessionReclamationPolicy() IdleSessionReclamationPolicy
+}
 
-	// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
-	// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
-	SupportsPredictiveAutoscaling() bool
+// Policy defines a high-level scheduling policy.
+//
+// Scheduling policies encapsulate configuration parameters that are common to multiple/all scheduling policies.
+type Policy interface {
+	PolicyMetadataProvider
+	PolicyParameterProvider
+	SubPolicyProvider
+
+	// ValidateHostForKernel allows the Policy to perform any policy-specific validation logic to ensure that
+	// the given Host is viable for serving a replica of the specified Kernel.
+	ValidateHostForKernel(candidateHost Host, kernelSpec *proto.KernelSpec, forTraining bool) (isViable bool, unviabilityReason error)
+
+	// ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that
+	// the given Host is viable for serving a replica of the specified Kernel.
+	ValidateHostForReplica(candidateHost Host, kernelReplicaSpec *proto.KernelReplicaSpec, forTraining bool) (isViable bool, unviabilityReason error)
+
+	// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+	GetNewPlacer(metricsProvider MetricsProvider) (Placer, error)
 
 	// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 	// Adjust the Cluster's capacity as directed by scaling policy.
 	ValidateCapacity(cluster Cluster)
 
-	// SmrEnabled returns a flag indicating whether the kernel containers should participate in SMR.
-	// This is generally only enabled for the static and dynamic policies.
-	SmrEnabled() bool
-
-	// IdleSessionReclamationPolicy returns the IdleSessionReclamationPolicy of the target Policy.
-	IdleSessionReclamationPolicy() IdleSessionReclamationPolicy
-
-	// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
-	// resource request of an existing/scheduled kernel after it has already been created, or if the
-	// initial resource request/allocation is static and cannot be changed after the kernel is created.
-	SupportsDynamicResourceAdjustments() bool
+	// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+	// instances to serve the KernelReplica instance(s) of a particular Kernel.
+	HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32, hosts []Host) (bool, error)
 
 	// SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
 	SelectReplicaForMigration(kernel Kernel) (KernelReplica, error)

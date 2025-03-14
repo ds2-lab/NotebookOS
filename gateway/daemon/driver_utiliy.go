@@ -111,20 +111,21 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	tracer, consulClient := CreateConsulAndTracer(options)
 
 	// Initialize listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
+	lisJupyterGrpc, err := net.Listen("tcp", fmt.Sprintf(":%d", options.JupyterGrpcPort))
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
-	globalLogger.Info("Jupyter server listening at %v", lis.Addr())
+	globalLogger.Info("Jupyter server listening at %v", lisJupyterGrpc.Addr())
 
 	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
 	options.SchedulerOptions.ValidateClusterSchedulerOptions()
 
-	globalLogger.Debug("Cluster Gateway SchedulerOptions:\n%s", options.PrettyString(2))
+	globalLogger.Debug("cluster Gateway SchedulerOptions:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
-		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+		globalLogger.Info("Initializing cluster Gateway with options: %s", options.PrettyString(2))
+
 		srv.SetClusterOptions(&options.SchedulerOptions)
 		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 	})
@@ -133,31 +134,31 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 
 	distributedClusterServiceListener, err := distributedCluster.Listen("tcp", fmt.Sprintf(":%d", options.DistributedClusterServicePort))
 	if err != nil {
-		log.Fatalf("Failed to listen with Distributed internalCluster Service server: %v", err)
+		log.Fatalf("Failed to listen with Distributed cluster Service server: %v", err)
 	}
-	globalLogger.Info("Distributed internalCluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
+	globalLogger.Info("Distributed cluster Service gRPC server listening at %v", distributedClusterServiceListener.Addr())
 
-	// Listen on provisioner port
-	lisHost, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
+	// Listen on ClusterGateway Provisioner port
+	lisGatewayProvisioner, err := srv.Listen("tcp", fmt.Sprintf(":%d", options.ProvisionerPort))
 	if err != nil {
-		log.Fatalf("Failed to listen on provisioner port: %v", err)
+		log.Fatalf("Failed to listen on clusterGatewayProvisioner port: %v", err)
 	}
-	globalLogger.Info("Provisioning server listening at %v", lisHost.Addr)
+	globalLogger.Info("Provisioning server listening at %v", lisGatewayProvisioner.Addr)
 
 	// Initialize internal gRPC server
-	provisioner := grpc.NewServer(GetGrpcOptions("Provisioner gRPC Server", tracer, distributedCluster)...)
-	proto.RegisterClusterGatewayServer(provisioner, srv)
+	clusterGatewayProvisioner := grpc.NewServer(GetGrpcOptions("Provisioner gRPC Server", tracer, distributedCluster)...)
+	proto.RegisterClusterGatewayServer(clusterGatewayProvisioner, srv)
 
 	// Initialize Jupyter gRPC server
 	registrar := grpc.NewServer(GetGrpcOptions("Jupyter gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterLocalGatewayServer(registrar, srv)
 
-	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed internalCluster gRPC Server", tracer, distributedCluster)...)
+	distributedClusterRpcServer := grpc.NewServer(GetGrpcOptions("Distributed cluster gRPC Server", tracer, distributedCluster)...)
 	proto.RegisterDistributedClusterServer(distributedClusterRpcServer, distributedCluster)
 
 	// Register services in consul
 	if consulClient != nil {
-		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.Port)
+		err = consulClient.Register(ServiceName, uuid.New().String(), "", options.JupyterGrpcPort)
 		if err != nil {
 			log.Fatalf("Failed to register in consul: %v", err)
 		}
@@ -170,12 +171,12 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 		<-sig
 		globalLogger.Info("Shutting down...")
 		registrar.Stop()
-		provisioner.Stop()
+		clusterGatewayProvisioner.Stop()
 		distributedClusterRpcServer.Stop()
 		_ = distributedCluster.Close()
 		_ = srv.Close()
-		_ = lisHost.Close()
-		_ = lis.Close()
+		_ = lisGatewayProvisioner.Close()
+		_ = lisJupyterGrpc.Close()
 		_ = distributedClusterServiceListener.Close()
 
 		done.Done()
@@ -184,60 +185,60 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	// Start gRPC server
 	go func() {
 		defer finalize(true, "gRPC Server", distributedCluster)
-		if err := registrar.Serve(lis); err != nil {
+		if serveErr := registrar.Serve(lisJupyterGrpc); serveErr != nil {
 
 			// If we're in local mode, then we're running unit tests, so we'll just... return.
 			if options.LocalMode {
 				return
 			}
 
-			log.Fatalf("Error on serving jupyter connections: %v", err)
+			log.Fatalf("Error on serving jupyter connections: %v", serveErr)
 		}
 	}()
 
 	// Start provisioning server
 	go func() {
 		defer finalize(true, "Provisioner Server", distributedCluster)
-		if err := provisioner.Serve(lisHost); err != nil {
-
+		if serveErr := clusterGatewayProvisioner.Serve(lisGatewayProvisioner); serveErr != nil {
 			// If we're in local mode, then we're running unit tests, so we'll just... return.
 			if options.LocalMode {
-				globalLogger.Warn(utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), err)
+				globalLogger.Warn(
+					utils.LightOrangeStyle.Render("Error on serving host scheduler connections: %v"), serveErr)
 				return
 			}
 
-			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), serveErr)
 			panic(err)
 		}
 	}()
 
 	// Start distributed cluster gRPC server.
 	go func() {
-		defer finalize(true, "Distributed internalCluster Server", distributedCluster)
-		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
-			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), err)
+		defer finalize(true, "Distributed cluster Server", distributedCluster)
+		if serveErr := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
+			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), serveErr)
 
 			// If we're in local mode, then we're running unit tests, so we'll just... return.
 			if options.LocalMode {
 				return
 			}
 
-			panic(err)
+			panic(serveErr)
 		}
 	}()
 
 	// Start daemon
 	go func() {
-		defer finalize(true, "internalCluster Gateway Daemon", distributedCluster)
-		if err := srv.Start(); err != nil {
-			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), err)
+		defer finalize(true, "cluster Gateway Daemon", distributedCluster)
+		if serveErr := srv.Start(); serveErr != nil {
+			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), serveErr)
 
 			// If we're in local mode, then we're running unit tests, so we'll just... return.
 			if options.LocalMode {
 				return
 			}
 
-			panic(err)
+			panic(serveErr)
 		}
 	}()
 

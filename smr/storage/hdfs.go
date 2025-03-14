@@ -243,7 +243,7 @@ func (p *HdfsProvider) writeRaftLogSerializedStateToHdfs(serializedState []byte,
 		destFilename := SerializedStateBaseFileName + fmt.Sprintf("-node%d", p.nodeId) + SerializedStateFileExtension
 		destFilepath := filepath.Join(serializedStateFileDir, destFilename)
 
-		// Remove the existing file. We'll copy the new one in its place.
+		// RemoveHost the existing file. We'll copy the new one in its place.
 		err = p.hdfsClient.Remove(destFilepath)
 
 		if err != nil {
@@ -308,7 +308,7 @@ func (p *HdfsProvider) writeLocalDirectoryToHdfs(dir string) error {
 
 			// Create the remote file that we'll be copying to.
 			// TODO: Switch to using Append to only write the new data.
-			// TODO: Persist data back to intermediate storage in the background.
+			// TODO: Persist data back to intermediate remote_storage in the background.
 			remote, err := p.hdfsClient.Create(path)
 			if err != nil {
 				return err
@@ -361,7 +361,7 @@ func (p *HdfsProvider) writeLocalDirectoryToHdfs(dir string) error {
 	return walkdirErr
 }
 
-func (p *HdfsProvider) ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
+func (p *HdfsProvider) ReadDataDirectory(_ context.Context, progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
 	serializedStateBytes, err := p.readRaftLogSerializedStateFromHdfs(datadir)
 	if err != nil {
 		return nil, err

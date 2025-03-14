@@ -17,7 +17,7 @@ from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
-from distributed_notebook.sync.storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
+from distributed_notebook.sync.remote_storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
 
 S3BucketName = DEFAULT_S3_BUCKET_NAME + "-unit-testing"
 

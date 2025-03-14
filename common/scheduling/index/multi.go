@@ -52,7 +52,7 @@ func (p *HostPool[T]) Size() int {
 //
 // AddHost simply forwards the call directly to the target AddHost's Pool field (which is a scheduling.ClusterIndex).
 func (p *HostPool[T]) AddHost(host scheduling.Host) {
-	p.Pool.Add(host)
+	p.Pool.AddHost(host)
 }
 
 // Provider provides the individual indices used by a MultiIndex.
@@ -89,7 +89,7 @@ func initializeHostPoolsDefault[T scheduling.ClusterIndex](numPools int32, index
 // MultiIndex manages a collection of sub-indices organized by some numerical quantity, such as the number of GPUs.
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
-// For example, LeastLoadedIndex, StaticIndex, RandomClusterIndex, etc.
+// For example, LeastLoadedIndex, StaticMultiIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
 	log logger.Logger
 	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.
@@ -244,7 +244,7 @@ func (index *MultiIndex[T]) Len() int {
 	return index.Size
 }
 
-func (index *MultiIndex[T]) Add(host scheduling.Host) {
+func (index *MultiIndex[T]) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -278,9 +278,11 @@ func (index *MultiIndex[T]) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *MultiIndex[T]) Remove(host scheduling.Host) {
+func (index *MultiIndex[T]) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+
+	index.log.Debug("Removing host %s (ID=%s) from MultiIndex.", host.GetNodeName(), host.GetID())
 
 	if _, loaded := index.FreeHostsMap[host.GetID()]; loaded {
 		_, removed := index.FreeHosts.Remove(host, func(h1 scheduling.Host, h2 scheduling.Host) bool {
@@ -293,7 +295,8 @@ func (index *MultiIndex[T]) Remove(host scheduling.Host) {
 		// If the host was found and removed from the unpooled hosts queue, then we're done.
 		if removed {
 			index.Size -= 1
-			return
+			index.log.Debug("Removed host %s (ID=%s) from FreeHosts queue.", host.GetNodeName(), host.GetID())
+			return true
 		}
 
 		index.log.Error("Expected host %s (ID=%s) to be in the FreeHosts queue; "+
@@ -305,11 +308,16 @@ func (index *MultiIndex[T]) Remove(host scheduling.Host) {
 	if !loaded {
 		index.log.Warn("Could not load host pool for host %s (ID=%s). Cannot remove host.",
 			host.GetNodeName(), host.GetID())
-		return
+		return false
 	}
 
-	hostPool.Pool.Remove(host)
+	hostPool.Pool.RemoveHost(host)
 	index.Size -= 1
+
+	index.log.Debug("Removed host %s (ID=%s) from host pool %s.",
+		host.GetNodeName(), host.GetID(), hostPool.Identifier)
+
+	return true
 }
 
 func (index *MultiIndex[T]) GetMetrics(host scheduling.Host) []float64 {
@@ -331,13 +339,6 @@ func (index *MultiIndex[T]) Category() (string, interface{}) {
 }
 
 func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	if !host.Enabled() {
-		// If the host is not enabled, then it is ineligible to be added to the index.
-		// In general, disabled hosts will not be attempted to be added to the index,
-		// but if that happens, then we return scheduling.IndexUnqualified.
-		return expectedRandomIndex, scheduling.IndexUnqualified
-	}
-
 	// Since all hosts are qualified, we check if the host is in the index only.
 	_, hostIsFree := index.FreeHostsMap[host.GetID()]
 	if hostIsFree {
@@ -352,6 +353,13 @@ func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, sche
 		return expectedMultiIndexValue, scheduling.IndexQualified
 	}
 
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
 	return expectedMultiIndexValue, scheduling.IndexNewQualified
 }
 
@@ -359,9 +367,9 @@ func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, sche
 //
 // Seek calls SeekMultipleFrom, passing 1 as the number of hosts. SeekMultipleFrom requires a "criteria"
 // function, whereas Seek doesn't. Thus, Seek passes seekCriteria to SeekMultipleFrom, and seekCriteria
-// always returns true.
-func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) bool {
-	return true
+// always returns nil.
+func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) error {
+	return nil
 }
 
 func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
@@ -519,7 +527,19 @@ func (index *MultiIndex[T]) unsafeUpdatePool(numHosts int, poolNumber int32) int
 			break
 		}
 
-		// Add the host to the pool.
+		if freeHost.IsExcludedFromScheduling() {
+			index.log.Error("Host %s (ID=%s) from our FreePool is excluded from scheduling...",
+				freeHost.GetNodeName(), freeHost.GetID())
+			continue
+		}
+
+		if !freeHost.Enabled() {
+			index.log.Error("Host %s (ID=%s) from our FreePool is disabled...",
+				freeHost.GetNodeName(), freeHost.GetID())
+			continue
+		}
+
+		// AddHost the host to the pool.
 		pool.AddHost(freeHost)
 
 		// Update mappings.

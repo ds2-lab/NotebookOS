@@ -46,6 +46,7 @@ class SynchronizedValue(object):
             election_term: int = -1,  # The election term on which this value is intended to be proposed.
             prmap: Optional[list[str]] = None,
             should_end_execution: bool = False,
+            jupyter_message_id: str = "",
             key: str = KEY_NONE,
             operation: str = OP_NONE,
     ):
@@ -57,16 +58,28 @@ class SynchronizedValue(object):
         self._id: str = str(uuid.uuid4())
         self._timestamp: float = time.time()
         self._operation: str = operation
+        self._jupyter_message_id: str = jupyter_message_id
 
         self._should_end_execution: bool = should_end_execution
         self._prmap: Optional[list[str]] = prmap
         self._key: str = key
 
-    def get_metadata(self) -> dict[str, any]:
+    @property
+    def jupyter_message_id(self)->Optional[str]:
+        if hasattr(self, "_jupyter_message_id"):
+            return self._jupyter_message_id
+
+        return None
+
+    @jupyter_message_id.setter
+    def jupyter_message_id(self, _jupyter_message_id: str):
+        self._jupyter_message_id = _jupyter_message_id
+
+    def get_metadata(self) -> Dict[str, Any]:
         """
         Returns a dictionary containing this SynchronizedValue's fields, suitable for JSON serialization.
         """
-        metadata: dict[str, any] = {
+        metadata: Dict[str, Any] = {
             "key": self._key,
             "op": self._operation,
             "end": self._should_end_execution,
@@ -84,7 +97,11 @@ class SynchronizedValue(object):
         return metadata
 
     def __str__(self):
-        string: str = f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},ID={self._id}"
+        string: str = (f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},"
+                       f"Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},"
+                       f"AttemptNumber={self._attempt_number},"
+                       f"Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},"
+                       f"ID={self._id}")
 
         if hasattr(self, "_jupyter_message_id"):
             jupyter_message_id: Optional[str] = getattr(self, "_jupyter_message_id")
@@ -433,6 +450,12 @@ class SyncLog(Protocol):
         Close the LogNode's RemoteStorage client.
         """
 
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        pass
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        pass
+
     async def write_data_dir_to_remote_storage(
             self,
             last_resource_request: Optional[
@@ -464,9 +487,11 @@ class SyncLog(Protocol):
         :return: return a boolean indicating whether we've created the first election yet.
         """
 
-    def get_election(self, term_number: int)->Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
 
     def get_known_election_terms(self)->Optional[list[int]]:
@@ -520,10 +545,10 @@ class SyncLog(Protocol):
         """Set the callback that will be called when the SyncLog decides to checkpoint.
           callback will be in the form callback(Checkpointer)."""
 
-    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """Request yield the update of a term to another replica."""
 
-    async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_lead_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
 
@@ -533,6 +558,34 @@ class SyncLog(Protocol):
         or until we know that all replicas yielded.
 
         :param term_number: the term number of the election
+        """
+
+    async def does_election_already_exist(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
         """
 
     async def notify_execution_complete(self, term_number: int):

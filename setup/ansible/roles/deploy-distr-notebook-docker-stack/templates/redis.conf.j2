@@ -1,6 +1,15 @@
 bind 0.0.0.0
-protected-mode no
 port {{ redis_port }}
+protected-mode no
+appendonly {{ redis_appendonly }}
+save ""
 maxmemory {{ redis_maxmemory }}
 maxmemory-policy allkeys-lru
-appendonly yes
+maxclients 100000
+bind 0.0.0.0
+tcp-backlog 65536
+tcp-keepalive 0
+io-threads 8
+io-threads-do-reads yes
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64

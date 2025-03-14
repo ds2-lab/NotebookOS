@@ -1,6 +1,9 @@
 package storage
 
-import "go.uber.org/zap"
+import (
+	"go.uber.org/zap"
+	"golang.org/x/net/context"
+)
 
 type LocalProvider struct {
 	*baseProvider
@@ -25,6 +28,6 @@ func (l *LocalProvider) WriteDataDirectory(serializedState []byte, datadir strin
 	panic("Not implemented")
 }
 
-func (l *LocalProvider) ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
+func (l *LocalProvider) ReadDataDirectory(ctx context.Context, progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
 	panic("Not implemented")
 }

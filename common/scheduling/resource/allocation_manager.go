@@ -6,7 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
-	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -229,7 +229,7 @@ type AllocationManager struct {
 	// availableGpuDevices is a queue.ThreadsafeFifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
-	metricsManager *metrics.LocalDaemonPrometheusManager
+	metricsManager scheduling.PrometheusMetricsProvider
 
 	updateIndex func(replicaId int32, kernelId string) error
 
@@ -457,7 +457,7 @@ func (m *AllocationManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapsho
 }
 
 // RegisterMetricsManager is used to set the metricsManager field of the AllocationManager.
-func (m *AllocationManager) RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager) {
+func (m *AllocationManager) RegisterMetricsManager(metricsManager scheduling.PrometheusMetricsProvider) {
 	if m.metricsManager != nil {
 		m.log.Warn("AllocationManager already has metrics manager assigned... will replace existing metrics manager.")
 	}
@@ -705,13 +705,13 @@ func (m *AllocationManager) ReplicaHasPendingGPUs(replicaId int32, kernelId stri
 		return false
 	}
 
-	// If it is a pending GPU allocation, then we may return true.
-	if alloc.IsPending() {
-		return alloc.GetGpus() > 0
+	if alloc.IsCommitted() {
+		// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
+		return false
 	}
 
-	// It is an "actual" GPU allocation, not a pending GPU allocation, so return false.
-	return false
+	// If it is a pending GPU allocation, then we may return true.
+	return alloc.GetGpus() > 0
 }
 
 // ReplicaHasCommittedResources returns true if the specified kernel replica has any HostResources committed to it.
@@ -744,7 +744,7 @@ func (m *AllocationManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId st
 	}
 
 	// It is an "actual" GPU allocation.
-	return alloc.GetGpus() > 0
+	return alloc.GetGpus() > 0 && alloc.IsCommitted()
 }
 
 // KernelHasCommittedResources returns true if any replica of the specified kernel has resources committed to it.
@@ -775,7 +775,7 @@ func (m *AllocationManager) HasReservationForKernel(kernelId string) bool {
 
 // AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
-func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, replicaId int32, kernelId string) error {
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
@@ -783,9 +783,6 @@ func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldS
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	kernelId := container.KernelID()
-	replicaId := container.ReplicaId()
 
 	m.log.Debug("Attempting to adjust resource request for replica %d of kernel %s from [%v] to [%v].",
 		replicaId, kernelId, oldSpec, newSpec)
@@ -840,12 +837,14 @@ func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldS
 // this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+//
+// Returns a flag indicating whether the participant was even registered.
 func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types.Spec, oldSpec types.Spec,
-	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) error {
+	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) (bool, error) {
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
-		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
+		return false, fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
 	}
 
 	kernelId := container.KernelID()
@@ -857,24 +856,28 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 	// Verify that the container is in fact scheduled on this Host.
 	if !targetReplicaIsScheduled {
 		m.mu.Unlock()
-		return fmt.Errorf("%w: replica %d of kernel %s",
-			ErrContainerNotPresent, replicaId, kernelId)
+		m.log.Warn("Target replica %d of coordinated tx %s is not even scheduled on this host (%s)...",
+			container.ReplicaId(), tx.Id(), m.NodeName)
+		return false, fmt.Errorf("%w: replica %d of kernel %s", ErrContainerNotPresent, replicaId, kernelId)
 	}
 
 	// Retrieve the allocation, as we'll have to update it.
 	key := getKey(replicaId, kernelId)
 	allocation, loaded := m.allocationKernelReplicaMap.Load(key)
 	if !loaded {
-		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s because no allocation exists...",
-			replicaId, kernelId)
+		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s (as part of tx %s) "+
+			"because no allocation exists...", replicaId, kernelId, tx.Id())
 		m.mu.Unlock()
-		return fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
+		return false, fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
 	}
 	m.mu.Unlock()
 
 	// Verify that the allocation is not committed.
 	if allocation.IsCommitted() {
-		return fmt.Errorf("%w: allocation for replica %d of kernel %s is committed; cannot dynamically adjust",
+		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s (as part of coordinated tx %s) "+
+			"because resources are committed to that replica...", replicaId, kernelId, tx.Id())
+
+		return false, fmt.Errorf("%w: allocation for replica %d of kernel %s is committed; cannot dynamically adjust",
 			ErrInvalidAllocationType, replicaId, kernelId)
 	}
 
@@ -888,11 +891,11 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 
 	// Register ourselves as a participant.
 	// If we're the last participant to do so, then this will also initialize all the participants.
-	err := tx.RegisterParticipant(replicaId, m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
+	registered, err := tx.RegisterParticipant(replicaId, m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
 	if err != nil {
 		m.log.Error("Received error upon registering for coordination transaction %s when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
 			tx.Id(), replicaId, kernelId, oldSpec.String(), newSpec.String(), err)
-		return err
+		return registered, err
 	}
 
 	// Ensure that we're all initialized. We may not have been the last to register.
@@ -923,7 +926,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 			m.updateSubscriptionRatio()
 		}
 
-		return nil
+		return registered, nil
 	}
 
 	err = tx.FailureReason()
@@ -942,7 +945,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types
 	m.log.Debug("Transaction %s targeting replica %d of kernel %s has failed because: %v",
 		tx.Id(), replicaId, kernelId, err)
 
-	return err
+	return registered, err
 }
 
 // AssertAllocationIsPending returns true if the given scheduling.Allocation IS pending.
@@ -1101,8 +1104,8 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	if allocation.IsCommitted() {
 		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
 			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
-		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
-			scheduling.ErrInvalidOperation, replicaId, kernelId)
+		return fmt.Errorf("%w: replica %d of kernel %s",
+			scheduling.ErrResourcesAlreadyCommitted, replicaId, kernelId)
 	}
 
 	// First, release the original amount of pending resources.
@@ -1407,7 +1410,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	// Verify that there does not already exist an allocation associated with the specified kernel replica.
 	key = getKey(ReplicaIdForReservation, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found. (under key \"%s\").",
+		m.log.Warn("Cannot release reservation for replica %d of kernel %s: no reservation found. (under key \"%s\").",
 			ReplicaIdForReservation, kernelId, key)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}
@@ -1509,6 +1512,12 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 			kernelId, numFailedReservations, allocation.String())
 		return fmt.Errorf("%w: existing resource allocation found for unspecified replica of kernel %s",
 			ErrInvalidAllocationRequest, kernelId)
+	}
+
+	if !usePending && !m.unsafeCanCommitResources(spec) {
+		m.log.Debug("Cannot create committed reservation for replica of kernel %s: insufficient idle resources available",
+			kernelId)
+		return scheduling.ErrInsufficientIdleResourcesAvailable
 	}
 
 	// Construct the new Allocation using the resource quantities specified in the spec argument.
@@ -1756,6 +1765,10 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 
 			panic(err)
 		}
+
+		// Make sure to delete this entry as well.
+		m.allocationKernelReplicaMap.Delete(getKey(replicaId, kernelId))
+		m.kernelAllocationMap.Delete(kernelId)
 	} else {
 		m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s on host %s now.",
 			replicaId, kernelId, m.NodeName)
@@ -1871,7 +1884,11 @@ func (m *AllocationManager) CanCommitResources(resourceRequest types.Spec) bool 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
+	return m.unsafeCanCommitResources(resourceRequest)
+}
+
+func (m *AllocationManager) unsafeCanCommitResources(resourceRequest types.Spec) bool {
+	return m.resourceManager.IdleResources().Validate(resourceRequest)
 }
 
 // CurrentResourcesToString returns all the current resource counts of the AllocationManager as a string and is
@@ -2316,8 +2333,8 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 		spec = allocation.ToDecimalSpec()
 	}
 
-	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be deallocated: %v.",
-		m.resourceManager.GetResourceCountsAsString(), spec.String())
+	m.log.Debug("Releasing committed resources from replica %d of kernel \"%s\". Current resource counts: %s. Resources to be deallocated: %v.",
+		allocation.GetReplicaId(), allocation.GetKernelId(), m.resourceManager.GetResourceCountsAsString(), spec.String())
 
 	deviceIdsToReturn := allocation.GetGpuDeviceIds()
 	numToReturn := len(deviceIdsToReturn)
@@ -2381,7 +2398,8 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 	// Update Prometheus metrics.
 	m.unsafeUpdatePrometheusResourceMetrics()
 
-	m.log.Debug("Released committed resources. Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
+	m.log.Debug("Released committed resources [%v] from replica %d of kernel \"%s\". Updated resource counts: %s.",
+		allocation.ToSpecString(), allocation.GetReplicaId(), allocation.GetKernelId(), m.resourceManager.GetResourceCountsAsString())
 	return nil
 }
 
@@ -2394,28 +2412,37 @@ func (m *AllocationManager) unsafeUpdatePrometheusResourceMetrics() {
 	}
 
 	// CPU resource metrics.
-	m.metricsManager.IdleCpuGauge.
-		Set(m.resourceManager.idleResources.Millicpus())
-	m.metricsManager.PendingCpuGauge.
-		Set(m.resourceManager.pendingResources.Millicpus())
-	m.metricsManager.CommittedCpuGauge.
-		Set(m.resourceManager.committedResources.Millicpus())
+	m.metricsManager.IdleCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.Millicpus())
+	m.metricsManager.PendingCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.Millicpus())
+	m.metricsManager.CommittedCpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.Millicpus())
 
 	// Memory resource metrics.
-	m.metricsManager.IdleMemoryGauge.
-		Set(m.resourceManager.idleResources.MemoryMB())
-	m.metricsManager.PendingMemoryGauge.
-		Set(m.resourceManager.pendingResources.MemoryMB())
-	m.metricsManager.CommittedMemoryGauge.
-		Set(m.resourceManager.committedResources.MemoryMB())
+	m.metricsManager.IdleMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.MemoryMB())
+	m.metricsManager.PendingMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.MemoryMB())
+	m.metricsManager.CommittedMemoryGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.MemoryMB())
 
 	// GPU resource metrics.
-	m.metricsManager.IdleGpuGauge.
-		Set(m.resourceManager.idleResources.GPUs())
-	m.metricsManager.PendingGpuGauge.
-		Set(m.resourceManager.pendingResources.GPUs())
-	m.metricsManager.CommittedGpuGauge.
-		Set(m.resourceManager.committedResources.GPUs())
+	m.metricsManager.IdleGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.idleResources.GPUs())
+	m.metricsManager.PendingGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.pendingResources.GPUs())
+	m.metricsManager.CommittedGpuGaugeVec().With(prometheus.Labels{
+		"node_id": m.NodeId,
+	}).Set(m.resourceManager.committedResources.GPUs())
 }
 
 // UnitTestingAllocationManager is a wrapper around AllocationManager with a few additional methods to facilitate

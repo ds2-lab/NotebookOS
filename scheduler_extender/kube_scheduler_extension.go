@@ -38,7 +38,7 @@ type schedulerExtensionImpl struct {
 	log logger.Logger
 
 	engine             *gin.Engine
-	port               int    // Port that we should listen on.
+	port               int    // JupyterGrpcPort that we should listen on.
 	clusterGatewayAddr string // Address of the HTTP kubernetes scheduler service exposed by the Cluster Gateway.
 
 	filterAddr string // Endpoint to forward/proxy filter requests to.

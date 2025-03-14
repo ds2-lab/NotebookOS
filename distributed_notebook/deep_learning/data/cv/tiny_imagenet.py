@@ -1,4 +1,7 @@
+import boto3
+import time
 import os
+import tarfile
 from typing import Optional, Dict, Union, Any
 
 import torch
@@ -60,8 +63,11 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             root_dir: str = default_root_directory,
             shuffle: bool = True,
             num_workers: int = 2,
-            batch_size: int = 4,
+            batch_size: int = 1,
             image_size: int = 224,  # 224 x 224 for ResNet-18, 299 x 299 for Inception v3.
+            aws_region:str = "us-east-1",
+            s3_bucket_name:str = "distributed-notebook-public",
+            **kwargs
     ):
         assert image_size > 0
         assert batch_size > 0
@@ -72,6 +78,10 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             num_workers=num_workers,
             hugging_face_dataset_name=TinyImageNet.hugging_face_dataset_name,
             hugging_face_dataset_config_name=TinyImageNet.hugging_face_dataset_config_name,
+            batch_size=batch_size,
+            aws_region=aws_region,
+            s3_bucket_name=s3_bucket_name,
+            **kwargs
         )
 
         self.log.debug(f'Creating Tiny ImageNet dataset with root directory "{root_dir}", batch size = {batch_size}, '
@@ -87,7 +97,6 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
             transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         ])
 
-        self._batch_size: int = batch_size
         self._image_size: int = image_size
 
         self._train_dataset: _TinyImageNetDataset = _TinyImageNetDataset(self._dataset["train"], transform=self.transform)
@@ -98,6 +107,10 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
                                            shuffle=shuffle, dataset_name=self.dataset_name())
         self._test_loader = WrappedLoader(self._test_dataset, batch_size=batch_size,
                                           shuffle=False, dataset_name=self.dataset_name())
+
+    @property
+    def supports_aws_s3_download(self)->bool:
+        return True
 
     @staticmethod
     def category() -> str:
@@ -155,6 +168,14 @@ class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
         desc["batch_size"] = self._batch_size
         desc["image_size"] = self._image_size
         return desc
+
+    @staticmethod
+    def dataset_shortname()->str:
+        return "tiny-imagenet"
+
+    @staticmethod
+    def huggingface_directory_name()->str:
+        return "zh-plus___tiny-imagenet"
 
     @property
     def train_loader(self)->Optional[DataLoader]:

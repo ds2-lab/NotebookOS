@@ -79,8 +79,8 @@ type BasicKubeClient struct {
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
-	localDaemonServicePort int                                        // Port that local daemon service will be routing traffic to.
-	smrPort                int                                        // Port used for the SMR protocol.
+	localDaemonServicePort int                                        // JupyterGrpcPort that local daemon service will be routing traffic to.
+	smrPort                int                                        // JupyterGrpcPort used for the SMR protocol.
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
 	useStatefulSet         bool                                       // If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet.
 	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the newKernels should perform checkpointing after a migration and after executing code.
@@ -483,7 +483,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 // 	return c.migrationManager.InitiateKernelMigration(ctx, targetClient, targetSmrNodeId, newSpec)
 // }
 
-// Add the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
+// AddHost the "apps.kruise.io/specified-delete: true" label to the Pod with the given name.
 // The labeled Pod will be prioritized for deletion when the CloneSet is scaled down.
 // This is used as part of the replica migration protocol.
 //
@@ -590,7 +590,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 		if !ok {
 			panic(fmt.Sprintf("Expected to find slice of scale-up channels for kernel %s.", kernelId))
 		}
-		// Remove the channel that we just added, as the scale-out operation failed.
+		// RemoveHost the channel that we just added, as the scale-out operation failed.
 		channels = channels[:len(channels)-1]
 		c.scaleUpChannels.Set(kernelId, channels)
 
@@ -1010,7 +1010,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *prot
 		panic(err)
 	}
 
-	// Remove the control-plane node.
+	// RemoveHost the control-plane node.
 	for _, node := range nodes.Items {
 		if strings.HasSuffix(node.Name, "control-plane") {
 			continue

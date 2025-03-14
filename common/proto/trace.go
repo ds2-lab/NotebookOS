@@ -2,7 +2,6 @@ package proto
 
 import (
 	"encoding/json"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )
@@ -104,7 +103,7 @@ func (x *RequestTraceUpdated) Clone() *RequestTraceUpdated {
 // - 9:   ReplySentByLocalDaemon
 //
 // - 10:  ReplyReceivedByLocalDaemon
-func (x *RequestTrace) PopulateNextField(unixMilliseconds int64, log logger.Logger) bool {
+func (x *RequestTrace) PopulateNextField(unixMilliseconds int64) bool {
 	if x.RequestReceivedByGateway == DefaultTraceTimingValue {
 		x.RequestReceivedByGateway = unixMilliseconds
 		//log.Debug("Assigned value to \"RequestReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",

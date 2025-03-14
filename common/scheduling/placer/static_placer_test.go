@@ -115,6 +115,10 @@ var _ = Describe("Static Placer Tests", func() {
 		hostSpec *types.DecimalSpec
 	)
 
+	clusterProvider := func() scheduling.Cluster {
+		return dockerCluster
+	}
+
 	Context("Static Placer Backed By MultiIndex of LeastLoadedIndex Using FCFS-Batch", func() {
 		BeforeEach(func() {
 			err := json.Unmarshal([]byte(staticPlacerSchedulerTestOpts), &opts)
@@ -129,7 +133,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
 
-			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
@@ -219,14 +223,14 @@ var _ = Describe("Static Placer Tests", func() {
 			kernel1Spec := createKernelSpec(kernelResourceSpec)
 			kernel2Spec := createKernelSpec(kernelResourceSpec)
 
-			candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+			candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 			//Expect(candidateHosts[0]).To(Equal(host1))
 
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel2Spec, false)
 			Expect(err).To(BeNil())
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
@@ -248,7 +252,7 @@ var _ = Describe("Static Placer Tests", func() {
 				ResourceSpec:    resourceSpec,
 			}
 
-			candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(0))
@@ -283,7 +287,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			By("Returning the only available host when finding a candidate")
 
-			candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+			candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
@@ -309,7 +313,7 @@ var _ = Describe("Static Placer Tests", func() {
 			kernel2ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
 			kernel2Spec := createKernelSpec(kernel2ResourceSpec)
 
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel2Spec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 			Expect(candidateHosts[0]).To(Equal(host1))
@@ -373,7 +377,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			By("Returning an available host when finding a candidate")
 
-			candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+			candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -394,7 +398,7 @@ var _ = Describe("Static Placer Tests", func() {
 			hostPool, loaded := staticPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticIndexBucket(5, int32(hostSpec.GPU()))))
+			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticMultiIndexBucket(5, int32(hostSpec.GPU()))))
 			Expect(hostPool.Len()).To(Equal(1))
 			Expect(hostPool.Size()).To(Equal(1))
 
@@ -414,7 +418,7 @@ var _ = Describe("Static Placer Tests", func() {
 				ResourceSpec:    resourceSpec,
 			}
 
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel2Spec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -433,7 +437,7 @@ var _ = Describe("Static Placer Tests", func() {
 			hostPool, loaded = staticPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticIndexBucket(5, int32(hostSpec.GPU()))))
+			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticMultiIndexBucket(5, int32(hostSpec.GPU()))))
 			Expect(hostPool.Len()).To(Equal(2))
 			Expect(hostPool.Size()).To(Equal(2))
 
@@ -453,7 +457,7 @@ var _ = Describe("Static Placer Tests", func() {
 				ResourceSpec:    resourceSpec,
 			}
 
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernel3Spec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
@@ -469,7 +473,7 @@ var _ = Describe("Static Placer Tests", func() {
 			hostPool, loaded = staticPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticIndexBucket(5, int32(hostSpec.GPU()))))
+			Expect(hostPool.PoolNumber).To(Equal(index.GetStaticMultiIndexBucket(5, int32(hostSpec.GPU()))))
 			Expect(hostPool.Len()).To(Equal(2))
 			Expect(hostPool.Size()).To(Equal(2))
 		})
@@ -523,7 +527,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex := 0
 			kernelSpec := kernelSpecs[sessionIndex]
-			candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err := dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -535,7 +539,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(1, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(1, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -547,7 +551,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 1
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -560,7 +564,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(2, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(2, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -572,7 +576,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 2
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -585,7 +589,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(4, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(4, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -597,7 +601,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 3
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -610,7 +614,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(8, gpusPerHost)] = 1
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(8, gpusPerHost)] = 1
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -623,7 +627,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 4
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -648,7 +652,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 5
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -673,7 +677,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 6
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -698,7 +702,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 7
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -711,7 +715,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(8, gpusPerHost)] = 2
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(8, gpusPerHost)] = 2
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))
@@ -724,7 +728,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 8
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -750,7 +754,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 9
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -779,7 +783,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			sessionIndex = 10
 			kernelSpec = kernelSpecs[sessionIndex]
-			candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			candidateHosts, err = dockerScheduler.SearchForCandidateHosts(1, kernelSpec, false)
 			Expect(err).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 
@@ -792,7 +796,7 @@ var _ = Describe("Static Placer Tests", func() {
 			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
-			expectedHostPoolSizes[index.GetStaticIndexBucket(2, gpusPerHost)] = 2
+			expectedHostPoolSizes[index.GetStaticMultiIndexBucket(2, gpusPerHost)] = 2
 			for poolIndex, expectedHostPoolSize := range expectedHostPoolSizes {
 				Expect(staticPlacer.HasHostPool(poolIndex)).To(BeTrue())
 				Expect(staticPlacer.NumHostsInPoolByIndex(poolIndex)).To(Equal(expectedHostPoolSize))

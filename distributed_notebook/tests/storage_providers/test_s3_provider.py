@@ -1,6 +1,6 @@
 import io
 
-from distributed_notebook.sync.storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
+from distributed_notebook.sync.remote_storage.s3_provider import S3Provider, DEFAULT_S3_BUCKET_NAME
 
 import pytest
 
@@ -44,7 +44,7 @@ def test_upload_and_download_string(s3_provider: S3Provider):
     data: io.BytesIO = s3_provider.read_value(obj_name)
     assert isinstance(data, io.BytesIO)
 
-    print("Read data:", data.getvalue().decode("utf-8"))
+    print("Read data:", data.getbuffer().tobytes().decode("utf-8"))
 
     success = s3_provider.delete_value(obj_name)
     assert success

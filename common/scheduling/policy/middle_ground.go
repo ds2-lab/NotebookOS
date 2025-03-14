@@ -2,8 +2,11 @@ package policy
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"golang.org/x/net/context"
+	"math"
 )
 
 // MiddleGroundPolicy defines the scheduling policy of the "middle ground" approach, in which training requests
@@ -27,8 +30,26 @@ type MiddleGroundPolicy struct {
 	*baseSchedulingPolicy
 }
 
-func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions) (*MiddleGroundPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (*MiddleGroundPolicy, error) {
+	// This validation step should have already happened, but just in case, we'll ensure that the maximum number
+	// of nodes is unbounded.
+	if opts.MaximumNumNodes < 0 {
+		opts.MaximumNumNodes = math.MaxInt // Effectively unbounded.
+	}
+
+	// The "middle-ground" policy uses a fixed-size cluster atop which a warm container pool is maintained.
+	if opts.MinimumNumNodes < opts.MaximumNumNodes {
+		// The minimum and maximum number of nodes should be equal since the cluster size is fixed.
+		opts.MinimumNumNodes = opts.MaximumNumNodes
+	}
+
+	// The "middle-ground" policy uses a fixed-size cluster atop which a warm container pool is maintained.
+	if opts.InitialClusterSize < opts.MaximumNumNodes {
+		// The initial cluster size should be equal to the maximum cluster size as the cluster size should be fixed.
+		opts.InitialClusterSize = opts.MaximumNumNodes
+	}
+
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false, clusterProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +71,134 @@ func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions) (*MiddleGroundPoli
 	return policy, nil
 }
 
+// ValidateHostForKernel allows the Policy to perform any policy-specific validation logic to ensure that
+// the given Host is viable for serving a replica of the specified Kernel.
+func (p *MiddleGroundPolicy) ValidateHostForKernel(host scheduling.Host, _ *proto.KernelSpec, _ bool) (isViable bool, unviabilityReason error) {
+	if p.clusterProvider == nil {
+		panic("MiddleGroundPolicy: Cannot retrieve instance of Cluster. ClusterProvider is nil.")
+	}
+
+	cluster := p.clusterProvider()
+	if cluster == nil {
+		panic("MiddleGroundPolicy: ClusterProvider returned nil.")
+	}
+
+	clusterScheduler := cluster.Scheduler()
+	if clusterScheduler == nil {
+		panic("MiddleGroundPolicy: Scheduler is nil.")
+	}
+
+	containerPrewarmer := clusterScheduler.ContainerPrewarmer()
+	if containerPrewarmer == nil {
+		panic("MiddleGroundPolicy: ContainerPrewarmer is nil.")
+	}
+
+	curr, _ := containerPrewarmer.GetNumPrewarmContainersOnHost(host)
+	if curr == 0 {
+		return false, fmt.Errorf("%w: host \"%s\" does not have any prewarm containers at the moment",
+			scheduling.ErrNoPrewarmContainersAvailable, host.GetNodeName())
+	}
+
+	return true, nil
+}
+
+// getContainerPrewarmer performs all the null-checks to retrieve the scheduling.ContainerPrewarmer from the
+// scheduling.Cluster, panicking if at any point, something is nil (including the scheduling.ContainerPrewarmer).
+func (p *MiddleGroundPolicy) getContainerPrewarmer() scheduling.ContainerPrewarmer {
+	cluster := getClusterFromPolicy(p)
+
+	scheduler := cluster.Scheduler()
+	if scheduler == nil {
+		panic("Scheduler is nil.")
+	}
+
+	containerPrewarmer := scheduler.ContainerPrewarmer()
+	if containerPrewarmer == nil {
+		panic("ContainerPrewarmer is nil.")
+	}
+
+	return containerPrewarmer
+}
+
+// HandleFailedAttemptToGetViableHosts is called when the Scheduler fails to find the requested number of Host
+// instances to serve the KernelReplica instance(s) of a particular Kernel.
+func (p *MiddleGroundPolicy) HandleFailedAttemptToGetViableHosts(ctx context.Context, kernelSpec *proto.KernelSpec,
+	numHosts int32, hosts []scheduling.Host) (bool, error) {
+
+	shouldContinue := handleFailedAttemptToFindCandidateHosts(ctx, kernelSpec, numHosts, hosts, p.log, p)
+
+	return shouldContinue, nil
+
+	//containerPrewarmer := p.getContainerPrewarmer()
+	//
+	//hostMap := make(map[string]scheduling.Host, len(hosts))
+	//for _, host := range hosts {
+	//	hostMap[host.GetID()] = host
+	//}
+	//
+	//kernelResourceSpec := kernelSpec.ResourceSpec.ToDecimalSpec()
+	//
+	//// Note that a host that passes these criteria could fail to do so later.
+	//// This isn't a promise/guarantee. Likewise, a host that fails could later be eligible.
+	//criteriaFunc := func(host scheduling.Host) error {
+	//	if _, ok := hostMap[host.GetID()]; ok {
+	//		return fmt.Errorf("host \"%s\" is already selected as a candidate host for kernel \"%s\"",
+	//			host.GetNodeName(), kernelSpec.Id)
+	//	}
+	//
+	//	if !host.CanServeContainer(kernelResourceSpec) {
+	//		return fmt.Errorf("host \"%s\" does not have sufficient resources to serve kernel \"%s\"",
+	//			host.GetNodeName(), kernelSpec.Id)
+	//	}
+	//
+	//	if !host.CanCommitResources(kernelResourceSpec) {
+	//		return fmt.Errorf("host \"%s\" does not have sufficient idle resources to commit to kernel \"%s\"",
+	//			host.GetNodeName(), kernelSpec.Id)
+	//	}
+	//
+	//	return nil // Host is viable (as of right now, at least...)
+	//}
+	//
+	//provisioned, err := containerPrewarmer.RequestProvisionContainers(int(numHosts), criteriaFunc, true)
+	//if err != nil {
+	//	p.log.Warn("Error while provisioning prewarm containers on hosts: %v", err)
+	//	return len(provisioned) > 0, err
+	//}
+	//
+	//return len(provisioned) > 0, nil
+}
+
+// ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that
+// the given Host is viable for serving a replica of the specified Kernel.
+func (p *MiddleGroundPolicy) ValidateHostForReplica(host scheduling.Host, _ *proto.KernelReplicaSpec, _ bool) (isViable bool, unviabilityReason error) {
+	if p.clusterProvider == nil {
+		panic("MiddleGroundPolicy: Cannot retrieve instance of Cluster. ClusterProvider is nil.")
+	}
+
+	cluster := p.clusterProvider()
+	if cluster == nil {
+		panic("MiddleGroundPolicy: ClusterProvider returned nil.")
+	}
+
+	clusterScheduler := cluster.Scheduler()
+	if clusterScheduler == nil {
+		panic("MiddleGroundPolicy: Scheduler is nil.")
+	}
+
+	containerPrewarmer := clusterScheduler.ContainerPrewarmer()
+	if containerPrewarmer == nil {
+		panic("MiddleGroundPolicy: ContainerPrewarmer is nil.")
+	}
+
+	curr, _ := containerPrewarmer.GetNumPrewarmContainersOnHost(host)
+	if curr == 0 {
+		return false, fmt.Errorf("%w: host \"%s\" does not have any prewarm containers at the moment",
+			scheduling.ErrNoPrewarmContainersAvailable, host.GetNodeName())
+	}
+
+	return true, nil
+}
+
 // ReuseWarmContainers returns a boolean indicating whether a warm KernelContainer should be re-used, such as being
 // placed back into the warm KernelContainer pool, or if it should simply be terminated.
 //
@@ -59,6 +208,17 @@ func NewMiddleGroundPolicy(opts *scheduling.SchedulerOptions) (*MiddleGroundPoli
 //
 // But for the "middle ground" approach, a warm KernelContainer will be returned to the warm KernelContainer pool.
 func (p *MiddleGroundPolicy) ReuseWarmContainers() bool {
+	return true
+}
+
+// RequirePrewarmContainer indicates whether a new kernel replica must be placed within a prewarm container.
+func (p *MiddleGroundPolicy) RequirePrewarmContainer() bool {
+	return true
+}
+
+// PrioritizePrewarmContainers indicates whether the host selection process should prioritize hosts with
+// a prewarm container available or not factor that into the placement decision.
+func (p *MiddleGroundPolicy) PrioritizePrewarmContainers() bool {
 	return true
 }
 
@@ -172,10 +332,14 @@ func (p *MiddleGroundPolicy) ScalingConfiguration() *scheduling.ScalingConfigura
 // ScalingPolicy implementation //
 //////////////////////////////////
 
+// ScalingOutEnabled is disabled for the MiddleGroundPolicy, as the MiddleGroundPolicy uses a fixed-size cluster
+// on which a warm container pool is created and maintained.
 func (p *MiddleGroundPolicy) ScalingOutEnabled() bool {
 	return p.scalingOutEnabled
 }
 
+// ScalingInEnabled is disabled for the MiddleGroundPolicy, as the MiddleGroundPolicy uses a fixed-size cluster
+// on which a warm container pool is created and maintained.
 func (p *MiddleGroundPolicy) ScalingInEnabled() bool {
 	return true
 }

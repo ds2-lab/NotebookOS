@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"golang.org/x/net/context"
 	"math"
 	"time"
 )
@@ -106,7 +108,12 @@ func defaultTryScaleIn(policy scheduling.Policy, cluster scheduling.Cluster, log
 	log.Debug("Preparing to scale-in %d (idle) hosts. Current cluster size: %d.", numToRelease, oldClusterSize)
 	numReleased, err := cluster.Scheduler().ReleaseIdleHosts(numToRelease)
 	if err != nil {
-		log.Error("Error while releasing idle hosts: %v", err)
+		if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(err, scheduling.ErrAssociatedKernelActiveTraining) {
+			// If it's just because there's already a scaling operation, then that's not really a problem.
+			log.Debug("Could not release %d idle host(s) because: %v", err)
+		} else {
+			log.Error("Error while releasing idle hosts: %v", err)
+		}
 	}
 
 	if numReleased > 0 {
@@ -171,7 +178,7 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 	// Only scale-out if that feature is enabled.
 	if cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
-		numProvisioned := 0
+		numProvisioned := int32(0)
 		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
 
 		log.Debug("Scaling out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
@@ -180,8 +187,8 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 		// The size of the pending host pool will grow each time we provision a new host.
 		numFailures := 0
 		for int32(cluster.Len()) < scaledOutNumHosts {
-			err := cluster.Scheduler().RequestNewHost()
-			if err != nil {
+			p := cluster.RequestHosts(context.Background(), targetNumProvisioned)
+			if err := p.Error(); err != nil {
 				log.Warn("Failed to add new host because: %v", err)
 				numFailures += 1
 
@@ -196,16 +203,18 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 				}
 			}
 
-			numProvisioned++
+			numProvisioned += targetNumProvisioned
 		}
 
 		// If we provisioned any hosts -- or if we were supposed to provision at least one host -- then we'll
 		// print a message about how many we provisioned, and how many failures we encountered.
 		if (numProvisioned > 0 || targetNumProvisioned > 0) && log.GetLevel() == logger.LOG_LEVEL_ALL {
-			log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, cluster.Len(), numFailures)
+			log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.",
+				numProvisioned, load, oldNumHosts, cluster.Len(), numFailures)
 		}
 	} else if !cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts { // If this was the reason the first if-statement evaluated to false, then we'll log a warning message.
-		log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
+		log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.",
+			scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
 	}
 
 	return limit, load
@@ -227,9 +236,62 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 		return
 	}
 
+	// Should we scale in?
+	if !cluster.Scheduler().CanScaleIn() {
+		return
+	}
+
 	limit, load := multiReplicaTryScaleOut(policy, cluster, log)
 
 	defaultTryScaleIn(policy, cluster, log, limit, load)
+}
+
+func getClusterFromPolicy(policy scheduling.Policy) scheduling.Cluster {
+	clusterProvider := policy.GetClusterProviderFunc()
+	if clusterProvider == nil {
+		panic("ClusterProvider is nil.")
+	}
+
+	cluster := clusterProvider()
+	if cluster == nil {
+		panic("Cluster is nil.")
+	}
+
+	return cluster
+}
+
+func handleFailedAttemptToFindCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32,
+	hosts []scheduling.Host, log logger.Logger, policy scheduling.Policy) bool {
+
+	if !policy.ResourceScalingPolicy().ScalingOutEnabled() {
+		log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
+		return true
+	}
+
+	numHostsRequired := numHosts - int32(len(hosts))
+	log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
+		numHostsRequired, kernelSpec.Id)
+
+	prom := getClusterFromPolicy(policy).RequestHosts(ctx, numHostsRequired)
+	err := prom.Error()
+
+	if err != nil {
+		if errors.Is(err, scheduling.ErrScalingActive) {
+			log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
+				kernelSpec.Id)
+		} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+			log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+				numHostsRequired, kernelSpec.Id, err)
+
+			// We're out of hosts. Give up. It can be resubmitted by the client later.
+			return false
+		} else {
+			log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+				numHostsRequired, kernelSpec.Id, err)
+		}
+	}
+
+	return true
 }
 
 // singleReplicaValidateCapacity is used by single-replica policies like Reservation and FCFS to scale up/down.
@@ -239,6 +301,11 @@ func singleReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.
 	// Sanity check. The multiReplicaValidateCapacity function should only be called by
 	// policies that support predictive auto-scaling, but just in case...
 	if !policy.SupportsPredictiveAutoscaling() {
+		return
+	}
+
+	// Should we scale in?
+	if !cluster.Scheduler().CanScaleIn() {
 		return
 	}
 

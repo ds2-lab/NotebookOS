@@ -17,10 +17,10 @@ except ImportError:
 
 if _version_not_supported:
     raise RuntimeError(
-        f'The grpc package installed is at version {GRPC_VERSION},'
+        f'The rpc package installed is at version {GRPC_VERSION},'
         + f' but the generated code in gateway_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
-        + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
+        + f' Please upgrade your rpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
@@ -34,7 +34,7 @@ class ClusterGatewayStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.ID = channel.unary_unary(
                 '/gateway.ClusterGateway/ID',
@@ -424,7 +424,7 @@ class DistributedClusterStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.InducePanic = channel.unary_unary(
                 '/gateway.DistributedCluster/InducePanic',
@@ -451,6 +451,21 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.PingInstruction.SerializeToString,
                 response_deserializer=gateway__pb2.Pong.FromString,
                 _registered_method=True)
+        self.IsKernelActivelyTraining = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelActivelyTraining',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.IsKernelTrainingReply.FromString,
+                _registered_method=True)
+        self.IsKernelActivelyMigrating = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelActivelyMigrating',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.IsKernelMigratingReply.FromString,
+                _registered_method=True)
+        self.IsKernelActivelyTrainingOrMigrating = channel.unary_unary(
+                '/gateway.DistributedCluster/IsKernelActivelyTrainingOrMigrating',
+                request_serializer=gateway__pb2.KernelId.SerializeToString,
+                response_deserializer=gateway__pb2.IsKernelTrainingOrMigratingReply.FromString,
+                _registered_method=True)
         self.ListKernels = channel.unary_unary(
                 '/gateway.DistributedCluster/ListKernels',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -465,6 +480,11 @@ class DistributedClusterStub(object):
                 '/gateway.DistributedCluster/GetClusterActualGpuInfo',
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.ClusterActualGpuInfo.FromString,
+                _registered_method=True)
+        self.GetJupyterMessage = channel.unary_unary(
+                '/gateway.DistributedCluster/GetJupyterMessage',
+                request_serializer=gateway__pb2.GetJupyterMessageRequest.SerializeToString,
+                response_deserializer=gateway__pb2.GetJupyterMessageResponse.FromString,
                 _registered_method=True)
         self.GetClusterVirtualGpuInfo = channel.unary_unary(
                 '/gateway.DistributedCluster/GetClusterVirtualGpuInfo',
@@ -593,6 +613,28 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def IsKernelActivelyTraining(self, request, context):
+        """IsKernelTraining is used to query whether or not a particular kernel is actively training.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IsKernelActivelyMigrating(self, request, context):
+        """IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IsKernelActivelyTrainingOrMigrating(self, request, context):
+        """IsKernelActivelyMigrating is used to query whether or not a particular kernel is actively being migrated
+        or if it is actively training.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListKernels(self, request, context):
         """Return a list of all of the current kernel IDs.
         """
@@ -609,6 +651,14 @@ class DistributedClusterServicer(object):
 
     def GetClusterActualGpuInfo(self, request, context):
         """Return the current GPU resource metrics on the node.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetJupyterMessage(self, request, context):
+        """GetJupyterMessage enables frontend clients to request a Jupyter message via gRPC in situations where
+        the ZMQ message appears to have been delayed or dropped or otherwise lost in transit to the client.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -796,6 +846,21 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.PingInstruction.FromString,
                     response_serializer=gateway__pb2.Pong.SerializeToString,
             ),
+            'IsKernelActivelyTraining': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelActivelyTraining,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.IsKernelTrainingReply.SerializeToString,
+            ),
+            'IsKernelActivelyMigrating': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelActivelyMigrating,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.IsKernelMigratingReply.SerializeToString,
+            ),
+            'IsKernelActivelyTrainingOrMigrating': grpc.unary_unary_rpc_method_handler(
+                    servicer.IsKernelActivelyTrainingOrMigrating,
+                    request_deserializer=gateway__pb2.KernelId.FromString,
+                    response_serializer=gateway__pb2.IsKernelTrainingOrMigratingReply.SerializeToString,
+            ),
             'ListKernels': grpc.unary_unary_rpc_method_handler(
                     servicer.ListKernels,
                     request_deserializer=gateway__pb2.Void.FromString,
@@ -810,6 +875,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.GetClusterActualGpuInfo,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.ClusterActualGpuInfo.SerializeToString,
+            ),
+            'GetJupyterMessage': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetJupyterMessage,
+                    request_deserializer=gateway__pb2.GetJupyterMessageRequest.FromString,
+                    response_serializer=gateway__pb2.GetJupyterMessageResponse.SerializeToString,
             ),
             'GetClusterVirtualGpuInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetClusterVirtualGpuInfo,
@@ -1045,6 +1115,87 @@ class DistributedCluster(object):
             _registered_method=True)
 
     @staticmethod
+    def IsKernelActivelyTraining(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/IsKernelActivelyTraining',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.IsKernelTrainingReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IsKernelActivelyMigrating(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/IsKernelActivelyMigrating',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.IsKernelMigratingReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IsKernelActivelyTrainingOrMigrating(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/IsKernelActivelyTrainingOrMigrating',
+            gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.IsKernelTrainingOrMigratingReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def ListKernels(request,
             target,
             options=(),
@@ -1115,6 +1266,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/GetClusterActualGpuInfo',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.ClusterActualGpuInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetJupyterMessage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetJupyterMessage',
+            gateway__pb2.GetJupyterMessageRequest.SerializeToString,
+            gateway__pb2.GetJupyterMessageResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1594,7 +1772,7 @@ class ClusterDashboardStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.SendNotification = channel.unary_unary(
                 '/gateway.ClusterDashboard/SendNotification',
@@ -1676,7 +1854,7 @@ class KernelErrorReporterStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.Notify = channel.unary_unary(
                 '/gateway.KernelErrorReporter/Notify',
@@ -1762,7 +1940,7 @@ class LocalGatewayStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.SetID = channel.unary_unary(
                 '/gateway.LocalGateway/SetID',
@@ -1822,6 +2000,11 @@ class LocalGatewayStub(object):
         self.UpdateReplicaAddr = channel.unary_unary(
                 '/gateway.LocalGateway/UpdateReplicaAddr',
                 request_serializer=gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
+        self.StartSyncLog = channel.unary_unary(
+                '/gateway.LocalGateway/StartSyncLog',
+                request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
         self.PrepareToMigrate = channel.unary_unary(
@@ -1948,15 +2131,22 @@ class LocalGatewayServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def AddReplica(self, request, context):
-        """Used to instruct a set of kernel replicas to add a new node to their SMR cluster.
+        """AddReplica instructs a set of kernel replicas to add a new node to their SMR cluster.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def UpdateReplicaAddr(self, request, context):
-        """Used to instruct a set of kernel replicas to update the peer address of a particular node.
+        """UpdateReplicaAddr instructs a set of kernel replicas to update the peer address of a particular node.
         This is primarily used during migrations.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StartSyncLog(self, request, context):
+        """StartSyncLog instructs the LocalGateway to send a "start_synclog_request" message to the specified kernel replica.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -2098,6 +2288,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'UpdateReplicaAddr': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateReplicaAddr,
                     request_deserializer=gateway__pb2.ReplicaInfoWithAddr.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'StartSyncLog': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartSyncLog,
+                    request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
             'PrepareToMigrate': grpc.unary_unary_rpc_method_handler(
@@ -2470,6 +2665,33 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/UpdateReplicaAddr',
             gateway__pb2.ReplicaInfoWithAddr.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StartSyncLog(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/StartSyncLog',
+            gateway__pb2.ReplicaInfo.SerializeToString,
             gateway__pb2.Void.FromString,
             options,
             channel_credentials,

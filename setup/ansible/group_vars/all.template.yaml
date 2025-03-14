@@ -31,28 +31,35 @@ distributed_notebook_subscribed_scaling_interval: 30
 distributed_notebook_subscribed_scaling_limit: 1.1
 distributed_notebook_subscribed_scaling_in_limit: 2
 distributed_notebook_initial_cluster_size: 4
+distributed_notebook_min_cluster_nodes: 4
 distributed_notebook_initial_connection_period: 60
 distributed_notebook_election_timeout_seconds: 3
-distributed_notebook_mean_scale_out_per_host_sec: 15
+distributed_notebook_mean_scale_out_per_host_sec: 8
 distributed_notebook_std_dev_scale_out_per_host_sec: 2
-distributed_notebook_mean_scale_in_per_host_sec: 10
+distributed_notebook_mean_scale_in_per_host_sec: 6
 distributed_notebook_std_dev_scale_in_per_host_sec: 1
 distributed_notebook_use_real_gpus: false
 distributed_notebook_save_stopped_kernel_containers: false
 distributed_notebook_bind_debugpy_port: false
 distributed_notebook_assign_kernel_debug_ports: false
 distributed_notebook_submit_execute_requests_one_at_a_time: true
-distributed_notebook_s3_bucket: "distributed-notebook-storage"
+distributed_notebook_remote_storage_s3_bucket: "bcarver-distributed-notebook-storage"
 distributed_notebook_aws_region: "us-east-1"
 distributed_notebook_idle_session_reclamation_enabled: true
-distributed_notebook_idle_session_reclamation_interval_sec: 1800
+distributed_notebook_idle_session_reclamation_interval_sec: 90
 distributed_notebook_prewarming_enabled: true
-distributed_notebook_min_prewarm_containers_per_host: 1
-distributed_notebook_max_prewarm_containers_per_host: 3
+distributed_notebook_initial_prewarm_containers_per_host: 3
+distributed_notebook_min_prewarm_containers_per_host: 3
+distributed_notebook_max_prewarm_containers_per_host: 4
 distributed_notebook_prewarming_policy: maintain_minimum_capacity
+distributed_notebook_dynamically_maintain_capacity: true
+distributed_notebook_replenish_on_use: false
+distributed_notebook_daemon_deployment_mode: global
+distributed_notebook_daemon_num_replicas: 1
+distributed_notebook_daemon_max_replicas_per_node: 1
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
-distributed_notebook_remote_storage_type: redis
+distributed_notebook_remote_storage_type: s3
 
 # The 'advertise address' is an externally reachable address advertised to other nodes.
 # This port is used with the 'advertise address', which is set to the "ansible_nodename" of the first manager node.
@@ -111,16 +118,17 @@ local_daemon_docker_image_tag: latest
 ##################################################################
 
 redis_port: 6379
-redis_maxmemory: 1024mb
+redis_maxmemory: 0
 redis_password: ""
 redis_database: 0
+redis_appendonly: "no"
 
 ##################################################################
 # Jupyter Server
 ##################################################################
 
 jupyter_server_docker_username: scusemua
-jupyter_server_docker_image_name: jupyter-debug
+jupyter_server_docker_image_name: jupyter-cpu-dev
 jupyter_server_docker_image_tag: latest
 
 ##################################################################
@@ -240,7 +248,7 @@ gopy_image_tag: "latest"
 # Golang (protoc)
 ###################################################################
 protoc_gen_go: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"
-protoc_gen_go_grpc: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"
+protoc_gen_go_grpc: "google.golang.org/rpc/cmd/protoc-gen-go-rpc@latest"
 
 ##################################################################
 # Kind
@@ -272,7 +280,7 @@ kubectl_bin_path: "/usr/bin/kubectl"
 python_version: "3.12.6"
 python_short_version: "3.12"
 python_build_dir: "/home/ubuntu"
-python_virtual_env_dir: "/home/{{ remote_username }}/distributed-notebook-python-venv"
+python_virtual_env_dir: "/home/{{ remote_username }}/virtual-environments/distributed-notebook-python-venv"
 
 ##################################################################
 # ZooKeeper

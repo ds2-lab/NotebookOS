@@ -2,11 +2,13 @@ import ast
 import asyncio
 import logging
 import os
+from collections import defaultdict
+
 import sys
 import time
 import traceback
 import types
-from typing import Any, Callable, Optional, List
+from typing import Any, Callable, Optional, List, Dict
 
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.logs import ColoredLogFormatter
@@ -47,10 +49,9 @@ class Synchronizer:
         opts=0,
         node_id: int = -1,
         num_replicas: int = 3,
-        large_object_pointer_committed: Callable[
-            [SyncPointer], Optional[CustomDataset | DeepLearningModel]
-        ] = None,
+        large_object_pointer_committed: Callable[[SyncPointer], Optional[CustomDataset | DeepLearningModel]] = None,
         remote_checkpointer: Checkpointer = None,
+        report_error_callback: Callable[[str, str], None] = None,
     ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
@@ -66,6 +67,7 @@ class Synchronizer:
         self._store_path: str = store_path
         self._node_id: int = node_id
         self._num_replicas: int = num_replicas
+        self._report_error_callback: Callable[[str, str], None] = report_error_callback
 
         # Set callbacks for synclog
         sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)
@@ -79,12 +81,12 @@ class Synchronizer:
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._handled_sync_values = defaultdict(int)
+
         self.log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
 
         try:
-            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
-                asyncio.get_running_loop()
-            )
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
             self._async_loop.set_debug(True)
         except RuntimeError:
             self.log.warning("No asyncio Event Loop running...")
@@ -155,9 +157,7 @@ class Synchronizer:
         self.log.debug("Starting Synchronizer")
 
         try:
-            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
-                asyncio.get_running_loop()
-            )
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
             self._async_loop.set_debug(True)
         except RuntimeError:
             self.log.warning("No asyncio Event Loop running...")
@@ -184,9 +184,7 @@ class Synchronizer:
         prev_exec_count: int = self._ast.execution_count
         self._ast.fast_forward_executions()
 
-        self.log.debug(
-            f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count})."
-        )
+        self.log.debug(f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count}).")
 
     def set_execution_count(self, execution_count):
         """
@@ -197,14 +195,12 @@ class Synchronizer:
         prev_exec_count: int = self._ast.execution_count
 
         if execution_count < prev_exec_count:
-            raise ValueError(
-                f"cannot set execution count to a lower value (current: {execution_count}, specified: {prev_exec_count})"
-            )
+            raise ValueError(f"cannot set execution count to a lower value "
+                             f"(current: {execution_count}, specified: {prev_exec_count})")
 
         self._ast.set_executions(execution_count)
-        self.log.debug(
-            f"Fast-forwarded execution count by {execution_count - prev_exec_count} (from {prev_exec_count} to {self._ast.execution_count})."
-        )
+        self.log.debug(f"Fast-forwarded execution count by {execution_count - prev_exec_count} "
+                       f"(from {prev_exec_count} to {self._ast.execution_count}).")
 
     def change_handler(self, val: SynchronizedValue, restoring: bool = False):
         """Change handler"""
@@ -216,6 +212,14 @@ class Synchronizer:
         elif val.key == KEY_SYNC_END:
             self._syncing = False
             self.log.debug("<< exit execution syncing [1]")
+            return
+
+        if val.id not in self._handled_sync_values:
+            self._handled_sync_values[val.id] = 1
+        else:
+            num_times: int = self._handled_sync_values[val.id] + 1
+            self._handled_sync_values[val.id] = num_times
+            self.log.warning(f'Received SyncVal "{val.id}" again (number of times: {num_times}). Discarding: {val}.')
             return
 
         try:
@@ -231,119 +235,99 @@ class Synchronizer:
                 if isinstance(val.data, SyncObject):
                     existed = val.data
                 else:
-                    existed = SyncObjectWrapper(
-                        self._referer
-                    )  # Initialize an empty object wrapper.
+                    # Initialize an empty object wrapper.
+                    existed = SyncObjectWrapper(self._referer)
 
             # Switch context
-            old_main_modules = sys.modules["__main__"]
+            old_main_modules =sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
-            self.log.debug(
-                f'Handling updated/changed SynchronizedValue with key="{val.key}" of type {type(val).__name__}: {val}'
-            )
+            if isinstance(existed, SyncAST) and existed.execution_count == val.tag and val.proposer_id == self._node_id:
+                self.log.debug(f"Received own SyncAST with execution count {existed.execution_count}. Skipping.")
+                return
 
+            self.log.debug(f'Handling updated value of type {type(val).__name__} with key="{val.key}": {val}')
             diff = existed.update(val)
-            self.log.debug(f"{val.key} of type {type(diff).__name__}: {diff}")
 
             sys.modules["__main__"] = old_main_modules
             # End of switch context
 
             if val.key == KEY_SYNC_AST:
-                self.ast_changed(existed, diff)
+                self.ast_changed(existed, diff, val)
             else:
                 assert isinstance(existed, SyncObjectWrapper)
                 assert val.key is not None
-                self.variable_changed(val, existed)
 
+                self.log.debug(f"Variable \"{val.key}\" of type {type(existed).__name__} has changed: {diff}")
+                self.variable_changed(val, existed)
             if val.should_end_execution:
                 self._syncing = False
                 self.log.debug("<< exit execution syncing [2]")
         except Exception as e:
             # print_trace(limit = 10)
-            self.log.error(
-                "Exception encountered in change handler for synchronizer: %s" % str(e)
-            )
-            tb: list[str] = traceback.format_exception(e)
-            for frame in tb:
-                self.log.error(frame)
+            self.log.error("Exception encountered in change handler for synchronizer: %s" % str(e))
+            self.log.error(traceback.format_exc())
+        finally:
+            local_election: Election = self.current_election
+            if local_election is not None and local_election.term_number < self.execution_count:
+                self.log.warning(f"Current local election has term number {local_election.term_number}, "
+                                 f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
 
-        local_election: Election = self.current_election
-        if (
-            local_election is not None
-            and local_election.term_number < self.execution_count
-        ):
-            self.log.warning(
-                f"Current local election has term number {local_election.term_number}, "
-                f"but we (now) have execution count of {self.execution_count}. We're out-of-sync..."
-            )
+            self._synclog.update_term_msg_id_mappings(val)
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
             pointer: SyncPointer = existed.object
-            self.log.debug(
-                f'Large object pointer variable "{pointer.user_namespace_variable_name}" of type {type(pointer).__name__} changed.'
-            )
+            self.log.debug(f'Large object pointer variable "{pointer.user_namespace_variable_name}" '
+                           f'of type {type(pointer).__name__} changed.')
             large_object = self._large_object_pointer_committed(existed.object)
 
             # If the return value is None, then the large object that was committed was originally proposed by us.
             if large_object is None:
                 return
-                # if isinstance(large_object, ModelPointer):
-                #     assert large_object.model is not None
-                #     variable_value: Any = large_object.model
-                # else:
-                #     assert isinstance(large_object, DatasetPointer)
-                #     assert large_object.dataset is not None
-                #     variable_value: Any = large_object.dataset
-            # else:
-            self.log.debug(
-                f'Assigning large object of type {type(large_object).__name__} to variable "{val.key}".'
-            )
+
+            self.log.debug(f'Assigning large object of type {type(large_object).__name__} to variable "{val.key}".')
 
             # We want to put the large object in the global namespace, rather than the pointer.
             variable_value: Any = large_object
             sys.stderr.flush()
             sys.stdout.flush()
         else:
-            self.log.debug(
-                f'Variable "{val.key}" of type {type(existed.object).__name__} changed.'
-            )
+            self.log.debug(f'Variable "{val.key}" of type {type(existed.object).__name__} changed.')
             variable_value: Any = existed.object
 
         self._tags[val.key] = existed
         self.global_ns[val.key] = variable_value
 
-    def ast_changed(self, existed: Optional[SyncObject], diff):
+    def ast_changed(self, existed: Optional[SyncObject], diff, syncVal: SynchronizedValue):
         assert isinstance(existed, SyncAST)
         old_exec_count: int = -1
         if self._ast is not None:
             old_exec_count = self._ast.execution_count
+
+        # Update this mapping before, so if we receive an execute_request or yield_request and begin processing it,
+        # the mapping exists before the execution_count field is updated.
+        self._synclog.update_term_msg_id_mappings(syncVal)
         self._ast = existed
 
         if self.execution_count != old_exec_count:
-            self.log.debug(
-                f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST."
-            )
+            self.log.debug(f"Execution count changed from {old_exec_count} to "
+                           f"{self.execution_count} after synchronizing AST.")
 
         # Redeclare modules, classes, and functions.
         try:
             compiled = compile(diff, "sync", "exec")
         except Exception as ex:
-            self.log.error(
-                f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}"
-            )
+            self.log.error(f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}")
             raise ex  # Re-raise.
 
         try:
             exec(compiled, self.global_ns, self.global_ns)
         except Exception as ex:
-            self.log.error(
-                f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}"
-            )
+            self.log.error(f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}")
             raise ex  # Re-raise.
 
-    async def propose_lead(self, jupyter_message_id: str, term_number: int) -> int:
+    async def propose_lead(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> int:
         """Propose to lead the next execution.
 
         Wait the ready of the synchronization and propose to lead a execution.
@@ -351,36 +335,39 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self.log.debug("Synchronizer is proposing to lead term %d" % term_number)
+        # If the target replica ID is specified, then it should match our node ID.
+        # If it doesn't, then we should've been sent a "yield_request", and we shouldn't
+        # be proposing 'LEAD'. 
+        if target_replica_id >= 1 and target_replica_id != self._node_id:
+            raise ValueError(f"Target replica ID specified as {target_replica_id} "
+                             f"but we're still proposing 'LEAD' as node {self._node_id}.")
+        
+        self.log.debug(f"Synchronizer is proposing to lead term {term_number}")
+        we_won: bool = False
         try:
             # Propose to lead specified term.
             # Term 0 tries to lead the next term whatever and will always success.
-            if await self._synclog.try_lead_execution(jupyter_message_id, term_number):
-                self.log.debug("We won the election to lead term %d" % term_number)
-                # Synchronized, execution_count was updated to last execution.
-                self._async_loop = asyncio.get_running_loop()  # Update async_loop.
-                return self._synclog.term
+            we_won = await self._synclog.try_lead_execution(jupyter_message_id, term_number,
+                                                            target_replica_id = target_replica_id)
         except SyncError as se:
             self.log.warning("SyncError: {}".format(se))
-            # print_trace(limit = 10)
-            stack: list[str] = traceback.format_exception(se)
-            for frame in stack:
-                self.log.error(frame)
+            self.log.error(traceback.format_exception(se))
         except DiscardMessageError as dme:
-            self.log.warning(
-                f"Received direction to discard Jupyter Message {jupyter_message_id}, "
-                f"as election for term {term_number} was skipped: {dme}"
-            )
+            self.log.warning(f"Received direction to discard Jupyter Message {jupyter_message_id}, "
+                             f"as election for term {term_number} was skipped: {dme}")
             raise dme
         except Exception as e:
             self.log.error("Exception encountered while proposing LEAD: %s" % str(e))
-            # print_trace(limit = 10)
-            stack: list[str] = traceback.format_exception(e)
-            for frame in stack:
-                self.log.error(frame)
+            self.log.error(traceback.format_exception(e))
             raise e
 
-        self.log.debug("We lost the election to lead term %d" % term_number)
+        if we_won:
+            self.log.debug("We won the election to lead term %d" % term_number)
+            # Synchronized, execution_count was updated to last execution.
+            self._async_loop = asyncio.get_running_loop()  # Update async_loop.
+            return self._synclog.term
+
+        self.log.debug(f"We lost the election to lead term {term_number}.")
         # Failed to lead the term
         return 0
 
@@ -437,7 +424,7 @@ class Synchronizer:
         code_executed: bool = election.code_execution_completed_successfully
         return (voting_done and code_executed) or election.is_in_failed_state
 
-    async def propose_yield(self, jupyter_message_id: str, term_number: int) -> int:
+    async def propose_yield(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> int:
         """Propose to yield the next execution to another replica.
 
         Wait the ready of the synchronization and propose to lead a execution.
@@ -445,33 +432,26 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self.log.debug("Synchronizer is proposing to yield term %d" % term_number)
+        self.log.debug(f"Synchronizer::propose_yield[term={term_number},target_replica_id={target_replica_id}]")
         try:
-            if await self._synclog.try_yield_execution(jupyter_message_id, term_number):
-                self.log.error(
-                    "synclog.yield_exection returned true despite the fact that we're yielding..."
-                )
-                raise ValueError(
-                    "synclog.yield_exection returned true despite the fact that we're yielding"
-                )
+            if await self._synclog.try_yield_execution(jupyter_message_id, term_number, target_replica_id = target_replica_id):
+                self.log.error("synclog.yield_execution returned true despite the fact that we're yielding...")
+                raise ValueError("synclog.yield_execution returned true despite the fact that we're yielding")
         except SyncError as se:
-            self.log.warning("SyncError: {}".format(se))
+            self.log.warning(f"SyncError: {se}")
             # print_trace(limit = 10)
             stack: list[str] = traceback.format_exception(se)
             for frame in stack:
                 self.log.error(frame)
         except Exception as e:
-            self.log.error("Exception encountered while proposing YIELD: %s" % str(e))
+            self.log.error(f"Exception encountered while proposing YIELD: {e}")
             # print_trace(limit = 10)
             stack: list[str] = traceback.format_exception(e)
             for frame in stack:
                 self.log.error(frame)
             raise e
 
-        self.log.debug(
-            "Successfully yielded the execution to another replica for term %d"
-            % term_number
-        )
+        self.log.debug(f"Successfully yielded the execution to another replica for term {term_number}")
         # Failed to lead the term, which is what we want to happen since we're YIELDING.
         return 0
 
@@ -479,7 +459,6 @@ class Synchronizer:
         """
         Wait until the leader of the specified election finishes executing the code,
         or until we know that all replicas yielded.
-
         :param term_number: the term number of the election
         """
         self.log.debug(
@@ -496,13 +475,10 @@ class Synchronizer:
         :param term_number: the term of the election for which we served as leader and executed
         the user-submitted code.
         """
-        self.log.debug(
-            f"Notifying peers that execution of code during election term {term_number} has finished."
-        )
-
+        self.log.debug(f"Notifying peers that execution of code during election term {term_number} has finished.")
         await self._synclog.notify_execution_complete(term_number)
 
-    async def ready(self, jupyter_message_id: str, term_number: int, lead: bool) -> int:
+    async def ready(self, jupyter_message_id: str, term_number: int, lead: bool = False, target_replica_id: int = -1) -> int:
         """
         Wait for the replicas to synchronize and propose a leader for an election.
         Returns the execution count that granted to lead or 0 if denied.
@@ -517,19 +493,13 @@ class Synchronizer:
 
         if lead:
             self.log.debug("Synchronizer::Ready(LEAD): Proposing to lead now.")
-            res = await self.propose_lead(jupyter_message_id, term_number)
-            self.log.debug(
-                "Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: %d"
-                % res
-            )
+            res = await self.propose_lead(jupyter_message_id, term_number, target_replica_id = target_replica_id)
+            self.log.debug(f"Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: {res}")
             return res
         else:
             self.log.debug("Synchronizer::Ready(YIELD): Proposing to yield now.")
-            res = await self.propose_yield(jupyter_message_id, term_number)
-            self.log.debug(
-                "Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d"
-                % res
-            )
+            res = await self.propose_yield(jupyter_message_id, term_number, target_replica_id = target_replica_id)
+            self.log.debug(f"Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: {res}")
             return res
 
     async def sync(
@@ -537,10 +507,13 @@ class Synchronizer:
         execution_ast: ast.Module,
         source: Optional[str] = None,
         checkpointer: Optional[Checkpointer] = None,
+        jupyter_message_id: str = "",
     ) -> bool:
         """
         Note: `execution_ast` may be None if the user's code had a syntax error.
         TODO(Ben): See what happens if there are other errors, such as dividing by zero or array out-of-bounds.
+
+        :return: True if synchronization was successful, False if not.
         """
         self.log.debug("Synchronizing execution AST: %s" % str(execution_ast))
         sync_log = self._synclog
@@ -578,9 +551,7 @@ class Synchronizer:
             synced = 0
 
             self._syncing = True
-            self.log.debug(
-                f"Setting sync_ast.term to term of AST: {self._ast.execution_count}"
-            )
+            self.log.debug(f"Setting sync_ast.term to term of AST: {self._ast.execution_count}")
             sync_ast.set_election_term(self._ast.execution_count)
             sync_ast.set_key(KEY_SYNC_AST)
             if expected == 0:
@@ -590,6 +561,7 @@ class Synchronizer:
                 self._syncing = False
 
             sync_ast.set_proposer_id(self._node_id)
+            sync_ast.jupyter_message_id = jupyter_message_id
 
             # current_election: Election = self._synclog.current_election
             # if current_election is not None:
@@ -628,6 +600,7 @@ class Synchronizer:
                     end_execution=synced == expected,
                     checkpointing=checkpointing,
                     meta=meta,
+                    jupyter_message_id=jupyter_message_id,
                 )
                 self.log.debug('Successfully synchronized key "%s".' % key)
 
@@ -637,12 +610,12 @@ class Synchronizer:
             tb = traceback.format_exc()
             self.log.error("SyncError: {}".format(se))
             self.log.error(tb)
-            return False
+            raise se # Re-raise
         except Exception as e:
             tb = traceback.format_exc()
             self.log.error(f"Exception Encountered: {e}")
             self.log.error(tb)
-            return False
+            raise e # Re-raise
 
         # If there were keys we were unable to sync, then return an error.
         if len(unknown_keys) > 0:
@@ -653,27 +626,21 @@ class Synchronizer:
         return True
 
     async def sync_key(
-        self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None
+        self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None, jupyter_message_id = ""
     ):
         assert sync_log is not None
 
         if key in self._tags:
             existed = self._tags[key]
-            self.log.debug(
-                f'SyncObjectWrapper already exists for variable "{key}" of type {type(existed.object).__name__}'
-            )
+            self.log.debug(f'SyncObjectWrapper already exists for variable "{key}" of type {type(val).__name__}')
         else:
-            if checkpointing:
-                self.log.error(
-                    f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False..."
-                )
-
             # TODO: Add support to SyncObject factory
             existed = SyncObjectWrapper(self._referer)
             self._tags[key] = existed
-            self.log.debug(
-                f'Creating new SyncObjectWrapper for variable "{key}" of type {type(existed.object).__name__}'
-            )
+            self.log.debug(f'Creating new SyncObjectWrapper for variable "{key}" of type {type(val).__name__}')
+
+            if checkpointing:
+                self.log.warning(f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False...")
 
         # self._log.debug("Syncing {}...".format(key))
 
@@ -682,10 +649,8 @@ class Synchronizer:
         sys.modules["__main__"] = self._module
 
         if isinstance(val, CustomDataset):
-            self.log.debug(
-                f'Synchronizing Dataset "{val.name}" ("{key}"). '
-                f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]"
-            )
+            self.log.debug(f'Synchronizing Dataset "{val.name}" ("{key}"). '
+                           f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             dataset_pointer: DatasetPointer = DatasetPointer(
                 dataset=val,
                 user_namespace_variable_name=key,
@@ -693,11 +658,10 @@ class Synchronizer:
                 proposer_id=self._node_id,
             )
             val = dataset_pointer
+            val.delete_dataset_field()
         elif isinstance(val, DeepLearningModel):
-            self.log.debug(
-                f'Synchronizing Model "{val.name}" ("{key}"). '
-                f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]"
-            )
+            self.log.debug(f'Synchronizing Model "{val.name}" ("{key}"). '
+                           f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             model_pointer: ModelPointer = ModelPointer(
                 deep_learning_model=val,
                 user_namespace_variable_name=key,
@@ -707,20 +671,17 @@ class Synchronizer:
             try:
                 await self._remote_checkpointer.write_state_dicts_async(model_pointer)
             except ValueError as value_error:
-                self.log.warning(
-                    f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
-                    f'DeepLearningModel for variable "{model_pointer.user_namespace_variable_name}" '
-                    f'("{key}"): {value_error}'
-                )
+                self.log.warning(f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
+                                 f'DeepLearningModel for variable "{model_pointer.user_namespace_variable_name}" '
+                                 f'("{key}"): {value_error}')
+                raise value_error # re-raise
 
-            self.log.debug(
-                f'Finished writing state dictionaries of model "{val.name}" variable "{key}" to remote storage.'
-            )
+            self.log.debug(f'Finished writing state dictionaries of model "{val.name}" '
+                           f'variable "{key}" to remote storage.')
             val = model_pointer
+            val.delete_model_field()
         else:
-            self.log.debug(
-                f'Synchronizing {type(val).__name__} "{key}" [checkpointing={checkpointing}].'
-            )
+            self.log.debug(f'Synchronizing {type(val).__name__} "{key}" [checkpointing={checkpointing}].')
 
         if checkpointing:
             sync_val = existed.dump(meta=meta)
@@ -747,6 +708,9 @@ class Synchronizer:
 
             assert sync_log is not None
 
+            if jupyter_message_id is not None and jupyter_message_id != "":
+                sync_val.jupyter_message_id = jupyter_message_id
+
             st: float = time.time()
             await sync_log.append(sync_val)
             et: float = time.time()
@@ -759,17 +723,20 @@ class Synchronizer:
             # Synthesize end
             assert sync_log is not None
 
-            st: float = time.time()
-            await sync_log.append(
-                SynchronizedValue(
-                    None,
-                    None,
-                    election_term=self._ast.execution_count,
-                    should_end_execution=True,
-                    key=KEY_SYNC_END,
-                    proposer_id=self._node_id,
-                )
+            val_to_append = SynchronizedValue(
+                None,
+                None,
+                election_term=self._ast.execution_count,
+                should_end_execution=True,
+                key=KEY_SYNC_END,
+                proposer_id=self._node_id,
             )
+
+            if jupyter_message_id is not None and jupyter_message_id != "":
+                val_to_append.jupyter_message_id = jupyter_message_id
+
+            st: float = time.time()
+            await sync_log.append(val_to_append)
             et: float = time.time()
             time_elapsed: float = et - st
 
@@ -793,12 +760,34 @@ class Synchronizer:
         # self._log.debug("in should_checkpoint_callback: {}".format(cp))
         return cp
 
+    async def sync_swallow_exceptions(
+            self,
+            execution_ast: ast.Module,
+            source: Optional[str] = None,
+            checkpointer: Optional[Checkpointer] = None,
+    )->bool:
+        try:
+            return await self.sync(
+                execution_ast,
+                source = source,
+                checkpointer = checkpointer
+            )
+        except Exception as ex:
+            self.log.warning(f"Exception while syncing (and swallowing exceptions): {ex}")
+            return False
+
     def checkpoint_callback(self, checkpointer: Checkpointer) -> None:
         self.log.debug("Checkpointing...")
+        sys.stderr.flush()
+        sys.stdout.flush()
         checkpointer.lead(self._ast.execution_count)
         # await self.sync(None, source="checkpoint", checkpointer=checkpointer)
         # checkpointer.close()
         asyncio.run_coroutine_threadsafe(
-            self.sync(None, source="checkpoint", checkpointer=checkpointer),
+            self.sync_swallow_exceptions(None, source="checkpoint", checkpointer=checkpointer),
             self._async_loop,
         )
+
+    @property
+    def synclog(self):
+        return self._synclog

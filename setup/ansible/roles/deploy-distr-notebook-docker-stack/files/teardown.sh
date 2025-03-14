@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker stack rm distributed_cluster
+docker stack rm distributed_notebook

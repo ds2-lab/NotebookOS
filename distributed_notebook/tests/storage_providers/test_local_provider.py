@@ -1,6 +1,6 @@
 import io
 
-from distributed_notebook.sync.storage.local_provider import LocalStorageProvider
+from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
 
 def test_create():
     local_provider: LocalStorageProvider = LocalStorageProvider()
@@ -17,8 +17,14 @@ def test_upload_and_download_string():
     success: bool = local_provider.write_value(obj_name, data)
     assert success
 
-    data: io.BytesIO = local_provider.read_value(obj_name)
-    print("Read data:", data.getvalue().decode("utf-8"))
+    data: io.BytesIO | str | bytes = local_provider.read_value(obj_name)
+
+    if isinstance(data, io.BytesIO):
+        print("Read data:", data.getbuffer().tobytes().decode("utf-8"))
+    elif isinstance(data, bytes):
+        print("Read data:", data.decode("utf-8"))
+    else:
+        print("Read data:", data)
 
     success = local_provider.delete_value(obj_name)
     assert success

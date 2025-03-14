@@ -91,7 +91,7 @@ func main() {
 	logger.Info("Starting Local Scheduler with the following options:\n%s\n", options.String())
 
 	if options.PrettyPrintOptions {
-		logger.Info("Local Scheduler Options pretty-printed:\n%s\n", options.PrettyString(2))
+		logger.Info("Local Scheduler ClusterGatewayOptions pretty-printed:\n%s\n", options.PrettyString(2))
 	}
 
 	if options.SchedulerDaemonOptions.CommonOptions.DebugMode {

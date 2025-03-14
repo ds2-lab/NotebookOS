@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
-	"github.com/scusemua/distributed-notebook/common/proto"
 	"io"
 	"log"
 	"math"
@@ -390,11 +389,11 @@ func (s *AbstractServer) sendAck(msg *messaging.JupyterMessage, socket *messagin
 	s.NumUniqueSends.Add(1)
 
 	if metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, ACK); metricError != nil {
-		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		s.Log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 	}
 
 	if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, ACK); metricError != nil {
-		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		s.Log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 	}
 
 	return nil
@@ -428,6 +427,71 @@ func (s *AbstractServer) tryHandleSpecialMessage(jMsg *messaging.JupyterMessage,
 	}
 
 	return true, nil
+}
+
+// serveMessage is called by Serve to serve a message.
+func (s *AbstractServer) serveMessage(msgOrErr interface{}, server messaging.JupyterServerInfo, socket *messaging.Socket, handler messaging.MessageHandler) (bool, error) {
+	goroutineId := goid.Get()
+
+	if err, ok := msgOrErr.(error); ok {
+		return false, err
+	}
+
+	jMsg, ok := msgOrErr.(*messaging.JupyterMessage)
+	if !ok {
+		panic("Unexpected type.")
+	}
+
+	if (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && !jMsg.IsAck() {
+		firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
+		secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
+		thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg.StringFormatted())
+		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+	}
+
+	var (
+		keepProcessing bool
+		err            error
+	)
+
+	keepProcessing, err = s.tryHandleSpecialMessage(jMsg, socket)
+	if err != nil {
+		panic(fmt.Sprintf("[gid=%d] Fatal error while attempting to handle message as special. Message: %v. Error: %v.", goroutineId, msgOrErr, err))
+	}
+
+	// If it was a special message, like an ACK, then we don't process it any further.
+	if !keepProcessing {
+		// Don't even send an ACK if we're not meant to keep processing this message.
+		return true, nil
+	}
+
+	// Send an ACK if (a) it is a Shell or Control message and (b) we've been configured to ACK messages in general.
+	//
+	// AbstractServers that live on the Cluster Gateway and receive messages from frontend clients typically
+	// do not ACK messages unless the frontend client is our custom Jupyter Golang client.
+	if !jMsg.IsAck() && (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && s.ShouldAckMessages {
+		ackErr := s.sendAck(jMsg, socket)
+		if ackErr != nil {
+			s.Log.Error("Error while sending 'ACK' for message. Message we failed to ACK: %s. Error: %v.", jMsg.String(), ackErr)
+		}
+	}
+
+	handlerStart := time.Now()
+	err = handler(server, socket.Type, jMsg)
+	if err != nil && !errors.Is(err, errServeOnce) {
+		s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."),
+			goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
+
+		// Send an error message of some sort back to the original sender, in Jupyter format.
+		_ = s.replyWithError(jMsg, socket, err)
+	} else if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream") {
+		// Only print this next bit for Shell, Control, and non-stream IOPub messages.
+		// That's all we care about here.
+		s.Log.Debug(utils.LightGreenStyle.Render("[gid=%d] Finished handling %s \"%s\" message \"%s\" (JupyterID=\"%s\") in %v."),
+			goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart))
+	}
+
+	return false, err
 }
 
 // Serve starts serving the socket with the specified handler.
@@ -477,63 +541,14 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 				return
 			}
 
-			var (
-				err   error
-				isAck bool
-			)
-			switch v := msg.(type) {
-			case error:
-				err = v
-			case *messaging.JupyterMessage:
-				jMsg := v
+			definitelyContinue, err := s.serveMessage(msg, server, socket, handler)
 
-				if (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && !jMsg.IsAck() {
-					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
-					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
-					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg.StringFormatted())
-					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
+			if definitelyContinue {
+				if contd != nil {
+					contd <- true
 				}
 
-				// This checks if the message is an ACK.
-				keepProcessing, err := s.tryHandleSpecialMessage(jMsg, socket)
-				if err != nil {
-					panic(fmt.Sprintf("[gid=%d] Fatal error while attempting to handle message as special. Message: %v. Error: %v.", goroutineId, msg, err))
-				}
-
-				// If it was a special message, like an ACK, then we don't process it any further.
-				if !keepProcessing {
-					if contd != nil {
-						contd <- true
-					}
-
-					// Don't even send an ACK if we're not meant to keep processing this message.
-					continue
-				}
-
-				// Send an ACK if (a) it is a Shell or Control message and (b) we've been configured to ACK messages in general.
-				//
-				// AbstractServers that live on the Cluster Gateway and receive messages from frontend clients typically
-				// do not ACK messages unless the frontend client is our custom Jupyter Golang client.
-				if !isAck && (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && s.ShouldAckMessages {
-					ackErr := s.sendAck(jMsg, socket)
-					if ackErr != nil {
-						s.Log.Error("Error while sending 'ACK' for message. Message we failed to ACK: %s. Error: %v.", jMsg.String(), ackErr)
-					}
-				}
-
-				handlerStart := time.Now()
-				err = handler(server, socket.Type, jMsg)
-				if err != nil && !errors.Is(err, errServeOnce) {
-					s.Log.Error(utils.OrangeStyle.Render("[gid=%d] Handler for %s \"%s\" message \"%s\" (JupyterID=\"%s\") has returned with an error after %v: %v."), goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart), err)
-
-					// Send an error message of some sort back to the original sender, in Jupyter format.
-					_ = s.replyWithError(jMsg, socket, err)
-				} else if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream") {
-					// Only print this next bit for Shell, Control, and non-stream IOPub messages.
-					// That's all we care about here.
-					s.Log.Debug(utils.LightGreenStyle.Render("[gid=%d] Finished handling %s \"%s\" message \"%s\" (JupyterID=\"%s\") in %v."),
-						goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), time.Since(handlerStart))
-				}
+				continue
 			}
 
 			// Stop serving on error.
@@ -566,7 +581,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 					return
 				}
 			} else if err != nil {
-				s.Log.Error(utils.RedStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
+				s.Log.Warn(utils.OrangeStyle.Render("[gid=%d] Error on handle %s message: %v. Message: %v."), goroutineId, socket.Type.String(), err, msg)
 
 				// s.Log.Debug("[gid=%d] Will NOT abort serving for now.", goroutineId)
 				if contd != nil {
@@ -661,7 +676,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *messaging.Jupyter
 		return nil, signingError
 	}
 
-	// Add the destination frame, in case we're in the Local Daemon and this has to go back to the Cluster Gateway.
+	// AddHost the destination frame, in case we're in the Local Daemon and this has to go back to the Cluster Gateway.
 	jMsg := messaging.NewJupyterMessage(&msg)
 	jMsg.AddDestinationId(originalMessage.DestinationId)
 
@@ -687,11 +702,11 @@ func (s *AbstractServer) replyWithError(originalMessage *messaging.JupyterMessag
 
 	if s.StatisticsAndMetricsProvider != nil && !reflect.ValueOf(s.StatisticsAndMetricsProvider).IsNil() {
 		if metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
-			s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			s.Log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
 		if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
-			s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+			s.Log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 	}
 
@@ -717,7 +732,7 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 //  3. Wait for timeout. If the context is not cancellable, a default timeout will be applied.
 //
 // available options:
-//   - SROptionRemoveDestFrame bool Remove the destination frame from the response.
+//   - SROptionRemoveDestFrame bool RemoveHost the destination frame from the response.
 //
 // Params:
 //   - server: The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
@@ -912,57 +927,62 @@ func (s *AbstractServer) printSendLatencyWarning(sendDuration time.Duration, msg
 //
 // If the send operation fails, then the messaging.Request is transitioned to an error state, and the associated
 // error is returned.
-func (s *AbstractServer) sendRequest(request messaging.Request, socket *messaging.Socket) error {
+func (s *AbstractServer) sendRequest(req messaging.Request, socket *messaging.Socket) error {
 	// This updates the frames of the zmq4.Msg, assigning them to be the frames of the JupyterMessage/JupyterFrames.
-	zmqMsg := request.Payload().GetZmqMsg()
+	zmqMsg := req.Payload().GetZmqMsg()
 
 	//s.Log.Debug(
 	//utils.PurpleStyle.Render(
 	//	"Sending %s \"%s\" message %s (JupyterID=\"%s\").\n\nJupyterFrames (%p): %s.\n\nzmq4.Msg Frames (%p): %s\n\n"),
-	//socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(),
-	//request.Payload().JupyterFrames.Frames, request.Payload().JupyterFrames.String(),
+	//socket.Type.String(), req.JupyterMessageType(), req.RequestId(), req.JupyterMessageId(),
+	//req.Payload().JupyterFrames.Frames, req.Payload().JupyterFrames.String(),
 	//zmqMsg.Frames, messaging.FramesToString(zmqMsg.Frames))
 
-	// Send the request.
+	// Send the req.
 	sendStart := time.Now()
 	err := socket.Send(*zmqMsg)
-	sendDuration := time.Since(sendStart)
+	sendDur := time.Since(sendStart)
 
 	if err != nil {
-		// If there was an error sending the request, then print an error message and transition the request to the 'erred' state.
-		if _, transitionErr := request.SetErred(err); transitionErr != nil {
-			s.Log.Error("Failed to transition %s \"%s\" request \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
-				request.MessageType(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), transitionErr)
+		// If there was an error sending the req, then print an error message and transition the req to the 'erred' state.
+		if _, transitionErr := req.SetErred(err); transitionErr != nil {
+			s.Log.Error("Failed to transition %s \"%s\" req \"%s\" (JupyterID = \"%s\") to 'erred' state: %v",
+				req.MessageType(), req.JupyterMessageType(), req.RequestId(), req.JupyterMessageId(), transitionErr)
 		}
 
 		return err
 	}
 
 	// Display a warning if the send operation took a while.
-	s.printSendLatencyWarning(sendDuration, request.JupyterMessageType(), request.RequestId())
+	s.printSendLatencyWarning(sendDur, req.JupyterMessageType(), req.RequestId())
 
 	// Record metrics.
 	s.NumSends.Add(1)
-	if metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
-		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+
+	// Record metrics.
+	if s.StatisticsAndMetricsProvider != nil {
+		metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDur, s.nodeType, socket.Type, req.JupyterMessageType())
+		if metricError != nil {
+			s.Log.Warn("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		}
 	}
 
 	// Print a fairly verbose log message when debug logging is enabled.
 	if s.Log.GetLevel() == logger.LOG_LEVEL_ALL {
 		goroutineId := goid.Get()
-		reqId := request.RequestId()
+		reqId := req.RequestId()
 
-		firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), request.JupyterMessageType())
-		secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(request.JupyterMessageId()))
+		firstPart := fmt.Sprintf(utils.LightBlueStyle.Render("[gid=%d] Sent %s \"%s\" message with"), goroutineId, socket.Type.String(), req.JupyterMessageType())
+		secondPart := fmt.Sprintf("reqID=%v (JupyterID=%s)", utils.PurpleStyle.Render(reqId), utils.LightPurpleStyle.Render(req.JupyterMessageId()))
 		thirdPart := fmt.Sprintf(utils.LightBlueStyle.Render("via %s. Attempt %d/%d. NumSends: %d. NumUniqueSends: %d. AckRequired: %v. Message: %v"),
-			socket.Name, request.CurrentAttemptNumber()+1, request.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), request.RequiresAck(), request.Payload().JupyterFrames.String())
+			socket.Name, req.CurrentAttemptNumber()+1, req.MaxNumAttempts(), s.NumSends.Load(), s.NumUniqueSends.Load(), req.RequiresAck(), req.Payload().JupyterFrames.String())
 		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 	}
 
-	// Record that the request has been submitted.
-	if _, err := request.SetSubmitted(); err != nil {
-		panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" request %s (JupyterID=%s): %v",
-			socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+	// Record that the req has been submitted.
+	if _, err := req.SetSubmitted(); err != nil {
+		panic(fmt.Sprintf("Request transition to 'submitted' state failed for %s \"%s\" req %s (JupyterID=%s): %v",
+			socket.Type.String(), req.JupyterMessageType(), req.RequestId(), req.JupyterMessageId(), err))
 	}
 
 	return nil
@@ -994,28 +1014,6 @@ func (s *AbstractServer) shouldAddRequestTrace(msg *messaging.JupyterMessage, so
 	return false
 }
 
-func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto.RequestTrace) {
-	if s.StatisticsAndMetricsProvider == nil {
-		return
-	}
-
-	gatewayRequestProcessTime := trace.RequestSentByGateway - trace.RequestReceivedByGateway
-	localDaemonRequestProcessTime := trace.RequestSentByLocalDaemon - trace.RequestReceivedByLocalDaemon
-	kernelProcessingTime := trace.ReplySentByKernelReplica - trace.RequestReceivedByKernelReplica
-
-	gatewayResponseProcessTime := trace.ReplySentByGateway - trace.ReplyReceivedByGateway
-	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
-
-	s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		statistics.CumulativeRequestProcessingTimeClusterGateway += gatewayRequestProcessTime
-		statistics.CumulativeRequestProcessingTimeLocalDaemon += localDaemonRequestProcessTime
-		statistics.CumulativeRequestProcessingTimeKernel += kernelProcessingTime
-
-		statistics.CumulativeResponseProcessingTimeClusterGateway += gatewayResponseProcessTime
-		statistics.CumulativeResponseProcessingTimeLocalDaemon += localDaemonResponseProcessTime
-	})
-}
-
 // sendRequestWithRetries encapsulates the logic of sending the given messaging.Request using the given messaging.Socket
 // in a reliable way; that is, sendRequestWithRetries will resubmit the given messaging.Request if an ACK is not received
 // within the messaging.Request's configured timeout window, up to the messaging.Request's configured maximum number of attempts.
@@ -1032,17 +1030,11 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 		//	socket.Type.String(), request.JupyterMessageType())
-		trace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
+		_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
 			panic(err)
-		}
-
-		// If the trace is non-nil and there's a value populated for the last entry of the trace, then we can
-		// extract the data from the trace.
-		if trace != nil && trace.RequestSentByGateway != proto.DefaultTraceTimingValue {
-			s.tryUpdateClusterStatisticsFromRequestTrace(trace)
 		}
 	}
 
@@ -1065,8 +1057,11 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 			// We only increment the unique "sent messages" counter here.
 			// We increment the other one earlier, before knowing if the send operation was ultimately "successful" or not.
 			s.NumUniqueSends.Add(1)
-			if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
-				s.Log.Error("Could not record 'SentMessageUnique' Prometheus metric because: %v", metricError)
+
+			if s.StatisticsAndMetricsProvider != nil {
+				if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
+					s.Log.Warn("Could not record 'SentMessageUnique' Prometheus metric because: %v", metricError)
+				}
 			}
 
 			recordedUniqueSend = true
@@ -1111,8 +1106,10 @@ func (s *AbstractServer) onAcknowledgementReceived(request messaging.Request, so
 		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 	}
 
-	if err := s.StatisticsAndMetricsProvider.AddAckReceivedLatency(ackReceivedLatency, s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
-		s.Log.Warn("Could not record \"ack received latency\" metric because: %v", err)
+	if s.StatisticsAndMetricsProvider != nil {
+		if err := s.StatisticsAndMetricsProvider.AddAckReceivedLatency(ackReceivedLatency, s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+			s.Log.Warn("Could not record \"ack received latency\" metric because: %v", err)
+		}
 	}
 }
 
@@ -1142,7 +1139,10 @@ func (s *AbstractServer) onNoAcknowledgementReceived(request messaging.Request, 
 		}
 
 		// Record metric.
-		_ = s.StatisticsAndMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType())
+		if s.StatisticsAndMetricsProvider != nil {
+			_ = s.StatisticsAndMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType())
+		}
+
 		return ErrRequestOutOfAttempts
 	}
 
@@ -1202,8 +1202,12 @@ func (s *AbstractServer) onSuccessfullySentMessage(request messaging.Request, so
 		panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 	}
 
+	if s.StatisticsAndMetricsProvider == nil {
+		return
+	}
+
 	if err := s.StatisticsAndMetricsProvider.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
-		s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
+		s.Log.Warn("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
 	}
 }
 
@@ -1277,7 +1281,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			if s.StatisticsAndMetricsProvider != nil {
 				s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 					// We know we're in the Gateway if the StatisticsUpdaterProvider
-					statistics.NumJupyterMessagesReceivedByClusterGateway += 1
+					statistics.NumJupyterMessagesReceivedByClusterGateway.Add(1)
 				})
 			}
 		} else {
@@ -1307,7 +1311,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 			// s.Log.Debug("[gid=%d] %v socket %s is waiting to be instructed to continue.", goroutineId, socket.Type, socket.Name)
 			proceed := <-contd
 			if !proceed {
-				s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping.",
+				s.Log.Debug("[gid=%d] Polling on %s socket %s is stopping.",
 					goroutineId, socket.Type.String(), socket.Name)
 				return
 			}
@@ -1359,7 +1363,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 					msg.JupyterFrames.RemoveDestFrame(true)
 				}
 
-				// Remove pending request and return registered handler. If timeout, the handler will be nil.
+				// RemoveHost pending request and return registered handler. If timeout, the handler will be nil.
 				if pending, exist := pendingRequests.LoadAndDelete(rspId); exist {
 					handler = pending.Handle // Handle will release the pending request once called.
 					request = pending.Request()
@@ -1370,11 +1374,13 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 						request.JupyterMessageId(), e2eLatency)
 
 					// Record the latency in (microseconds) in Prometheus.
-					if err := s.StatisticsAndMetricsProvider.AddMessageE2ELatencyObservation(e2eLatency,
-						s.ComponentId, s.nodeType, request.MessageType(), request.JupyterMessageType()); err != nil {
-						s.Log.Error("Could not record E2E latency of %v for %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
-							request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),
-							request.JupyterMessageId(), err)
+					if s.StatisticsAndMetricsProvider != nil {
+						if err := s.StatisticsAndMetricsProvider.AddMessageE2ELatencyObservation(e2eLatency,
+							s.ComponentId, s.nodeType, request.MessageType(), request.JupyterMessageType()); err != nil {
+							s.Log.Warn("Could not record E2E latency of %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
+								request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),
+								request.JupyterMessageId(), err)
+						}
 					}
 				}
 				// Continue serving if there are pending requests.
@@ -1390,7 +1396,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 		if handler != nil {
 			err := handler(info, msgType, msg)
 			if err != nil {
-				s.Log.Error(utils.RedStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
+				s.Log.Warn(utils.OrangeStyle.Render("Error on handle %v response: %v. Message: %v."), msgType, err, msg)
 			}
 
 			_, err = request.SetComplete()

@@ -1,20 +1,22 @@
-from typing import Any, Optional, Dict
+import asyncio
+from typing import Any, Optional, Dict, List
 
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
-from distributed_notebook.sync.storage.local_provider import LocalStorageProvider
-from distributed_notebook.sync.storage.redis_provider import RedisProvider
-from distributed_notebook.sync.storage.s3_provider import S3Provider, DEFAULT_AWS_S3_REGION, DEFAULT_S3_BUCKET_NAME
+from distributed_notebook.sync.remote_storage.local_provider import LocalStorageProvider
+from distributed_notebook.sync.remote_storage.redis_provider import RedisProvider
+from distributed_notebook.sync.remote_storage.s3_provider import S3Provider, DEFAULT_AWS_S3_REGION, DEFAULT_S3_BUCKET_NAME
 
 def get_local_checkpointer(**kwargs)->RemoteCheckpointer:
     local_provider: LocalStorageProvider = LocalStorageProvider()
     return RemoteCheckpointer(local_provider)
 
 def get_s3_checkpointer(
-        bucket_name: str = DEFAULT_S3_BUCKET_NAME,
+        host: str = DEFAULT_S3_BUCKET_NAME,
         aws_region: str = DEFAULT_AWS_S3_REGION,
+        **kwargs,
 )->RemoteCheckpointer:
-    s3_provider: S3Provider = S3Provider(bucket_name = bucket_name, aws_region = aws_region)
+    s3_provider: S3Provider = S3Provider(bucket_name = host, aws_region = aws_region)
     return RemoteCheckpointer(s3_provider)
 
 def get_redis_checkpointer(

@@ -76,6 +76,10 @@ class DatasetPointer(SyncPointer):
 
         return state_dict
 
+    def delete_dataset_field(self):
+        if hasattr(self, '_dataset'):
+            delattr(self, '_dataset')
+
     @property
     def dataset_name(self)->str:
         return self._large_object_name
@@ -115,6 +119,10 @@ class ModelPointer(SyncPointer):
 
         if hasattr(deep_learning_model, "input_size"):
             self._input_size: int = deep_learning_model.input_size
+
+    def delete_model_field(self):
+        if hasattr(self, '_model'):
+            delattr(self, '_model')
 
     def __getstate__(self):
         d = dict(self.__dict__)

@@ -5,6 +5,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/pkg/errors"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"sync/atomic"
 )
@@ -57,9 +58,13 @@ type baseSchedulingPolicy struct {
 
 	scalingOutEnabled bool
 	supportsMigration bool
+
+	clusterProvider scheduling.ClusterProvider
 }
 
-func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnabled bool, supportsMigration bool) (*baseSchedulingPolicy, error) {
+func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnabled bool, supportsMigration bool,
+	clusterProvider scheduling.ClusterProvider) (*baseSchedulingPolicy, error) {
+
 	idleSessionReclamationPolicy, err := GetIdleSessionReclamationPolicy(opts)
 	if err != nil {
 		return nil, err
@@ -71,6 +76,7 @@ func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnable
 		scalingOutEnabled:            scalingOutEnabled,
 		GpusPerHost:                  opts.GpusPerHost,
 		supportsMigration:            supportsMigration,
+		clusterProvider:              clusterProvider,
 	}
 
 	if opts.MinimumNumNodes < 1 {
@@ -81,6 +87,23 @@ func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnable
 	config.InitLogger(&basePolicy.log, basePolicy)
 
 	return basePolicy, nil
+}
+
+// ValidateHostForKernel allows the Policy to perform any policy-specific validation logic to ensure that
+// the given Host is viable for serving a replica of the specified Kernel.
+func (p *baseSchedulingPolicy) ValidateHostForKernel(_ scheduling.Host, _ *proto.KernelSpec, _ bool) (isViable bool, unviabilityReason error) {
+	return true, nil
+}
+
+// ValidateHostForReplica allows the Policy to perform any policy-specific validation logic to ensure that
+// the given Host is viable for serving a replica of the specified Kernel.
+func (p *baseSchedulingPolicy) ValidateHostForReplica(_ scheduling.Host, _ *proto.KernelReplicaSpec, _ bool) (isViable bool, unviabilityReason error) {
+	return true, nil
+}
+
+// GetClusterProviderFunc returns the scheduling.ClusterProvider func used by the target scheduling.Policy.
+func (p *baseSchedulingPolicy) GetClusterProviderFunc() scheduling.ClusterProvider {
+	return p.clusterProvider
 }
 
 func (p *baseSchedulingPolicy) getLogger() logger.Logger {

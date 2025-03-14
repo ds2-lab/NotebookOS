@@ -1,41 +1,45 @@
 package client
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+)
 
 type sessionManagerImpl struct {
-	sessions []string
+	sessions hashmap.HashMap[string, struct{}]
 }
 
 func NewSessionManager(kernelSess string) scheduling.SessionManager {
 	sm := &sessionManagerImpl{
-		sessions: make([]string, 1, 2), // Reserve 2 slots for kernel session and notebook session.
+		sessions: hashmap.NewThreadsafeCornelkMap[string, struct{}](2),
 	}
-	sm.sessions[0] = kernelSess
+	sm.sessions.Store(kernelSess, struct{}{})
 	return sm
 }
 
 // Sessions returns the associated session ID.
 func (c *sessionManagerImpl) Sessions() []string {
-	return c.sessions
+	sessions := make([]string, 0, c.sessions.Len())
+
+	c.sessions.Range(func(sessionId string, _ struct{}) bool {
+		sessions = append(sessions, sessionId)
+		return true
+	})
+
+	return sessions
 }
 
 // BindSession binds a session ID to the client.
 func (c *sessionManagerImpl) BindSession(sess string) {
-	// TODO: No deduplication for now. Add if needed.
-	c.sessions = append(c.sessions, sess)
+	c.sessions.Store(sess, struct{}{})
 }
 
 // UnbindSession unbinds a session ID from the client.
 func (c *sessionManagerImpl) UnbindSession(sess string) {
-	for i, s := range c.sessions {
-		if s == sess {
-			c.sessions = append(c.sessions[:i], c.sessions[i+1:]...)
-			return
-		}
-	}
+	c.sessions.Delete(sess)
 }
 
 // ClearSessions clears all sessions.
 func (c *sessionManagerImpl) ClearSessions() {
-	c.sessions = c.sessions[:0]
+	c.sessions = hashmap.NewThreadsafeCornelkMap[string, struct{}](2)
 }

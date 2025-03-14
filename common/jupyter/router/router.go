@@ -74,10 +74,10 @@ func New(ctx context.Context, id string, opts *jupyter.ConnectionInfo, provider 
 			}
 
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
-			s.Sockets.HB = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.HBPort, messaging.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
-			s.Sockets.Control = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ControlPort, messaging.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-Ctrl", remoteComponentName))
-			s.Sockets.Shell = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ShellPort, messaging.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-Shell", remoteComponentName))
-			s.Sockets.Stdin = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.StdinPort, messaging.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-Stdin", remoteComponentName))
+			s.Sockets.HB = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx, types.GetSocketOptions()...), opts.HBPort, messaging.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
+			s.Sockets.Control = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx, types.GetSocketOptions()...), opts.ControlPort, messaging.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-Ctrl", remoteComponentName))
+			s.Sockets.Shell = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx, types.GetSocketOptions()...), opts.ShellPort, messaging.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-Shell", remoteComponentName))
+			s.Sockets.Stdin = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx, types.GetSocketOptions()...), opts.StdinPort, messaging.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-Stdin", remoteComponentName))
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages

@@ -22,7 +22,7 @@ type Placer interface {
 
 	// FindHost returns a host that can satisfy the resourceSpec.
 	// This method is provided for development. Implementation are not required to implement this method.
-	FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (Host, error)
+	FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool, ignoreOversubscriptionRisk bool) (Host, error)
 
 	// Place atomically places a replica on a host.
 	// The subscription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.
@@ -61,7 +61,7 @@ type Placer interface {
 	//
 	// PRECONDITION: The specified KernelReplica should already be scheduled on the Host on which the resources are
 	// to be reserved.
-	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool) error
+	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool, ignoreOversubscriptionRisk bool) error
 }
 
 type PlacerStats interface {

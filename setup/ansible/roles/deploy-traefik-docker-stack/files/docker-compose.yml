@@ -95,3 +95,4 @@ networks:
   # services that need to be publicly available via this Traefik
   traefik-public:
     external: true
+    attachable: true

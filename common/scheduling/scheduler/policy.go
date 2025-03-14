@@ -46,7 +46,7 @@ type SchedulingPolicy interface {
 //
 // If it is unclear which scheduling.Policy should be returned, then a scheduling.ErrInvalidSchedulingPolicy will be
 // returned.
-func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (SchedulingPolicy, error) {
+func GetSchedulingPolicy(opts *scheduling.SchedulerOptions, clusterProvider scheduling.ClusterProvider) (SchedulingPolicy, error) {
 	if opts.SchedulingPolicy == "" {
 		return nil, fmt.Errorf("%w: unspecified (you did not specify one)", scheduling.ErrInvalidSchedulingPolicy)
 	}
@@ -54,15 +54,15 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (SchedulingPolicy, e
 	switch opts.SchedulingPolicy {
 	case string(scheduling.Reservation):
 		{
-			return policy.NewReservationPolicy(opts)
+			return policy.NewReservationPolicy(opts, clusterProvider)
 		}
 	case string(scheduling.FcfsBatch):
 		{
-			return policy.NewFcfsBatchSchedulingPolicy(opts)
+			return policy.NewFcfsBatchSchedulingPolicy(opts, clusterProvider)
 		}
 	case string(scheduling.MiddleGround):
 		{
-			return policy.NewMiddleGroundPolicy(opts)
+			return policy.NewMiddleGroundPolicy(opts, clusterProvider)
 		}
 	case string(scheduling.AutoScalingFcfsBatch):
 		{
@@ -71,19 +71,19 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (SchedulingPolicy, e
 		}
 	case string(scheduling.Static):
 		{
-			return policy.NewStaticPolicy(opts)
+			return policy.NewStaticPolicy(opts, clusterProvider)
 		}
 	case string(scheduling.DynamicV3):
 		{
-			return policy.NewDynamicV3Policy(opts)
+			return policy.NewDynamicV3Policy(opts, clusterProvider)
 		}
 	case string(scheduling.DynamicV4):
 		{
-			return policy.NewDynamicV4Policy(opts)
+			return policy.NewDynamicV4Policy(opts, clusterProvider)
 		}
 	case string(scheduling.Gandiva):
 		{
-			return policy.NewGandivaPolicy(opts)
+			return policy.NewGandivaPolicy(opts, clusterProvider)
 		}
 	}
 	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidSchedulingPolicy, opts.SchedulingPolicy)

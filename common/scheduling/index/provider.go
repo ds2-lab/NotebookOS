@@ -15,7 +15,7 @@ func GetIndex(policyKey scheduling.PolicyKey, numPools int) scheduling.ClusterIn
 	if policyKey == scheduling.FcfsBatch || policyKey == scheduling.Reservation || policyKey == scheduling.MiddleGround {
 		index = NewRandomClusterIndex(16)
 	} else if policyKey == scheduling.Static {
-		index = NewStaticIndex(int32(numPools)) // TODO: Need to make sure this is passed as the number of GPUs
+		index = NewStaticMultiIndex(int32(numPools)) // TODO: Need to make sure this is passed as the number of GPUs
 	} else if policyKey == scheduling.DynamicV3 || policyKey == scheduling.DynamicV4 {
 		panic("Dynamic v3 and Dynamic v4 are not yet supported.")
 	} else if policyKey == scheduling.Gandiva {

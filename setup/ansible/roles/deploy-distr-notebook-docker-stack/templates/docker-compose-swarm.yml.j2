@@ -3,10 +3,14 @@ services:
     environment:
       - "DOCKER_NETWORK_NAME=traefik-public"
       - "USING_WSL2=0"
+      - "NUM_CLUSTER_GATEWAYS={{ gateway_num_shards }}"
+      - "GATEWAY_GRPC_PORT={{ gateway_provisioner_port }}"
+      - "_BASE_ADDRESS=gateway"
     image: {{ jupyter_server_docker_username }}/{{ jupyter_server_docker_image_name }}:{{ jupyter_server_docker_image_tag }}
     command: start-notebook.sh --NotebookApp.token='' --ServerApp.base_url="/jupyter" --log-level=DEBUG
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     depends_on:
       - gateway
     labels: # Container labels
@@ -51,7 +55,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     labels: # Container labels
       - "app=distributed_cluster"
       - "component=cluster_gateway"
@@ -98,7 +103,8 @@ services:
       - "DOCKER_NETWORK_NAME=traefik-public"
     image: {{ local_daemon_docker_username }}/{{ local_daemon_docker_image_name }}:{{ local_daemon_docker_image_tag }}
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/{{ remote_username }}/kernel_base:/kernel_base
@@ -116,8 +122,15 @@ services:
     deploy:
       restart_policy:
         condition: any
-      mode: global
+      mode: "{{ distributed_notebook_daemon_deployment_mode }}"
       endpoint_mode: dnsrr
+{% if distributed_notebook_daemon_deployment_mode == "replicated" %}
+      replicas: {{ distributed_notebook_daemon_num_replicas }}
+      placement:
+        constraints:
+          - node.role==worker
+        max_replicas_per_node: {{ distributed_notebook_daemon_max_replicas_per_node }}
+{% endif %}
       labels:
         - "app=distributed_cluster"
         - "component=local_daemon"
@@ -132,11 +145,13 @@ services:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.listen-address=0.0.0.0:8500"
       - "--storage.tsdb.retention.time=120d"
+      - "--web.enable-admin-api"
       # - "--web.external-url=http://{{ hostvars['swarm-leader'].ansible_host }}/prometheus"
       # - "--web.route-prefix=/"
       # - "--web.enable-admin-api"
@@ -168,7 +183,8 @@ services:
     image: {{ loki_docker_image_name }}:{{ loki_docker_image_tag }}
     command: -config.file=/etc/loki/loki-config.yaml
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     deploy:
       endpoint_mode: dnsrr
       labels:
@@ -190,7 +206,8 @@ services:
   promtail:
     image: {{ promtail_docker_image_name }}:{{ promtail_docker_image_tag }}
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     volumes:
       - /var/log:/var/log
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -208,7 +225,8 @@ services:
   grafana:
     image: {{ grafana_docker_image_name }}:{{ grafana_docker_image_tag }}
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     environment:
       - "GF_SECURITY_ADMIN_USER={{ grafana_admin_username }}"
       - "GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}"
@@ -225,6 +243,9 @@ services:
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr
+      placement:
+        constraints:
+          - node.role == manager
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
@@ -241,7 +262,8 @@ services:
   notebook-dashboard:
     image: "{{ dashboard_backend_docker_username }}/{{ dashboard_backend_docker_image_name }}:{{ dashboard_backend_docker_image_tag }}"
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     environment:
     - "DASHBOARD_CONFIG_DIR={{ dashboard_backend_config_directory }}"
     labels: # Container labels
@@ -275,15 +297,77 @@ services:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
       - ./dashboard_backend/workload-templates-file.yaml:{{ dashboard_backend_config_directory }}/workload-templates-file.yaml
+      - ./dashboard_backend/workload-job-config.yaml:{{ dashboard_backend_config_directory }}/workload-job-config.yaml
       - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
       - ./dashboard_backend/workload_templates:{{ dashboard_backend_config_directory }}/workload_templates
       - ./dashboard_backend/.env:/go/.env
+
+  node-exporter:
+    image: prom/node-exporter
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=node-exporter"
+    deploy:
+      mode: global
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=node-exporter"
+    command:
+      - "--web.listen-address=0.0.0.0:{{ node_exporter_port }}"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    labels:
+      - "traefik.enable=true"
+      - "app=distributed_cluster"
+      - "component=cadvisor"
+      - "prometheus.metrics.port={{ cadvisor_port }}"
+      - "prometheus-metrics-provider=true"
+    deploy:
+      mode: global
+      labels:
+        - "traefik.enable=true"
+        - "app=distributed_cluster"
+        - "component=cadvisor"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.cadvisor-http.entryPoints=http"
+        - "traefik.http.routers.cadvisor-http.rule=Host(`18.211.101.117`) && PathPrefix(`/cadvisor`)"
+        - "traefik.http.middlewares.cadvisor-strip.stripprefix.prefixes=/cadvisor"
+        - "traefik.http.routers.cadvisor-http.middlewares=cadvisor-strip"
+
+        - "traefik.http.services.cadvisor.loadbalancer.server.port={{ cadvisor_port }}"
+        - "traefik.http.routers.cadvisor-http.service=cadvisor"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker/:/var/lib/docker:ro"
+    ports:
+      - "{{ cadvisor_port }}:{{ cadvisor_port }}"  # Expose the new port
+    command:
+      - "-port={{ cadvisor_port }}"
+    networks:
+      - traefik-public
+      - distributed_cluster_default
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', 'http://localhost:{{ cadvisor_port }}/healthz']
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 {% if distributed_notebook_remote_storage_type == 'redis' %}
   redis:
     image: scusemua/redis:latest
     networks:
-    - traefik-public
+      - traefik-public
+      - distributed_cluster_default
     labels: # Container labels
       - "app=distributed_cluster"
       - "component=redis"
@@ -315,7 +399,9 @@ services:
 volumes:
   coredumps_volume:
   prometheus_data:
+    driver: local
   grafana_data:
+    driver: local
   loki_data:
   redis_data:
 
@@ -324,3 +410,7 @@ networks:
   # services that need to be publicly available via this Traefik
   traefik-public:
     external: true
+    attachable: true
+  distributed_cluster_default:
+    external: true
+    attachable: true

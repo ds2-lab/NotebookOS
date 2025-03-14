@@ -25,8 +25,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
-	"github.com/scusemua/distributed-notebook/local_daemon/daemon"
-	domain2 "github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"log"
@@ -168,11 +166,11 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 //func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 //	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 //	executionFailedCallback scheduling.ExecutionFailedCallback, ExecutionLatencyCallback scheduling.ExecutionLatencyCallback,
-//	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+//	statisticsProvider scheduling.MetricsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
-	statisticsProvider scheduling.StatisticsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
+	statisticsProvider scheduling.MetricsProvider, callbackProvider scheduling.CallbackProvider) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
 		return kernel
@@ -225,7 +223,7 @@ func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocal
 	}).Times(numKernels)
 }
 
-var _ = Describe("Cluster Gateway Tests", func() {
+var _ = Describe("cluster Gateway Tests", func() {
 	var (
 		clusterGateway          *ClusterGatewayImpl
 		abstractServer          *server.AbstractServer
@@ -639,16 +637,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				transport:                     "tcp",
 				RequestLog:                    metrics.NewRequestLog(),
 				ClusterStatistics:             metrics.NewClusterStatistics(),
-				kernelsBeingDescheduled:       hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
 				kernelIdToKernel:              hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
 				kernelSpecs:                   hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
 				waitGroups:                    hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
 				kernelRegisteredNotifications: hashmap.NewThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification](128),
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
+
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway,
 				&clusterGateway.numActiveTrainings)
 
 			config.InitLogger(&clusterGateway.log, clusterGateway)
@@ -1470,7 +1467,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				createdAt:                     time.Now(),
 				transport:                     "tcp",
 				RequestLog:                    metrics.NewRequestLog(),
-				kernelsBeingDescheduled:       hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
 				kernelIdToKernel:              hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
 				kernelSpecs:                   hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
 				waitGroups:                    hashmap.NewThreadsafeCornelkMap[string, *registrationWaitGroups](128),
@@ -1478,8 +1474,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernelsStarting:               hashmap.NewThreadsafeCornelkMap[string, chan struct{}](64),
 			}
 			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
-			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.UpdateClusterStatistics,
-				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost,
+			clusterGateway.MetricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway,
 				&clusterGateway.numActiveTrainings)
 
 			config.InitLogger(&clusterGateway.log, clusterGateway)
@@ -1806,7 +1801,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 	})
 
-	Context("Migrating Kernels", func() {
+	Context("Migrating kernels", func() {
 		var (
 			mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 			kernelId                              string
@@ -1921,13 +1916,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 			mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 			mockedKernel.EXPECT().
-				BeginSchedulingReplicaContainers().
+				InitSchedulingReplicaContainersOperation().
 				Times(1).
 				DoAndReturn(func() (bool, scheduling.CreateReplicaContainersAttempt) {
 					return true, mockCreateReplicaContainersAttempt
 				})
 
 			mockedKernel.EXPECT().ReplicasAreScheduled().Times(2).Return(false)
+			mockedKernel.EXPECT().BindSession(gomock.Any()).Times(1)
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
 
@@ -1979,17 +1975,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			By("Correctly registering the first Host")
 
-			// Add first host.
+			// AddHost first host.
 			err = clusterGateway.RegisterNewHost(host1)
 
 			By("Correctly registering the second Host")
 
-			// Add second host.
+			// AddHost second host.
 			err = clusterGateway.RegisterNewHost(host2)
 
 			By("Correctly registering the third Host")
 
-			// Add third host.
+			// AddHost third host.
 			err = clusterGateway.RegisterNewHost(host3)
 
 			var startKernelReplicaCalled sync.WaitGroup
@@ -2254,7 +2250,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				mockedSession.EXPECT().GetReplicaContainer(replicaId).AnyTimes().Return(container, true)
 				mockedSession.EXPECT().RemoveReplicaById(replicaId).MaxTimes(1).Return(nil)
 
-				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-kernel-%s-Replica-%d", kernelId, replicaId))
+				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background(), zmq4.WithTimeout(time.Millisecond*3500)), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-kernel-%s-Replica-%d", kernelId, replicaId))
 				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
 				replica.EXPECT().KernelSpec().AnyTimes().Return(mockedKernelSpec)
 				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
@@ -2303,7 +2299,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			//kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
 			//	clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.ExecutionFailedCallback, clusterGateway.ExecutionLatencyCallback,
-			//	clusterGateway.MetricsProvider, clusterGateway.notifyDashboard)
+			//	clusterGateway.metricsProvider, clusterGateway.NotifyDashboard)
 
 			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(),
 				mockedKernelSpec, 3, clusterGateway.id, clusterGateway.connectionOptions, uuid.NewString(),
@@ -2684,8 +2680,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return replicasToReturn[idx], nil
 			})
 
-			mockedKernel.EXPECT().AddOperationStarted().Times(1)
-			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
+			mockedKernel.EXPECT().AddOperationStarted(gomock.Any()).Times(1)
+			mockedKernel.EXPECT().AddOperationCompleted(gomock.Any()).Times(1)
 			mockedKernel.EXPECT().
 				PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).
 				DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
@@ -2848,7 +2844,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return socket
 			}
 
-			// Create sockets and call 'listen' so when Cluster Gateway tries to connect, it succeeds.
+			// Create sockets and call 'listen' so when cluster Gateway tries to connect, it succeeds.
 			heartbeatSocket := createSocketAndListen("HB", messaging.HBMessage, smrNodeIdOfMigratedReplica)
 			controlSocket := createSocketAndListen("Ctrl", messaging.ControlMessage, smrNodeIdOfMigratedReplica)
 			shellSocket := createSocketAndListen("Shell", messaging.ShellMessage, smrNodeIdOfMigratedReplica)
@@ -2948,42 +2944,42 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 		// This is used to check that the ClusterStatistics is reporting the correct resource counts.
 		assertClusterResourceCounts := func(stats *metrics.ClusterStatistics, expectDiff bool, clusterSize int) {
-			Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
-			Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
-			Expect(stats.PendingGPUs).To(Equal(0.0))
-			Expect(stats.CommittedGPUs).To(Equal(0.0))
+			Expect(stats.IdleGPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.SpecGPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.PendingGPUs.Load()).To(Equal(0.0))
+			Expect(stats.CommittedGPUs.Load()).To(Equal(0.0))
 
-			Expect(stats.IdleCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
-			Expect(stats.SpecCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
-			Expect(stats.PendingCPUs).To(Equal(0.0))
-			Expect(stats.CommittedCPUs).To(Equal(0.0))
+			Expect(stats.IdleCPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.SpecCPUs.Load()).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.PendingCPUs.Load()).To(Equal(0.0))
+			Expect(stats.CommittedCPUs.Load()).To(Equal(0.0))
 
-			Expect(stats.IdleVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
-			Expect(stats.SpecVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
-			Expect(stats.PendingVRAM).To(Equal(0.0))
-			Expect(stats.CommittedVRAM).To(Equal(0.0))
+			Expect(stats.IdleVRAM.Load()).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.SpecVRAM.Load()).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.PendingVRAM.Load()).To(Equal(0.0))
+			Expect(stats.CommittedVRAM.Load()).To(Equal(0.0))
 
-			Expect(stats.IdleMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
-			Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
-			Expect(stats.PendingMemory).To(Equal(0.0))
-			Expect(stats.CommittedMemory).To(Equal(0.0))
+			Expect(stats.IdleMemory.Load()).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.SpecMemory.Load()).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.PendingMemory.Load()).To(Equal(0.0))
+			Expect(stats.CommittedMemory.Load()).To(Equal(0.0))
 
 			if expectDiff {
-				Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs))
-				Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory))
-				Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs))
-				Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM))
+				Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs.Load()))
+				Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory.Load()))
+				Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs.Load()))
+				Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM.Load()))
 			} else {
-				Expect(lastSpecCpu).To(Equal(stats.SpecCPUs))
-				Expect(lastSpecMem).To(Equal(stats.SpecMemory))
-				Expect(lastSpecGpu).To(Equal(stats.SpecGPUs))
-				Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
+				Expect(lastSpecCpu).To(Equal(stats.SpecCPUs.Load()))
+				Expect(lastSpecMem).To(Equal(stats.SpecMemory.Load()))
+				Expect(lastSpecGpu).To(Equal(stats.SpecGPUs.Load()))
+				Expect(lastSpecVram).To(Equal(stats.SpecVRAM.Load()))
 			}
 
-			lastSpecCpu = stats.SpecCPUs
-			lastSpecMem = stats.SpecMemory
-			lastSpecGpu = stats.SpecGPUs
-			lastSpecVram = stats.SpecVRAM
+			lastSpecCpu = stats.SpecCPUs.Load()
+			lastSpecMem = stats.SpecMemory.Load()
+			lastSpecGpu = stats.SpecGPUs.Load()
+			lastSpecVram = stats.SpecVRAM.Load()
 		}
 
 		BeforeEach(func() {
@@ -3057,7 +3053,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				// Make sure the metrics provider is non-nil.
 				Expect(cluster.MetricsProvider()).ToNot(BeNil())
 
-				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the cluster Gateway.")
 
 				clusterSize := 0
 
@@ -3090,7 +3086,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(cluster.NumDisabledHosts()).To(Equal(0))
 				Expect(cluster.IsInInitialConnectionPeriod()).To(Equal(true))
 
-				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
+				By("Disabling any additional Local Daemons that connect to the cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
 
 				numDisabledHosts := 0
 				for i := InitialClusterSize; i < InitialClusterSize*2; i++ {
@@ -3269,7 +3265,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				// Make sure the metrics provider is non-nil.
 				Expect(dockerCluster.MetricsProvider()).ToNot(BeNil())
 
-				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the cluster Gateway.")
 
 				clusterSize := 0
 				numDisabledHosts := 0
@@ -3391,7 +3387,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// Now, let's artificially increase the number of committed GPUs on each host.
 				// The formula for scaling out is:
-				// <Scaled Out Number of Hosts> = ⌈ (<Cluster Committed GPUs> x <Scale Factor>) / <GPUs Per Host> ⌉
+				// <Scaled Out Number of Hosts> = ⌈ (<cluster Committed GPUs> x <Scale Factor>) / <GPUs Per Host> ⌉
 				//
 				// We want <Scaled Out Number of Hosts> to equal 8.
 				//
@@ -3410,7 +3406,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				var lastHost scheduling.Host
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
-					// Add 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
+					// AddHost 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
 					spec := types.NewDecimalSpec(0, 0, 7-host.CommittedGPUs(), 0)
 					err := host.(scheduling.UnitTestingHost).AddToCommittedResources(spec)
 					Expect(err).To(BeNil())
@@ -3420,7 +3416,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					return true
 				})
 
-				// Cluster GPU load is 49, which is less than 50.9.
+				// cluster GPU load is 49, which is less than 50.9.
 				// We still shouldn't scale out.
 				time.Sleep(time.Second * 3)
 
@@ -3432,7 +3428,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
 				Expect(err).To(BeNil())
 
-				// Cluster GPU load is 50, which is less than 50.9.
+				// cluster GPU load is 50, which is less than 50.9.
 				// We still shouldn't scale out.
 				time.Sleep(time.Second * 3)
 
@@ -3444,7 +3440,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
 				Expect(err).To(BeNil())
 
-				// Cluster GPU load is 51, which is greater than 50.9.
+				// cluster GPU load is 51, which is greater than 50.9.
 				// We SHOULD scale out now.
 				Eventually(func() int {
 					return dockerCluster.Len()
@@ -3458,7 +3454,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				time.Sleep(time.Second * 3)
 
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
-					// Remove all committed GPUs from all hosts.
+					// RemoveHost all committed GPUs from all hosts.
 					spec := types.NewDecimalSpec(0, 0, host.CommittedGPUs(), 0)
 					err := host.(scheduling.UnitTestingHost).SubtractFromCommittedResources(spec)
 					Expect(err).To(BeNil())
@@ -3480,7 +3476,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Should(Equal(clusterSize - 1))
 			})
 
-			Context("Autoscaling Without Any Kernels Scheduled", func() {
+			Context("Autoscaling Without Any kernels Scheduled", func() {
 				createHosts := func(policyKey scheduling.PolicyKey, numHostsToCreate int, initialClusterSize int, initialConnectionTime time.Duration) {
 					options.SchedulingPolicy = policyKey.String()
 					options.InitialClusterSize = initialClusterSize
@@ -3597,7 +3593,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
 						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
 
-						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
+						// Sleep for a bit to let the cluster/Scheduler do their thing(s).
 						time.Sleep(time.Second * 3)
 
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
@@ -3611,7 +3607,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
 						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.FcfsBatch))
 
-						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
+						// Sleep for a bit to let the cluster/Scheduler do their thing(s).
 						time.Sleep(time.Second * 3)
 
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
@@ -3699,7 +3695,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			})
 		})
 
-		Context("Scheduling Kernels", func() {
+		Context("Scheduling kernels", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 			var numContainersCreated atomic.Int32
 
@@ -3804,19 +3800,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					mockRouterProvider := mock_router.NewMockProvider(mockCtrl)
 					routerConnInfo := &jupyter.ConnectionInfo{
-						Transport:            "tcp",
-						Key:                  kernelKey,
-						SignatureScheme:      messaging.JupyterSignatureScheme,
-						IP:                   "127.0.0.1",
-						ControlPort:          port,
-						ShellPort:            port + 1,
-						StdinPort:            port + 2,
-						HBPort:               port + 3,
-						IOPubPort:            port + 4,
-						IOSubPort:            port + 5,
-						AckPort:              port + 6,
-						StartingResourcePort: 9000,
-						NumResourcePorts:     512,
+						Transport:        "tcp",
+						Key:              kernelKey,
+						SignatureScheme:  messaging.JupyterSignatureScheme,
+						IP:               "127.0.0.1",
+						ControlPort:      port,
+						ShellPort:        port + 1,
+						StdinPort:        port + 2,
+						HBPort:           port + 3,
+						IOPubPort:        port + 4,
+						IOSubPort:        port + 5,
+						AckPort:          port + 6,
+						NumResourcePorts: 512,
 					}
 
 					ctx, cancel := context.WithCancel(context.Background())
@@ -3848,19 +3843,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					fmt.Printf("\n\nSuccessfully started Router for TestNode-%d.\n", i)
 
 					jupyterConnInfo := &jupyter.ConnectionInfo{
-						Transport:            "tcp",
-						Key:                  kernelKey,
-						SignatureScheme:      messaging.JupyterSignatureScheme,
-						IP:                   "127.0.0.1",
-						ControlPort:          port,
-						ShellPort:            shellSocket.Port,
-						StdinPort:            port + 2,
-						HBPort:               port + 3,
-						IOPubPort:            ioPubSocket.Port,
-						IOSubPort:            port + 5,
-						AckPort:              port + 6,
-						StartingResourcePort: 9000,
-						NumResourcePorts:     512,
+						Transport:        "tcp",
+						Key:              kernelKey,
+						SignatureScheme:  messaging.JupyterSignatureScheme,
+						IP:               "127.0.0.1",
+						ControlPort:      port,
+						ShellPort:        shellSocket.Port,
+						StdinPort:        port + 2,
+						HBPort:           port + 3,
+						IOPubPort:        ioPubSocket.Port,
+						IOSubPort:        port + 5,
+						AckPort:          port + 6,
+						NumResourcePorts: 512,
 					}
 
 					routers = append(routers, routerServer)
@@ -4054,7 +4048,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				By("Correctly registering the first Host")
 
-				// Add first host.
+				// AddHost first host.
 				err = clusterGateway.RegisterNewHost(host1)
 				Expect(err).To(BeNil())
 
@@ -4065,7 +4059,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				By("Correctly registering the second Host")
 
-				// Add second host.
+				// AddHost second host.
 				err = clusterGateway.RegisterNewHost(host2)
 				Expect(err).To(BeNil())
 
@@ -4076,7 +4070,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				By("Correctly registering the third Host")
 
-				// Add third host.
+				// AddHost third host.
 				err = clusterGateway.RegisterNewHost(host3)
 				Expect(err).To(BeNil())
 
@@ -4095,12 +4089,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				kernel.EXPECT().RecordContainerPlacementStarted().Times(1)
 				kernel.EXPECT().IsIdleReclaimed().AnyTimes().Return(false)
 				kernel.EXPECT().RecordContainerCreated(false).AnyTimes()
+				kernel.EXPECT().BindSession(gomock.Any()).Times(1)
 
 				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
 				mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 				kernel.EXPECT().
-					BeginSchedulingReplicaContainers().
+					InitSchedulingReplicaContainersOperation().
 					Times(1).
 					DoAndReturn(func() (bool, scheduling.CreateReplicaContainersAttempt) {
 						return true, mockCreateReplicaContainersAttempt
@@ -4417,11 +4412,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mockCreateReplicaContainersAttempt.EXPECT().WaitForPlacementPhaseToBegin(gomock.Any()).Times(1).Return(nil)
 					mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 					kernel.EXPECT().
-						BeginSchedulingReplicaContainers().
+						InitSchedulingReplicaContainersOperation().
 						Times(1).
 						DoAndReturn(func() (bool, scheduling.CreateReplicaContainersAttempt) {
 							return true, mockCreateReplicaContainersAttempt
 						})
+
+					kernel.EXPECT().BindSession(gomock.Any()).Times(1)
 
 					kernels[kernelId] = kernel
 					kernelSpecs[kernelId] = kernelSpec
@@ -4730,156 +4727,156 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 	})
 
-	Context("End-to-End Tests", func() {
-		var (
-			clusterGatewayOptions        = domain.ClusterGatewayOptions{}
-			localDaemon1Options          = domain2.LocalDaemonOptions{}
-			localDaemon2Options          = domain2.LocalDaemonOptions{}
-			localDaemon3Options          = domain2.LocalDaemonOptions{}
-			localDaemon1                 *daemon.LocalScheduler
-			localDaemon2                 *daemon.LocalScheduler
-			localDaemon3                 *daemon.LocalScheduler
-			clusterGatewaySig            = make(chan os.Signal, 1)
-			clusterGatewayDone           sync.WaitGroup
-			localDaemon1Sig              = make(chan os.Signal, 1)
-			localDaemon1Done             sync.WaitGroup
-			localDaemon2Sig              = make(chan os.Signal, 1)
-			localDaemon2Done             sync.WaitGroup
-			localDaemon3Sig              = make(chan os.Signal, 1)
-			localDaemon3Done             sync.WaitGroup
-			closeLocalDaemon1Connections func()
-			closeLocalDaemon2Connections func()
-			closeLocalDaemon3Connections func()
-		)
-
-		clusterGatewayFinalize := func(fix bool, identity string, distributedCluster *DistributedCluster) {
-			log.Printf("[WARNING] Cluster Gateway's finalizer called with fix=%v and identity=\"%s\"\n", fix, identity)
-		}
-
-		localDaemon1Finalize := func(fix bool) {
-			log.Printf("[WARNING] Local Daemon 1's finalizer called with fix=%v\n", fix)
-		}
-
-		localDaemon2Finalize := func(fix bool) {
-			log.Printf("[WARNING] Local Daemon 2's finalizer called with fix=%v\n", fix)
-		}
-
-		localDaemon3Finalize := func(fix bool) {
-			log.Printf("[WARNING] Local Daemon 3's finalizer called with fix=%v\n", fix)
-		}
-
-		Context("E2E Scheduling Kernels", func() {
-			Context("E2E Static Scheduling", func() {
-				// "logger_options":{"Options":{"YAML":""},"Debug":true,"Verbose":false}
-				gatewayConfigJson := `{"jaeger_addr":"","consul_addr":"","connection_info":{"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":17201,"shell_port":17202,"stdin_port":17203,"hb_port":17200,"iopub_port":17204,"iosub_port":17205,"ack_port":17206,"starting_resource_port":17207,"num_resource_ports":14096},"cluster_daemon_options":{"local-daemon-service-name":"local-daemon-network","global-daemon-service-name":"daemon-network","kubernetes-namespace":"","notebook-image-name":"scusemua/jupyter-cpu:latest","notebook-image-tag":"latest","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"","docker_network_name":"distributed_cluster_default","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19996,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":0,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":5,"max-subscribed-ratio":7,"execution-time-sampling-window":10,"migration-time-sampling-window":10,"scheduler-http-port":18078,"mean_scale_out_per_host_sec":15,"std_dev_scale_out_per_host_sec":2,"mean_scale_in_per_host_sec":10,"std_dev_scale_in_per_host_sec":1,"millicpus_per_host":0,"memory_mb_per_host":0,"vram_gb_per_host":0,"predictive_autoscaling":false,"assign_kernel_debug_ports":false},"local-daemon-service-port":18075,"global-daemon-service-port":0,"distributed-cluster-service-port":18079,"remote-docker-event-aggregator-port":15821,"initial-cluster-size":12,"initial-connection-period":60,"idle_session_reclamation_interval_sec":30,"submit_execute_requests_one_at_a_time":true,"use-stateful-set":false,"idle_session_reclamation_enabled":true},"port":18080,"provisioner_port":18081,"pretty_print_options":true}`
-				localDaemon1ConfigJson := `{"ProvisionerAddr":"127.0.0.1:18081","node_name":"LocalDaemon1","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":19001,"shell_port":19002,"stdin_port":19003,"hb_port":19000,"iopub_port":19004,"iosub_port":19005,"ack_port":19006,"starting_resource_port":29007,"num_resource_ports":4096,"DockerStorageBase":"/storage","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19997,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":18082,"KernelRegistryPort":18075,"redis_port":6379,"redis_database":0}`
-				localDaemon2ConfigJson := `{"ProvisionerAddr":"127.0.0.1:18081","node_name":"LocalDaemon2","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":19007,"shell_port":19008,"stdin_port":19009,"hb_port":19010,"iopub_port":19011,"iosub_port":19012,"ack_port":19013,"starting_resource_port":39007,"num_resource_ports":4096,"DockerStorageBase":"/storage","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19998,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":18083,"KernelRegistryPort":18076,"redis_port":6379,"redis_database":0}`
-				localDaemon3ConfigJson := `{"ProvisionerAddr":"127.0.0.1:18081","node_name":"LocalDaemon3","JaegerAddr":"","ConsulAddr":"","NodeName":"0","s3_bucket":"distributed-notebook-storage","aws_region":"us-east-1","redis_password":"","DevicePluginPath":"/var/lib/kubelet/device-plugins/","NumVirtualGPUs":72,"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":19014,"shell_port":19015,"stdin_port":19016,"hb_port":19017,"iopub_port":19018,"iosub_port":19019,"ack_port":19020,"starting_resource_port":49007,"num_resource_ports":4096,"DockerStorageBase":"/storage","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19999,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"predictive_autoscaling":true,"assign_kernel_debug_ports":false},"DirectServer":false,"RunKernelsInGdb":false,"Port":18084,"KernelRegistryPort":18077,"redis_port":6379,"redis_database":0}`
-
-				BeforeEach(func() {
-					err := json.Unmarshal([]byte(gatewayConfigJson), &clusterGatewayOptions)
-					GinkgoWriter.Printf("Error: %v\n", err)
-					Expect(err).To(BeNil())
-
-					clusterGatewayOptions.LoggerOptions = config.LoggerOptions{
-						Verbose: true,
-						Debug:   true,
-					}
-
-					clusterGatewayOptions.Verbose = true
-					clusterGatewayOptions.Debug = true
-
-					err = json.Unmarshal([]byte(localDaemon1ConfigJson), &localDaemon1Options)
-					GinkgoWriter.Printf("Error: %v\n", err)
-					Expect(err).To(BeNil())
-
-					localDaemon1Options.LoggerOptions = config.LoggerOptions{
-						Verbose: true,
-						Debug:   true,
-					}
-
-					localDaemon1Options.Verbose = true
-					localDaemon1Options.Debug = true
-
-					err = json.Unmarshal([]byte(localDaemon2ConfigJson), &localDaemon2Options)
-					GinkgoWriter.Printf("Error: %v\n", err)
-					Expect(err).To(BeNil())
-
-					localDaemon2Options.LoggerOptions = config.LoggerOptions{
-						Verbose: true,
-						Debug:   true,
-					}
-
-					localDaemon2Options.Verbose = true
-					localDaemon2Options.Debug = true
-
-					err = json.Unmarshal([]byte(localDaemon3ConfigJson), &localDaemon3Options)
-					GinkgoWriter.Printf("Error: %v\n", err)
-					Expect(err).To(BeNil())
-
-					localDaemon3Options.LoggerOptions = config.LoggerOptions{
-						Verbose: true,
-						Debug:   true,
-					}
-
-					localDaemon3Options.Verbose = true
-					localDaemon3Options.Debug = true
-
-					clusterGateway, _ = CreateAndStartClusterGatewayComponents(&clusterGatewayOptions, &clusterGatewayDone, clusterGatewayFinalize, clusterGatewaySig)
-					Expect(clusterGateway).ToNot(BeNil())
-
-					localDaemon1, closeLocalDaemon1Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon1Options, &localDaemon1Done, localDaemon1Finalize, localDaemon1Sig)
-					Expect(localDaemon1).ToNot(BeNil())
-					Expect(closeLocalDaemon1Connections).ToNot(BeNil())
-
-					localDaemon2, closeLocalDaemon2Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon2Options, &localDaemon2Done, localDaemon2Finalize, localDaemon2Sig)
-					Expect(localDaemon2).ToNot(BeNil())
-					Expect(closeLocalDaemon2Connections).ToNot(BeNil())
-
-					localDaemon3, closeLocalDaemon3Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon3Options, &localDaemon3Done, localDaemon3Finalize, localDaemon3Sig)
-					Expect(localDaemon3).ToNot(BeNil())
-					Expect(closeLocalDaemon3Connections).ToNot(BeNil())
-				})
-
-				It("Will correctly schedule a single kernel", func() {
-					//kernelId := uuid.NewString()
-					//persistentId := uuid.NewString()
-					//kernelKey := uuid.NewString()
-					//resourceSpec := &proto.ResourceSpec{
-					//	Gpu:    2,
-					//	Vram:   2,
-					//	Cpu:    1250,
-					//	Memory: 2048,
-					//}
-
-					cluster := clusterGateway.cluster
-					index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
-					Expect(ok).To(BeTrue())
-					Expect(index).ToNot(BeNil())
-
-					placer := cluster.Placer()
-					Expect(placer).ToNot(BeNil())
-
-					scheduler := cluster.Scheduler()
-					Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
-
-					Expect(cluster.Len()).To(Equal(3))
-
-					time.Sleep(time.Second * 1)
-				})
-			})
-
-			//Context("E2E FCFS Scheduling", func() {
-			//	It("Will correctly schedule a single kernel", func() {
-			//
-			//	})
-			//})
-			//
-			//Context("E2E Reservation Scheduling", func() {
-			//	It("Will correctly schedule a single kernel", func() {
-			//
-			//	})
-			//})
-		})
-	})
+	//Context("End-to-End Tests", func() {
+	//	var (
+	//		clusterGatewayOptions        = domain.ClusterGatewayOptions{}
+	//		localDaemon1Options          = schedulerDomain.LocalDaemonOptions{}
+	//		localDaemon2Options          = schedulerDomain.LocalDaemonOptions{}
+	//		localDaemon3Options          = schedulerDomain.LocalDaemonOptions{}
+	//		localDaemon1                 *daemon.LocalScheduler
+	//		localDaemon2                 *daemon.LocalScheduler
+	//		localDaemon3                 *daemon.LocalScheduler
+	//		clusterGatewaySig            = make(chan os.Signal, 1)
+	//		clusterGatewayDone           sync.WaitGroup
+	//		localDaemon1Sig              = make(chan os.Signal, 1)
+	//		localDaemon1Done             sync.WaitGroup
+	//		localDaemon2Sig              = make(chan os.Signal, 1)
+	//		localDaemon2Done             sync.WaitGroup
+	//		localDaemon3Sig              = make(chan os.Signal, 1)
+	//		localDaemon3Done             sync.WaitGroup
+	//		closeLocalDaemon1Connections func()
+	//		closeLocalDaemon2Connections func()
+	//		closeLocalDaemon3Connections func()
+	//	)
+	//
+	//	clusterGatewayFinalize := func(fix bool, identity string, distributedCluster *DistributedCluster) {
+	//		log.Printf("[WARNING] cluster Gateway's finalizer called with fix=%v and identity=\"%s\"\n", fix, identity)
+	//	}
+	//
+	//	localDaemon1Finalize := func(fix bool) {
+	//		log.Printf("[WARNING] Local Daemon 1's finalizer called with fix=%v\n", fix)
+	//	}
+	//
+	//	localDaemon2Finalize := func(fix bool) {
+	//		log.Printf("[WARNING] Local Daemon 2's finalizer called with fix=%v\n", fix)
+	//	}
+	//
+	//	localDaemon3Finalize := func(fix bool) {
+	//		log.Printf("[WARNING] Local Daemon 3's finalizer called with fix=%v\n", fix)
+	//	}
+	//
+	//	Context("E2E Scheduling kernels", func() {
+	//		Context("E2E Static Scheduling", func() {
+	//			// "logger_options":{"ClusterGatewayOptions":{"YAML":""},"Debug":true,"Verbose":false}
+	//			gatewayConfigJson := `{"jaeger_addr":"","consul_addr":"","connection_info":{"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":17201,"shell_port":17202,"stdin_port":17203,"hb_port":17200,"iopub_port":17204,"iosub_port":17205,"ack_port":17206,"starting_resource_port":17207,"num_resource_ports":14096},"cluster_daemon_options":{"local-daemon-service-name":"local-daemon-network","global-daemon-service-name":"daemon-network","kubernetes-namespace":"","notebook-image-name":"scusemua/jupyter-cpu:latest","notebook-image-tag":"latest","cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"","docker_network_name":"distributed_cluster_default","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19996,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":0,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":5,"max-subscribed-ratio":7,"execution-time-sampling-window":10,"migration-time-sampling-window":10,"scheduler-http-port":18078,"mean_scale_out_per_host_sec":15,"std_dev_scale_out_per_host_sec":2,"mean_scale_in_per_host_sec":10,"std_dev_scale_in_per_host_sec":1,"millicpus_per_host":0,"memory_mb_per_host":0,"vram_gb_per_host":0,"predictive_autoscaling":false,"assign_kernel_debug_ports":false},"local-daemon-service-port":18075,"global-daemon-service-port":0,"distributed-cluster-service-port":18079,"remote-docker-event-aggregator-port":15821,"initial-cluster-size":12,"initial-connection-period":60,"idle_session_reclamation_interval_sec":30,"submit_execute_requests_one_at_a_time":true,"use-stateful-set":false,"idle_session_reclamation_enabled":true},"port":18080,"provisioner_port":18081,"pretty_print_options":true}`
+	//			localDaemon1ConfigJson := `{"aws_region":"us-east-1","connection_info":{"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":19001,"shell_port":19002,"stdin_port":19003,"hb_port":19000,"iopub_port":19004,"iosub_port":19005,"ack_port":19006,"starting_resource_port":29007,"num_resource_ports":4096},"consul":"","jaeger":"","kernel-registry-port":18075,"node_name":"0","port":18082,"provisioner":"127.0.0.1:18081","redis_database":0,"redis_password":"","redis_port":6379,"s3_bucket":"distributed-notebook-storage","scheduler_daemon_options":{"docker-storage-base":"/remote_storage","direct":false,"run_kernels_in_gdb":false,"cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19997,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"predictive_autoscaling":true,"assign_kernel_debug_ports":false}},"virtual_gpu_plugin_server_options":{"device-plugin-path":"/var/lib/kubelet/device-plugins/","num-virtual-gpus-per-node":72}}`
+	//			localDaemon2ConfigJson := `{"aws_region":"us-east-1","connection_info":{"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":19007,"shell_port":19008,"stdin_port":19009,"hb_port":19010,"iopub_port":19011,"iosub_port":19012,"ack_port":19013,"starting_resource_port":39007,"num_resource_ports":4096},"consul":"","jaeger":"","kernel-registry-port":18076,"node_name":"0","port":18083,"provisioner":"127.0.0.1:18081","redis_database":0,"redis_password":"","redis_port":6379,"s3_bucket":"distributed-notebook-storage","scheduler_daemon_options":{"docker-storage-base":"/remote_storage","direct":false,"run_kernels_in_gdb":false,"cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19998,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"predictive_autoscaling":true,"assign_kernel_debug_ports":false}},"virtual_gpu_plugin_server_options":{"device-plugin-path":"/var/lib/kubelet/device-plugins/","num-virtual-gpus-per-node":72}}`
+	//			localDaemon3ConfigJson := `{"aws_region":"us-east-1","connection_info":{"ip":"","transport":"tcp","signature_scheme":"","key":"","control_port":19014,"shell_port":19015,"stdin_port":19016,"hb_port":19017,"iopub_port":19018,"iosub_port":19019,"ack_port":19020,"starting_resource_port":49007,"num_resource_ports":4096},"consul":"","jaeger":"","kernel-registry-port":18077,"node_name":"0","port":18084,"provisioner":"127.0.0.1:18081","redis_database":0,"redis_password":"","redis_port":6379,"s3_bucket":"distributed-notebook-storage","scheduler_daemon_options":{"docker-storage-base":"/remote_storage","direct":false,"run_kernels_in_gdb":false,"cluster_scheduler_options":{"common_options":{"deployment_mode":"docker-compose","docker_app_name":"distributed_notebook","docker_network_name":"","scheduling-policy":"static","idle-session-reclamation-policy":"none","remote-storage-endpoint":"redis:6379","remote-storage":"redis","gpus-per-host":8,"prometheus_interval":15,"prometheus_port":-1,"num_resend_attempts":1,"smr-port":17080,"debug_port":19999,"election_timeout_seconds":3,"local_mode":true,"use_real_gpus":false,"acks_enabled":false,"debug_mode":true,"simulate_checkpointing_latency":true,"disable_prometheus_metrics_publishing":false,"simulate_training_using_sleep":false,"bind_debugpy_port":false,"save_stopped_kernel_containers":false,"pretty_print_options":false},"custom_idle_session_reclamation_options":{"idle_session_replay_all_cells":false,"idle_session_timeout_interval_sec":0},"subscribed-ratio-update-interval":1,"scaling-factor":1.1,"scaling-interval":15,"scaling-limit":1.15,"scaling-in-limit":2,"scaling-buffer-size":3,"min_cluster_nodes":6,"max_cluster_nodes":48,"gpu_poll_interval":0,"max-subscribed-ratio":7,"execution-time-sampling-window":0,"migration-time-sampling-window":0,"scheduler-http-port":8078,"mean_scale_out_per_host_sec":0,"std_dev_scale_out_per_host_sec":0,"mean_scale_in_per_host_sec":0,"std_dev_scale_in_per_host_sec":0,"millicpus_per_host":64000,"memory_mb_per_host":128000,"vram_gb_per_host":40,"predictive_autoscaling":true,"assign_kernel_debug_ports":false}},"virtual_gpu_plugin_server_options":{"device-plugin-path":"/var/lib/kubelet/device-plugins/","num-virtual-gpus-per-node":72}}`
+	//
+	//			BeforeEach(func() {
+	//				err := json.Unmarshal([]byte(gatewayConfigJson), &clusterGatewayOptions)
+	//				GinkgoWriter.Printf("Error: %v\n", err)
+	//				Expect(err).To(BeNil())
+	//
+	//				clusterGatewayOptions.LoggerOptions = config.LoggerOptions{
+	//					Verbose: true,
+	//					Debug:   true,
+	//				}
+	//
+	//				clusterGatewayOptions.Verbose = true
+	//				clusterGatewayOptions.Debug = true
+	//
+	//				err = json.Unmarshal([]byte(localDaemon1ConfigJson), &localDaemon1Options)
+	//				GinkgoWriter.Printf("Error: %v\n", err)
+	//				Expect(err).To(BeNil())
+	//
+	//				localDaemon1Options.LoggerOptions = config.LoggerOptions{
+	//					Verbose: true,
+	//					Debug:   true,
+	//				}
+	//
+	//				localDaemon1Options.Verbose = true
+	//				localDaemon1Options.Debug = true
+	//
+	//				err = json.Unmarshal([]byte(localDaemon2ConfigJson), &localDaemon2Options)
+	//				GinkgoWriter.Printf("Error: %v\n", err)
+	//				Expect(err).To(BeNil())
+	//
+	//				localDaemon2Options.LoggerOptions = config.LoggerOptions{
+	//					Verbose: true,
+	//					Debug:   true,
+	//				}
+	//
+	//				localDaemon2Options.Verbose = true
+	//				localDaemon2Options.Debug = true
+	//
+	//				err = json.Unmarshal([]byte(localDaemon3ConfigJson), &localDaemon3Options)
+	//				GinkgoWriter.Printf("Error: %v\n", err)
+	//				Expect(err).To(BeNil())
+	//
+	//				localDaemon3Options.LoggerOptions = config.LoggerOptions{
+	//					Verbose: true,
+	//					Debug:   true,
+	//				}
+	//
+	//				localDaemon3Options.Verbose = true
+	//				localDaemon3Options.Debug = true
+	//
+	//				clusterGateway, _ = CreateAndStartClusterGatewayComponents(&clusterGatewayOptions, &clusterGatewayDone, clusterGatewayFinalize, clusterGatewaySig)
+	//				Expect(clusterGateway).ToNot(BeNil())
+	//
+	//				localDaemon1, closeLocalDaemon1Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon1Options, &localDaemon1Done, localDaemon1Finalize, localDaemon1Sig)
+	//				Expect(localDaemon1).ToNot(BeNil())
+	//				Expect(closeLocalDaemon1Connections).ToNot(BeNil())
+	//
+	//				localDaemon2, closeLocalDaemon2Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon2Options, &localDaemon2Done, localDaemon2Finalize, localDaemon2Sig)
+	//				Expect(localDaemon2).ToNot(BeNil())
+	//				Expect(closeLocalDaemon2Connections).ToNot(BeNil())
+	//
+	//				localDaemon3, closeLocalDaemon3Connections = daemon.CreateAndStartLocalDaemonComponents(&localDaemon3Options, &localDaemon3Done, localDaemon3Finalize, localDaemon3Sig)
+	//				Expect(localDaemon3).ToNot(BeNil())
+	//				Expect(closeLocalDaemon3Connections).ToNot(BeNil())
+	//			})
+	//
+	//			It("Will correctly schedule a single kernel", func() {
+	//				//kernelId := uuid.NewString()
+	//				//persistentId := uuid.NewString()
+	//				//kernelKey := uuid.NewString()
+	//				//resourceSpec := &proto.ResourceSpec{
+	//				//	Gpu:    2,
+	//				//	Vram:   2,
+	//				//	Cpu:    1250,
+	//				//	Memory: 2048,
+	//				//}
+	//
+	//				cluster := clusterGateway.cluster
+	//				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+	//				Expect(ok).To(BeTrue())
+	//				Expect(index).ToNot(BeNil())
+	//
+	//				placer := cluster.Placer()
+	//				Expect(placer).ToNot(BeNil())
+	//
+	//				scheduler := cluster.Scheduler()
+	//				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+	//
+	//				Expect(cluster.Len()).To(Equal(3))
+	//
+	//				time.Sleep(time.Second * 1)
+	//			})
+	//		})
+	//
+	//		//Context("E2E FCFS Scheduling", func() {
+	//		//	It("Will correctly schedule a single kernel", func() {
+	//		//
+	//		//	})
+	//		//})
+	//		//
+	//		//Context("E2E Reservation Scheduling", func() {
+	//		//	It("Will correctly schedule a single kernel", func() {
+	//		//
+	//		//	})
+	//		//})
+	//	})
+	//})
 })

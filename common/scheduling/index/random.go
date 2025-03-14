@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"log"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -55,13 +55,6 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 }
 
 func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	if !host.Enabled() {
-		// If the host is not enabled, then it is ineligible to be added to the index.
-		// In general, disabled hosts will not be attempted to be added to the index,
-		// but if that happens, then we return scheduling.IndexUnqualified.
-		return expectedRandomIndex, scheduling.IndexUnqualified
-	}
-
 	// Since all hosts are qualified, we check if the host is in the index only.
 	val := host.GetMeta(HostMetaRandomIndex)
 	if val == nil {
@@ -70,9 +63,16 @@ func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{},
 
 	if _, ok := val.(int32); ok {
 		return expectedRandomIndex, scheduling.IndexQualified
-	} else {
-		return expectedRandomIndex, scheduling.IndexNewQualified
 	}
+
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
+	return expectedRandomIndex, scheduling.IndexNewQualified
 }
 
 // NumReshuffles returns the number of times that this index has reshuffled its internal permutation.
@@ -84,26 +84,77 @@ func (index *RandomClusterIndex) Len() int {
 	return int(index.len)
 }
 
-func (index *RandomClusterIndex) Add(host scheduling.Host) {
+func (index *RandomClusterIndex) AddHost(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	index.log.Debug("Adding host %s (ID=%s) to RandomClusterIndex.", host.GetNodeName(), host.GetID())
+	index.log.Debug("Adding host %s (ID=%s) to RandomClusterIndex at index %d.",
+		host.GetNodeName(), host.GetID(), index.freeStart)
 
-	i := index.freeStart
-	if i < int32(len(index.hosts)) {
-		index.hosts[i] = host
-		for j := i + 1; j < int32(len(index.hosts)); j++ {
+	if index.freeStart < int32(len(index.hosts)) && index.hosts[index.freeStart] != nil {
+		index.log.Error("FreeStart is %d; however, host %s is stored at index %d...",
+			index.freeStart, index.hosts[index.freeStart].GetNodeName(), index.freeStart)
+
+		oldFreeStart := index.freeStart
+		freeStart := int32(-1)
+
+		// Find first nil entry.
+		for j := 0; j < len(index.hosts); j++ {
 			if index.hosts[j] == nil {
-				index.freeStart = j
+				freeStart = int32(j)
 				break
 			}
 		}
+
+		// If we found a nil entry, then we'll reassign free start to be equal to that value.
+		if freeStart != -1 {
+			index.freeStart = freeStart
+		} else {
+			// Set free start to the current length of the hosts slice.
+			index.freeStart = int32(len(index.hosts))
+		}
+
+		index.log.Warn("Recomputed 'free start' of RandomClusterIndex. Old: %d. New: %d.",
+			oldFreeStart, index.freeStart)
+	}
+
+	i := index.freeStart
+
+	if i < int32(len(index.hosts)) {
+		index.hosts[i] = host
+		index.log.Debug("Inserting new host %s at position %d of RandomClusterIndex.", host.GetNodeName(), i)
+
+		updatedFreeStart := false
+
+		// Attempt to set freeStart to the next nil slot in the index.
+		for j := i + 1; j < int32(len(index.hosts)); j++ {
+			if index.hosts[j] == nil {
+				index.freeStart = j
+				updatedFreeStart = true
+				break
+			}
+		}
+
+		// If there were no nil slots after i, then search for a free slot before the i-th index.
+		if !updatedFreeStart {
+			for j := int32(0); j < i; j++ {
+				if index.hosts[j] == nil {
+					index.freeStart = j
+					updatedFreeStart = true
+					break
+				}
+			}
+		}
+
+		// If we still didn't find one, then we'll set free start to the length of the index.
+		index.freeStart = int32(len(index.hosts))
 	} else {
+		i = int32(len(index.hosts))
+		index.log.Debug("Appending new host %s to end of RandomClusterIndex (pos=%d).", host.GetNodeName(), i)
 		index.hosts = append(index.hosts, host)
-		i = index.freeStart // old len(index.hosts) or current len(index.hosts) - 1
 		index.freeStart += 1
 	}
+
 	host.SetMeta(HostMetaRandomIndex, i)
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedRandomIndex)
@@ -132,14 +183,16 @@ func (index *RandomClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *RandomClusterIndex) Remove(host scheduling.Host) {
+func (index *RandomClusterIndex) RemoveHost(host scheduling.Host) bool {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+
+	index.log.Debug("Removing host %s (ID=%s) from RandomClusterIndex.", host.GetNodeName(), host.GetID())
 
 	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
 	if !ok {
 		index.log.Warn("Cannot remove host %s; it is not present within RandomClusterIndex", host.GetID())
-		return
+		return false
 	}
 
 	if !host.IsContainedWithinIndex() {
@@ -150,12 +203,13 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	index.log.Debug("Removing host %s from RandomClusterIndex, position=%d", host.GetID(), i)
 
 	if i > int32(len(index.hosts)) {
-		log.Fatalf("Index %d is out of range for RandomClusterIndex of length %d...\n", i, len(index.hosts))
+		index.log.Error("Index %d is out of range for RandomClusterIndex of length %d...\n", i, len(index.hosts))
+		panic("Index out of range")
 	}
 
 	if index.hosts[i] == nil {
 		index.log.Error("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil).", i, i)
-		for idx := 0; idx < cap(index.hosts); idx++ {
+		for idx := 0; idx < len(index.hosts); idx++ {
 			if index.hosts[idx] != nil {
 				index.log.Error("index.hosts[%d] = %v", idx, index.hosts[idx])
 			} else {
@@ -163,12 +217,15 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 			}
 		}
 
-		log.Fatalf("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil.\n", i, i)
+		index.log.Error("There is no host at index %d of RandomClusterIndex (i.e., hosts[%d] is nil).\n", i, i)
+		i = index.fix(host, i)
 	}
 
 	if index.hosts[i].GetID() != host.GetID() {
-		log.Fatalf("host at index %d of RandomClusterIndex is host %s; however, we're supposed to remove host %s...\n",
+		index.log.Error("Host at index %d of RandomClusterIndex is host %s; however, we're supposed to remove host %s...\n",
 			i, index.hosts[i].GetID(), host.GetID())
+
+		i = index.fix(host, i)
 	}
 
 	index.hosts[i] = nil
@@ -177,6 +234,9 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
+
+	index.log.Debug("Removed host %s (ID=%s) from RandomClusterIndex at index %d.",
+		host.GetNodeName(), host.GetID(), i)
 
 	// Update freeStart.
 	if i < index.freeStart {
@@ -190,6 +250,42 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 
 	// Invoke callback.
 	index.InvokeHostRemovedCallbacks(host)
+
+	return true
+}
+
+func (index *RandomClusterIndex) fix(host scheduling.Host, i int32) int32 {
+	for actualIndex, h := range index.hosts {
+		if h == nil {
+			index.log.Warn("No host at index %d", actualIndex)
+			continue
+		}
+
+		idx := h.GetIdx(HostMetaRandomIndex)
+
+		// Find the host we're supposed to be removing.
+		if h.GetID() == host.GetID() {
+			i = int32(actualIndex)
+			index.log.Error("Found host %s (the one we're supposed to remove) at index %d (instead of index %d).",
+				h.GetNodeName(), actualIndex, i)
+		}
+
+		if actualIndex == idx {
+			index.log.Warn("✓ Host %s (ID=%s) is at index %d and correctly believes it is at index %d ✓",
+				h.GetNodeName(), h.GetID(), actualIndex, idx)
+			continue
+		}
+
+		index.log.Error(
+			utils.RedStyle.Render(
+				"✗ Host %s (ID=%s) is at index %d and incorrectly believes it is at index %d ✗"),
+			h.GetNodeName(), h.GetID(), actualIndex, idx)
+
+		// Fix the index...
+		host.SetMeta(HostMetaRandomIndex, actualIndex)
+	}
+
+	return i
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {
@@ -202,7 +298,7 @@ func (index *RandomClusterIndex) compactLocked(from int32) {
 			frontier += 1
 		}
 	}
-	index.freeStart = int32(frontier)
+	index.freeStart = frontier
 	index.hosts = index.hosts[:frontier]
 }
 
@@ -280,6 +376,23 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	return ret, pos, err
 }
 
+func (index *RandomClusterIndex) checkHostForViability(candidateHost scheduling.Host, criteriaFunc scheduling.HostCriteriaFunction) bool {
+	if criteriaFunc == nil {
+		return true
+	}
+
+	// Check that the host is not outright excluded from scheduling right now and
+	// that it satisfies whatever scheduling criteria was specified by the user.
+	err := criteriaFunc(candidateHost)
+	if err != nil {
+		index.log.Debug("Host %s (ID=%s) failed supplied criteria function: %v",
+			candidateHost.GetNodeName(), candidateHost.GetID(), err)
+		return false
+	}
+
+	return true
+}
+
 // SeekMultipleFrom seeks n host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
@@ -345,22 +458,28 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 		// In case we reshuffled, make sure we haven't already received this host.
 		// If indeed it is new, then we'll add it to the host map.
-		if _, loaded := hostsMap[candidateHost.GetID()]; !loaded {
-			// Check that the host is not outright excluded from scheduling right now and
-			// that it satisfies whatever scheduling criteria was specified by the user.
-			hostSatisfiesSchedulingCriteria := criteriaFunc == nil || criteriaFunc(candidateHost)
-
-			// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
-			// before marking it as being considered.
-			if hostSatisfiesSchedulingCriteria && candidateHost.ConsiderForScheduling() {
-				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
-				hostsMap[candidateHost.GetID()] = candidateHost
-			} else {
-				index.log.Debug("host %s (ID=%s) failed supplied criteria function. Rejecting.", candidateHost.GetNodeName(), candidateHost.GetID())
-			}
-		} else {
-			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.GetNodeName(), candidateHost.GetID())
+		_, loaded := hostsMap[candidateHost.GetID()]
+		if loaded {
+			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)",
+				candidateHost.GetNodeName(), candidateHost.GetID())
+			continue
 		}
+
+		viable := index.checkHostForViability(candidateHost, criteriaFunc)
+		if !viable {
+			continue
+		}
+
+		// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
+		// before marking it as being considered.
+		if candidateHost.ConsiderForScheduling() {
+			index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.GetNodeName(), candidateHost.GetID())
+			hostsMap[candidateHost.GetID()] = candidateHost
+			continue
+		}
+
+		index.log.Warn("Viable candidate host %s (ID=%s) is excluded from scheduling...",
+			candidateHost.GetNodeName(), candidateHost.GetID())
 	}
 
 	// Put all the hosts from the map into the slice and return it.

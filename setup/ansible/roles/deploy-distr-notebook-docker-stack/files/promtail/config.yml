@@ -19,8 +19,18 @@ scrape_configs:
     relabel_configs:
       - source_labels: [ '__meta_docker_container_name' ]
         regex: '/(.*)'
-        target_label: 'container'
+        target_label: 'container_name'
+      - source_labels: [ '__meta_docker_container_id' ]
+        target_label: 'container_id'
       - source_labels: [ '__meta_docker_container_log_stream' ]
         target_label: 'logstream'
       - source_labels: [ '__meta_docker_container_label_logging_jobname' ]
         target_label: 'job'
+      - source_labels: ['__meta_docker_container_label_component']
+        target_label: 'component'
+      - source_labels: ['__meta_docker_container_app']
+        target_label: 'app'
+      - source_labels: ['__meta_docker_container_kernel_id']
+        target_label: 'kernel_id'
+      - source_labels: ['__meta_docker_swarm_service_name']
+        target_label: 'service_name'

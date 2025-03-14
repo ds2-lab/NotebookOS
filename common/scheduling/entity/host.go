@@ -91,7 +91,6 @@ type Host struct {
 
 	allocationManager scheduling.AllocationManager         // allocationManager manages the resources of the Host.
 	meta              hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	metricsProvider   scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
 	indexUpdater      IndexUpdater
 	schedulingPolicy  scheduling.Policy // schedulingPolicy is the scheduling policy configured for the cluster.
 
@@ -177,7 +176,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
 func NewHost(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
-	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient,
+	metricsProvider scheduling.PrometheusMetricsProvider, localGatewayClient proto.LocalGatewayClient,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -223,8 +222,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		resourceSpec:                resourceSpec,
 		numReplicasPerKernel:        numReplicasPerKernel,
 		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
-		metricsProvider:             metricsProvider,
-		log:                         config.GetLogger(fmt.Sprintf("host %s ", confirmedId.NodeName)),
+		log:                         config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                  hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
 		trainingContainers:          make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
 		penalties:                   make([]cachedPenalty, int(resourceSpec.GPU())),
@@ -240,6 +238,8 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		allocationManager:           resource.NewAllocationManager(resourceSpec, schedulingPolicy, id, confirmedId.NodeName),
 		subscribedRatio:             decimal.Zero,
 	}
+
+	host.allocationManager.RegisterMetricsManager(metricsProvider)
 
 	host.log.Debug("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
@@ -267,13 +267,14 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 
 // NewHostWithConn creates and returns a new *Host.
 func NewHostWithConn(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier,
-	indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
+	indexUpdater IndexUpdater, metricsProvider scheduling.PrometheusMetricsProvider, conn *grpc.ClientConn,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, numReplicasPerKernel, querier, indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
+	host, err := NewHost(id, addr, numReplicasPerKernel, querier, indexUpdater, metricsProvider,
+		localGatewayClient, schedulingPolicy, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -461,6 +462,12 @@ func (h *Host) Compare(h2 interface{}) float64 {
 			return diff
 		}
 
+		// Compare pending GPUs.
+		ret = h2.(scheduling.Host).PendingGPUs() - h.PendingGPUs()
+		if ret != 0.0 {
+			return ret
+		}
+
 		// For otherwise equal hosts, compare their IDs for stable ordering
 		return float64(strings.Compare(h.ID, host2.GetID()))
 	default:
@@ -474,6 +481,12 @@ func (h *Host) Compare(h2 interface{}) float64 {
 		diff := h.subscribedRatio.Sub(h2.(scheduling.Host).SubscribedRatioAsDecimal()).InexactFloat64()
 		if diff != 0 {
 			return diff
+		}
+
+		// Compare pending GPUs.
+		ret := h.PendingGPUs() - h2.(scheduling.Host).PendingGPUs()
+		if ret != 0.0 {
+			return ret
 		}
 
 		// For otherwise equal hosts, compare their IDs for stable ordering
@@ -722,7 +735,7 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 
 	err := h.allocationManager.ReleaseReservation(spec)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// No longer being considered.
@@ -735,13 +748,26 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 // returning a boolean flag indicating whether the resource reservation was completed successfully.
 //
 // If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
-func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
-	err := h.reserveResources(replicaSpec.ReplicaId, replicaSpec.Kernel.Id, replicaSpec.ResourceSpec().ToDecimalSpec(), usePendingResources)
+func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool, ignoreOversubscriptionRisk bool) (bool, error) {
+
+	err := h.reserveResources(replicaSpec.ReplicaId, replicaSpec.Kernel.Id, replicaSpec.ResourceSpec().ToDecimalSpec(),
+		usePendingResources, ignoreOversubscriptionRisk)
+
 	if err != nil {
 		return false, err
 	}
 
 	return true, nil
+}
+
+func (h *Host) ForceReleaseResources(container scheduling.KernelContainer, executionId string) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	kernelId := container.KernelID()
+	replicaId := container.ReplicaId()
+
+	return h.allocationManager.ReleaseCommittedResources(replicaId, kernelId, executionId)
 }
 
 // ReserveResources attempts to reserve the resources required by the specified kernel, returning
@@ -749,7 +775,9 @@ func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelRepli
 //
 // If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error) {
-	err := h.reserveResources(resource.ReplicaIdForReservation, spec.Id, spec.ResourceSpec.ToDecimalSpec(), usePendingResources)
+	err := h.reserveResources(resource.ReplicaIdForReservation, spec.Id, spec.ResourceSpec.ToDecimalSpec(),
+		usePendingResources, false)
+
 	if err != nil {
 		return false, err
 	}
@@ -757,15 +785,32 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	return true, nil
 }
 
-func (h *Host) reserveResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec, usePending bool) error {
+func (h *Host) reserveResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec, usePending bool,
+	ignoreOversubscriptionRisk bool) error {
+
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
+
+	// Check this right away, even if it's a little redundant, as we can skip all the other checks if we know there's
+	// another replica of the kernel already scheduled here.
+	if h.numReplicasPerKernel > 1 && h.allocationManager.HasReservationForKernel(kernelId) {
+		h.log.Debug("Host %s already has resources allocated to another replica of kernel \"%s\". Cannot reserve resources for replica %d.",
+			h.GetNodeName(), kernelId, replicaId)
+		return fmt.Errorf("%w: existing resource allocation found for another replica of kernel %s",
+			resource.ErrInvalidAllocationRequest, kernelId)
+	}
 
 	h.log.Debug("Creating resource reservation for new replica %d of kernel \"%s\". UsePending=%v. Request=%s. Current resources on host: %v.",
 		replicaId, kernelId, usePending, resourceRequest.String(), h.GetResourceCountsAsString())
 
-	if h.WillBecomeTooOversubscribed(resourceRequest) {
+	if !usePending && !h.CanCommitResources(resourceRequest) {
 		h.log.Debug("Cannot commit resources for a replica of kernel %s; insufficient idle resources available.",
+			kernelId)
+		return scheduling.ErrInsufficientIdleResourcesAvailable
+	}
+
+	if !ignoreOversubscriptionRisk && h.WillBecomeTooOversubscribed(resourceRequest) {
+		h.log.Debug("Cannot commit resources for a replica of kernel %s; host will become too oversubscribed.",
 			kernelId)
 		return ErrWillOversubscribe
 	}
@@ -1100,24 +1145,36 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
 	container scheduling.KernelContainer, tx scheduling.CoordinatedTransaction) error {
 
-	// The CoordinatedTransaction will lock this mutex.
-	// We just need to unlock it.
-	defer h.schedulingMutex.Unlock()
-
 	oldSubscribedRatio := h.subscribedRatio
 	h.log.Debug("Coordinated Transaction: updating resource reservation for for replica %d of kernel %s from [%v] to [%v]. Current resource counts: %v.",
 		container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), h.GetResourceCountsAsString())
 
-	err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
+	var locksAcquired bool
+	defer func() {
+		if tx.LockedWereAcquired() || locksAcquired {
+			h.schedulingMutex.Unlock()
+		}
+	}()
+
+	registered, err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
 	if err != nil {
-		h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica).",
-			container.ReplicaId(), container.KernelID())
+		h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica): %v",
+			container.ReplicaId(), container.KernelID(), err)
+
+		if !registered {
+			h.log.Warn("Aborting transaction %s targeting kernel %s.", tx.Id(), container.KernelID())
+			locksAcquired = tx.Abort(err)
+			h.log.Warn("Aborted transaction %s targeting kernel %s. LocksAcquired=%v.",
+				tx.Id(), container.KernelID(), locksAcquired)
+		}
+
 		return err
 	}
 
 	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Subscription ratio: %s → %s. Updated resource counts: %v.",
 		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3),
 		h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
+
 	return nil
 }
 
@@ -1134,7 +1191,7 @@ func (h *Host) AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types
 	h.log.Debug("Updating resource reservation for just replica %d of kernel %s from [%v] to [%v].",
 		replicaId, kernelId, oldSpec.String(), updatedSpec.String())
 
-	err := h.allocationManager.AdjustKernelResourceRequest(updatedSpec, oldSpec, container)
+	err := h.allocationManager.AdjustKernelResourceRequest(updatedSpec, oldSpec, replicaId, kernelId)
 	if err != nil {
 		h.log.Warn("Failed to update resource reservation for just replica %d of kernel %s from [%v] to [%v].",
 			replicaId, kernelId, oldSpec.String(), updatedSpec.String())

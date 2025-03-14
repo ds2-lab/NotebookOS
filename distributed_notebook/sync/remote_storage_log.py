@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 import pickle
@@ -8,8 +9,8 @@ from prometheus_client import Histogram
 
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync.log import SynchronizedValue
-from distributed_notebook.sync.storage.error import InvalidKeyError
-from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.remote_storage.error import InvalidKeyError
+from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 from distributed_notebook.sync.util import get_size
 
 
@@ -209,9 +210,11 @@ class RemoteStorageLog(object):
         """
         return False
 
-    def get_election(self, term_number: int) -> Any:
+    def get_election(self, term_number: int, jupyter_msg_id: Optional[str] = None)->Any:
         """
-        :return: the current election with the specified term number, if one exists.
+        Returns the election with the specified term number, if one exists.
+
+        If the term number is given as -1, then resolution via the JupyterMessageID is attempted.
         """
         return None
 
@@ -239,11 +242,11 @@ class RemoteStorageLog(object):
           callback will be in the form callback(Checkpointer)."""
         pass
 
-    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """Request yield the update of a term to another replica."""
         return False
 
-    async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
+    async def try_lead_execution(self, jupyter_message_id: str, term_number: int, target_replica_id: int = -1) -> bool:
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
         return True
@@ -283,7 +286,7 @@ class RemoteStorageLog(object):
 
         data = pickle.dumps(data)
 
-        await self.storage_provider.write_value_async(key, data)
+        await self.storage_provider.write_value_async(key, data, size_bytes = len(data))
         time_elapsed: float = time.time() - start_time
 
         self.log.debug(f'Wrote RemoteStorageLog metadata for term {term_number} with {len(self._variables_written)} '
@@ -300,10 +303,14 @@ class RemoteStorageLog(object):
         metadata_key: str = self.__get_path_for_metadata()
 
         try:
-            data: Dict[str, Any] | bytes = self.storage_provider.read_value(metadata_key)
+            data: Dict[str, Any] | bytes | io.BytesIO = self.storage_provider.read_value(metadata_key)
         except InvalidKeyError:
             self.log.debug(f'No data stored at metadata key "{metadata_key}". No state to load and apply.')
             return set()
+
+        if isinstance(data, io.BytesIO):
+            data.seek(0)
+            data = data.getbuffer().tobytes()
 
         try:
             data = pickle.loads(data)
@@ -346,7 +353,11 @@ class RemoteStorageLog(object):
 
             self.log.debug(f'Retrieving value for variable "{variable_name}" from {self.storage_name} at key "{key}".')
 
-            variable_value: bytes = self.storage_provider.read_value(key)
+            variable_value: Dict[str, Any] | bytes | io.BytesIO = self.storage_provider.read_value(key)
+
+            if isinstance(variable_value, io.BytesIO):
+                variable_value.seek(0)
+                variable_value = variable_value.getbuffer().tobytes()
 
             try:
                 variable: SynchronizedValue = pickle.loads(variable_value)
@@ -404,7 +415,7 @@ class RemoteStorageLog(object):
 
         data = pickle.dumps(val)
 
-        await self.storage_provider.write_value_async(key, data)
+        await self.storage_provider.write_value_async(key, data, size_bytes = len(data))
         time_elapsed: float = time.time() - start_time
 
         self._num_changes += 1
@@ -456,3 +467,31 @@ class RemoteStorageLog(object):
         This is not relevant for RemoteStorageLog.
         """
         pass
+
+    async def is_election_voting_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the voting phase of the election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        pass # not supported when SMR is disabled
+
+    async def is_election_execution_complete(self, jupyter_msg_id:str)->bool:
+        """
+        Check if an election for the given Jupyter msg ID already exists.
+
+        If so, return True if the execution phase election is complete.
+
+        The Jupyter msg id would come from an "execute_request" or a
+        "yield_request" message.
+        """
+        pass # not supported when SMR is disabled
+
+    def update_term_msg_id_mappings(self, val: SynchronizedValue):
+        pass
+
+    def check_for_term_with_jupyter_id(self, jupyter_msg_id: str)->int:
+        return -1

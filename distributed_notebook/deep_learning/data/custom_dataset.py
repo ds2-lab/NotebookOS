@@ -3,15 +3,32 @@ from abc import ABC, abstractmethod
 import os
 import logging
 
+from typing import Optional
+
 from distributed_notebook.logs import ColoredLogFormatter
 
 from torchvision.datasets.utils import check_integrity
 
 class CustomDataset(ABC):
-    def __init__(self, root_dir: str = "", shuffle: bool = True, num_workers: int = 2):
+    def __init__(
+            self,
+            root_dir: str = "",
+            shuffle: bool = True,
+            num_workers: int = 2,
+            batch_size: int = 1,
+            **kwargs
+    ):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers
+        self._download_start: float = -1
+        self._download_end: float = -1
+        self._download_duration_sec: float = 0.0
+        self._tokenize_start: float = -1.0
+        self._tokenize_end: float = -1.0
+        self._tokenize_duration: float = 0.0
+        self._dataset_already_downloaded: Optional[bool] = None
+        self._batch_size: int = batch_size
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -21,6 +38,15 @@ class CustomDataset(ABC):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+    def __getstate__(self):
+        self.log.warning(f'CustomDataset::__getstate__ has been called for dataset "{self.dataset_name()}".')
+        state = self.__dict__.copy()
+
+        for key, value in state.items():
+            self.log.debug(f'Entry "{key}" has type "{type(value).__name__}".')
+
+        return state
 
     @abstractmethod
     def remove_local_files(self):

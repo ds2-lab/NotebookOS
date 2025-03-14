@@ -127,11 +127,11 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		opts:                      opts,
 		gpusPerHost:               opts.GetGpusPerHost(),
 		metricsProvider:           clusterMetricsProvider,
-		hosts:                     hashmap.NewConcurrentMap[scheduling.Host](256),
+		hosts:                     hashmap.NewConcurrentMap[scheduling.Host](32),
 		sessions:                  hashmap.NewCornelkMap[string, scheduling.UserSession](128),
 		indexes:                   hashmap.NewSyncMap[string, scheduling.IndexProvider](),
 		validateCapacityInterval:  time.Millisecond * time.Duration(opts.GetScalingIntervalSec()*1000),
-		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](256),
+		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](32),
 		statisticsUpdaterProvider: statisticsUpdaterProvider,
 		numFailedScaleInOps:       0,
 		numFailedScaleOutOps:      0,
@@ -188,13 +188,37 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 	if initialConnPeriodEnabled {
 		c.inInitialConnectionPeriod.Store(true)
 
-		c.log.Debug("Initial Connection Period will end in %v.", c.initialConnectionPeriod)
-		time.Sleep(c.initialConnectionPeriod)
+		// Spawn a separate goroutine to formally exit "initial connection" mode after the configured
+		// interval of time has elapsed.
+		start := time.Now()
+		go func() {
+			c.log.Debug("Initial Connection Period will end in at most %v.", c.initialConnectionPeriod)
 
-		c.inInitialConnectionPeriod.Store(false)
+			// Sleep for the configured interval of time.
+			time.Sleep(c.initialConnectionPeriod)
 
-		c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
-			c.initialConnectionPeriod, c.Len())
+			// Exit "initial connection" mode.
+			c.inInitialConnectionPeriod.Store(false)
+
+			c.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+				c.initialConnectionPeriod, c.Len())
+		}()
+
+		// Once a second for the duration of the "initial connection" period, we'll check the size of the cluster.
+		// If we reach the configured initial size, then we'll exit this loop and begin pre-warming containers
+		// on all the connected hosts. We do not need to wait for the full "initial connection" period to elapse
+		// before we start to pre-warm containers if all "<initial cluster size>" hosts have connected.
+		for c.Len() < c.initialClusterSize && c.inInitialConnectionPeriod.Load() {
+			time.Sleep(time.Second * 1)
+
+			// If we've reached the configured initial cluster size, then we can break out of the loop.
+			if c.Len() >= c.initialClusterSize {
+				c.log.Debug("Cluster has reached configured initial size of %d after %v.",
+					c.initialClusterSize, time.Since(start))
+
+				break
+			}
+		}
 	} else {
 		c.log.Debug("Initial Cluster Size specified as negative number (%d). "+
 			"Disabling 'initial connection period' feature.", c.initialClusterSize)
@@ -224,12 +248,17 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 
 	// If we were supposed to create some number of containers, and we created none, then that's problematic.
 	if created == 0 && target > 0 {
-		c.log.Error("Created 0/%d pre-warm containers...", created, target)
+		c.log.Error("Created %d/%d pre-warm containers...", created, target)
 		panic(fmt.Sprintf("Something is wrong. Failed to create any pre-warmed containers (target=%d).", target))
 	}
 
 	// Start the prewarmer when we return.
-	defer prewarmer.Run()
+	defer func(prewarmer scheduling.ContainerPrewarmer) {
+		err := prewarmer.Run()
+		if err != nil {
+			c.log.Error("ContainerPrewarmer encountered an error while running: %v", err)
+		}
+	}(prewarmer)
 
 	// If the target was 0, then return immediately to avoid printing the unnecessary log message below.
 	// We deferred `prewarmer.Run()`, so that'll run when we return.
@@ -237,11 +266,19 @@ func (c *BaseCluster) handleInitialConnectionPeriod() {
 		return
 	}
 
-	c.log.Debug("Created %d/%d pre-warm containers.", created, target)
+	c.log.Info("✓ Successfully created %d/%d pre-warm containers. ✓", created, target)
 	// We deferred `prewarmer.Run()`, so that'll run when we return.
 }
 
 func (c *BaseCluster) initRatioUpdater() {
+	skipValidateCapacity := false
+
+	schedulingPolicy := c.Scheduler().Policy()
+	scalingPolicy := schedulingPolicy.ResourceScalingPolicy()
+	if !scalingPolicy.ScalingInEnabled() && !scalingPolicy.ScalingOutEnabled() && !schedulingPolicy.SupportsPredictiveAutoscaling() {
+		skipValidateCapacity = true
+	}
+
 	go func() {
 		c.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", c.validateCapacityInterval)
 
@@ -249,7 +286,7 @@ func (c *BaseCluster) initRatioUpdater() {
 		time.Sleep(c.validateCapacityInterval)
 
 		for !c.closed.Load() {
-			c.scheduler.UpdateRatio(false)
+			c.scheduler.UpdateRatio(skipValidateCapacity)
 			time.Sleep(c.validateCapacityInterval)
 		}
 	}()
@@ -408,29 +445,30 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 
 // UpdateIndex updates the ClusterIndex that contains the specified host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
-	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
-	if categoryMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
-	}
+	//categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
+	//if categoryMetadata == nil {
+	//	return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
+	//		host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
+	//}
+	//
+	//keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	//if keyMetadata == nil {
+	//	return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
+	//		host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+	//}
+	//
+	//key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
+	//clusterIndex, loaded := c.indexes.Load(key)
+	//
+	//if !loaded || clusterIndex == nil {
+	//	return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
+	//		categoryMetadata, keyMetadata.(string))
+	//}
+	//
+	//c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
+	//clusterIndex.Update(host)
 
-	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
-	if keyMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
-	}
-
-	key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
-	clusterIndex, loaded := c.indexes.Load(key)
-
-	if !loaded || clusterIndex == nil {
-		return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
-			categoryMetadata, keyMetadata.(string))
-	}
-
-	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
-	clusterIndex.Update(host)
-	return nil
+	return c.scheduler.UpdateIndex(host)
 }
 
 // unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,
@@ -497,13 +535,13 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 	c.indexes.Range(func(indexKey string, index scheduling.IndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
 			c.log.Debug("Adding new host to index %s: %v", indexKey, host)
-			index.Add(host)
+			index.AddHost(host)
 		} else if qualificationStatus == scheduling.IndexQualified {
 			c.log.Debug("Updating existing host within index %s: %v", indexKey, host)
 			index.Update(host)
 		} else if qualificationStatus == scheduling.IndexDisqualified {
 			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
-			index.Remove(host)
+			index.RemoveHost(host)
 		} else {
 			// Log level is set to warn because, as of right now, there are never any actual qualifications.
 			c.log.Warn("host %s (ID=%s) is not qualified to be added to index '%s'.",
@@ -522,6 +560,35 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 		}
 	}
+
+	// If we're outside the "initial connection" period, then we should provision the pre-warm containers on the host.
+	// If we're still within the "initial connection" period, then we skip this step here, because we'll trigger the
+	// creation of the pre-warm containers on the newly-connected hosts later, once they've all connected.
+	if !c.inInitialConnectionPeriod.Load() && host.Enabled() {
+		c.log.Debug("Provisioning initial pre-warm containers on new host, host %s.", host.GetNodeName())
+		go c.provisionInitialPrewarmContainersOnHost(host)
+	}
+}
+
+// provisionInitialPrewarmContainersOnHost is called when adding a new scheduling.Host after the conclusion of the
+// "initial connection" period.
+//
+// provisionInitialPrewarmContainersOnHost directs the BaseCluster's scheduling.ContainerPrewarmer to provision the
+// configured number of pre-warm containers on the new scheduling.Host.
+func (c *BaseCluster) provisionInitialPrewarmContainersOnHost(host scheduling.Host) {
+	prewarmer := c.Scheduler().ContainerPrewarmer()
+	if prewarmer == nil {
+		return
+	}
+
+	numCreatedChan := make(chan int32, 1)
+	startTime := time.Now()
+
+	prewarmer.ProvisionInitialPrewarmContainersOnHost(host, numCreatedChan)
+
+	numCreated := <-numCreatedChan
+	c.log.Debug("Successfully provisioned %d initial pre-warm container(s) on new host %s in %v.",
+		numCreated, host.GetNodeName(), time.Since(startTime))
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
@@ -532,12 +599,23 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	c.scheduler.HostRemoved(host)
 
+	removedFromIndex := 0
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
-			index.Remove(host)
+			removed := index.RemoveHost(host)
+
+			if removed {
+				removedFromIndex += 1
+			}
 		}
 		return true
 	})
+
+	if removedFromIndex == 0 {
+		c.log.Warn("Host %s (ID=%s) was not removed from ANY indices...", host.GetNodeName(), host.GetID())
+	} else {
+		c.log.Debug("Removed host %s (ID=%s) from %d index(es).", host.GetNodeName(), host.GetID(), removedFromIndex)
+	}
 
 	c.scalingOpMutex.Lock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
@@ -583,6 +661,7 @@ func (c *BaseCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
 		}
 
 		if session.IsMigrating() {
+			demandGPUs += session.ResourceSpec().GPU()
 			numRunning += 1
 		} else if session.IsIdle() {
 			demandGPUs += session.ResourceSpec().GPU()
@@ -736,7 +815,9 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 
 	if c.activeScaleOperation != nil {
 		c.log.Debug("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, scheduling.ErrScalingActive
+		return nil, fmt.Errorf("%w from %d --> %d nodes that was created %v ago",
+			scheduling.ErrScalingActive, c.activeScaleOperation.InitialScale, c.activeScaleOperation.TargetScale,
+			time.Since(c.activeScaleOperation.StartTime))
 	}
 
 	currentClusterSize := int32(c.Len())
@@ -880,7 +961,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleOutEvents += 1
+			stats.NumActiveScaleOutEvents.Add(1)
 		})
 	}
 
@@ -909,18 +990,13 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	}
 
 	numProvisioned := c.Len() - int(scaleOp.InitialScale)
-	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
-
-		})
-	}
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			var operationStatus string
 			if numProvisioned > 0 {
-				stats.NumSuccessfulScaleOutEvents += 1
-				stats.CumulativeNumHostsProvisioned += numProvisioned
+				stats.NumSuccessfulScaleOutEvents.Add(1)
+				stats.CumulativeNumHostsProvisioned.Add(int32(numProvisioned))
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -928,12 +1004,12 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 					operationStatus = "partial_success"
 				}
 			} else {
-				stats.NumFailedScaleOutEvents += 1
+				stats.NumFailedScaleOutEvents.Add(1)
 				operationStatus = "total_failure"
 			}
 
 			duration, _ := scaleOp.GetDuration()
-			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts.Add(duration.Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -954,7 +1030,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleOutEvents -= 1
+			stats.NumActiveScaleOutEvents.Sub(1)
 		})
 	}
 
@@ -968,17 +1044,17 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
+		c.log.Warn("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Warn("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
 	}
 
 	if targetNumNodes < int32(c.NumReplicas()) {
-		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Warn("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
+		c.log.Warn("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
 	}
 
@@ -988,13 +1064,13 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleInOperation(opId, targetNumNodes, ids)
 	if err != nil {
-		c.log.Error("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
+		c.log.Warn("Could not register new scale-in operation down to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumActiveScaleInEvents += 1
+			stats.NumActiveScaleInEvents.Add(1)
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1040,8 +1116,8 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 			numReleased := currentNumNodes - int32(c.Len())
 			var operationStatus string
 			if numReleased > 0 {
-				stats.NumSuccessfulScaleInEvents += 1
-				stats.CumulativeNumHostsReleased += int(numReleased)
+				stats.NumSuccessfulScaleInEvents.Add(1)
+				stats.CumulativeNumHostsReleased.Add(numReleased)
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -1049,12 +1125,12 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 					operationStatus = "partial_success"
 				}
 			} else {
-				stats.NumFailedScaleInEvents += 1
+				stats.NumFailedScaleInEvents.Add(1)
 				operationStatus = "total_failure"
 			}
 
 			duration, _ := scaleOp.GetDuration()
-			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts.Add(duration.Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1075,7 +1151,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 				},
 			})
 
-			stats.NumActiveScaleInEvents -= 1
+			stats.NumActiveScaleInEvents.Sub(1)
 		})
 	}
 
@@ -1121,7 +1197,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 	if c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
-			stats.NumActiveScaleInEvents += 1
+			stats.NumActiveScaleInEvents.Add(1)
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1164,8 +1240,8 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 			numReleased := currentNumNodes - int32(c.Len())
 			var operationStatus string
 			if numReleased > 0 {
-				stats.NumSuccessfulScaleInEvents += 1
-				stats.CumulativeNumHostsReleased += int(numReleased)
+				stats.NumSuccessfulScaleInEvents.Add(1)
+				stats.CumulativeNumHostsReleased.Add(numReleased)
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -1173,12 +1249,12 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 					operationStatus = "partial_success"
 				}
 			} else {
-				stats.NumFailedScaleInEvents += 1
+				stats.NumFailedScaleInEvents.Add(1)
 				operationStatus = "total_failure"
 			}
 
 			duration, _ := scaleOp.GetDuration()
-			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts.Add(duration.Seconds())
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
@@ -1199,7 +1275,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 				},
 			})
 
-			stats.NumActiveScaleInEvents -= 1
+			stats.NumActiveScaleInEvents.Sub(1)
 		})
 	}
 
@@ -1321,6 +1397,23 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 		host.GetNodeName(), host.GetID())
 
 	return nil
+}
+
+// GetHostEvenIfDisabled returns the Host with the given ID, if one exists, regardless of
+// whether the Host is enabled or disabled.
+func (c *BaseCluster) GetHostEvenIfDisabled(hostId string) (host scheduling.Host, enabled bool, err error) {
+	var loaded bool
+	host, loaded = c.hosts.Load(hostId)
+	if loaded {
+		return host, true, nil
+	}
+
+	host, loaded = c.DisabledHosts.Load(hostId)
+	if loaded {
+		return host, false, nil
+	}
+
+	return nil, false, fmt.Errorf("%w: host \"%s\"", scheduling.ErrHostNotFound, hostId)
 }
 
 // GetHost returns the host with the given ID, if one exists.

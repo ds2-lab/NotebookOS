@@ -14,13 +14,13 @@ handler.setFormatter(colored_log_formatter)
 
 # Get the root logger and add the handler
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
+# root_logger.setLevel(logging.DEBUG)
 root_logger.addHandler(handler)
 
 import faulthandler
 
 def main():
-    print("Driver process has started running.", flush = True)
+    print("DistributedKernel: main()", flush = True)
     faulthandler.enable()
     IPKernelApp.launch_instance(kernel_class=DistributedKernel)
 

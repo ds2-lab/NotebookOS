@@ -9,7 +9,7 @@ const (
 
 	// TargetReplicaArg is used as a key within the metadata dict of an 'execute_request' ZMQ message.
 	// This indicates that a specific replica should execute the code.
-	TargetReplicaArg = "target_replica"
+	TargetReplicaArg = "target_replica_id"
 
 	YieldInsufficientResourcesAvailable YieldReason = "YieldInsufficientResourcesAvailable" // Yield because there are not enough resources (Millicpus, memory, and/or GPUs) available.
 	YieldDifferentReplicaTargeted       YieldReason = "YieldDifferentReplicaTargeted"       // Yield because another replica was explicitly targeted.

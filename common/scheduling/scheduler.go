@@ -19,6 +19,18 @@ const (
 
 type SchedulerPoolType int
 
+func (t SchedulerPoolType) String() string {
+	if t == SchedulerPoolTypeUndersubscribed {
+		return "Undersubscribed"
+	}
+
+	if t == SchedulerPoolTypeOversubscribed {
+		return "Oversubscribed"
+	}
+
+	return fmt.Sprintf("UnknownSchedulerPoolType(%d)", t)
+}
+
 // ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
 type ErrorDuringScheduling struct {
 	// UnderlyingError is the underlying error.
@@ -41,22 +53,55 @@ func (e *ErrorDuringScheduling) String() string {
 	return e.Error()
 }
 
+// ScheduleReplicaArgs encapsulates the arguments to be passed to the KernelScheduler.ScheduleKernelReplica method.
+type ScheduleReplicaArgs struct {
+	// ReplicaSpec is the proto.KernelReplicaSpec of the target KernelReplica.
+	ReplicaSpec *proto.KernelReplicaSpec
+
+	// TargetHost allows for the optional specification of a particular Host that should serve the target KernelReplica.
+	TargetHost Host
+
+	// BlacklistedHosts is a slice of Host instances on which the target KernelReplica cannot be scheduled onto.
+	BlacklistedHosts []Host
+
+	// ForTraining indicates that the KernelReplica being scheduled will need to begin training immediately and thus
+	// requires that resources be pre-committed to it so that they're definitely available when it is up and running
+	// on a new Host.
+	ForTraining bool
+
+	IgnoreOversubscriptionRisk bool
+
+	CanUsePrewarmContainer bool
+
+	// ForMigration indicates that we're scheduling a new KernelReplica during a migration operation, and that we'll
+	// need to coordinate the start-up process for this new KernelReplica with the shutdown procedure of the old,
+	// existing KernelReplica.
+	ForMigration bool
+}
+
+type KernelProvider interface {
+	GetKernel(kernelId string) (Kernel, bool)
+}
+
 type KernelScheduler interface {
+	SetKernelProvider(kernelProvider KernelProvider)
+
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	//
 	// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
 	// It simply provides an explanation for why the migration failed.
 	//
 	// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
+	MigrateKernelReplica(ctx context.Context, kernelReplica KernelReplica, targetHostId string, forTraining bool,
+		createNewHostPermitted bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployKernelReplicas(ctx context.Context, kernel Kernel, blacklistedHosts []Host) error
+	DeployKernelReplicas(ctx context.Context, kernel Kernel, numReplicasToSchedule int32, blacklistedHosts []Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
+	ScheduleKernelReplica(ctx context.Context, args *ScheduleReplicaArgs) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error
@@ -78,7 +123,7 @@ type KernelScheduler interface {
 	//
 	// PRECONDITION: The specified KernelReplica should already be scheduled on the Host on which the resources are to
 	// be reserved.
-	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool) error
+	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool, ignoreOversubscriptionRisk bool) error
 
 	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
 	// pre-designated as the leader of a code execution.
@@ -106,7 +151,14 @@ type KernelScheduler interface {
 	ContainerPrewarmer() ContainerPrewarmer
 }
 
+type HostMapper interface {
+	// GetHostsOfKernel returns the Host instances on which the replicas of the specified kernel are scheduled.
+	GetHostsOfKernel(kernelId string) ([]Host, error)
+}
+
 type HostScheduler interface {
+	SetHostMapper(hostMapper HostMapper)
+
 	// RequestNewHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
 	RequestNewHost() error
@@ -127,17 +179,14 @@ type HostScheduler interface {
 
 	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
 	// before returning them.
-	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]Host, error)
-
-	// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
-	// before returning them.
-	//
-	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it
-	// to the blacklist.
-	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool) (Host, error)
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32, forTraining bool) ([]Host, error)
 
 	// CanScaleIn returns true if scaling-in is possible now.
 	CanScaleIn() bool
+
+	// UpdateIndex is used to update a Host's position in its index.
+	// It also updates the "idle hosts" heap.
+	UpdateIndex(host Host) error
 }
 
 type SchedulerMetricsManager interface {

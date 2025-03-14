@@ -148,6 +148,15 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 	}
 
 	Context("Unit Tests", func() {
+		clusterProvider := func() scheduling.Cluster {
+			return mockCluster
+		}
+
+		AfterEach(func() {
+			if prewarmer != nil {
+				_ = prewarmer.Stop()
+			}
+		})
 
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
@@ -159,7 +168,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(clusterGatewayOptions.SchedulerOptions.PrewarmingEnabled).To(BeTrue())
 			Expect(clusterGatewayOptions.SchedulerOptions.PrewarmingPolicy).To(Equal(scheduling.LittleLawCapacity.String()))
 
-			schedulingPolicy, err = policy.NewStaticPolicy(&clusterGatewayOptions.SchedulerOptions)
+			schedulingPolicy, err = policy.NewStaticPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.PolicyKey()).To(Equal(scheduling.Static))
@@ -285,7 +294,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 								blockStartReplicaWg.Wait()
 
-								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 								return connInfo, nil
 							})
 
@@ -300,7 +309,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(0))
 			}
@@ -319,7 +328,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -329,7 +338,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			Expect(prewarmer.Len()).To(Equal(0))
 
 			for _, host := range hosts {
-				curr, provisioning := prewarmer.HostLen(host)
+				curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(0))
 				Expect(provisioning).To(Equal(1))
 			}
@@ -342,7 +351,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				}
 
 				for _, host := range hosts {
-					curr, provisioning := prewarmer.HostLen(host)
+					curr, provisioning := prewarmer.GetNumPrewarmContainersOnHost(host)
 					if curr != (numHosts * initialCapacity) {
 						return false
 					}
@@ -355,8 +364,9 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				return true
 			}, time.Second*5, time.Millisecond*100).Should(BeTrue())
 
-			created := <-createdChan
-			target := <-targetChan
+			var created, target int32
+			Eventually(createdChan, time.Second*1, time.Millisecond*250).Should(Receive(&created))
+			Eventually(targetChan, time.Second*1, time.Millisecond*250).Should(Receive(&target))
 
 			Expect(created).To(Equal(int32(numHosts * initialCapacity)))
 			Expect(target).To(Equal(int32(numHosts * initialCapacity)))
@@ -367,11 +377,11 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 		It("Will correctly maintain the size of the warm container pool", func() {
 			numHosts := 2
 			initialCapacity := 1
-			averageDur := time.Second * 2
-			averageIat := 2.0
-			maxCapacity := 4
+			averageDur := time.Second * 120
+			averageArrivalRatePerMin := 2.0
+			maxCapacity := 8
 
-			createAndInitializePrewarmer(initialCapacity, maxCapacity, averageDur, averageIat)
+			createAndInitializePrewarmer(initialCapacity, maxCapacity, averageDur, averageArrivalRatePerMin)
 
 			By("Correctly provisioning the initial round of prewarm containers")
 
@@ -404,7 +414,9 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 							StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 							Times(1).
 							DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-								time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+								globalLogger.Info("StartKernelReplica called on Local Gateway Client #%d.", idx)
+
+								time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 								return connInfo, nil
 							})
 
@@ -464,7 +476,9 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 					Times(1).
 					DoAndReturn(
 						func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-							time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+							globalLogger.Info("StartKernelReplica called on Local Gateway Client #%d.", i)
+
+							time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 							n := 128
 
 							startKernelWg.Wait()
@@ -499,12 +513,12 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
 				return prewarmer.TotalNumProvisioning() > 0
-			}, time.Millisecond*750, time.Millisecond*250).Should(BeTrue())
+			}, time.Millisecond*1250, time.Millisecond*250).Should(BeTrue())
 
 			// This should occur immediately, essentially.
 			Eventually(func() bool {
 				for i := 0; i < numHosts; i++ {
-					curr, prov := prewarmer.HostLen(hosts[i])
+					curr, prov := prewarmer.GetNumPrewarmContainersOnHost(hosts[i])
 
 					if curr != 1 {
 						return false
@@ -531,7 +545,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 			// Done provisioning.
 			for _, host := range hosts {
-				curr, prov := prewarmer.HostLen(host)
+				curr, prov := prewarmer.GetNumPrewarmContainersOnHost(host)
 				Expect(curr).To(Equal(2))
 				Expect(prov).To(Equal(0))
 			}
@@ -544,7 +558,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 
 			container.OnPrewarmedContainerUsed()
 			Expect(prewarmer.Len()).To(Equal(3))
-			currHost1, provHost1 := prewarmer.HostLen(hosts[1])
+			currHost1, provHost1 := prewarmer.GetNumPrewarmContainersOnHost(hosts[1])
 			Expect(provHost1).To(Equal(0))
 			Expect(currHost1).To(Equal(1))
 		})
@@ -603,7 +617,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 								StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 								Times(1).
 								DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -673,7 +687,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 									GinkgoWriter.Printf("Creating prewarm container on host %s (ID=%s).\n",
 										host.GetNodeName(), host.GetID())
 
-									time.Sleep(time.Millisecond*5 + time.Duration(rand.Intn(10)))
+									time.Sleep(time.Millisecond*5 + (time.Millisecond * time.Duration(rand.Intn(10))))
 									return connInfo, nil
 								})
 
@@ -698,6 +712,10 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 			clusterGateway *daemon.ClusterGatewayImpl
 		)
 
+		clusterProvider := func() scheduling.Cluster {
+			return dockerCluster
+		}
+
 		BeforeEach(func() {
 			err := json.Unmarshal([]byte(gatewayStaticConfigJson), &clusterGatewayOptions)
 			GinkgoWriter.Printf("Error: %v\n", err)
@@ -719,7 +737,7 @@ var _ = Describe("Little's Law Prewarmer Tests", func() {
 				srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			})
 
-			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions)
+			schedulingPolicy, err = scheduler.GetSchedulingPolicy(&clusterGatewayOptions.SchedulerOptions, clusterProvider)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 

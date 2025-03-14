@@ -127,7 +127,7 @@ type SchedulerOptions struct {
 	MaxSubscribedRatio                  float64 `name:"max-subscribed-ratio"              json:"max-subscribed-ratio"             yaml:"max-subscribed-ratio"                        description:"Maximum subscribed ratio."`
 	ExecutionTimeSamplingWindow         int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow         int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
-	SchedulerHttpPort                   int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+	SchedulerHttpPort                   int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"JupyterGrpcPort that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
 	MeanScaleOutPerHostSec              float64 `name:"mean_scale_out_per_host_sec" json:"mean_scale_out_per_host_sec" yaml:"mean_scale_out_per_host_sec"`
 	StdDevScaleOutPerHostSec            float64 `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
 	MeanScaleInPerHostSec               float64 `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
@@ -137,11 +137,36 @@ type SchedulerOptions struct {
 	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each host, in megabytes."`
 	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each host, in gigabytes."`
 
-	PrewarmingEnabled           bool    `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
-	MinPrewarmContainersPerHost int     `name:"min_prewarm_containers_per_host" json:"min_prewarm_containers_per_host" yaml:"min_prewarm_containers_per_host"`
-	MaxPrewarmContainersPerHost int     `name:"max_prewarm_containers_per_host" json:"max_prewarm_containers_per_host" yaml:"max_prewarm_containers_per_host"`
+	PrewarmingEnabled bool `name:"prewarming_enabled" json:"prewarming_enabled" yaml:"prewarming_enabled"`
+
+	// ReplenishOnUse controls whether new pre-warm containers are immediately provisioned
+	// when an existing prewarm container is used, or if the pool relies on containers being returned
+	//
+	//
+	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
+	// also enabled.
+	ReplenishOnUse bool `name:"replenish_on_use" yaml:"replenish_on_use" json:"replenish_on_use"`
+
+	// DynamicallyMaintainCapacity controls whether the MinCapacityPrewarmer should dynamically maintain capacity
+	// by monitoring the number of pre-warm containers available on each host, or if it should simply provision the
+	// initial batch of containers and rely on the reuse of prewarm containers (when they're returned after serving
+	// an execute request / kernel) to maintain the pool's capacity.
+	//
+	// Warning: enabling this option may cause the pool's size to grow unbounded if container re-use is
+	// also enabled.
+	DynamicallyMaintainCapacity bool `name:"dynamically_maintain_capacity" yaml:"dynamically_maintain_capacity" json:"dynamically_maintain_capacity"`
+	
+	MinPrewarmContainersPerHost int `name:"min_prewarm_containers_per_host" json:"min_prewarm_containers_per_host" yaml:"min_prewarm_containers_per_host"`
+	MaxPrewarmContainersPerHost int `name:"max_prewarm_containers_per_host" json:"max_prewarm_containers_per_host" yaml:"max_prewarm_containers_per_host"`
+	// FixedCapacitySize is used by the "fixed capacity" policy.
+	FixedCapacitySize           int     `name:"fixed_capacity_size" json:"fixed_capacity_size" yaml:"fixed_capacity_size"`
 	InitialNumContainersPerHost int     `name:"initial_num_containers_per_host" json:"initial_num_containers_per_host" yaml:"initial_num_containers_per_host"`
 	PrewarmRunIntervalSec       float64 `name:"prewarm_run_interval_sec" json:"prewarm_run_interval_sec" yaml:"prewarm_run_interval_sec"`
+
+	// LittlesLawW is the average training event duration in minutes.
+	LittlesLawW float64 `name:"littles_law_prewarmer_w" json:"littles_law_prewarmer_w" yaml:"littles_law_prewarmer_w"`
+	// LittlesLawLambda is the average rate of arrival in #training events per minute.
+	LittlesLawLambda float64 `name:"littles_law_prewarmer_lambda" json:"littles_law_prewarmer_lambda" yaml:"littles_law_prewarmer_lambda"`
 
 	// PrewarmingPolicy indicates the policy to use to maintain the pool of warm containers.
 	// Valid options include "maintain_minimum_capacity" and "little_law_capacity".

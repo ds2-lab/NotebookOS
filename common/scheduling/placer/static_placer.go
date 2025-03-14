@@ -16,7 +16,7 @@ type StaticPlacer struct {
 
 // NewStaticPlacer creates and returns a StaticPlacer struct.
 func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) *StaticPlacer {
-	basePlacer := NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, numReplicas, policy, index.NewStaticIndex)
+	basePlacer := NewBasicPlacerWithSpecificIndex[*index.StaticMultiIndex](metricsProvider, numReplicas, policy, index.NewStaticMultiIndex)
 
 	staticPlacer := &StaticPlacer{
 		BasicPlacer: basePlacer,
@@ -42,9 +42,9 @@ func (placer *StaticPlacer) findHosts(blacklist []interface{}, spec *proto.Kerne
 	metrics = append([][]float64{{spec.ResourceSpec.GPU()}}, metrics...)
 
 	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
-	reserveResources := func(candidateHost scheduling.Host) bool {
-		reserved, _ := placer.kernelResourceReserver(candidateHost, spec, forTraining)
-		return reserved
+	reserveResources := func(candidateHost scheduling.Host) error {
+		_, reservationError := placer.reserveResourcesForKernel(candidateHost, spec, forTraining)
+		return reservationError
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
@@ -55,7 +55,7 @@ func (placer *StaticPlacer) findHosts(blacklist []interface{}, spec *proto.Kerne
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
 func (placer *StaticPlacer) findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
-	metrics ...[]float64) (scheduling.Host, error) {
+	ignoreOversubscriptionRisk bool, metrics ...[]float64) (scheduling.Host, error) {
 
 	// Our index will expect the first metric to be the number of GPUs.
 	metrics = append([][]float64{{replicaSpec.ResourceSpec().GPU()}}, metrics...)
@@ -67,9 +67,9 @@ func (placer *StaticPlacer) findHost(blacklist []interface{}, replicaSpec *proto
 	)
 
 	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
-	reserveResources := func(candidateHost scheduling.Host) bool {
-		reserved, _ := placer.replicaResourceReserver(candidateHost, replicaSpec, forTraining)
-		return reserved
+	reserveResources := func(candidateHost scheduling.Host) error {
+		_, reservationError := placer.reserveResourcesForReplica(candidateHost, replicaSpec, forTraining, ignoreOversubscriptionRisk)
+		return reservationError
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
@@ -86,8 +86,8 @@ func (placer *StaticPlacer) findHost(blacklist []interface{}, replicaSpec *proto
 
 // getIndex returns the target MultiPlacer's index field with a type assertion
 // so that it is returned as a *index.MultiIndex[T].
-func (placer *StaticPlacer) getIndex() *index.StaticIndex {
-	return placer.index.(*index.StaticIndex)
+func (placer *StaticPlacer) getIndex() *index.StaticMultiIndex {
+	return placer.index.(*index.StaticMultiIndex)
 }
 
 // NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiPlacer's index.

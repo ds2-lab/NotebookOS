@@ -7,6 +7,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"log"
 	"math"
 	"sync"
@@ -436,7 +437,9 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 	select {
 	case <-childContext.Done():
 		{
-			op.log.Error("TransactionOperation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			op.log.Error(utils.RedStyle.Render("%s from %d → %d nodes timed-out after %v."),
+				op.OperationType.String(), op.InitialScale, op.TargetScale, timeoutInterval)
+
 			if ctxErr := childContext.Err(); ctxErr != nil {
 				op.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", ctxErr)
 				if transitionError := op.SetOperationErred(ctxErr, false); transitionError != nil {
@@ -449,14 +452,16 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 					op.log.Error("Failed to transition to the erred state because: %v", transitionError)
 				}
 
-				return nil, fmt.Errorf("operation to adjust scale of virtual Docker nodes timed-out after %v", timeoutInterval)
+				return nil, fmt.Errorf("%s operation to adjust scale of virtual Docker nodes timed-out after %v",
+					op.OperationType.String(), timeoutInterval)
 				// status.Errorf(codes.Internal, "TransactionOperation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			}
 		}
 	case notification := <-op.CoreLogicDoneChan: // Wait for the shell command above to finish.
 		{
 			if err, ok := notification.(error); ok {
-				op.log.Error("Failed to adjust scale of virtual Docker nodes because: %v", err)
+				op.log.Warn("%s from %d → %d nodes failed because : %v",
+					op.OperationType.String(), op.InitialScale, op.TargetScale, err)
 				op.Error = err
 				if transitionError := op.SetOperationErred(err, false); transitionError != nil {
 					op.log.Error("Failed to transition to the erred state because: %v", transitionError)

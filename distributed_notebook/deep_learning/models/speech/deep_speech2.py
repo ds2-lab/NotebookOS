@@ -1,3 +1,5 @@
+import math
+
 import gc
 import time
 from typing import Optional, Dict, Any, Type
@@ -199,6 +201,8 @@ class DeepSpeech2(DeepLearningModel):
         if target_training_duration_millis <= 0:
             return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
+        target_training_duration_sec: float = target_training_duration_millis / 1.0e3
+
         self.log.debug(f"Training for {target_training_duration_millis} milliseconds.")
 
         self.model.train()
@@ -216,15 +220,55 @@ class DeepSpeech2(DeepLearningModel):
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
-                # Forward pass
                 forward_pass_start: float = time.time()
-                outputs = self.model(waveforms)
-                outputs = F.log_softmax(outputs, dim=2)
-                outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
 
-                # Compute loss
-                loss = self._criterion(outputs, labels, input_lengths, label_lengths)
+                # Forward pass
+                if self.gpu_available:
+                    output_st: float = time.time()
+
+                    outputs = self.model(waveforms)
+                    outputs = F.log_softmax(outputs, dim=2)
+                    outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
+
+                    self.log.debug(f"\tComputed outputs in {round((time.time() - output_st)*1.0e3, 3):,} ms. "
+                                   f"Computing loss now.")
+
+                    loss_st: float = time.time()
+
+                    # Compute loss
+                    loss = self._criterion(outputs, labels, input_lengths, label_lengths)
+                else:
+                    sleep_interval_sec: float = target_training_duration_sec * 0.1
+
+                    self.log.warning(f"\tSimulating training because CUDA is unavailable. "
+                                     f"Sleeping for {round(sleep_interval_sec, 3):,f} seconds.")
+
+                    # Simulate computation time for a batch
+                    time.sleep(sleep_interval_sec)
+
+                    update_param_start: float = time.time()
+
+                    with torch.no_grad():  # Manually modify weights
+                        for param in self.model.parameters():
+                            # Random weight updates
+                            param.data = param.data + 0.01 * torch.randn_like(param)
+
+                    self.log.debug(f"\tUpdated parameters in {round((time.time() - update_param_start)*1.0e3, 3):,} ms.")
+
+                    last_dim: int = waveforms.shape[-1]
+
+                    # Simulate model outputs and labels
+                    outputs = torch.randn(len(waveforms), int(math.ceil(last_dim / 2)), self._out_features, requires_grad=True)  # Fake predictions
+                    outputs = F.log_softmax(outputs, dim=2)
+                    outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
+
+                    loss_st: float = time.time()
+
+                    # Compute simulated loss
+                    loss = self._criterion(outputs, labels, input_lengths, label_lengths)
+
                 loss.backward()
+                self.log.debug(f"\tComputed loss in {round((time.time() - loss_st) * 1.0e3, 3):,} ms: {loss.item()}")
 
                 self._optimizer.step()
                 forward_pass_end: float = time.time()
@@ -237,7 +281,7 @@ class DeepSpeech2(DeepLearningModel):
                 num_minibatches_processed += 1
                 num_samples_processed += len(waveforms)
 
-                self.log.debug(f"Processed {len(waveforms)} samples in "
+                self.log.debug(f"Processed {len(waveforms)} sample(s) in "
                                f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
                                f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
 
@@ -272,11 +316,11 @@ class DeepSpeech2(DeepLearningModel):
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
                            f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for " 
                            f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
-                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
+                           f"Processed {num_minibatches_processed} mini-batch(es); {num_samples_processed} sample(s).")
         else:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
                            f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
-                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
+                           f"Processed {num_minibatches_processed} mini-batch(es); {num_samples_processed} sample(s).")
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")

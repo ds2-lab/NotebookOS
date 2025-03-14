@@ -51,8 +51,9 @@ dependencies = [
     "portalocker>=2.0.0",
     "torchaudio",
     "torchvision",
-    "aioboto3",
-    "moto"
+    "aioboto3>=13.4.0",
+    "moto",
+    "uhashring>=2.3"
 ]
 
 readme = "README.md"

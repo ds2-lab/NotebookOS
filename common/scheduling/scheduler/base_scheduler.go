@@ -12,12 +12,12 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/prewarm"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"golang.org/x/sync/semaphore"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,10 +57,6 @@ type schedulingNotification struct {
 	Successful bool
 }
 
-type KernelProvider interface {
-	GetKernel(kernelId string) (scheduling.Kernel, bool)
-}
-
 type NotificationBroker interface {
 	SendErrorNotification(errorName string, errorMessage string)
 	SendInfoNotification(title string, message string)
@@ -69,13 +65,14 @@ type NotificationBroker interface {
 type baseSchedulerBuilder struct {
 	cluster                     scheduling.Cluster
 	placer                      scheduling.Placer
-	hostMapper                  HostMapper
+	hostMapper                  scheduling.HostMapper
 	hostSpec                    types.Spec
-	kernelProvider              KernelProvider
+	kernelProvider              scheduling.KernelProvider
+	clusterProvider             scheduling.ClusterProvider
 	notificationBroker          NotificationBroker
 	metricsProvider             scheduling.MetricsProvider
 	activeExecutionProvider     scheduling.ActiveExecutionProvider
-	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from Options if not specified.
+	schedulingPolicy            SchedulingPolicy // Optional, will be extracted from ClusterGatewayOptions if not specified.
 	initialNumContainersPerHost int
 	options                     *scheduling.SchedulerOptions
 }
@@ -94,7 +91,7 @@ func (b *baseSchedulerBuilder) WithPlacer(placer scheduling.Placer) *baseSchedul
 	return b
 }
 
-func (b *baseSchedulerBuilder) WithHostMapper(hostMapper HostMapper) *baseSchedulerBuilder {
+func (b *baseSchedulerBuilder) WithHostMapper(hostMapper scheduling.HostMapper) *baseSchedulerBuilder {
 	b.hostMapper = hostMapper
 	return b
 }
@@ -114,7 +111,7 @@ func (b *baseSchedulerBuilder) WithMetricsProvider(provider scheduling.MetricsPr
 	return b
 }
 
-func (b *baseSchedulerBuilder) WithKernelProvider(kernelProvider KernelProvider) *baseSchedulerBuilder {
+func (b *baseSchedulerBuilder) WithKernelProvider(kernelProvider scheduling.KernelProvider) *baseSchedulerBuilder {
 	b.kernelProvider = kernelProvider
 	return b
 }
@@ -129,6 +126,11 @@ func (b *baseSchedulerBuilder) WithOptions(options *scheduling.SchedulerOptions)
 	return b
 }
 
+func (b *baseSchedulerBuilder) WithClusterProvider(clusterProvider scheduling.ClusterProvider) *baseSchedulerBuilder {
+	b.clusterProvider = clusterProvider
+	return b
+}
+
 func (b *baseSchedulerBuilder) WithInitialNumContainersPerHost(initialNumContainersPerHost int) *baseSchedulerBuilder {
 	b.initialNumContainersPerHost = initialNumContainersPerHost
 	return b
@@ -140,8 +142,16 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		panic("Cannot construct BaseScheduler using baseSchedulerBuilder with nil options.")
 	}
 
+	// Automatically create a scheduling.ClusterProvider based on the cluster we were given, if we
+	// do not already have a scheduling.ClusterProvider.
+	if b.clusterProvider == nil {
+		b.clusterProvider = func() scheduling.Cluster {
+			return b.cluster
+		}
+	}
+
 	if b.schedulingPolicy == nil {
-		schedulingPolicy, err := GetSchedulingPolicy(b.options)
+		schedulingPolicy, err := GetSchedulingPolicy(b.options, b.clusterProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -150,26 +160,26 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 
 	clusterScheduler := &BaseScheduler{
-		cluster:                                  b.cluster,
-		hostMapper:                               b.hostMapper,
-		stRatio:                                  types.NewMovingStatFromWindow(5),
-		opts:                                     b.options,
-		remoteSynchronizationInterval:            time.Second * time.Duration(b.options.GpuPollIntervalSeconds),
-		placer:                                   b.placer,
-		hostSpec:                                 b.hostSpec,
-		oversubscribed:                           types.NewHeap(OversubscribedIndexKey),
-		undersubscribed:                          types.NewHeap(UndersubscribedIndexKey),
-		idleHosts:                                types.NewHeap(IdleIndexKey),
-		maxSubscribedRatio:                       decimal.NewFromFloat(b.options.MaxSubscribedRatio),
-		subscriptionRatio:                        decimal.NewFromFloat(b.options.MaxSubscribedRatio),
-		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
-		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduling.AddReplicaOperation](64),
-		kernelProvider:                           b.kernelProvider,
-		notificationBroker:                       b.notificationBroker,
-		schedulingPolicy:                         b.schedulingPolicy,
+		cluster:                       b.cluster,
+		hostMapper:                    b.hostMapper,
+		stRatio:                       types.NewMovingStatFromWindow(5),
+		opts:                          b.options,
+		remoteSynchronizationInterval: time.Second * time.Duration(b.options.GpuPollIntervalSeconds),
+		placer:                        b.placer,
+		hostSpec:                      b.hostSpec,
+		oversubscribed:                types.NewHeap(OversubscribedIndexKey),
+		undersubscribed:               types.NewHeap(UndersubscribedIndexKey),
+		idleHosts:                     types.NewHeap(IdleIndexKey),
+		maxSubscribedRatio:            decimal.NewFromFloat(b.options.MaxSubscribedRatio),
+		subscriptionRatio:             decimal.NewFromFloat(b.options.MaxSubscribedRatio),
+		kernelProvider:                b.kernelProvider,
+		notificationBroker:            b.notificationBroker,
+		schedulingPolicy:              b.schedulingPolicy,
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
+
+	migrator := newKernelMigrator(b.kernelProvider, b.cluster, clusterScheduler, b.metricsProvider, int32(b.options.SMRPort))
+	clusterScheduler.kernelMigrator = migrator
 
 	b.buildPrewarmPolicy(clusterScheduler)
 
@@ -216,9 +226,24 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 				minCapacityPrewarmerConfig := &prewarm.MinCapacityPrewarmerConfig{
 					PrewarmerConfig:               prewarmerConfig,
 					MinPrewarmedContainersPerHost: b.options.MinPrewarmContainersPerHost,
+					DynamicallyMaintainCapacity:   b.options.DynamicallyMaintainCapacity,
+					ReplenishOnUse:                b.options.ReplenishOnUse,
 				}
 
 				prewarmer := prewarm.NewMinCapacityPrewarmer(b.cluster, minCapacityPrewarmerConfig, b.metricsProvider)
+				clusterScheduler.prewarmer = prewarmer
+			}
+		case scheduling.FixedCapacity.String():
+			{
+				clusterScheduler.log.Warn("Using \"%s\" pre-policy.", b.options.PrewarmingPolicy)
+
+				fixedCapacityConfig := &prewarm.FixedCapacityPrewarmerConfig{
+					PrewarmerConfig: prewarmerConfig,
+					ReplenishOnUse:  b.options.ReplenishOnUse,
+					Capacity:        int32(b.options.FixedCapacitySize),
+				}
+
+				prewarmer := prewarm.NewFixedCapacityPrewarmer(b.cluster, fixedCapacityConfig, b.metricsProvider)
 				clusterScheduler.prewarmer = prewarmer
 			}
 		case scheduling.LittleLawCapacity.String():
@@ -227,8 +252,8 @@ func (b *baseSchedulerBuilder) buildPrewarmPolicy(clusterScheduler *BaseSchedule
 
 				littlesLawConfig := &prewarm.LittlesLawPrewarmerConfig{
 					PrewarmerConfig: prewarmerConfig,
-					W:               0,
-					Lambda:          0,
+					W:               time.Duration(b.options.LittlesLawW * float64(time.Minute)),
+					Lambda:          b.options.LittlesLawLambda,
 				}
 
 				prewarmer := prewarm.NewLittlesLawPrewarmer(b.cluster, littlesLawConfig, b.metricsProvider)
@@ -260,10 +285,11 @@ type BaseScheduler struct {
 	lastCapacityValidation time.Time // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	instance               clusterSchedulerInternal
 	cluster                scheduling.Cluster
-	hostMapper             HostMapper
+	hostMapper             scheduling.HostMapper
 	placer                 scheduling.Placer
-	kernelProvider         KernelProvider
+	kernelProvider         scheduling.KernelProvider
 	notificationBroker     NotificationBroker
+	kernelMigrator         *kernelMigrator
 
 	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
 	schedulingPolicy SchedulingPolicy
@@ -277,24 +303,14 @@ type BaseScheduler struct {
 
 	log logger.Logger
 
-	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
-
-	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *scheduling.AddReplicaOperation]
-
-	// Mapping from NewPodName to chan string.
-	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
-	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
-	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
-	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
-
 	opts *scheduling.SchedulerOptions // Configuration options.
 
+	overUnderMutex  sync.Mutex
 	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
 	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       *types.Heap
+
+	idleHostMutex sync.Mutex
+	idleHosts     *types.Heap
 
 	stRatio *types.MovingStat // session/training ratio
 
@@ -345,7 +361,7 @@ func (s *BaseScheduler) WithNotificationBroker(notificationBroker NotificationBr
 	s.notificationBroker = notificationBroker
 }
 
-func (s *BaseScheduler) WithHostMapper(mapper HostMapper) {
+func (s *BaseScheduler) WithHostMapper(mapper scheduling.HostMapper) {
 	s.hostMapper = mapper
 }
 
@@ -381,15 +397,6 @@ func (s *BaseScheduler) setInstance(instance clusterSchedulerInternal) {
 	s.instance = instance
 }
 
-// FindCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
-//
-// FindCandidateHosts is exported so that it can be unit tested.
-//
-// If FindCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	return s.instance.findCandidateHosts(numHosts, kernelSpec)
-}
-
 // isScalingOutEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
 // scaling out.
 func (s *BaseScheduler) isScalingOutEnabled() bool {
@@ -402,68 +409,78 @@ func (s *BaseScheduler) isScalingInEnabled() bool {
 	return s.Policy().ResourceScalingPolicy().ScalingInEnabled()
 }
 
-// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
-// before returning them.
-//
-// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
-// the blacklist.
-func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
-	if blacklistedHosts == nil {
-		blacklistedHosts = make([]scheduling.Host, 0)
-	}
-
-	if replica.Host() != nil {
-		currentHost := replica.Host()
-		found := false
-
-		// If the replica's current host isn't already blacklisted, then add it to the blacklist.
-		for _, blacklistedHost := range blacklistedHosts {
-			if blacklistedHost.GetID() == currentHost.GetID() {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			blacklistedHosts = append(blacklistedHosts, currentHost)
-		}
-	}
-
-	return s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
-}
-
 // FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
 // to handle a training event.
-func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) scheduling.KernelContainer {
+func (s *BaseScheduler) FindReadyContainer(_ scheduling.UserSession) scheduling.KernelContainer {
 	panic("Not implemented.")
 }
 
 // UpdateIndex is used to update a Host's position in its index.
 // It also updates the "idle hosts" heap.
 func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
+	s.validate()
+
+	old := s.loadPool(host)
+	target, t := s.getPool(host)
+
+	var meta types.HeapElementMetadataKey
+	if old == s.oversubscribed {
+		meta = OversubscribedIndexKey
+	} else {
+		meta = UndersubscribedIndexKey
+	}
+
+	if old == target {
+		s.log.Debug("Updating host %v(%v of %d) in %v(len=%d)",
+			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len())
+
+		s.overUnderMutex.Lock()
+		heap.Fix(old, host.GetIdx(meta))
+		s.overUnderMutex.Unlock()
+
+		s.log.Debug("Updated host %v (now %v of %d) in %v(len=%d)",
+			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len())
+	} else {
+		s.log.Debug("Moving host %v(%d of %d) from %v(len=%d) to %v(len=%d)",
+			host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType().String(), old.Len(),
+			t.String(), target.Len())
+
+		s.overUnderMutex.Lock()
+		heap.Remove(old, host.GetIdx(meta))
+		s.overUnderMutex.Unlock()
+
+		s.moveToPool(host, target, t)
+	}
+
+	s.idleHostMutex.Lock()
 	heap.Fix(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	s.idleHostMutex.Unlock()
 
 	s.placer.UpdateIndex(host)
 
 	return nil
 }
 
+func (s *BaseScheduler) SearchForCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec, forTraining bool) ([]scheduling.Host, error) {
+	// Identify the hosts onto which we will place replicas of the kernel.
+	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, forTraining)
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
-// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster) S
+// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
 // if it fails to find sufficiently many viable Host instances. This process will be attempted three times.
 // If GetCandidateHosts is unsuccessful (at finding sufficiently many viable hosts) after those three attempts,
 // then GetCandidateHosts will give up and return an error.
 //
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
 //
-// This function is NOT idempotent. This locks the Hosts that are returned.
-func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	var (
-		bestAttempt = 0
-		hosts       []scheduling.Host
-	)
+// This function is NOT idempotent. This reserves resources on the Hosts that are returned (before returning them).
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec, numHosts int32,
+	forTraining bool) ([]scheduling.Host, error) {
+
+	var hosts []scheduling.Host
 
 	// TODO: How many times should we really retry here? If we fail, try to scale out, and fail again,
 	// 		 then shouldn't we just give up and leave it to the client to resubmit?
@@ -476,11 +493,13 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		Cap:      time.Duration(float64(s.cluster.MeanScaleOutTime()) * 1.50),
 	}
 
-	for retryParameters.Steps > 0 && len(hosts) < s.schedulingPolicy.NumReplicas() {
-		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
+	for retryParameters.Steps > 0 && int32(len(hosts)) < numHosts {
+		numHostsRequired := numHosts - int32(len(hosts))
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
-		hostBatch, err := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+
+		// note: this function executes atomically.
+		hostBatch, err := s.SearchForCandidateHosts(int(numHostsRequired), kernelSpec, forTraining)
 		if err != nil {
 			s.log.Error("Error while searching for %d candidate host(s) for kernel %s: %v",
 				numHostsRequired, kernelSpec.Id, err)
@@ -491,53 +510,35 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far (attempt=%d).",
-				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
+				len(hosts), numHosts, kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
-			if !s.isScalingOutEnabled() {
-				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
-				break // Give up.
+			var shouldContinue bool
+			shouldContinue, err = s.Policy().HandleFailedAttemptToGetViableHosts(ctx, kernelSpec, numHosts, hosts)
+			if err != nil {
+				s.log.Error("Error while handling failed attempt to search for %d candidate host(s) for kernel %s: %v",
+					numHosts, kernelSpec.Id, err)
+				return nil, err
 			}
 
-			numHostsRequired = s.schedulingPolicy.NumReplicas() - len(hosts)
-			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
-				numHostsRequired, kernelSpec.Id)
-
-			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
-			if err = p.Error(); err != nil {
-				if errors.Is(err, scheduling.ErrScalingActive) {
-					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
-						kernelSpec.Id)
-				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
-					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-						numHostsRequired, kernelSpec.Id, err)
-					break // We're out of hosts. Give up. It can be resubmitted by the client later.
-				} else {
-					s.log.Warn("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-						numHostsRequired, kernelSpec.Id, err)
-				}
-			}
-
-			if len(hosts) > bestAttempt {
-				bestAttempt = len(hosts)
+			if !shouldContinue {
+				break
 			}
 
 			sleepInterval := retryParameters.Step()
 			s.log.Debug("Sleeping for %v before retrying to find %d candidate host(s) for replica(s) of kernel %s.",
 				sleepInterval, numHostsRequired, kernelSpec.Id)
 			time.Sleep(sleepInterval)
-
-			continue
 		}
 
-		s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, hosts)
+		s.log.Debug("Found %d/%d hosts to serve replicas of kernel %s: %v",
+			len(hosts), numHosts, kernelSpec.Id, hosts)
 	}
 
 	// Check if we were able to reserve the requested number of hosts.
 	// If not, then we need to release any hosts we did reserve.
-	if len(hosts) < s.schedulingPolicy.NumReplicas() {
+	if int32(len(hosts)) < numHosts {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
+			numHosts, kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 		// Release any resource reservations that we created, since we're aborting the scheduling
 		// of the replicas of the kernel.
@@ -573,13 +574,29 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 //
 // PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
 // on which the resources are to be reserved.
-func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
-	return s.placer.ReserveResourcesForReplica(kernel, replica, commitResources)
+func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool,
+	ignoreOversubscriptionRisk bool) error {
+
+	err := s.placer.ReserveResourcesForReplica(kernel, replica, commitResources, ignoreOversubscriptionRisk)
+
+	if err != nil {
+		host := replica.Host()
+
+		if host != nil {
+			updateIndexErr := s.UpdateIndex(host)
+
+			if updateIndexErr != nil {
+				s.log.Error("Error updating index of host %s (ID=%s): %v")
+			}
+		}
+	}
+
+	return err
 }
 
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
-	return s.instance.DeployKernelReplicas(ctx, kernel, blacklistedHosts)
+func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32, blacklistedHosts []scheduling.Host) error {
+	return s.instance.DeployKernelReplicas(ctx, kernel, numReplicasToSchedule, blacklistedHosts)
 }
 
 // RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
@@ -607,7 +624,7 @@ func (s *BaseScheduler) RequestNewHost() error {
 		}
 
 		s.log.Error("Failed to add new host because: %v", err)
-		s.sendErrorNotification("Failed to Add Host to Cluster", err.Error())
+		s.sendErrorNotification("Failed to AddHost Host to Cluster", err.Error())
 
 		return err
 	}
@@ -624,12 +641,21 @@ func (s *BaseScheduler) RequestNewHost() error {
 // RemoveHost removes a new from the kubernetes Cluster.
 // We simulate this using node taints.
 func (s *BaseScheduler) RemoveHost(hostId string) error {
+	s.log.Debug("Removing host with ID=\"%s\"", hostId)
+
 	p := s.cluster.ReleaseSpecificHosts(context.Background(), []string{hostId})
 
 	result, err := p.Result()
 	if err != nil {
-		s.log.Error("Failed to remove host %s because: %v", hostId, err)
-		s.sendErrorNotification(fmt.Sprintf("Failed to Remove Host %s from the Cluster", hostId), err.Error())
+		// If the error isn't something trivial like there already being another concurrent scaling operation,
+		// then just we'll just return the error.
+		if !errors.Is(err, scheduling.ErrScalingActive) {
+			s.sendErrorNotification(fmt.Sprintf("Failed to RemoveHost Host %s from the Cluster", hostId), err.Error())
+			s.log.Error("Failed to remove host %s because: %v", hostId, err)
+			return err
+		}
+
+		s.log.Warn("Failed to remove host %s because: %v", hostId, err)
 		return err
 	}
 
@@ -651,138 +677,16 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 	return s.instance.RemoveReplicaFromHost(kernelReplica)
 }
 
-// AddReplica adds a new replica to a particular distributed kernel.
-// This is only used for adding new replicas beyond the base set of replicas created
-// when the CloneSet is first created. The first 3 (or however many there are configured
-// to be) replicas are created automatically by the CloneSet.
-//
-// Parameters:
-// - kernelId (string): The ID of the kernel to which we're adding a new replica.
-// - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
-// - dataDirectory (string): Path to etcd-raft data directory in RemoteStorage.
-func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, targetHost scheduling.Host, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host, forTraining bool) (*scheduling.AddReplicaOperation, error) {
-	var kernelId = in.KernelId
-	var persistentId = in.PersistentId
-
-	kernel, ok := s.kernelProvider.GetKernel(kernelId)
-	if !ok {
-		s.log.Error("Cannot add replica %d to kernel %s: cannot find kernel %s", in.ReplicaId, kernelId, kernelId)
-		return nil, types.ErrKernelNotFound
-	}
-
-	kernel.AddOperationStarted()
-
-	var smrNodeId int32 = -1
-
-	// Reuse the same SMR node ID if we've been told to do so.
-	if opts.ReuseSameNodeId() {
-		smrNodeId = in.ReplicaId
-	}
-
-	// The spec to be used for the new replica that is created during the migration.
-	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
-
-	addReplicaOp := scheduling.NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
-	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
-	s.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
-
-	s.log.Debug("Created new AddReplicaOperation \"%s\": %s", addReplicaOp.OperationID(), addReplicaOp.String())
-	s.log.Debug("Adding replica %d to kernel \"%s\" as part of AddReplicaOperation \"%s\" now.",
-		newReplicaSpec.ReplicaId, kernelId, addReplicaOp.OperationID())
-
-	// Add the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
-	s.addReplicaMutex.Lock()
-	ops, ok := s.activeAddReplicaOpsPerKernel.Load(kernelId)
-	if !ok {
-		ops = orderedmap.NewOrderedMap[string, *scheduling.AddReplicaOperation]()
-	}
-	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
-	s.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
-	s.addReplicaMutex.Unlock()
-
-	s.instance.addReplicaSetup(kernelId, addReplicaOp)
-
-	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Anything that needs to happen before it's possible for the kernel to have registered already must
-	// occur before this line (i.e., before we call ScheduleKernelReplica). Once we call ScheduleKernelReplica,
-	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
-	// our state needs to be set up BEFORE that call occurs.
-	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	err := s.cluster.Scheduler().ScheduleKernelReplica(newReplicaSpec, targetHost, blacklistedHosts, forTraining)
-	if err != nil {
-		return addReplicaOp, err
-	}
-
-	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
-	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
-	// or something like that.
-	s.instance.postScheduleKernelReplica(kernelId, addReplicaOp)
-
-	if opts.WaitRegistered() {
-		s.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
-			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
-		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
-		_, sentBeforeClosed := <-replicaRegisteredChannel
-		if !sentBeforeClosed {
-			errorMessage := fmt.Sprintf("Received default value from \"Replica Registered\" channel for AddReplicaOperation \"%s\": %v",
-				addReplicaOp.OperationID(), addReplicaOp.String())
-			s.log.Error(errorMessage)
-			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
-		} else {
-			addReplicaOp.CloseReplicaRegisteredChannel()
-		}
-
-		s.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddReplicaOperation \"%s\".",
-			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
-	}
-
-	var smrWg sync.WaitGroup
-	smrWg.Add(1)
-	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
-	go func() {
-		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster during AddReplicaOperation \"%s\" now...",
-			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
-		replicaJoinedSmrChannel := addReplicaOp.ReplicaJoinedSmrChannel()
-		_, sentBeforeClosed := <-replicaJoinedSmrChannel
-		if !sentBeforeClosed {
-			errorMessage := fmt.Sprintf("Received default value from \"Replica Joined SMR\" channel for AddReplicaOperation \"%s\": %v",
-				addReplicaOp.OperationID(), addReplicaOp.String())
-			s.log.Error(errorMessage)
-			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel", errorMessage)
-		}
-
-		close(replicaJoinedSmrChannel)
-		s.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
-		kernel.AddOperationCompleted()
-		smrWg.Done()
-
-		if !addReplicaOp.Completed() {
-			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.OperationID())
-			go s.sendErrorNotification(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
-				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
-					addReplicaOp.OperationID(), addReplicaOp.String()))
-		}
-	}()
-
-	if opts.WaitSmrJoined() {
-		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster...", addReplicaOp.ReplicaId(), kernelId)
-		smrWg.Wait()
-	}
-
-	// Return nil on success.
-	return addReplicaOp, nil
-}
-
 func (s *BaseScheduler) GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation], bool) {
-	return s.activeAddReplicaOpsPerKernel.Load(kernelId)
+	return s.kernelMigrator.GetActiveAddReplicaOperationsForKernel(kernelId)
 }
 
 func (s *BaseScheduler) GetAddReplicaOperation(id string) (*scheduling.AddReplicaOperation, bool) {
-	return s.addReplicaOperationsByKernelReplicaId.Load(id)
+	return s.kernelMigrator.GetAddReplicaOperation(id)
 }
 
 func (s *BaseScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, *scheduling.AddReplicaOperation] {
-	return s.addReplicaOperationsByKernelReplicaId
+	return s.kernelMigrator.GetAddReplicaOperationManager()
 }
 
 // UpdateRatio updates the Cluster's subscription ratio.
@@ -837,12 +741,20 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 	s.stRatio.Add(ratio)
 	avg := s.stRatio.Avg()
 	if s.stRatio.N() == s.stRatio.Window() {
-		if !s.canScaleIn {
+		if !s.canScaleIn && s.schedulingPolicy.ResourceScalingPolicy().ScalingInEnabled() {
 			s.log.Debug("We can now scale-in.")
 			s.canScaleIn = true
 		}
+		previousSubscriptionRatio := s.subscriptionRatio
 		s.subscriptionRatio = decimal.NewFromFloat(avg)
-		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
+
+		if !previousSubscriptionRatio.Equal(s.subscriptionRatio) {
+			s.log.Debug("Subscription Ratio updated: %s → %s",
+				previousSubscriptionRatio.StringFixed(3), s.subscriptionRatio.StringFixed(3))
+		} else {
+			s.log.Debug("Subscription Ratio unchanged: %s", s.subscriptionRatio.StringFixed(3))
+		}
+
 		s.rebalance(avg)
 
 		scalingInterval := s.schedulingPolicy.ScalingConfiguration().ScalingInterval
@@ -854,10 +766,10 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 			s.schedulingPolicy.ValidateCapacity(s.cluster)
 
 			s.numCapacityValidations.Add(1)
-		}
 
-		s.log.Debug("Time until next capacity validation: %v (interval=%v).",
-			scalingInterval-time.Since(s.lastCapacityValidation), scalingInterval)
+			s.log.Debug("Time until next capacity validation: %v (interval=%v).",
+				scalingInterval-time.Since(s.lastCapacityValidation), scalingInterval)
+		}
 
 		return true
 	}
@@ -879,17 +791,39 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 // findViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
 // as searching for viable hosts before trying to schedule the container).
 //
-// findViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
+// PRECONDITION: If we're finding a viable host for an existing replica, then the blacklisted hosts argument should
+// be non-nil and should contain the replica's current/original host (in order to prevent the replica from being
+// scheduled back onto the same host).
+//
+// This method searches for a viable training host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
 //
 // If we fail to find a host, then we'll try to scale-out (if we're allowed).
-func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (host scheduling.Host, failureReason error) {
+func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host,
+	forTraining bool, createNewHostPermitted bool) (host scheduling.Host, failureReason error) {
 	numTries := 0
+
+	if blacklistedHosts == nil {
+		blacklistedHosts = make([]scheduling.Host, 0)
+	}
+
+	ignoreOversubscriptionRisk := false
 
 	// We'll try a few times if we keep scaling-out successfully but somehow manage to fail again and again.
 	for numTries < 5 {
-		host, failureReason = s.instance.selectViableHostForReplica(replicaSpec.KernelReplicaSpec(), blacklistedHosts, forTraining)
+		host, failureReason = s.instance.selectViableHostForReplica(replicaSpec.KernelReplicaSpec(), blacklistedHosts,
+			forTraining, ignoreOversubscriptionRisk)
+
 		if host != nil {
+			s.log.Debug("Found viable host for replica %d of kernel %s: host %s",
+				replicaSpec.ReplicaID(), replicaSpec.ID(), host.GetNodeName())
+
+			err := s.UpdateIndex(host)
+			if err != nil {
+				s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
+					host.GetNodeName(), host.GetID(), err)
+			}
+
 			return host, nil
 		}
 
@@ -900,12 +834,40 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 			return nil, failureReason
 		}
 
+		// Check if we're allowed to try to provision a new host.
+		//
+		// We usually are, but if we're idle-reclaiming a host and migrating replicas, then we don't want to scale-out,
+		// as that would defeat the purposes of reclaiming the idle host.
+		if errors.Is(failureReason, scheduling.ErrInsufficientHostsAvailable) && !createNewHostPermitted {
+			s.log.Warn("Could not find viable host for replica %d of kernel %s due to a lack of available resources, "+
+				"and createNewHostPermitted is false. Giving up.",
+				replicaSpec.ReplicaID(), replicaSpec.ID())
+
+			return nil, failureReason
+		}
+
 		s.log.Debug("Attempting to scale-out to provide host for replica %d of kernel %s (forTraining=%v).",
 			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining)
 		p := s.cluster.RequestHosts(context.Background(), 1)
 		if err := p.Error(); err != nil {
-			s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
-				replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			if errors.Is(err, scheduling.ErrScalingActive) || errors.Is(err, scheduling.ErrUnsupportedOperation) {
+				s.log.Warn("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+
+				// We failed to scale out because we CAN'T scale-out.
+				// Let's try one more time, this time ignoring the risk of over-subscribing the hosts, because
+				// we literally have no other options, and there may be some hosts with idle GPUs available
+				// that we skipped over because we didn't want to oversubscribe them too much.
+				if errors.Is(err, scheduling.ErrUnsupportedOperation) && !ignoreOversubscriptionRisk {
+					// Try again, this time ignoring the risk of oversubscribing the host(s).
+					ignoreOversubscriptionRisk = true
+					numTries += 1
+					continue
+				}
+			} else {
+				s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+					replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+			}
 
 			return nil, err
 		}
@@ -922,352 +884,72 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 // It simply provides an explanation for why the migration failed.
 //
 // The second error that is returned (i.e., 'err') indicates that an actual error occurs.
-func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
-	if kernelReplica == nil {
-		s.log.Error("MigrateContainer received nil KernelReplica")
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilKernelReplica
+func (s *BaseScheduler) MigrateKernelReplica(ctx context.Context, kernelReplica scheduling.KernelReplica,
+	targetHostId string, forTraining bool, createNewHostPermitted bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
+
+	args := &MigrationArgs{
+		kernelReplica:          kernelReplica,
+		targetHostId:           targetHostId,
+		forTraining:            forTraining,
+		createNewHostPermitted: createNewHostPermitted,
 	}
-
-	s.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s.",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
-
-	kernelContainer := kernelReplica.Container()
-	if kernelContainer == nil {
-		s.log.Error("Cannot migrate replica %d of kernel %s; kernel's kernelContainer is nil",
-			kernelReplica.ReplicaID(), kernelReplica.ID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilContainer
-	}
-
-	originalHost := kernelContainer.Host()
-	if originalHost == nil {
-		s.log.Error("Cannot migrate kernelContainer %s. Container's host is nil.", kernelContainer.ContainerID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId}, nil, ErrNilOriginalHost
-	}
-
-	var (
-		targetHost scheduling.Host
-		loaded     bool
-	)
-
-	// If the caller specified a particular host, then we'll verify that the specified host exists.
-	// If it doesn't, then we'll return an error.
-	if targetHostId != "" {
-		targetHost, loaded = s.cluster.GetHost(targetHostId)
-
-		if !loaded {
-			s.log.Error("Host %s specified as migration target for replica %d of kernel %s; however, host %s does not exist.",
-				targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
-			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname, NewNodeId: targetHostId},
-				nil, fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
-					scheduling.ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
-		}
-
-		// Make sure that the Host doesn't already have the kernel replica to be migrated or another
-		// replica of the same kernel running on it. If so, then the target host is not viable.
-		//
-		// Likewise, if the host does not have enough resources to serve the kernel replica,
-		// then it is not viable.
-		if reason = s.isHostViableForMigration(targetHost, kernelReplica, forTraining); reason != nil {
-			return &proto.MigrateKernelResponse{
-				Id:          -1,
-				Hostname:    ErrorHostname,
-				NewNodeId:   targetHostId,
-				NewNodeName: targetHost.GetNodeName(),
-			}, reason, nil
-		}
-	}
-
-	// If we weren't already given a target host to migrate the kernel replica to, then let's try to find one now.
-	if targetHost == nil {
-		targetHost, reason = s.findViableHostForReplica(kernelReplica, []scheduling.Host{originalHost}, forTraining)
-		if reason != nil || targetHost == nil {
-			s.log.Warn("Failed to find a viable host for replica %d of kernel %s: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), reason)
-			return &proto.MigrateKernelResponse{
-				Id:       -1,
-				Hostname: ErrorHostname,
-			}, reason, nil
-		}
-	}
-
-	var dataDirectory string
-	dataDirectory, err = s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
-	if err != nil {
-		s.log.Error("Failed to issue 'prepare-to-migrate' request to replica %d of kernel %s: %v",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-
-		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
-		if releaseReservationError != nil {
-			s.log.Error("Failed to release reservation for replica %d of kernel %s after failing to issue 'prepare-to-migrate' request during migration: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			err = errors.Join(err, releaseReservationError)
-		}
-
-		updateIndexErr := s.UpdateIndex(targetHost)
-		if updateIndexErr != nil {
-			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
-			err = errors.Join(err, updateIndexErr)
-		}
-
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	}
-
-	err = s.RemoveReplicaFromHost(kernelReplica)
-	if err != nil {
-		s.log.Error("Failed to remove replica %d of kernel %s from its current host: %v",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-
-		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
-		if releaseReservationError != nil {
-			s.log.Error("Failed to release reservation for replica %d of kernel %s after failing to remove replica from its current host during migration: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			err = errors.Join(err, releaseReservationError)
-		}
-
-		updateIndexErr := s.UpdateIndex(targetHost)
-		if updateIndexErr != nil {
-			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
-			err = errors.Join(err, updateIndexErr)
-		}
-
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	}
-
-	replicaSpec := &proto.ReplicaInfo{
-		KernelId:     kernelReplica.ID(),
-		ReplicaId:    kernelReplica.ReplicaID(),
-		PersistentId: kernelReplica.PersistentID(),
-	}
-
-	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
-
-	var addReplicaOp *scheduling.AddReplicaOperation
-	addReplicaOp, err = s.addReplica(replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
-
-	// If there's an error here, it's presumably a "real" error, as we already picked out a viable host up above.
-	if err != nil {
-		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-
-		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
-		if releaseReservationError != nil {
-			s.log.Error("Failed to release reservation for replica %d of kernel %s after failing to recreate replica during migration: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			err = errors.Join(err, releaseReservationError)
-		}
-
-		updateIndexErr := s.UpdateIndex(targetHost)
-		if updateIndexErr != nil {
-			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
-			err = errors.Join(err, updateIndexErr)
-		}
-
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	}
-
-	s.log.Debug("Successfully added new replica %d of kernel \"%s\" during migration (not quite done yet)",
-		addReplicaOp.ReplicaId(), kernelReplica.ID())
-
-	var newlyAddedReplica scheduling.KernelReplica
-	newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
-	if err != nil {
-		s.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), kernelReplica.ID(), err)
-
-		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
-		if releaseReservationError != nil {
-			s.log.Error("Failed to release reservation for replica %d of kernel %s after not being able to find the replica after supposedly successful migration: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			err = errors.Join(err, releaseReservationError)
-		}
-
-		updateIndexErr := s.UpdateIndex(targetHost)
-		if updateIndexErr != nil {
-			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
-			err = errors.Join(err, updateIndexErr)
-		}
-
-		return &proto.MigrateKernelResponse{
-			Id:          -1,
-			Hostname:    ErrorHostname,
-			NewNodeId:   targetHost.GetID(),
-			NewNodeName: targetHost.GetNodeName(),
-			Success:     false,
-		}, nil, err
-	} else {
-		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.",
-			addReplicaOp.ReplicaId(), kernelReplica.ID())
-	}
-
-	s.log.Debug("Designating new replica %d of kernel \"%s\" as \"ready\"",
-		addReplicaOp.ReplicaId(), kernelReplica.ID())
-
-	// The replica is fully operational at this point, so record that it is ready.
-	newlyAddedReplica.SetReady()
-
-	resp = &proto.MigrateKernelResponse{
-		Id:          addReplicaOp.ReplicaId(),
-		Hostname:    addReplicaOp.ReplicaPodHostname(),
-		NewNodeId:   targetHost.GetID(),
-		NewNodeName: targetHost.GetNodeName(),
-		Success:     true,
-	}
-	return resp, nil, err
-}
-
-// isHostViableForMigration returns nil if the specified Host is a viable migration target for the specified
-// KernelReplica -- that is, if the specified Host does not already serve another replica of the same kernel, or
-// the replica being migrated itself.
-//
-// Likewise, this also checks that the specified Host has enough resources to serve the specified KernelReplica.
-//
-// If the Host is not viable, then an ErrHostNotViable error is returned.
-func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, kernelReplica scheduling.KernelReplica, forTraining bool) error {
-	if targetHost == nil {
-		return scheduling.ErrNilHost
-	}
-
-	// If we were able to resolve the host, then let's also verify that the host doesn't already contain
-	// another replica of the same kernel (or the replica we're migrating). If so, then the host is not viable.
-	existingReplica := targetHost.GetAnyReplicaOfKernel(kernelReplica.ID())
-	if existingReplica != nil {
-		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s. "+
-			"Host %s is already hosting replica %d of kernel %s.", kernelReplica.ReplicaID(), kernelReplica.ID(),
-			targetHost.GetID(), targetHost.GetID(), existingReplica.ReplicaId(), kernelReplica.ID())
-
-		return fmt.Errorf("%w: replica %d of kernel %s is already running on host %s",
-			scheduling.ErrHostNotViable, existingReplica.ReplicaId(), kernelReplica.ID(), targetHost.GetID())
-	}
-
-	// Check that there are enough resources available.
-	kernelResourceSpec := kernelReplica.ResourceSpec()
-	if !targetHost.ResourceSpec().Validate(kernelResourceSpec) {
-		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s, as host does not have sufficiently-many allocatable resources to accommodate the replica.",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetID())
-		return fmt.Errorf("%w: host lacks sufficiently-many allocatable resourecs", scheduling.ErrHostNotViable)
-	}
-
-	// If we're migrating a kernel explicitly to begin training, then we need to see if the target host has sufficient
-	// idle resources available.
-	if forTraining && !targetHost.CanCommitResources(kernelResourceSpec) {
-		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s, as kernel needs to start training, and host lacks sufficient idle resources for this (current idle resources: %v).",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetID(), targetHost.IdleResources().String())
-		return fmt.Errorf("%w: insufficient idle resources available for training", scheduling.ErrHostNotViable)
-	}
-
-	return nil
-}
-
-// issuePrepareMigrateRequest issues a 'prepare-to-migrate' request to a specific replica of a specific kernel.
-// This will prompt the kernel to shut down its etcd process (but not remove itself from the cluster)
-// before writing the contents of its data directory to intermediate storage.
-//
-// Returns the path to the data directory in intermediate storage.
-func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.KernelReplica, originalHost scheduling.Host) (string, error) {
-	// If the host is nil, then we'll attempt to retrieve it from the kernel itself.
-	if originalHost == nil {
-		kernelContainer := kernelReplica.Container()
-		if kernelContainer == nil {
-			return "", scheduling.ErrNilHost // It's ultimately the host that we need.
-		}
-
-		originalHost = kernelContainer.Host()
-		if originalHost == nil {
-			return "", scheduling.ErrNilHost
-		}
-	}
-
-	s.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
-		originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
-
-	replicaInfo := &proto.ReplicaInfo{
-		ReplicaId: kernelReplica.ReplicaID(),
-		KernelId:  kernelReplica.ID(),
-	}
-
-	resultChan := make(chan interface{}, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*180)
-	defer cancel()
-
-	go func() {
-		gRpcClientConnection := originalHost.GetGrpcConnection()
-
-		if gRpcClientConnection == nil {
-			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil; I hope we're unit-testing",
-				originalHost.GetNodeName(), originalHost.GetID())
-			s.log.Warn(utils.OrangeStyle.Render(err.Error()))
-			// resultChan <- err
-		} else {
-			s.log.Debug("TransactionState of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
-				originalHost.GetID(), gRpcClientConnection.GetState().String(), gRpcClientConnection.GetState())
-		}
-
-		// Issue the 'prepare-to-migrate' request. We panic if there was an error.
-		resp, err := originalHost.PrepareToMigrate(ctx, replicaInfo)
-		if err != nil {
-			s.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
-				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-			resultChan <- err
-		} else {
-			resultChan <- resp
-		}
-	}()
-
-	var resp *proto.PrepareToMigrateResponse
-	select {
-	case <-ctx.Done():
-		{
-			s.log.Error("Timed-out waiting for response from host %s (ID=%s) for 'prepare-to-migrate' request for replica %d of kernel %s...",
-				originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
-			return "", fmt.Errorf("timed out")
-		}
-	case res := <-resultChan:
-		{
-			switch res.(type) {
-			case *proto.PrepareToMigrateResponse:
-				{
-					resp = res.(*proto.PrepareToMigrateResponse)
-				}
-			case error:
-				{
-					return "", res.(error)
-				}
-			}
-		}
-	}
-
-	dataDirectory := resp.DataDir
-	s.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s on host %s. Data directory: \"%s\"",
-		kernelReplica.ReplicaID(), kernelReplica.ID(), originalHost.GetID(), dataDirectory)
-
-	return dataDirectory, nil
+	return s.kernelMigrator.MigrateKernelReplica(ctx, args)
 }
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
 func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
 	s.instance.HostRemoved(host)
+
+	s.validate()
+	old := s.loadPool(host)
+
+	var meta types.HeapElementMetadataKey
+	if old == s.oversubscribed {
+		meta = OversubscribedIndexKey
+	} else {
+		meta = UndersubscribedIndexKey
+	}
+
+	s.overUnderMutex.Lock()
+	defer s.overUnderMutex.Unlock()
+
+	s.log.Trace("Removing host %v(%v of %d) from %v",
+		host.GetNodeName(), host.GetIdx(meta), old.Len(), host.SchedulerPoolType())
+
+	heap.Remove(old, host.GetIdx(meta))
+}
+
+// baseHostAdded should be called by HostAdded in classes that promote a *BaseScheduler.
+func (s *BaseScheduler) baseHostAdded(host scheduling.Host) {
+	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
+	s.idleHostMutex.Lock()
+	heap.Push(s.idleHosts, &idleSortedHost{Host: host})
+	s.idleHostMutex.Unlock()
+	s.log.Debug("Length of idle hosts: %d", s.idleHosts.Len())
+
+	s.validate()
+	target, t := s.getPool(host)
+	s.moveToPool(host, target, t)
+
+	s.log.Debug("Added host %s (%v of %d) to %v",
+		host.GetNodeName(), host.GetIdx(OversubscribedIndexKey), target.Len(), t.String())
 }
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *BaseScheduler) HostAdded(host scheduling.Host) {
 	s.instance.HostAdded(host)
+}
+
+func (s *BaseScheduler) moveToPool(host scheduling.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
+	s.overUnderMutex.Lock()
+	defer s.overUnderMutex.Unlock()
+
+	host.SetSchedulerPoolType(t)
+	s.log.Debug("Moving host %s to pool with type %s. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
+		host.GetNodeName(), t.String(), host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+	heap.Push(pool, host)
+	s.log.Debug("Moved host %s to pool with type %s. NumContainers: %d. Host's S-Ratio: %.4f. Host's OSFactor: %s.",
+		host.GetNodeName(), t.String(), host.NumContainers(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 }
 
 // SetLastCapacityValidation is used to record that a capacity validation has occurred.
@@ -1284,20 +966,24 @@ func (s *BaseScheduler) CanScaleIn() bool {
 // or undersubscribed).
 func (s *BaseScheduler) designateSubscriptionPoolType(host scheduling.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
 	host.SetSchedulerPoolType(t)
+
+	s.overUnderMutex.Lock()
 	heap.Push(pool, host)
+	s.overUnderMutex.Unlock()
 }
 
 func (s *BaseScheduler) validate() {
 	if s.invalidated > InvalidationThreshold {
 		// StaticPlacerMaxSubscribedRatio increase, release oversubscribed hosts to under-subscribed hosts.
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
-				s.lastSubscribedRatio, s.pendingSubscribedRatio)
-		}
+		s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
+			s.lastSubscribedRatio, s.pendingSubscribedRatio)
 
 		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(scheduling.Host).OversubscriptionFactor().LessThan(decimal.Zero) {
-			host := s.oversubscribed.Peek()
-			heap.Pop(s.oversubscribed)
+			s.overUnderMutex.Lock()
+			host := heap.Pop(s.oversubscribed)
+			s.overUnderMutex.Unlock()
+
+			s.log.Debug("Designating host %s as 'undersubscribed'", host.(scheduling.Host).GetNodeName())
 			s.designateSubscriptionPoolType(host.(scheduling.Host), s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
 		}
 
@@ -1309,6 +995,23 @@ func (s *BaseScheduler) validate() {
 	}
 }
 
+func (s *BaseScheduler) getPool(host scheduling.Host) (heap.Interface, scheduling.SchedulerPoolType) {
+	if host.OversubscriptionFactor().GreaterThan(decimal.Zero) {
+		return s.oversubscribed, scheduling.SchedulerPoolTypeOversubscribed
+	} else {
+		return s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed
+	}
+}
+
+func (s *BaseScheduler) loadPool(host scheduling.Host) heap.Interface {
+	switch host.SchedulerPoolType() {
+	case scheduling.SchedulerPoolTypeUndersubscribed:
+		return s.undersubscribed
+	default:
+		return s.oversubscribed
+	}
+}
+
 type idleSortedHost struct {
 	scheduling.Host
 }
@@ -1316,14 +1019,18 @@ type idleSortedHost struct {
 func (h *idleSortedHost) Compare(other interface{}) float64 {
 	// MaxHeap based on the number of idle GPUs.
 	diff := other.(*idleSortedHost).IdleGPUs() - h.IdleGPUs()
-
 	if diff != 0 {
 		return diff
 	}
 
 	// MaxHeap based on the subscription ratio, in order to promote rebalancing.
 	diff = other.(scheduling.Host).SubscribedRatio() - h.SubscribedRatio()
+	if diff != 0 {
+		return diff
+	}
 
+	// MinHeap based on the number of containers. Fewer containers means less overhead to migrate.
+	diff = float64(h.NumContainers() - other.(scheduling.Host).NumContainers())
 	if diff != 0 {
 		return diff
 	}
@@ -1343,8 +1050,8 @@ func (h *idleSortedHost) GetIdx(key types.HeapElementMetadataKey) int {
 	return h.Host.GetIdx(key)
 }
 
-// migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
-func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTraining bool) error {
+// migrateContainersFromIdleHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
+func (s *BaseScheduler) migrateContainersFromIdleHost(host scheduling.Host, forTraining bool) error {
 	numContainersToMigrate := host.Containers().Len()
 
 	// If there are no containers to migrate, then we're done.
@@ -1353,9 +1060,28 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		return nil
 	}
 
+	getMigrationTarget := func(containerId string, container scheduling.KernelContainer) (scheduling.Host, error) {
+		// Get a candidate host, but do not allow the cluster to provision new hosts/scale out, as that would
+		// defeat the purpose of idle-reclaiming this host.
+		return s.findViableHostForReplica(container.GetClient(), []scheduling.Host{host}, false, false)
+	}
+
+	type MigrationTarget struct {
+		TargetHost scheduling.Host
+		Container  scheduling.KernelContainer
+	}
+
+	migrationTargets := make(map[string]*MigrationTarget, host.Containers().Len())
+
+	// This actually migrates the container.
 	migrateContainer := func(containerId string, container scheduling.KernelContainer) error {
+		migrationTarget := migrationTargets[containerId]
+
 		// Pass true for `noNewHost`, as we don't want to create a new host for this.
-		_, failedMigrationReason, err := s.MigrateKernelReplica(container.GetClient(), "", forTraining)
+		// (We already have a migration target selected, so it shouldn't matter, but still.)
+		_, failedMigrationReason, err := s.MigrateKernelReplica(context.Background(), container.GetClient(),
+			migrationTarget.TargetHost.GetID(), forTraining, false)
+
 		if err != nil {
 			// We cannot migrate the Container due to an actual error.
 			s.log.Error("Abandoning the release of idle host %s (ID=%s) because we encountered an error while migrating one of the containers: %v",
@@ -1376,9 +1102,136 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		return nil
 	}
 
+	// Do one pass where we just check for actively-training kernels, so we don't waste time trying to reserve
+	// resources on hosts only to abort everything because another kernel is actively training.
+	foundActiveTraining := false
+	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
+		kernel, loaded := s.kernelProvider.GetKernel(container.KernelID())
+		if !loaded {
+			s.log.Error("Could not find kernel \"%s\" associated with container \"%s\" that we're trying to migrate...",
+				container.KernelID(), containerId)
+
+			foundActiveTraining = true
+			return false
+		}
+
+		// Verify that none of the kernels are actively training.
+		if kernel.HasActiveTraining() {
+			s.log.Debug("Kernel \"%s\" is actively training. We should not migrate replica %d, even if that replica is not the primary replica.",
+				kernel.ID(), container.ReplicaId())
+
+			foundActiveTraining = true
+			return false
+		}
+
+		return true
+	})
+
+	if foundActiveTraining {
+		s.log.Warn("Found at least one container whose kernel is actively training. Aborting migration of idle host \"%s\".",
+			host.GetNodeName())
+
+		return fmt.Errorf("%w: %w", scheduling.ErrMigrationFailed, scheduling.ErrAssociatedKernelActiveTraining)
+	}
+
+	aborted := false
+	// Called if we have to abort the migration because we couldn't find a viable target for some replica.
+	abortMigrationOperation := func() {
+		s.log.Warn("Aborting migration of containers from idle host %s. Releasing %d reservation(s).",
+			host.GetNodeName(), len(migrationTargets))
+
+		aborted = true
+
+		counter := 0
+		for containerId, migrationTarget := range migrationTargets {
+			container := migrationTarget.Container
+			targetHost := migrationTarget.TargetHost
+
+			replica := container.GetClient()
+
+			s.log.Debug("Releasing reservation made for container %s on host %s (ID=%s) (migration cancelled).",
+				containerId, host.GetNodeName(), host.GetID())
+
+			err := targetHost.ReleaseReservation(replica.KernelSpec())
+			if err != nil {
+				s.log.Error("Failed to release reservation %d/%d: container %s on host %s: %v",
+					counter+1, len(migrationTargets), containerId, host.GetNodeName(), err)
+			} else {
+				s.log.Debug("Successfully released reservation %d/%d: container %s on host %s: %v",
+					counter+1, len(migrationTargets), containerId, host.GetNodeName(), err)
+			}
+
+			counter += 1
+		}
+	}
+
+	// First, identify target hosts for all the replicas that need to be migrated.
+	// If any of them fail to find a target, then we'll abort.
+	// AddHost all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
+	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
+		s.log.Debug("Searching for migration target for container %s from idle host %s.",
+			containerId, host.GetNodeName())
+
+		kernel, loaded := s.kernelProvider.GetKernel(container.KernelID())
+		if !loaded {
+			s.log.Error("Could not find kernel \"%s\" associated with container \"%s\" that we're trying to migrate...",
+				container.KernelID(), containerId)
+
+			// Failed to find a viable migration target, so we must abort.
+			abortMigrationOperation()
+			return false
+		}
+
+		// Verify that none of the kernels are actively training.
+		if kernel.HasActiveTraining() {
+			s.log.Debug("Kernel \"%s\" is actively training. We should not migrate replica %d, even if that replica is not the primary replica.",
+				kernel.ID(), container.ReplicaId())
+
+			// Failed to find a viable migration target, so we must abort.
+			abortMigrationOperation()
+			foundActiveTraining = true
+			return false
+		}
+
+		targetHost, err := getMigrationTarget(containerId, container)
+		if err != nil {
+			s.log.Warn("Could not find viable migration target for container %s; aborting migration of all containers from idle host %s: %v",
+				containerId, host.GetNodeName(), err)
+
+			// Failed to find a viable migration target, so we must abort.
+			abortMigrationOperation()
+			return false
+		}
+
+		s.log.Debug("Identified migration target for container %s: host %s",
+			container, targetHost.GetNodeName())
+
+		migrationTargets[containerId] = &MigrationTarget{
+			TargetHost: targetHost,
+			Container:  container,
+		}
+
+		return true
+	})
+
+	if aborted || foundActiveTraining {
+		s.log.Warn("Operation to migrate all %d container(s) from idle host %s has been aborted.",
+			host.Containers().Len(), host.GetNodeName())
+
+		if foundActiveTraining {
+			s.log.Warn("Found at least one container whose kernel is actively training. Aborting migration of idle host \"%s\".",
+				host.GetNodeName())
+
+			return fmt.Errorf("%w: %w", scheduling.ErrMigrationFailed, scheduling.ErrAssociatedKernelActiveTraining)
+		}
+
+		return fmt.Errorf("%w: failed to find viable migration targets for one or more containers",
+			scheduling.ErrMigrationFailed)
+	}
+
 	// If there's just one, then just migrate the one container.
 	if numContainersToMigrate == 1 {
-		s.log.Debug("There's just one container on host %s to migrate.", host.GetNodeName())
+		s.log.Debug("There's just one container on idle host %s to migrate.", host.GetNodeName())
 
 		var err error
 		host.Containers().Range(func(containerId string, container scheduling.KernelContainer) (contd bool) {
@@ -1392,14 +1245,60 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		return err
 	}
 
-	var nWorkers int
-	if numContainersToMigrate <= 8 {
-		nWorkers = numContainersToMigrate / 2
-	} else {
-		nWorkers = numContainersToMigrate / 4
+	// One more pass now that we may have spent a bunch more time pre-reserving resources.
+	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
+		kernel, loaded := s.kernelProvider.GetKernel(container.KernelID())
+		if !loaded {
+			s.log.Error("Could not find kernel \"%s\" associated with container \"%s\" that we're trying to migrate...",
+				container.KernelID(), containerId)
+
+			foundActiveTraining = true
+			//aborted = true
+			abortMigrationOperation()
+			return false
+		}
+
+		// Verify that none of the kernels are actively training.
+		if kernel.HasActiveTraining() {
+			s.log.Debug("Kernel \"%s\" is actively training. We should not migrate replica %d, even if that replica is not the primary replica.",
+				kernel.ID(), container.ReplicaId())
+
+			foundActiveTraining = true
+			//aborted = true
+			abortMigrationOperation()
+			return false
+		}
+
+		return true
+	})
+
+	if aborted || foundActiveTraining {
+		s.log.Warn("Operation to migrate all %d container(s) from idle host %s has been aborted.",
+			host.Containers().Len(), host.GetNodeName())
+
+		if foundActiveTraining {
+			s.log.Warn("Found at least one container whose kernel is actively training. Aborting migration of idle host \"%s\".",
+				host.GetNodeName())
+
+			return fmt.Errorf("%w: %w", scheduling.ErrMigrationFailed, scheduling.ErrAssociatedKernelActiveTraining)
+		}
+
+		return fmt.Errorf("%w: failed to find viable migration targets for one or more containers",
+			scheduling.ErrMigrationFailed)
 	}
 
-	timeoutInterval := time.Minute * time.Duration(float64(numContainersToMigrate)*1.5)
+	var nWorkers int
+	if numContainersToMigrate == 2 {
+		nWorkers = 2
+	} else {
+		nWorkers = numContainersToMigrate
+
+		if nWorkers > 8 {
+			nWorkers = 8
+		}
+	}
+
+	timeoutInterval := time.Minute * time.Duration(float64(numContainersToMigrate)*2.5)
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
 	defer cancel()
 
@@ -1413,61 +1312,66 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	migrationWorker := func(workerId int) {
 		var numContainersMigrated int
 
-		select {
-		case container := <-workQueue:
-			{
-				// If another worker failed to migrate a kernel replica, then we might as well give up.
-				if errorOccurred.Load() {
-					s.log.Warn("Migration Worker #%d of Host %s is exiting because another worker failed to migrate a kernel replica.",
-						workerId, host.GetNodeName())
+		for !errorOccurred.Load() {
+			select {
+			case container := <-workQueue:
+				{
+					// If another worker failed to migrate a kernel replica, then we might as well give up.
+					if errorOccurred.Load() {
+						s.log.Warn("Migration Worker #%d of idle Host %s is exiting because another worker failed to migrate a kernel replica.",
+							workerId, host.GetNodeName())
+
+						// Increment the semaphore to signal to the main goroutine that we're done.
+						workerDoneSemaphore.Release(1)
+						return
+					}
+
+					startMigrateTime := time.Now()
+
+					s.log.Debug("Migration Worker #%d of idle Host %s is migrating container %s now.",
+						workerId, host.GetNodeName(), container.ContainerID())
+
+					// Migrate the container.
+					err := migrateContainer(container.ContainerID(), container)
+
+					// Check if we failed to migrate.
+					if err != nil {
+						errorChan <- err
+						errorOccurred.Store(true)
+
+						s.log.Warn("Migration Worker #%d for idle Host %s failed to migrate replica %d of kernel %s after %v: %v.",
+							workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), err)
+						s.log.Warn("Migration Worker #%d for idle Host %s is aborting. Number of containers migrated (by worker #%d): %d. Total time elapsed: %v.",
+							workerId, host.GetNodeName(), numContainersMigrated, workerId, time.Since(startTime))
+
+						// Increment the semaphore to signal to the main goroutine that we're done.
+						workerDoneSemaphore.Release(1)
+						return
+					}
+
+					s.log.Debug("Migration Worker #%d for idle Host %s successfully migrated replica %d of kernel %s in %v. Total time elapsed: %v.",
+						workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), time.Since(startTime))
+
+					numContainersMigrated += 1
+					numContainersMigratedSuccessfully.Add(1)
+				}
+			default:
+				{
+					s.log.Debug("Migration Worker #%d for idle Host %s is done. Number of containers migrated: %d. Time elapsed: %v.",
+						workerId, host.GetNodeName(), numContainersMigrated, time.Since(startTime))
 
 					// Increment the semaphore to signal to the main goroutine that we're done.
 					workerDoneSemaphore.Release(1)
 					return
 				}
-
-				startMigrateTime := time.Now()
-
-				// Migrate the container.
-				err := migrateContainer(container.ContainerID(), container)
-
-				// Check if we failed to migrate.
-				if err != nil {
-					errorChan <- err
-					errorOccurred.Store(true)
-
-					s.log.Warn("Migration Worker #%d for Host %s failed to migrate replica %d of kernel %s after %v: %v.",
-						workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), err)
-					s.log.Warn("Migration Worker #%d for Host %s is aborting. Number of containers migrated (by worker #%d): %d. Total time elapsed: %v.",
-						workerId, host.GetNodeName(), numContainersMigrated, workerId, time.Since(startTime))
-
-					// Increment the semaphore to signal to the main goroutine that we're done.
-					workerDoneSemaphore.Release(1)
-					return
-				}
-
-				s.log.Debug("Migration Worker #%d for Host %s successfully migrated replica %d of kernel %s in %v. Total time elapsed: %v.",
-					workerId, host.GetNodeName(), container.ReplicaId(), container.KernelID(), time.Since(startMigrateTime), time.Since(startTime))
-
-				numContainersMigrated += 1
-				numContainersMigratedSuccessfully.Add(1)
-			}
-		default:
-			{
-				s.log.Debug("Migration Worker #%d for Host %s is done. Number of containers migrated: %d. Time elapsed: %v.",
-					workerId, host.GetNodeName(), numContainersMigrated, time.Since(startTime))
-
-				// Increment the semaphore to signal to the main goroutine that we're done.
-				workerDoneSemaphore.Release(1)
-				return
 			}
 		}
 	}
 
-	s.log.Debug("Parallelizing the migration of %d containers from host %s using %d workers.",
+	s.log.Debug("Parallelizing the migration of %d containers from idle host %s using %d workers.",
 		numContainersToMigrate, host.GetNodeName(), nWorkers)
 
-	// Add all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
+	// AddHost all the containers (that we need to migrate) to the work queue BEFORE creating the workers.
 	host.Containers().Range(func(containerId string, container scheduling.KernelContainer) bool {
 		workQueue <- container
 		return true
@@ -1487,7 +1391,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 		go migrationWorker(i + 1)
 	}
 
-	s.log.Debug("Started %d workers to migrate %d kernel replicas from host %s. Waiting for up to %v.",
+	s.log.Debug("Started %d workers to migrate %d kernel replicas from idle host %s. Waiting for up to %v.",
 		nWorkers, numContainersToMigrate, host.GetNodeName(), timeoutInterval)
 
 	// Block until all workers are done, or until the operation times out.
@@ -1496,11 +1400,11 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	// If there was an error (i.e., time-out) or we haven't migrated all the containers yet,
 	// then we'll return a timed-out error.
 	if err != nil || numContainersMigratedSuccessfully.Load() < int32(numContainersToMigrate) {
-		s.log.Debug("Timed-out waiting for %d worker(s) to migrate %d containers from host %s. Time elapsed: %v. Number of successful migrations: %d.",
-			nWorkers, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), numContainersMigratedSuccessfully.Load())
+		s.log.Debug("Timed out waiting for %d worker(s) to migrate %d containers from idle host %s. Time elapsed: %v. Number of successful migrations: %d. %v",
+			nWorkers, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), numContainersMigratedSuccessfully.Load(), err)
 
-		return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
-			types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
+		return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v: %v",
+			types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime), err)
 	}
 
 	err = nil
@@ -1534,7 +1438,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Expected for the number of migrated containers (%d) to equal the target (%d)",
 							numContainersMigratedSuccessfully.Load(), numContainersToMigrate)
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+						return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
@@ -1542,10 +1446,10 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 					//
 					// This should NEVER happen.
 					if numContainersMigratedSuccessfully.Load() > int32(numContainersToMigrate) {
-						s.log.Error("Number of successful migrations (%d) of containers from host %s is somehow > than target (%d)",
+						s.log.Error("Number of successful migrations (%d) of containers from idle host %s is somehow > than target (%d)",
 							numContainersMigratedSuccessfully.Load(), host.GetNodeName(), numContainersToMigrate)
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+						return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
@@ -1556,17 +1460,17 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 						s.log.Error("Host %s still has %d container(s), but we should've migrated all of them...",
 							host.GetNodeName(), host.NumContainers())
 
-						return fmt.Errorf("%w: migration of %d containers from host %s timed-out after %v",
+						return fmt.Errorf("%w: migration of %d containers from idle host %s timed out after %v",
 							types.ErrRequestTimedOut, numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					}
 
-					s.log.Debug("Successfully migrated all %d kernel replica(s) from host %s in %v.",
+					s.log.Debug("Successfully migrated all %d kernel replica(s) from idle host %s in %v.",
 						numContainersToMigrate, host.GetNodeName(), time.Since(startTime))
 					return nil
 				}
 
 				// The error variable was not nil, so 1+ migrations failed.
-				s.log.Warn("At least %d error(s) occurred while trying to migrate all %d kernel replica(s) from host %s: %v",
+				s.log.Warn("At least %d error(s) occurred while trying to migrate all %d kernel replica(s) from idle host %s: %v",
 					nErrors, numContainersToMigrate, host.GetNodeName(), err)
 				return err
 			}
@@ -1578,7 +1482,7 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 // ExcludedFromScheduling field to false.
 //
 // includeHostsInScheduling then pushes the host back into the idleHosts heap.
-func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
+func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host, addBackToIdleHostsHeap bool) {
 	for _, host := range hosts {
 		err := host.IncludeForScheduling()
 		if err != nil {
@@ -1587,11 +1491,19 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 			continue
 		}
 
-		heap.Push(s.idleHosts, &idleSortedHost{
-			Host: host,
-		})
+		if addBackToIdleHostsHeap {
+			s.idleHostMutex.Lock()
+			heap.Push(s.idleHosts, &idleSortedHost{Host: host})
+			s.idleHostMutex.Unlock()
 
-		s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
+			s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
+
+			updateIndexErr := s.UpdateIndex(host)
+
+			if updateIndexErr != nil {
+				s.log.Error("Error while attempting to update index of host %s: %v", host.GetNodeName(), err)
+			}
+		}
 	}
 }
 
@@ -1600,77 +1512,148 @@ func (s *BaseScheduler) ContainerPrewarmer() scheduling.ContainerPrewarmer {
 	return s.prewarmer
 }
 
+func (s *BaseScheduler) releaseIdleHost(host scheduling.Host) error {
+	s.log.Debug("Releasing idle host %s (ID=%s)", host.GetNodeName(), host.GetID())
+
+	// If the host has no containers running on it at all, then we can simply release the host.
+	var err error
+	if host.NumContainers() > 0 {
+		s.log.Debug("Must migrate %d container(s) from idle host %s before we remove it.",
+			host.NumContainers(), host.GetNodeName())
+
+		err = s.migrateContainersFromIdleHost(host, false) // Host is completely idle, so no training.
+		if err != nil {
+			s.log.Warn("Failed to migrate all kernels from host %s because: %v", host.GetNodeName(), err)
+			return err
+		}
+	}
+
+	var (
+		numTries    = 0
+		maxNumTries = 16
+	)
+
+	for numTries < maxNumTries {
+		err = s.RemoveHost(host.GetID())
+		if err == nil {
+			return nil
+		}
+
+		if errors.Is(err, scheduling.ErrScalingActive) {
+			// If we've hit our maximum number of tries, then we'll just give up on this host.
+			// Don't need to sleep again for no reason.
+			if (numTries + 1) >= maxNumTries {
+				s.log.Debug("Cannot release idle host %s because there's already an active scaling operation.",
+					host.GetNodeName())
+				return err
+			}
+
+			// We'll wait for a bit and try again.
+			// Operation isn't necessarily a scale-out operation, but that's fine.
+			sleepInterval := (time.Duration(s.cluster.MeanScaleOutTime().Seconds()/4) * time.Second) + (time.Millisecond * time.Duration(rand.Int31n(1250)))
+
+			s.log.Debug("Cannot release idle host %s because there's already an active scaling operation. "+
+				"Will sleep for %v before trying again.", host.GetNodeName(), sleepInterval)
+			time.Sleep(sleepInterval)
+
+			numTries += 1
+			continue
+		}
+
+		// Some other error (i.e., not just an ErrScalingActive).
+		s.log.Error("Failed to remove host %s because: %v", host.GetNodeName(), err)
+		return err
+	}
+
+	s.log.Warn("Could not manage to release idle host %s within %d tries due to scaling contention...",
+		host.GetNodeName(), maxNumTries)
+	return err
+}
+
 // ReleaseIdleHosts tries to release n idle hosts. Return the number of hosts that were actually released.
 // Error will be nil on success and non-nil if some sort of failure is encountered.
 func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	s.validate()
 
+	s.idleHostMutex.Lock()
 	// For now, just ensure the heap is in a valid order.
 	heap.Init(s.idleHosts)
+	s.idleHostMutex.Unlock()
 
 	s.log.Debug("Attempting to release %d idle host(s). Currently %d host(s) in the Cluster. Length of idle hosts: %d.",
 		n, s.cluster.Len(), s.idleHosts.Len())
 
-	toBeReleased := make([]scheduling.Host, 0, n)
-	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
+	var (
+		err         error
+		numReleased int32
+	)
+
+	for numReleased < n {
 		idleHost := s.idleHosts.Peek().(*idleSortedHost)
 
-		// If the host is not completely idle, then we'll break and stop looking.
-		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() {
-			break
-		}
-
 		excluded := idleHost.Host.ExcludeFromScheduling()
-		if excluded {
-			// If we failed to exclude the host, then we won't reclaim it.
-			toBeReleased = append(toBeReleased, idleHost.Host)
-			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
-
-			// Remove the host so that we can get to the next host.
-			tmpHost := heap.Pop(s.idleHosts)
-
-			// Sanity check.
-			if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
-				panic("Host popped off of idleHosts heap does not equal host peeked from idleHosts.")
-			}
-		} else {
+		if !excluded {
 			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
 				idleHost.Host.GetNodeName(), idleHost.Host.GetID())
 			break
 		}
-	}
 
-	var released int
-	for i, host := range toBeReleased {
+		// If the host is not completely idle, then we'll break and stop looking.
+		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() || idleHost.CommittedGPUs() > 0 {
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, false) // Re-include it in scheduling operations.
+			break
+		}
+
+		// If containers are only created for a single training event, then the fact that there are containers here
+		// indicates that they're going to be training. So, the host is not truly idle.
+		if s.schedulingPolicy.ContainerLifetime() == scheduling.SingleTrainingEvent && idleHost.NumContainers() > 0 {
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, false) // Re-include it in scheduling operations.
+			break
+		}
+
+		// If there are too many containers on it, then it isn't necessarily worth the overhead of migrating the host.
+		if idleHost.NumContainers() > 4 {
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, false) // Re-include it in scheduling operations.
+			break
+		}
+
+		s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.",
+			idleHost.GetNodeName(), idleHost.GetID())
+
+		// RemoveHost the host so that we can get to the next host.
+		s.idleHostMutex.Lock()
+		tmpHost := heap.Pop(s.idleHosts)
+		s.idleHostMutex.Unlock()
+
+		// Sanity check.
+		if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
+			panic("Host popped off of idleHosts heap does not equal host peeked from idleHosts.")
+		}
+
 		s.log.Debug("Releasing idle host %d/%d: host %s. NumContainers: %d.",
-			i+1, len(toBeReleased), host.GetNodeName(), host.NumContainers())
+			numReleased+1, n, idleHost.Host.GetNodeName(), idleHost.Host.NumContainers())
 
-		// If the host has no containers running on it at all, then we can simply release the host.
-		if host.NumContainers() > 0 {
-			err := s.migrateContainersFromHost(host, false) // Host is completely idle, so no training.
-			if err != nil {
-				s.log.Warn("Failed to migrate all kernels from host %s because: %v", host.GetNodeName(), err)
-
-				s.includeHostsInScheduling(toBeReleased[i:])
-
-				return released, err
-			}
-		}
-
-		err := s.RemoveHost(host.GetID())
+		err = s.releaseIdleHost(idleHost.Host)
 		if err != nil {
-			s.log.Error("Failed to remove host %s because: %v", host.GetNodeName(), err)
-
-			s.includeHostsInScheduling(toBeReleased[i:])
-
-			return released, err
+			s.log.Warn("Could not release idle host \"%s\" because: %v", idleHost.Host.GetNodeName(), err)
+			s.includeHostsInScheduling([]scheduling.Host{idleHost.Host}, true)
+			break
 		}
 
-		released += 1
-		s.log.Debug("Successfully released idle host %d/%d: host %s.", i+1, len(toBeReleased), host.GetNodeName())
+		s.log.Debug("Successfully released idle host %d/%d: host %s.",
+			numReleased+1, n, idleHost.Host.GetNodeName())
+		numReleased += 1
 	}
 
-	return released, nil
+	var logMethod func(format string, args ...interface{})
+	if numReleased > 0 {
+		logMethod = s.log.Debug
+	} else {
+		logMethod = s.log.Warn
+	}
+	logMethod("Released %d/%d idle host(s).", numReleased, n)
+
+	return int(numReleased), err
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified kernel to be migrated.
@@ -1696,5 +1679,79 @@ func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (sch
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
 func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
-	return s.schedulingPolicy.FindReadyReplica(kernel, executionId)
+	replica, err := s.schedulingPolicy.FindReadyReplica(kernel, executionId)
+
+	if replica != nil && err == nil {
+		host := replica.Host()
+
+		if host != nil {
+			updateIndexErr := s.UpdateIndex(host)
+
+			if updateIndexErr != nil {
+				s.log.Error("Error while attempting to update index of host %s of replica %d of kernel \"%s\": %v",
+					host.GetNodeName(), replica.ReplicaID(), replica.ID(), err)
+			}
+		}
+	}
+
+	return replica, err
+}
+
+// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
+func (s *BaseScheduler) addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation) {
+	s.instance.addReplicaSetup(kernelId, addReplicaOp)
+}
+
+func (s *BaseScheduler) getHost(hostId string) (scheduling.Host, bool) {
+	return s.cluster.GetHost(hostId)
+}
+
+// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
+func (s *BaseScheduler) postScheduleKernelReplica(kernelId string, addReplicaOp *scheduling.AddReplicaOperation) {
+	s.instance.postScheduleKernelReplica(kernelId, addReplicaOp)
+}
+
+// selectViableHostForReplica identifies a viable scheduling.Host to serve the given scheduling.KernelContainer.
+//
+// selectViableHostForReplica is most often called for kernels that need to begin training immediately.
+//
+// Important: selectViableHostForReplica will reserve resources on the Host.
+func (s *BaseScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host,
+	forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
+
+	host, err := s.instance.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining, ignoreOversubscriptionRisk)
+
+	if host != nil && err == nil {
+		updateIndexErr := s.UpdateIndex(host)
+
+		if updateIndexErr != nil {
+			s.log.Error("Error while attempting to update index of host %s: %v",
+				host.GetNodeName(), err)
+		}
+	}
+
+	return host, err
+}
+
+func (s *BaseScheduler) SetHostMapper(hostMapper scheduling.HostMapper) {
+	s.hostMapper = hostMapper
+}
+
+func (s *BaseScheduler) SetKernelProvider(kernelProvider scheduling.KernelProvider) {
+	s.kernelProvider = kernelProvider
+}
+
+func (s *BaseScheduler) ScheduleKernelReplica(ctx context.Context, args *scheduling.ScheduleReplicaArgs) error {
+	err := s.instance.ScheduleKernelReplica(ctx, args)
+
+	if err == nil && args.TargetHost != nil {
+		updateIndexErr := s.UpdateIndex(args.TargetHost)
+
+		if updateIndexErr != nil {
+			s.log.Error("Error while attempting to update index of host %s: %v",
+				args.TargetHost.GetNodeName(), err)
+		}
+	}
+
+	return err
 }

@@ -12,10 +12,10 @@
   roles:
     - remove-kernel-storage
 
-- name: Prune any stopped Docker containers within the Docker Swarm cluster
-  hosts: docker_swarm
-  roles:
-    - prune-docker-containers
-  tags:
-    - docker
-    - swarm
+#- name: Prune any stopped Docker containers within the Docker Swarm cluster
+#  hosts: docker_swarm
+#  roles:
+#    - prune-docker-containers
+#  tags:
+#    - docker
+#    - swarm

@@ -2,9 +2,44 @@ from distributed_notebook.deep_learning import CIFAR10, TinyImageNet, VGG11, VGG
 
 import torch
 
+def test_train_vgg11_on_cifar10_cpu():
+    """
+    Train the VGG-11 model on the CIFAR-10 dataset using the CPU.
+    Validate that the weights are updated correctly.
+    """
+    dataset: CIFAR10 = CIFAR10(image_size = VGG11.expected_image_size())
+    model: VGG11 = VGG11(created_for_first_time=True)
+
+    training_duration_ms = 3250
+
+    # Set this to False in order to force CPU training.
+    model.gpu_available = False
+
+    # Access the classification head (last layer)
+    output_layer = model.output_layer
+
+    # Extract weights and biases
+    prev_weights = output_layer.weight.detach().cpu()
+    for _ in range(0, 3):
+        print(f"Initial weights: {prev_weights}")
+        model.train(dataset.train_loader, training_duration_ms)
+
+        updated_weights = output_layer.weight.detach().cpu()
+        print(f"Updated weights: {updated_weights}")
+
+        if prev_weights.equal(updated_weights):
+            print(f"Initial weights: {prev_weights}")
+
+        assert not prev_weights.equal(updated_weights)
+        prev_weights = updated_weights
+
+if __name__ == "__main__":
+    test_train_vgg11_on_cifar10_cpu()
+
 def test_train_vgg11_on_cifar10():
     """
-    Train the VGG-11 model on the CIFAR-10 dataset. Validate that the weights are updated correctly.
+    Train the VGG-11 model on the CIFAR-10 dataset.
+    Validate that the weights are updated correctly.
     """
     dataset: CIFAR10 = CIFAR10(image_size = VGG11.expected_image_size())
     model: VGG11 = VGG11(created_for_first_time=True)

@@ -256,7 +256,7 @@ func (s *MovingStat) Add(val float64) {
 	// Move forward.
 	s.last = (s.last + 1) % s.window
 
-	// Add difference to sum.
+	// AddHost difference to sum.
 	s.sum[s.active] += val - s.values[s.last]
 	s.sum[s.resetting] += val // Resetting is used to sum from ground above each window interval.
 	if s.last == 0 {

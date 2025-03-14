@@ -1,9 +1,10 @@
 import asyncio
 import datetime
 import logging
-import time
 from enum import IntEnum
 from typing import Dict, Optional, List, MutableMapping, Any
+
+import time
 
 from .log import LeaderElectionVote, LeaderElectionProposal
 from ..logs import ColoredLogFormatter
@@ -32,8 +33,8 @@ class ElectionTimestamps(object):
     def __init__(self, proposal_phase_start_time: float = 0):
         self.creation_time: float = time.time() * 1.0e3
         self.proposal_phase_start_time: float = proposal_phase_start_time  # includes the "voting" phase
-        self.execution_phase_start_time: int = 0
-        self.end_time: int = 0
+        self.execution_phase_start_time: float = 0
+        self.end_time: float = 0
 
 
 class ElectionState(IntEnum):
@@ -61,6 +62,17 @@ class ElectionState(IntEnum):
             raise ValueError(f"Unknown or unsupported Enum value for ElectionState: {self.value}")
 
 
+class ElectionNotStartedError(Exception):
+    def __init__(self, message):
+        # Call the base class constructor with the parameters it needs
+        super().__init__(message)
+
+
+class ElectionAlreadyDecidedError(Exception):
+    def __init__(self, message):
+        # Call the base class constructor with the parameters it needs
+        super().__init__(message)
+
 class Election(object):
     """
     Encapsulates the information about the current election term.
@@ -72,6 +84,7 @@ class Election(object):
             num_replicas: int,
             jupyter_message_id: str,
             timeout_seconds: float = 10,
+            future_io_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self._jupyter_message_id: str = jupyter_message_id
 
@@ -111,6 +124,13 @@ class Election(object):
 
         # The current state/status of the election.
         self._election_state: ElectionState = ElectionState.INACTIVE
+
+        if future_io_loop is None:
+            self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        else:
+            self._future_io_loop: asyncio.AbstractEventLoop = future_io_loop
+
+        self._received_vote_future: asyncio.Future[Any] = self._future_io_loop.create_future()
 
         # Flag mostly used for debugging/sanity-checking.
         # If we see that we've received 3 'YIELD' proposals, then the election already knows that it is going to fail.
@@ -178,6 +198,8 @@ class Election(object):
         self.election_finished_event: Optional[asyncio.Event] = asyncio.Event()
         self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
+        self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
+
         # Used with the self.election_waiter_cond variable.
         # self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
         # Used to notify the thread/coroutine attempting to set the self.election_finished_event Event
@@ -244,10 +266,16 @@ class Election(object):
         Override so that we can omit any non-pickle-able fields, such as the `_pick_and_propose_winner_future` field.
         """
         state = self.__dict__.copy()
-        del state["_pick_and_propose_winner_future"]
-        del state["election_finished_event"]
-        del state["election_finished_condition_waiter_loop"]
-        del state["log"]
+
+        keys_to_remove: List[str] = [
+            "_pick_and_propose_winner_future", "election_finished_event",
+            "log", "_future_io_loop", "_received_vote_future",
+            "election_finished_condition_waiter_loop",
+        ]
+
+        for key in keys_to_remove:
+            if key in state:
+                del state[key]
 
         self.log.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
@@ -699,25 +727,56 @@ class Election(object):
         else:
             self.election_finished_event.set()
 
-        self.log.debug(f"Election {self.term_number} has officially failed (in attempt {self.current_attempt_number}.")
+        self.log.debug(f"Election {self.term_number} has failed (in attempt {self.current_attempt_number}).")
+
+    @property
+    def received_vote_future(self)->asyncio.Future:
+        return self._received_vote_future
+
+    @received_vote_future.setter
+    def received_vote_future(self, future: asyncio.Future):
+        self._received_vote_future = future
+
+    @property
+    def future_io_loop(self)->Optional[asyncio.AbstractEventLoop]:
+        return self._future_io_loop
+
+    @future_io_loop.setter
+    def future_io_loop(self, loop: asyncio.AbstractEventLoop):
+        assert loop is not None
+
+        self._future_io_loop = loop
+
+        if not hasattr(self, "_received_vote_future") or self._received_vote_future is None:
+            self._received_vote_future = loop.create_future()
+        elif self._received_vote_future.get_loop() != loop:
+            raise ValueError(f"'Received Vote' future is already created on "
+                             f"different loop for election {self.term_number}.")
+
+    def set_election_finished_condition_waiter_loop(self, loop: asyncio.AbstractEventLoop):
+        self.election_finished_condition_waiter_loop = loop
 
     async def wait_for_election_to_end(self):
         """
         Wait for the election to end (or enter the failed state), either because the elected leader of this election
         successfully finished executing the user-submitted code, or because all replicas proposed YIELD.
         """
-        # async with self.election_waiter_mutex:
-        #    self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
-        #    self.election_waiter_cond.notify_all()
-
         if self.election_finished_condition_waiter_loop is not None:
             assert self.election_finished_condition_waiter_loop == asyncio.get_running_loop()
         else:
             self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
 
+        if self.code_execution_completed_successfully:
+            return
+
         await self.election_finished_event.wait()
 
-    def set_execution_complete(self, fast_forwarding: bool = False, fast_forwarded_winner_id: int = -1):
+    def set_execution_complete(
+            self,
+            fast_forwarding: bool = False,
+            catching_up: bool = False,
+            fast_forwarded_winner_id: int = -1
+    ):
         """
         Records that the elected leader of this election successfully finished executing the user-submitted code.
 
@@ -731,8 +790,9 @@ class Election(object):
         VOTE_COMPLETE --> EXECUTION_COMPLETE
         """
         if self._election_state != ElectionState.VOTE_COMPLETE:
-            raise ValueError(f"election for term {self.term_number} is not in voting-complete state "
-                             f"(current state: {self._election_state}); cannot transition to execution-complete state")
+            self.log.warning(f"Election for term {self.term_number} is not in voting-complete state "
+                             f"(current state: {self._election_state}), and yet we're transitioning "
+                             f"to execution-complete state")
 
         if fast_forwarding:
             self.log.warning(f"Skipping election {self.term_number}.")
@@ -747,9 +807,9 @@ class Election(object):
         if self._current_election_timestamps is not None:
             self._current_election_timestamps.end_time = time.time() * 1.0e3
 
-        # As mentioned above, we only care if the condition is None if fast_forwarding is False.
-        # If we're fast-forwarding, then we expect the condition to be None.
-        if self.election_finished_condition_waiter_loop is None and not fast_forwarding:
+        # As mentioned above, we only care if the condition is None if fast_forwarding and catching_up are False.
+        # If we're fast-forwarding or catching up after a migration, then we expect the condition to be None.
+        if self.election_finished_condition_waiter_loop is None and not fast_forwarding and not catching_up:
             raise ValueError("Reference to EventLoop on which someone should be waiting on the "
                              "Election Finished condition is None...")
 
@@ -781,7 +841,7 @@ class Election(object):
         ACTIVE --> VOTE_COMPLETE
         """
         if self._election_state != ElectionState.ACTIVE:
-            raise ValueError(f"election for term {self.term_number} is not active "
+            raise ValueError(f"Election for term {self.term_number} is not active "
                              f"(current state: {self._election_state.get_name()}); cannot complete election")
 
         self._winner_id = winner_id
@@ -791,7 +851,7 @@ class Election(object):
             self._current_election_timestamps.execution_phase_start_time = time.time() * 1.0e3
 
         self.log.debug(f"The voting phase for election {self.term_number} "
-                          f"has completed successfully with winner: node {winner_id}.")
+                       f"has completed successfully with winner: node {winner_id}.")
 
     def format_accepted_proposals(self) -> str:
         """
@@ -846,21 +906,22 @@ class Election(object):
 
         if self._election_state == ElectionState.INACTIVE:
             self.log.warning(f"election for term {self._term_number} "
-                                "has not yet been started; cannot identify winner to propose")
-            raise RuntimeError(f"election for term {self._term_number} "
-                               "has not yet been started; cannot identify winner to propose")
+                             "has not yet been started; cannot identify winner to propose")
+            raise ElectionNotStartedError(f"election for term {self._term_number} "
+                                          "has not yet been started; cannot identify winner to propose")
 
         if self._election_state == ElectionState.VOTE_COMPLETE:
             self.log.warning(f"election for term {self._term_number} "
-                              "has already completed successfully; cannot identify winner to propose")
-            raise RuntimeError(f"election for term {self._term_number} "
-                               "has already completed successfully; cannot identify winner to propose")
+                             "has already completed successfully; cannot identify winner to propose")
+            raise ElectionAlreadyDecidedError(f"election for term {self._term_number} "
+                                              "has already completed successfully; cannot identify winner to propose")
 
         if self._winner_selected:
             self.log.warning(f"election for term {self._term_number} "
-                                f"already selected a node to propose as winner: node {self._proposed_winner}")
-            raise RuntimeError(f"election for term {self._term_number} "
-                               f"already selected a node to propose as winner: node {self._proposed_winner}")
+                             f"already selected a node to propose as winner: node {self._proposed_winner}")
+            raise ElectionAlreadyDecidedError(f"election for term {self._term_number} "
+                                              f"already selected a node to propose as winner: "
+                                              f"node {self._proposed_winner}")
 
         # If the election isn't active, then we shouldn't be proposing anybody.
         # if self._election_state == ElectionState.FAILED and not self._winner_selected:
@@ -868,20 +929,25 @@ class Election(object):
         #     self._winner_selected = True
         #     return -1
 
-        # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before making a decision.
-        # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals, then we should wait before making a decision.
+        # If `self._discard_after` hasn't even been set yet, then we should keep waiting for more proposals before
+        # making a decision.
+        #
+        # Likewise, if `self._discard_after` has been set already, but there's still time to receive more proposals,
+        # then we should wait before making a decision.
         #
         # Note that `self._discard_after` is reset when an election is reset.
-        should_wait: bool = self._discard_after == -1 or (
-                self._discard_after > 0 and self._discard_after > current_time)
+        should_wait: bool = self._discard_after == -1 or (self._discard_after > 0 and self._discard_after > current_time)
 
-        # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError, indicating that we should not yet select a node to propose as winner.
-        # If we have received all proposals, or if we'll be discarding any future proposals that we receive, then we should go ahead and try to decide.
+        # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError,
+        # indicating that we should not yet select a node to propose as winner.
+        #
+        # If we have received all proposals, or if we'll be discarding any future proposals that we receive,
+        # then we should go ahead and try to decide.
         if (len(self._proposals) + self._num_discarded_proposals < self._num_replicas) and should_wait:
             self.log.debug(f"Cannot pick winner for election {self.term_number} yet. "
-                              f"Received: {len(self._proposals)} ({self.format_accepted_proposals()}, "
-                              f"discarded: {self._num_discarded_proposals} ({self.format_discarded_proposals()}), "
-                              f"number of replicas: {self._num_replicas}.")
+                           f"Received: {len(self._proposals)} ({self.format_accepted_proposals()}, "
+                           f"discarded: {self._num_discarded_proposals} ({self.format_discarded_proposals()}), "
+                           f"number of replicas: {self._num_replicas}.")
             raise ValueError(f"insufficient number of proposals received to select a winner to propose "
                              f"(received: {len(self._proposals)}, discarded: {self._num_discarded_proposals}, "
                              f"number of replicas: {self._num_replicas})")
@@ -895,16 +961,15 @@ class Election(object):
         # If we know the last winner, and we have a proposal from them,
         # and the winner of the last election proposed 'LEAD' again,
         # then we'll propose that they lead this election.
-        if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id) and self._proposals[
-            last_winner_id].is_lead:
+        if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id) and self._proposals[last_winner_id].is_lead:
             self._proposed_winner = last_winner_id
-            self.log.debug(
-                f"Will propose node {self._proposed_winner}; node {self._proposed_winner} won last time, and they proposed 'LEAD' again during this election (term {self._term_number}).")
+            self.log.debug(f"Will propose node {self._proposed_winner}; node {self._proposed_winner} won last time, "
+                           f"and they proposed 'LEAD' again during this election (term {self._term_number}).")
         # If we've received at least one 'LEAD' proposal, then return the node ID of whoever proposed 'LEAD' first.
         elif self._first_lead_proposal is not None:
             self._proposed_winner = self._first_lead_proposal.proposer_id
-            self.log.debug(
-                f"Will propose node {self._proposed_winner}; first 'LEAD' proposal for election term {self._term_number} came from node {self._proposed_winner}.")
+            self.log.debug(f"Will propose node {self._proposed_winner}; first 'LEAD' proposal for election term "
+                           f"{self._term_number} came from node {self._proposed_winner}.")
         else:
             self.log.warning("We have nobody to propose as the winner of the election. Proposing 'FAILURE'")
 
@@ -931,18 +996,20 @@ class Election(object):
             (bool) True if this is the first vote proposal (of whatever attempt number the proposal has) that has been received during this election, otherwise False
         """
         if vote.election_term != self.term_number:
-            self.log.error(f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
-            raise ValueError(f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
+            self.log.error(
+                f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
+            raise ValueError(
+                f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
 
         proposer_id: int = vote.proposer_id
         current_attempt_number: int = vote.attempt_number
 
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far.
         if current_attempt_number > self._current_attempt_number:
-            self.log.debug(f"Election {self._term_number} received vote for node {vote.proposed_node_id} from node "
-                              f"{vote.proposer_id} with attempt number {vote.attempt_number}. "
-                              f"Current attempt number is {self._current_attempt_number}. "
-                              f"Setting attempt number to new value of {vote.attempt_number}.")
+            self.log.debug(f"Received vote for node {vote.proposed_node_id} from node "
+                           f"{vote.proposer_id} with attempt number {vote.attempt_number}. "
+                           f"Current attempt number is {self._current_attempt_number}. "
+                           f"Setting attempt number to new value of {vote.attempt_number}.")
             self._current_attempt_number = current_attempt_number
 
         # Check if there's already an existing proposal.
@@ -1003,9 +1070,9 @@ class Election(object):
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far.
         if proposal.attempt_number > self._current_attempt_number:
             self.log.debug(f"Election {self._term_number} received \"{proposal.key}\" proposal "
-                              f"from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. "
-                              f"Current attempt number is {self._current_attempt_number}. "
-                              f"Setting attempt number to new value of {proposal.attempt_number}.")
+                           f"from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. "
+                           f"Current attempt number is {self._current_attempt_number}. "
+                           f"Setting attempt number to new value of {proposal.attempt_number}.")
 
             old_largest: int = self._current_attempt_number
             self._current_attempt_number = proposal.attempt_number

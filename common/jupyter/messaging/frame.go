@@ -368,9 +368,26 @@ func (frames *JupyterFrames) DecodeBuffers(out any) error {
 	}
 }
 
+// BuffersFrame returns the first buffers frame.
 func (frames *JupyterFrames) BuffersFrame() *JupyterFrame {
 	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
 		return jupyterFrame(frames.Frames[frames.Offset+JupyterFrameBuffers])
+	} else {
+		return nil
+	}
+}
+
+// BuffersFrames returns all of the buffers frames.
+func (frames *JupyterFrames) BuffersFrames() []*JupyterFrame {
+	if len(frames.Frames[frames.Offset:]) > JupyterFrameBuffers {
+		buffersFrames := frames.Frames[frames.Offset+JupyterFrameBuffers:]
+		buffersJFrames := make([]*JupyterFrame, 0, len(buffersFrames))
+
+		for _, frame := range buffersFrames {
+			buffersFrames = append(buffersFrames, frame)
+		}
+
+		return buffersJFrames
 	} else {
 		return nil
 	}
@@ -478,7 +495,7 @@ func (frames *JupyterFrames) AddDestFrame(destID string, forceRecomputeOffsetBef
 		}
 	}
 
-	// Add dest frame just before "<IDS|MSG>" frame.
+	// AddHost dest frame just before "<IDS|MSG>" frame.
 	frames.Frames = append(frames.Frames, nil) // Let "append" allocate a new slice if necessary.
 	copy(frames.Frames[frames.Offset+1:], frames.Frames[frames.Offset:])
 	reqID = uuid.New().String()
@@ -487,7 +504,7 @@ func (frames *JupyterFrames) AddDestFrame(destID string, forceRecomputeOffsetBef
 	// This will force the Offset field of the target JupyterFrames to be recomputed/updated.
 	frames.SkipIdentitiesFrame()
 
-	// Add 1 to the offset before returning, as we just inserted a new frame at the beginning, so the offset should be shifted by one.
+	// AddHost 1 to the offset before returning, as we just inserted a new frame at the beginning, so the offset should be shifted by one.
 	return reqID
 }
 
@@ -507,7 +524,7 @@ func (frames *JupyterFrames) RemoveDestFrame(forceRecomputeOffsetBeforeRemoval b
 		}
 	}
 
-	// Remove dest frame.
+	// RemoveHost dest frame.
 	if frames.Offset > 0 {
 		copy(frames.Frames[frames.Offset-1:], frames.Frames[frames.Offset:])
 		frames.Frames[len(frames.Frames)-1] = nil

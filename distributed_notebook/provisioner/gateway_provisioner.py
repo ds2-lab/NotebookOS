@@ -1,3 +1,4 @@
+import os
 import pprint
 import signal
 from typing import Any, Dict, List, Optional, Union
@@ -8,10 +9,14 @@ from grpc.aio import AioRpcError
 from jupyter_client.connect import KernelConnectionInfo
 from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
 from traitlets.config import Unicode
+# from uhashring import HashRing
 
 from .kernel_creation_error import KernelCreationError
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import LocalGatewayStub
+
+DefaultGatewayBaseAddress: str = "gateway"
+DefaultGatewayGrpcPort: int = 8080
 
 
 class GatewayProvisioner(KernelProvisionerBase):
@@ -25,6 +30,12 @@ class GatewayProvisioner(KernelProvisionerBase):
     gatewayStub: LocalGatewayStub
     launched = False
     autoclose = True
+
+    num_gateways: int = 1
+    gateway_grpc_port: int = DefaultGatewayGrpcPort
+    gateway_base_address: str = DefaultGatewayBaseAddress
+    gateway_nodes: list[str] = [f"{DefaultGatewayBaseAddress}:{DefaultGatewayGrpcPort}"]
+    # gateway_hash_ring: Optional[HashRing] = None
 
     # Our version of kernel_id
     _kernel_id: Union[str, Unicode] = Unicode(None, allow_none=True)
@@ -66,7 +77,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 return 0
 
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to get kernel status: {e}")
 
     async def wait(self) -> Optional[int]:
@@ -88,7 +99,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 return 0
 
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to get wait kernel: {e}")
 
     async def send_signal(self, signum: int) -> None:
@@ -135,7 +146,7 @@ class GatewayProvisioner(KernelProvisionerBase):
             else:
                 self.log.debug(f"Cannot kill kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to kill kernel: {e}")
 
     async def terminate(self, restart: bool = False) -> None:
@@ -157,7 +168,7 @@ class GatewayProvisioner(KernelProvisionerBase):
             else:
                 self.log.debug(f"Cannot terminate kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
-            self._try_close()
+            await self._try_close()
             raise RuntimeError(f"Failed to terminate kernel: {e}")
 
     async def launch_kernel(self, cmd: List[str], **kwargs: Any) -> KernelConnectionInfo:
@@ -193,7 +204,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
                 resourceSpec=resourceSpec,
-                workloadId = kwargs.get("workload_id", ""))
+                workloadId=kwargs.get("workload_id", ""))
 
             self.log.debug(f"Launching kernel {self.kernel_id} with spec: {str(kernelSpec)}")
 
@@ -307,7 +318,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         NOTE: Subclass implementations are advised to call this method as it applies
         environment variable substitutions from the local environment and calls the
         provisioner's :meth:`_finalize_env()` method to allow each provisioner the
-        ability to cleanup the environment variables that will be used by the kernel.
+        ability to clean up the environment variables that will be used by the kernel.
         This method is called from `KernelManager.pre_start_kernel()` as part of its
         start kernel sequence.
         Returns the (potentially updated) keyword arguments that are passed to
@@ -360,6 +371,36 @@ class GatewayProvisioner(KernelProvisionerBase):
         self.log.debug("Loading provisioner info: %s" % str(provisioner_info))
         self.gateway = provisioner_info['gateway']
 
+        # if "NUM_CLUSTER_GATEWAYS" in os.environ:
+        #     self.num_gateways = int(os.environ["NUM_CLUSTER_GATEWAYS"])
+        # else:
+        #     self.num_gateways = 1
+        #
+        # assert self.num_gateways > 0
+        # self.log.debug(f"Number of Cluster Gateways: {self.num_gateways}")
+        #
+        # if "GATEWAY_GRPC_PORT" in os.environ:
+        #     self.gateway_grpc_port = int(os.environ["GATEWAY_GRPC_PORT"])
+        # else:
+        #     self.gateway_grpc_port = DefaultGatewayGrpcPort
+        #
+        # self.log.debug(f"Gateway starting port: {self.gateway_grpc_port}")
+        #
+        # if "GATEWAY_BASE_ADDRESS" in os.environ:
+        #     self.gateway_base_address = os.environ["_BASE_ADDRESS"]
+        # else:
+        #     self.gateway_base_address = DefaultGatewayBaseAddress
+        #
+        # self.log.debug(f'Gateway base address: "{self.gateway_base_address}"')
+        #
+        # if self.num_gateways > 1:
+        #     self.gateway_nodes: list[str] = [f"{self.gateway_base_address}-{idx}:{self.gateway_grpc_port}" for idx in
+        #                                      range(1, self.num_gateways + 1)]
+        #     self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
+        # else:
+        #     self.gateway_nodes: list[str] = [f"{self.gateway_base_address}:{self.gateway_grpc_port}"]
+        #     self.gateway_hash_ring = HashRing(nodes=self.gateway_nodes)
+
     def get_shutdown_wait_time(self, recommended: Optional[float] = 5.0) -> float:
         """
         Returns the time allowed for a complete shutdown. 
@@ -377,9 +418,17 @@ class GatewayProvisioner(KernelProvisionerBase):
         return recommended
 
     def _get_stub(self) -> LocalGatewayStub:
+        if self._kernel_id is None or self._kernel_id == "":
+            raise ValueError("Cannot get stub without valid kernel id")
+
+        # if self.gateway_hash_ring is None:
+        #     raise ValueError("HashRing of Gateway nodes has not yet been initialized")
+
         if self.gatewayChannel is None:
-            self.log.debug(
-                "Creating GatewayChannel now. Gateway: \"%s\"" % self.gateway)
+            # gateway_addr: str = self.gateway_hash_ring[self._kernel_id]
+            #
+            # self.log.debug(f'Creating GatewayChannel now for kernel "{self._kernel_id}": "{gateway_addr}"')
+
             self.gatewayChannel: aio.Channel = aio.insecure_channel(self.gateway)
             self.gatewayStub = LocalGatewayStub(self.gatewayChannel)
 

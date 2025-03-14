@@ -12,9 +12,10 @@ from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Iterable, ByteString, List
 
-from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.checkpointing.util import split_bytes_buffer
+from distributed_notebook.sync.remote_storage.remote_storage_provider import RemoteStorageProvider
 
 
 class RemoteCheckpointer(Checkpointer):
@@ -117,8 +118,12 @@ class RemoteCheckpointer(Checkpointer):
         self.log.debug(f"Reading description of dataset \"{dataset_name}\" from {self.storage_name} at key \"{key}\"")
 
         st = time.time()
-        val: str|bytes|memoryview = self.storage_provider.read_value(key)
+        val: str|bytes|memoryview|io.BytesIO = self.storage_provider.read_value(key)
         et = time.time()
+
+        if isinstance(val, io.BytesIO):
+            val.seek(0)
+            val = val.getbuffer().tobytes()
 
         if val is None:
             self.log.error(f"Failed to read dataset \"{dataset_name}\". "
@@ -163,11 +168,11 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
+            self.log.debug(f'Read {sys.getsizeof(val):,} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
-                           f"because: {ex}")
+                           f"because: {type(ex).__name__} {ex}")
             raise ex # re-raise
 
         if val is None:
@@ -209,11 +214,11 @@ class RemoteCheckpointer(Checkpointer):
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
+            self.log.debug(f'Read {sys.getsizeof(val):,} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
-                           f"because: {ex}")
+                           f"because: {type(ex).__name__} {ex}")
             raise ex # re-raise
 
         if val is None:
@@ -224,8 +229,10 @@ class RemoteCheckpointer(Checkpointer):
 
         if not isinstance(val, io.BytesIO):
             buffer: io.BytesIO = io.BytesIO(val)
+            buffer.seek(0)
         else:
             buffer: io.BytesIO = val
+            buffer.seek(0)
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                        f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")
@@ -316,7 +323,10 @@ class RemoteCheckpointer(Checkpointer):
 
             return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
-    def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, float]:
+    def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, int]:
+        if state_dict is None:
+            raise ValueError(f'State dictionary is None for model "{model_name}"')
+
         buffer: io.BytesIO = io.BytesIO()
 
         try:
@@ -325,15 +335,11 @@ class RemoteCheckpointer(Checkpointer):
             self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
             raise ex  # re-raise
 
-        size_bytes: int = buffer.getbuffer().nbytes
-        size_mb: float = size_bytes / 1.0e6
-        if self.storage_provider.is_too_large(size_bytes):
-            self.log.error(f"Cannot write state of model \"{model_name}\" to {self.storage_name}. "
-                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
-            raise ValueError(f"State dictionary buffer with a size of {size_mb:,} MB "
-                             f"is too large to be written to {self.storage_name}.")
+        buffer.seek(0)
 
-        return buffer, size_mb
+        size_bytes: int = buffer.getbuffer().nbytes
+
+        return buffer, size_bytes
 
     def __write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
@@ -342,13 +348,15 @@ class RemoteCheckpointer(Checkpointer):
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
         """
-        buffer, size_mb = self.__get_buffer_to_write(state_dict, model_name)
+        buffer, size_bytes = self.__get_buffer_to_write(state_dict, model_name)
+
+        size_mb: float = size_bytes / 1.0e6
 
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to {self.storage_name} at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")
 
         try:
-            self.storage_provider.write_value(key, buffer.getbuffer())
+            self.storage_provider.write_value(key, buffer.getbuffer(), size_bytes = size_bytes)
         except Exception as ex:
             self.log.error(f"Failed to write state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                            f"(model size: {size_mb} MB) because: {ex}")
@@ -364,18 +372,20 @@ class RemoteCheckpointer(Checkpointer):
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
         """
-        buffer, size_mb = self.__get_buffer_to_write(state_dict, model_name)
+        buffer, size_bytes = self.__get_buffer_to_write(state_dict, model_name)
+
+        size_mb: float = size_bytes / 1.0e6
 
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to {self.storage_name} at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")
 
         try:
             st: float = time.time()
-            await self.storage_provider.write_value_async(key, buffer.getbuffer())
+            await self.storage_provider.write_value_async(key, buffer.getbuffer(), size_bytes = size_bytes)
             et: float = time.time()
             time_elapsed: float = et - st
 
-            self.log.debug(f'{buffer.getbuffer().nbytes} bytes uploaded to {self.storage_name} at key "{key}" in '
+            self.log.debug(f'{buffer.getbuffer().nbytes:,} bytes uploaded to {self.storage_name} at key "{key}" in '
                            f'{round(time_elapsed, 3):,}ms.')
 
         except Exception as ex:
@@ -410,7 +420,10 @@ class RemoteCheckpointer(Checkpointer):
             constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
             await self.__async_write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
-            pointer.wrote_model_state()
+            try:
+                pointer.wrote_model_state()
+            except ValueError as ex:
+                self.log.warning(ex) # Just log the error. What's done is done.
 
             return [model_key, optimizer_key, criterion_key, constructor_state_key]
 
@@ -437,6 +450,9 @@ class RemoteCheckpointer(Checkpointer):
         constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
         self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
-        pointer.wrote_model_state()
+        try:
+            pointer.wrote_model_state()
+        except ValueError as ex:
+            self.log.warning(ex) # Just log the error. What's done is done.
 
         return [model_key, optimizer_key, criterion_key, constructor_state_key]

@@ -16,6 +16,10 @@ const (
 	// [Little's Law]: https://en.wikipedia.org/wiki/Little%27s_law
 	LittleLawCapacity PrewarmingPolicy = "little_law_capacity"
 
+	// FixedCapacity creates a pool with a fixed size and optionally allows for proactive replacement of used
+	// prewarm containers (which may cause the pool's size to grow unbounded if container re-use is also enabled).
+	FixedCapacity PrewarmingPolicy = "fixed_capacity"
+
 	// NoMaintenance specifies that there should be no maintenance of the warm container pool, and that the only
 	// warm containers should be those that are created initially.
 	//
@@ -40,9 +44,10 @@ type ContainerPool interface {
 	// Len is ultimately just an alias for PoolSize.
 	Len() int
 
-	// HostLen returns the number of pre-warmed containers currently available on the targeted scheduling.Host as well
-	// as the number of pre-warmed containers that are currently being provisioned on the targeted scheduling.Host.
-	HostLen(host Host) (curr int, provisioning int)
+	// GetNumPrewarmContainersOnHost returns the number of pre-warmed containers currently available on the targeted
+	// scheduling.Host as well as the number of pre-warmed containers that are currently being provisioned on the
+	// targeted scheduling.Host.
+	GetNumPrewarmContainersOnHost(host Host) (curr int, provisioning int)
 
 	// InitialPrewarmedContainersPerHost returns the number of pre-warmed containers to create per host after the
 	// conclusion of the 'initial connection period'.
@@ -86,6 +91,14 @@ type ContainerPrewarmer interface {
 	// ProvisionContainers will panic if the given scheduling.Host is nil.
 	ProvisionContainers(host Host, n int) int32
 
+	// RequestProvisionContainers attempts to provision n new pre-warm containers on scheduling.Host instances that
+	// are validated by the provided HostCriteriaFunction. If the HostCriteriaFunction is nil, then the scheduling.Host
+	// instances are selected at the discretion of the implementing ContainerPrewarmer.
+	//
+	// RequestProvisionContainers returns a map from host ID to the number of prewarm containers provisioned on that
+	// scheduling.Host, as well as an error, if one occurred.
+	RequestProvisionContainers(n int, criteria HostCriteriaFunction, separateHostsOnly bool) (map[string]int, error)
+
 	// ProvisionContainer is used to provision 1 pre-warmed scheduling.KernelContainer on the specified scheduling.Host.
 	ProvisionContainer(host Host) error
 
@@ -102,6 +115,10 @@ type ContainerPrewarmer interface {
 	// ProvisionInitialPrewarmContainers returns the number of pre-warmed containers that were created as well as the
 	// maximum number that were supposed to be created (if no errors were to occur).
 	ProvisionInitialPrewarmContainers() (created int32, target int32)
+
+	// ProvisionInitialPrewarmContainersOnHost provisions the configured number of 'initial' pre-warm containers on the
+	// specified scheduling.Host.
+	ProvisionInitialPrewarmContainersOnHost(host Host, numCreatedChan chan<- int32)
 
 	// ValidateHostCapacity ensures that the number of prewarmed containers on the specified host does not violate the
 	// ContainerPrewarmer's policy.

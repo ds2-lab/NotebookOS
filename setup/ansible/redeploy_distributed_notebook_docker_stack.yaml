@@ -38,10 +38,10 @@
     - swarm
     - docker-images
 
-- name: Gather facts on HDFS nodes
-  gather_facts: true
-  hosts: hadoop_hdfs
-    - gather_facts
+#- name: Gather facts on HDFS nodes
+#  gather_facts: true
+#  hosts: hadoop_hdfs
+#    - gather_facts
 
 - name: Gather facts on Swarm nodes
   gather_facts: true

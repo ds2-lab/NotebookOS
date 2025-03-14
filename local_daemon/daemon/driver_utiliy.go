@@ -230,12 +230,14 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	// We largely disable the DevicePlugin server if we're running in LocalMode or if we're not running in Kubernetes mode.
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
-	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
+	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName,
+		disableDevicePluginServer)
 
-	globalLogger.Debug("Local Daemon SchedulerOptions:\n%s", options.PrettyString(2))
+	globalLogger.Info("Initializing Local Scheduler with options: %s", options.PrettyString(2))
 
-	// Initialize grpc server
-	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName, dockerContainerId)
+	// Initialize rpc server
+	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer,
+		nodeName, dockerContainerId)
 
 	err := scheduler.connectToGateway(options.ProvisionerAddr, finalize)
 	if err != nil {

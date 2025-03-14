@@ -3,13 +3,23 @@ package client
 import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"go.uber.org/atomic"
 	"log"
 	"sync"
 	"time"
+)
+
+const (
+	defaultTargetReplicaId = int32(-1)
+)
+
+var (
+	ErrReplyAlreadyRegistered = errors.New("already have response registered from specified replica")
 )
 
 // Execution encapsulates the submission of a single 'execute_request' message for a particular kernel.
@@ -20,7 +30,6 @@ import (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type Execution struct {
-
 	// CreatedAt is the time at which this Execution was created.
 	CreatedAt time.Time
 
@@ -29,6 +38,16 @@ type Execution struct {
 	// Go-implemented Jupyter client, as those clients embed the unix milliseconds at which the message was
 	// created and subsequently sent within the metadata field of the message.
 	OriginallySentAt time.Time
+
+	// ReceivedExecuteReplyAt is the time at which the "execute_reply" message that indicated that the execution had
+	// finished was received.
+	ReceivedExecuteReplyAt time.Time
+
+	// ReceivedSmrLeadTaskAt is the time at which we received the "smr_lead_task" message from the primary replica.
+	ReceivedSmrLeadTaskAt time.Time
+
+	// TrainingStartedAt is the time at which the kernel began executing the user-submitted code.
+	// TrainingStartedAt time.Time
 
 	// NextAttempt is the Execution attempt that occurred after this one.
 	NextAttempt scheduling.Execution
@@ -62,6 +81,9 @@ type Execution struct {
 	// was a Golang Jupyter client.
 	WorkloadId string
 
+	// GpuDeviceIDs are the GPU device IDs assigned to the kernel for this execution.
+	GpuDeviceIDs []int
+
 	State State
 
 	// AttemptNumber begins at 1, identifies the "attempt number", in case we have to retry due to timeouts.
@@ -69,6 +91,12 @@ type Execution struct {
 
 	// NumReplicas is the number of replicas that the kernel had with the execution request was originally received.
 	NumReplicas int
+
+	// MigrationWasRequired indicates whether a migration was required in order to serve this training.
+	MigrationWasRequired bool
+
+	// NumViableReplicas is the number of replicas that were viable to serve this training request.
+	NumViableReplicas int
 
 	// NumLeadProposals is the number of 'LEAD' Proposals issued.
 	NumLeadProposals int
@@ -81,6 +109,11 @@ type Execution struct {
 
 	// ExecutionIndex uniquely identifies this Execution and enables a total ordering between all Execution structs.
 	ExecutionIndex int32
+
+	// targetReplicaId is the replica that was explicitly selected as the primary replica by the Cluster Gateway.
+	// The targetReplicaId is not always set. A value of defaultTargetReplicaId indicates that there was no single
+	// target replica.
+	targetReplicaId atomic.Int32
 
 	originallySentAtDecoded bool
 
@@ -105,6 +138,14 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 		ExecutionIndex:          executionIndex,
 	}
 
+	activeExecution.targetReplicaId.Store(defaultTargetReplicaId)
+
+	extractMetadata(msg, activeExecution)
+
+	return activeExecution
+}
+
+func extractMetadata(msg *messaging.JupyterMessage, activeExecution *Execution) {
 	var metadataDict map[string]interface{}
 	err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
 	if err == nil {
@@ -121,6 +162,10 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 				workloadId := *requestMetadata.WorkloadId
 				activeExecution.WorkloadId = workloadId
 				activeExecution.workloadIdSet = true
+			}
+
+			if requestMetadata.GpuDeviceIds != nil {
+				activeExecution.GpuDeviceIDs = requestMetadata.GpuDeviceIds
 			}
 		} else {
 			// Fallback if the mapstructure way is broken.
@@ -139,10 +184,13 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, executionInde
 				activeExecution.WorkloadId = workloadId
 				activeExecution.workloadIdSet = true
 			}
+
+			deviceIds, ok := metadataDict["gpu_device_ids"]
+			if ok {
+				activeExecution.GpuDeviceIDs = deviceIds.([]int)
+			}
 		}
 	}
-
-	return activeExecution
 }
 
 // GetExecutionIndex returns the ExecutionIndex of the target Execution.
@@ -172,18 +220,31 @@ func (e *Execution) GetAttemptNumber() int {
 // This will return an error if the 'overwrite' parameter is false, and we've already registered a response
 // from the specified kernel replica. (The replica is specified via the 'replicaId' parameter.)
 //
+// Even if 'overwrite' is specified as true, RegisterReply will not overwrite an existing messaging.ShellExecuteReply
+// message with a new messaging.MessageTypeExecutionStatistics message.
+//
 // This method is thread safe.
 func (e *Execution) RegisterReply(replicaId int32, response *messaging.JupyterMessage, overwrite bool) error {
 	e.replyMutex.Lock()
 	defer e.replyMutex.Unlock()
 
-	if response.JupyterMessageType() != messaging.ShellExecuteReply {
+	if response.JupyterMessageType() != messaging.ShellExecuteReply && response.JupyterMessageType() != messaging.MessageTypeExecutionStatistics {
 		return fmt.Errorf("illegal Jupyter message type of response: \"%s\"", messaging.ShellExecuteReply)
 	}
 
 	// If overwrite is false, then we return an error if we already have a response registered for the specified replica.
-	if _, loaded := e.Replies.LoadOrStore(replicaId, response); loaded && !overwrite {
-		return fmt.Errorf("already have response from replica %d", replicaId)
+	existing, loaded := e.Replies.LoadOrStore(replicaId, response)
+
+	if loaded && !overwrite {
+		return fmt.Errorf("%w: \"%s\" message from replica %d of kernel \"%s\"",
+			ErrReplyAlreadyRegistered, existing.JupyterMessageType(), replicaId, e.KernelId)
+	}
+
+	// If we're attempting to overwrite an "execute_reply" with an "execute_statistics" message,
+	// then we'll leave the "execute_reply" and not overwrite it -- even if overwrite is
+	// specified as 'true'.
+	if loaded && response.JupyterMessageType() == messaging.MessageTypeExecutionStatistics {
+		return nil
 	}
 
 	// This will overwrite the existing value if there is one.
@@ -223,8 +284,9 @@ func (e *Execution) HasExecuted() bool {
 	return e.IsCompleted()
 }
 
-func (e *Execution) SetExecuted() {
+func (e *Execution) SetExecuted(receivedExecuteReplyAt time.Time) {
 	e.State = Completed
+	e.ReceivedExecuteReplyAt = receivedExecuteReplyAt
 }
 
 func (e *Execution) String() string {
@@ -236,14 +298,18 @@ func (e *Execution) String() string {
 		e.OriginallySentAt, e.CreatedAt)
 }
 
-// ReceivedLeadNotification records that the specified kernel replica lead the election and executed the code.
-func (e *Execution) ReceivedLeadNotification(smrNodeId int32) error {
-	if _, ok := e.Proposals[smrNodeId]; ok {
+// ReceivedSmrLeadTaskMessage records that the specified kernel replica was selected as the primary replica
+// and will be executing the code.
+func (e *Execution) ReceivedSmrLeadTaskMessage(replica scheduling.KernelReplica, receivedAt time.Time) error {
+	// TODO: This part isn't necessarily accurate, as there may have just been a vote proposal.
+	if _, ok := e.Proposals[replica.ReplicaID()]; ok {
 		return ErrProposalAlreadyReceived
 	}
-
-	e.Proposals[smrNodeId] = NewProposal(scheduling.LeadProposal, "")
+	e.Proposals[replica.ReplicaID()] = NewProposal(scheduling.LeadProposal, "")
 	e.NumLeadProposals += 1
+
+	e.ReceivedSmrLeadTaskAt = receivedAt
+	e.ActiveReplica = replica
 
 	return nil
 }
@@ -324,4 +390,66 @@ func (e *Execution) GetWorkloadId() string {
 
 func (e *Execution) GetExecuteRequestMessageId() string {
 	return e.ExecuteRequestMessageId
+}
+
+func (e *Execution) GetTargetReplicaId() int32 {
+	return e.targetReplicaId.Load()
+}
+
+// SetTargetReplica is used to record the expected target replica for an execution.
+func (e *Execution) SetTargetReplica(replicaId int32) error {
+	if !e.targetReplicaId.CompareAndSwap(defaultTargetReplicaId, replicaId) {
+		return fmt.Errorf("%w: %d", ErrTargetReplicaAlreadySpecified, e.targetReplicaId.Load())
+	}
+
+	return nil
+}
+
+// GetTrainingStartedAt returns the time at which the training began, as indicated in the payload of the
+// "smr_lead_task" message that we received from the primary replica.
+//func (e *Execution) GetTrainingStartedAt() time.Time {
+//	return e.TrainingStartedAt
+//}
+
+// GetReceivedSmrLeadTaskAt returns the time at which we received a "smr_lead_task" message from the primary replica.
+func (e *Execution) GetReceivedSmrLeadTaskAt() time.Time {
+	return e.ReceivedSmrLeadTaskAt
+}
+
+// GetReceivedExecuteReplyAt returns the time at which the "execute_reply" message that indicated that the execution
+// had finished was received.
+func (e *Execution) GetReceivedExecuteReplyAt() time.Time {
+	return e.ReceivedExecuteReplyAt
+}
+
+func (e *Execution) SetMigrationRequired(required bool) {
+	e.MigrationWasRequired = required
+}
+
+// GetMigrationRequired returns a bool indicating whether a migration was required in order to serve this training.
+func (e *Execution) GetMigrationRequired() bool {
+	return e.MigrationWasRequired
+}
+
+func (e *Execution) SetNumViableReplicas(n int) {
+	e.NumViableReplicas = n
+}
+
+// GetNumViableReplicas returns the number of replicas that were viable to serve this training request.
+func (e *Execution) GetNumViableReplicas() int {
+	return e.NumViableReplicas
+}
+
+func (e *Execution) GetActiveReplica() scheduling.KernelReplica {
+	return e.ActiveReplica
+}
+
+// GetGpuDeviceIDs returns the GPU device IDs assigned to the kernel for this execution.
+func (e *Execution) GetGpuDeviceIDs() []int {
+	return e.GpuDeviceIDs
+}
+
+// SetGpuDeviceIDs sets the GPU device IDs assigned to the kernel for this execution.
+func (e *Execution) SetGpuDeviceIDs(gpuDeviceIDs []int) {
+	e.GpuDeviceIDs = gpuDeviceIDs
 }

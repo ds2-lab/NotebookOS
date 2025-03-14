@@ -7,6 +7,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math/rand"
 	"strings"
 	"time"
@@ -15,8 +16,8 @@ import (
 type DockerClusterBuilder struct {
 	hostSpec                  types.Spec
 	placer                    scheduling.Placer
-	hostMapper                scheduler.HostMapper
-	kernelProvider            scheduler.KernelProvider
+	hostMapper                scheduling.HostMapper
+	kernelProvider            scheduling.KernelProvider
 	clusterMetricsProvider    scheduling.MetricsProvider
 	notificationBroker        scheduler.NotificationBroker
 	schedulingPolicy          scheduling.Policy
@@ -34,12 +35,12 @@ func (b *DockerClusterBuilder) WithPlacer(placer scheduling.Placer) *DockerClust
 	return b
 }
 
-func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduler.HostMapper) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithHostMapper(hostMapper scheduling.HostMapper) *DockerClusterBuilder {
 	b.hostMapper = hostMapper
 	return b
 }
 
-func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduler.KernelProvider) *DockerClusterBuilder {
+func (b *DockerClusterBuilder) WithKernelProvider(kernelProvider scheduling.KernelProvider) *DockerClusterBuilder {
 	b.kernelProvider = kernelProvider
 	return b
 }
@@ -96,7 +97,7 @@ type DockerCluster struct {
 // NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
+func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduling.HostMapper, kernelProvider scheduling.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
 	schedulingPolicy scheduling.Policy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerCluster {
@@ -156,7 +157,7 @@ func (c *DockerCluster) unsafeDisableHost(id string) error {
 			scheduling.ErrInvalidHost, id)
 	}
 
-	c.log.Debug("Disabling host %s now...", id)
+	c.log.Debug("Disabling host with ID=\"%s\" now...", id)
 	if err := host.Disable(); err != nil {
 		// This really shouldn't happen.
 		// This would mean that the host was in an inconsistent state relative to the Cluster,
@@ -214,87 +215,164 @@ func (c *DockerCluster) unsafeEnableHost(id string) error {
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
 // Important: this should be called with the Cluster's scalingMutex already acquired.
-func (c *DockerCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func() {
+func (c *DockerCluster) GetScaleOutCommand(targetScale int32, doneChan chan interface{}, scaleOpId string) func() {
 	return func() {
-		currentScale := c.Len()
-		numNewNodesRequired := targetScale - int32(currentScale)
+		// Record the current scale, before the scale-out operation is executed.
+		initialScale := c.Len()
+
+		// The number of disabled hosts we'll need in order to fully satisfy the scale-out request/operation.
+		numHostsRequired := targetScale - int32(initialScale)
+
 		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d. ScaleOpId: %s.",
-			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len(), scaleOpId)
+			targetScale, c.Len(), numHostsRequired, c.DisabledHosts.Len(), scaleOpId)
 
-		numDisabledHostsUsed := 0
-		if c.DisabledHosts.Len() > 0 {
-			enabledHosts := make([]scheduling.Host, 0)
-			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
-			c.DisabledHosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
-				err := host.Enable(true)
-				if err != nil {
-					c.log.Error("Failed to re-enable host %s (ID=%s) during scale-out %s because: %v",
-						host.GetNodeName(), hostId, scaleOpId, err)
+		// If we have no disabled hosts, then we can just return.
+		if c.DisabledHosts.Len() == 0 {
+			c.log.Warn("❗ Cannot scale-out from %d → %d nodes as there are no disabled hosts.",
+				initialScale, targetScale)
 
-					// For now, we panic, as we don't expect there to be a "valid" reason to fail to enable a host.
-					// Later on, we may find that there are valid reasons, in which case we'd just handle the
-					// error in whatever way is appropriate, such as by skipping this host and trying the next one.
-					panic(err)
-				}
+			doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by Docker clusters",
+				scheduling.ErrUnsupportedOperation)
+			return
+		}
 
-				c.log.Debug("Using disabled host %s (ID=%s) in scale-out operation %s.",
-					host.GetNodeName(), hostId, scaleOpId)
+		// Identify the disabled hosts that we can enable as part of the scale-out operation as well as the
+		// duration that we should sleep to simulate the scale-out operation.
+		hostsToEnable, scaleOutDuration := c.unsafeIdentifyDisabledHostsForScaleOut(scaleOpId, numHostsRequired)
 
-				scaleOutDuration := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleOutPerHost)) + c.MeanScaleOutPerHost
-				c.log.Debug("Simulating scale-out for host %s (ID=%s) during operation %s. Duration: %v",
-					host.GetNodeName(), hostId, scaleOpId, scaleOutDuration)
-				time.Sleep(scaleOutDuration)
+		// If we found one or more hosts to enable, then let's enable them.
+		if len(hostsToEnable) > 0 {
+			c.log.Debug("Found %d disabled host(s) to use in scale-out operation from %d → %d (ID=%s).",
+				len(hostsToEnable), targetScale, numHostsRequired, scaleOpId)
 
-				// This will add the host back to the Cluster.
-				err = c.NewHostAddedOrConnected(host)
-				if err != nil {
-					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster during scale-out %s: %v",
-						host.GetNodeName(), hostId, scaleOpId, err)
-				}
-
-				enabledHosts = append(enabledHosts, host)
-				numNewNodesRequired -= 1
-				numDisabledHostsUsed += 1
-
-				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
-				// So, return true (i.e., continue iterating) if numNewNodesRequired > 0.
-				// Otherwise, return false (i.e., stop iterating).
-				return numNewNodesRequired > 0
-			})
-
-			c.log.Debug("Removing %d host(s) from DisabledHosts after simulating scale-out operation %s",
-				len(enabledHosts), scaleOpId)
-
-			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the
-			// "disabled hosts" mapping.
-			for _, host := range enabledHosts {
-				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
-				c.log.Debug("Removed host %s (ID=%s) from DisabledHosts", host.GetNodeName(), host.GetID())
-				if !loaded {
-					c.log.Error("Failed to find host %s in DisabledHosts map after using it in scale-out operation.",
-						host.GetID())
-				}
-			}
+			// We found one or more hosts to enable.
+			// Let's enable them now.
+			c.unsafeEnableDisabledHostsForScaleOut(hostsToEnable, scaleOpId, scaleOutDuration)
+			numHostsRequired -= int32(len(hostsToEnable))
 		}
 
 		// Check if we satisfied the scale-out request using disabled nodes, in which case we do not
 		// need to execute a Docker CLI command and can just return immediately.
-		if numNewNodesRequired == 0 {
-			// Note that currentScale should be outdated at this point, but its old/outdated
+		if numHostsRequired == 0 {
+			// Note that initialScale should be outdated at this point, but its old/outdated
 			// value can be used to calculate how many disabled hosts we must have used
 			// in order to satisfy the scale-out request.
-			c.log.Debug("Satisfied scale-out request to %d nodes exclusively using %d disabled nodes.",
-				targetScale, numDisabledHostsUsed)
-			coreLogicDoneChan <- struct{}{}
+			c.log.Debug(
+				utils.LightGreenStyle.Render(
+					"✓ Satisfied scale-out request from %d → %d nodes using %d disabled nodes."),
+				initialScale, targetScale, len(hostsToEnable))
+			doneChan <- struct{}{}
 			return
 		}
 
-		c.log.Warn("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
+		c.log.Warn(
+			utils.YellowStyle.Render(
+				"❗ Could not satisfy scale-out request to %d nodes using disabled nodes."), targetScale)
 		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
-			numDisabledHostsUsed, targetScale-int32(currentScale))
-
-		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+			len(hostsToEnable), targetScale-int32(initialScale))
+		doneChan <- fmt.Errorf("%w: adding additional nodes is not supported by Docker clusters",
 			scheduling.ErrUnsupportedOperation)
+	}
+}
+
+// unsafeIdentifyDisabledHostsForScaleOut is used to identify the specified number of disabled hosts to be enabled
+// as part of a scale-out operation.
+//
+// unsafeIdentifyDisabledHostsForScaleOut is intended to be only called by GetScaleOutCommand.
+func (c *DockerCluster) unsafeIdentifyDisabledHostsForScaleOut(scaleOpId string, numHostsRequired int32) ([]scheduling.Host, time.Duration) {
+	// Keep track of how many more nodes we need (to scale out to) in order to reach the target scale of the
+	// scale-out operation.
+	remainingNumNodesRequired := numHostsRequired
+
+	// This is the largest scale-out interval generated for any host involved in the scale-out operation.
+	//
+	// We're simulating the simultaneous provisioning of these hosts, so we'll just sleep for the longest
+	// scale-out interval generated for any of the hosts.
+	scaleOutDuration := time.Duration(0)
+
+	// These are the currently-disabled hosts that we'll enable as part of the simulated scale-out operation.
+	hostsToEnable := make([]scheduling.Host, 0)
+
+	// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
+	c.DisabledHosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
+		c.log.Debug("Using disabled host %s (ID=%s) in scale-out operation %s.",
+			host.GetNodeName(), hostId, scaleOpId)
+
+		// Generate a scale-out interval for this host.
+		// If it is larger than the largest we've found, then we'll use that interval.
+		duration := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleOutPerHost)) + c.MeanScaleOutPerHost
+		if duration > scaleOutDuration {
+			scaleOutDuration = duration
+		}
+
+		// AddHost the host to the slice of hosts to be enabled.
+		hostsToEnable = append(hostsToEnable, host)
+
+		// Update these counters to keep track of how many hosts we need.
+		remainingNumNodesRequired -= 1
+
+		// If we have already satisfied the scale-out requirement, then we'll stop iterating.
+		// So, return true (i.e., continue iterating) if remainingNumNodesRequired > 0.
+		// Otherwise, return false (i.e., stop iterating).
+		return remainingNumNodesRequired > 0
+	})
+
+	return hostsToEnable, scaleOutDuration
+}
+
+// unsafeEnableDisabledHostsForScaleOut enables any currently-disabled scheduling.Host instances as part of a
+// scale-out operation.
+//
+// unsafeEnableDisabledHostsForScaleOut is intended to be only called by GetScaleOutCommand.
+func (c *DockerCluster) unsafeEnableDisabledHostsForScaleOut(hostsToEnable []scheduling.Host, scaleOpId string, scaleOutDuration time.Duration) {
+	c.log.Debug("Will remove %d host(s) from DisabledHosts after simulating scale-out operation %s",
+		len(hostsToEnable), scaleOpId)
+
+	c.log.Debug("Simulating scale-out for %d hosts during operation %s: %v",
+		len(hostsToEnable), scaleOpId, scaleOutDuration)
+
+	// Simulate the scale-out.
+	time.Sleep(scaleOutDuration)
+
+	// RemoveHost all the previously-disabled hosts (that we used in the scale-out operation) from the
+	// "disabled hosts" mapping.
+	for _, host := range hostsToEnable {
+		// First, enable the host.
+		err := host.Enable(true)
+		if err != nil {
+			c.log.Error("Failed to re-enable host %s (ID=%s) during scale-out %s because: %v",
+				host.GetNodeName(), host.GetID(), scaleOpId, err)
+
+			// For now, we panic, as we don't expect there to be a "valid" reason to fail to enable a host.
+			// Later on, we may find that there are valid reasons, in which case we'd just handle the
+			// error in whatever way is appropriate, such as by skipping this host and trying the next one.
+			panic(err)
+		}
+
+		// Next, remove the host from the DisabledHosts mapping.
+		_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
+		if !loaded {
+			c.log.Error("Failed to find host %s in DisabledHosts map after using it in scale-out operation.",
+				host.GetID())
+
+			// Let's check if the host is in the regular hosts mapping... if so, then that's really bizarre.
+			if _, loaded = c.hosts.Load(host.GetID()); loaded {
+				errorMessage := fmt.Sprintf(
+					"Found host %s (ID=%s) in standard 'hosts' mapping when it should have been in 'disabled hosts' mapping...",
+					host.GetNodeName(), host.GetID())
+				c.log.Error(errorMessage)
+				panic(errorMessage)
+			}
+		} else {
+			c.log.Debug("Removed host %s (ID=%s) from DisabledHosts", host.GetNodeName(), host.GetID())
+		}
+
+		// This will add the host back to the Cluster.
+		err = c.NewHostAddedOrConnected(host)
+		if err != nil {
+			c.log.Error("Error adding previously-disabled host %s (ID=%s) to cluster during scale-out %s: %v",
+				host.GetNodeName(), host.GetID(), scaleOpId, err)
+		}
 	}
 }
 
@@ -312,19 +390,17 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 
 		disabledHosts := make([]string, 0, len(targetHosts))
 		errs := make([]error, 0)
-		for _, id := range targetHosts {
+
+		var scaleInDuration time.Duration
+		for i, id := range targetHosts {
 			err := c.unsafeDisableHost(id)
 			if err != nil {
 				c.log.Error("Could not remove host \"%s\" from Docker Compose Cluster because: %v", id, err)
 				errs = append(errs, err)
 				break
-			} else {
-				disabledHosts = append(disabledHosts, id)
 			}
-		}
 
-		var scaleInDuration time.Duration
-		for i := 0; i < int(numAffectedNodes); i++ {
+			disabledHosts = append(disabledHosts, id)
 			scaleInForHost := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleInPerHost)) + c.MeanScaleInPerHost
 			c.log.Debug("Simulated scale-in duration for target host #%d (%s): %v",
 				i+1, targetHosts[i], scaleInForHost)
@@ -336,12 +412,9 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			}
 		}
 
-		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
-		time.Sleep(scaleInDuration)
-
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {
-			c.log.Warn("Could not identify all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
+			c.log.Warn("Could not disable all %d hosts during scale-in. Re-enabling %d hosts that were already disabled.",
 				len(targetHosts), len(disabledHosts))
 			for _, disabledHostId := range disabledHosts {
 				enableErr := c.unsafeEnableHost(disabledHostId)
@@ -356,6 +429,9 @@ func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targe
 			coreLogicDoneChan <- err
 			return
 		}
+
+		c.log.Debug("Simulating scale-in of %d host(s) for %v.", len(targetHosts), scaleInDuration)
+		time.Sleep(scaleInDuration)
 
 		coreLogicDoneChan <- struct{}{}
 	}, nil

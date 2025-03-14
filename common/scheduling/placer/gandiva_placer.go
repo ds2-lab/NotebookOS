@@ -119,9 +119,9 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 	)
 
 	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
-	reserveResources := func(candidateHost scheduling.Host) bool {
-		reserved, _ := placer.kernelResourceReserver(candidateHost, spec, forTraining)
-		return reserved
+	reserveResources := func(candidateHost scheduling.Host) error {
+		_, reservationError := placer.reserveResourcesForKernel(candidateHost, spec, forTraining)
+		return reservationError
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
@@ -132,7 +132,7 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 
 // FindHost returns a single host instance that can satisfy the resourceSpec.
 func (placer *GandivaPlacer) findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
-	metrics ...[]float64) (scheduling.Host, error) {
+	ignoreOversubscriptionRisk bool, metrics ...[]float64) (scheduling.Host, error) {
 
 	// Our index will expect the first metric to be the number of GPUs.
 	metrics = append([][]float64{{replicaSpec.ResourceSpec().GPU()}}, metrics...)
@@ -144,9 +144,9 @@ func (placer *GandivaPlacer) findHost(blacklist []interface{}, replicaSpec *prot
 	)
 
 	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
-	reserveResources := func(candidateHost scheduling.Host) bool {
-		reserved, _ := placer.replicaResourceReserver(candidateHost, replicaSpec, forTraining)
-		return reserved
+	reserveResources := func(candidateHost scheduling.Host) error {
+		_, reservationError := placer.reserveResourcesForReplica(candidateHost, replicaSpec, forTraining, ignoreOversubscriptionRisk)
+		return reservationError
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.

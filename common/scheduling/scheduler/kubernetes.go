@@ -28,12 +28,19 @@ type KubernetesScheduler struct {
 	// TODO: There is a gap between the Host interface and the Kubernetes nodes returned by Kube API.
 	kubeNodes []v1.Node
 
-	kubeSchedulerServicePort int // Port that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
+	kubeSchedulerServicePort int // JupyterGrpcPort that the Cluster Gateway's HTTP server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender.
 }
 
-func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
-	kernelProvider KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
+func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper scheduling.HostMapper,
+	kernelProvider scheduling.KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
 	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
+
+	clusterProvider := schedulingPolicy.GetClusterProviderFunc()
+	if clusterProvider == nil {
+		clusterProvider = func() scheduling.Cluster {
+			return cluster
+		}
+	}
 
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
@@ -65,9 +72,7 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
-	heap.Push(s.idleHosts, host)
-	s.log.Debug("Host %s (ID=%s) has been added. Cluster size: %d. Length of idle hosts: %d",
-		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
+	s.baseHostAdded(host)
 }
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
@@ -79,15 +84,6 @@ func (s *KubernetesScheduler) HostRemoved(host scheduling.Host) {
 
 	s.log.Debug("Host %s (ID=%s) has been removed. Cluster size: %d. Length of idle hosts: %d",
 		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
-}
-
-// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
-// KubernetesScheduler does not do anything special or fancy.
-//
-// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
-func (s *KubernetesScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	// Identify the hosts onto which we will place replicas of the kernel.
-	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
@@ -127,10 +123,12 @@ func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) 
 	panic("Not implemented")
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ scheduling.Host, _ []scheduling.Host, forTraining bool) error {
-	if err := s.kubeClient.ScaleOutCloneSet(spec.Kernel.Id); err != nil {
+func (s *KubernetesScheduler) ScheduleKernelReplica(_ context.Context, args *scheduling.ScheduleReplicaArgs) error {
+	replicaSpec := args.ReplicaSpec
+
+	if err := s.kubeClient.ScaleOutCloneSet(replicaSpec.Kernel.Id); err != nil {
 		s.log.Error("Failed to add replica %d to kernel %s. Could not scale-up CloneSet because: %v",
-			spec.ReplicaId, spec.Kernel.Id, err)
+			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)
 		return err
 	}
 
@@ -142,7 +140,7 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
 // TransactionResources to create the new kernel replicas.
-func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, blacklistedHosts []scheduling.Host) error {
+func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, kernel scheduling.Kernel, numReplicasToSchedule int32, blacklistedHosts []scheduling.Host) error {
 	if len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
 	}
@@ -203,7 +201,7 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
-func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool, ignoreOversubscriptionRisk bool) (scheduling.Host, error) {
 	panic("Not implemented")
 }
 

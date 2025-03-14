@@ -34,4 +34,5 @@ datasets
 portalocker>=2.0.0
 torchaudio
 torchvision
-aioboto3
+aioboto3>=13.4.0
+uhashring>=2.3

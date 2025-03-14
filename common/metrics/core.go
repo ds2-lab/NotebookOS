@@ -79,6 +79,24 @@ type basePrometheusManager struct {
 	// NumTrainingEventsCompletedCounterVec is the number of training events that have completed successfully.
 	NumTrainingEventsCompletedCounterVec *prometheus.CounterVec
 
+	//////////////////////
+	// Resource metrics //
+	//////////////////////
+	SpecGpuGaugeVec      *prometheus.GaugeVec
+	CommittedGpuGaugeVec *prometheus.GaugeVec
+	PendingGpuGaugeVec   *prometheus.GaugeVec
+	IdleGpuGaugeVec      *prometheus.GaugeVec
+
+	SpecCpuGaugeVec      *prometheus.GaugeVec
+	CommittedCpuGaugeVec *prometheus.GaugeVec
+	PendingCpuGaugeVec   *prometheus.GaugeVec
+	IdleCpuGaugeVec      *prometheus.GaugeVec
+
+	SpecMemoryGaugeVec      *prometheus.GaugeVec
+	CommittedMemoryGaugeVec *prometheus.GaugeVec
+	PendingMemoryGaugeVec   *prometheus.GaugeVec
+	IdleMemoryGaugeVec      *prometheus.GaugeVec
+
 	///////////////////////
 	// Messaging metrics //
 	///////////////////////
@@ -174,7 +192,7 @@ func (m *basePrometheusManager) Start() error {
 	defer m.mu.Unlock()
 
 	if m.serving {
-		m.log.Warn("GatewayPrometheusManager for Local Daemon %s is already running.", m.nodeId)
+		m.log.Warn("GatewayPrometheusManager for node %s is already running.", m.nodeId)
 		return ErrGatewayPrometheusManagerAlreadyRunning
 	}
 
@@ -196,7 +214,7 @@ func (m *basePrometheusManager) Stop() error {
 	defer m.mu.Unlock()
 
 	if !m.isRunningUnsafe() /* we already have the lock */ {
-		m.log.Warn("LocalDaemonPrometheusManager for Local Daemon %s is already running.", m.nodeId)
+		m.log.Warn("LocalDaemonPrometheusManager for node %s is already running.", m.nodeId)
 		return ErrLocalDaemonPrometheusManagerNotRunning
 	}
 
@@ -219,6 +237,11 @@ func (m *basePrometheusManager) HandleRequest(c *gin.Context) {
 
 func (m *basePrometheusManager) initializeHttpServer() {
 	m.engine = gin.New()
+
+	if m.port <= 0 {
+		m.log.Debug("Prometheus JupyterGrpcPort is set to %d. Not serving HTTP server.", m.port)
+		return
+	}
 
 	// Commented-out for now as I don't want the log messages for Prometheus requests.
 	// m.engine.Use(gin.Logger())
@@ -252,6 +275,72 @@ func (m *basePrometheusManager) initializeMetrics() error {
 	if m.initializeInstanceMetrics == nil {
 		panic("Base Prometheus Manager's `initializeInstanceMetrics` field cannot be nil when initializing metrics.")
 	}
+
+	// CPU resource metrics.
+	m.IdleCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "idle_millicpus",
+		Help:      "Idle Millicpus available on a Local Daemon",
+	}, []string{"node_id"})
+	m.SpecCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "spec_millicpus",
+		Help:      "Total Millicpus available for use on a Local Daemon",
+	}, []string{"node_id"})
+	m.CommittedCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "committed_millicpus",
+		Help:      "Allocated/committed Millicpus on a Local Daemon",
+	}, []string{"node_id"})
+	m.PendingCpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "pending_millicpus",
+		Help:      "Pending Millicpus on a Local Daemon",
+	}, []string{"node_id"})
+
+	// Memory resource metrics.
+	m.IdleMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "idle_memory_megabytes",
+		Help:      "Idle memory available on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+	m.SpecMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "spec_memory_megabytes",
+		Help:      "Total memory available for use on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+	m.CommittedMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "committed_memory_megabytes",
+		Help:      "Allocated/committed memory on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+	m.PendingMemoryGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "pending_memory_megabytes",
+		Help:      "Pending memory on a Local Daemon in megabytes",
+	}, []string{"node_id"})
+
+	// GPU resource metrics.
+	m.IdleGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "idle_gpus",
+		Help:      "Idle GPUs available on a Local Daemon",
+	}, []string{"node_id"})
+	m.SpecGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "spec_gpus",
+		Help:      "Total GPUs available for use on a Local Daemon",
+	}, []string{"node_id"})
+	m.CommittedGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "committed_gpus",
+		Help:      "Allocated/committed GPUs on a Local Daemon",
+	}, []string{"node_id"})
+	m.PendingGpuGaugeVec = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "distributed_cluster",
+		Name:      "pending_gpus",
+		Help:      "Pending GPUs on a Local Daemon",
+	}, []string{"node_id"})
 
 	// Miscellaneous metrics.
 
@@ -388,6 +477,66 @@ func (m *basePrometheusManager) initializeMetrics() error {
 		return err
 	}
 
+	// Register GPU resource metrics.
+	if err := prometheus.Register(m.IdleGpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.SpecGpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.CommittedGpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
+		return err
+	}
+	if err := prometheus.Register(m.PendingGpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
+		return err
+	}
+
+	// Register CPU resource metrics.
+	if err := prometheus.Register(m.IdleCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.SpecCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.CommittedCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.PendingCpuGaugeVec); err != nil {
+		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
+		return err
+	}
+
+	// Register memory resource metrics.
+	if err := prometheus.Register(m.IdleMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Idle GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.SpecMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Spec GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.CommittedMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Committed GPUs metric because: %v", err)
+		return err
+	}
+
+	if err := prometheus.Register(m.PendingMemoryGaugeVec); err != nil {
+		m.log.Error("Failed to register Pending GPUs metric because: %v", err)
+		return err
+	}
+
 	return m.initializeInstanceMetrics()
 }
 
@@ -403,7 +552,7 @@ func (m *basePrometheusManager) AddMessageE2ELatencyObservation(latency time.Dur
 	socketType messaging.MessageType, jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record message E2E latency observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record message E2E latency observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -427,7 +576,7 @@ func (m *basePrometheusManager) AddNumSendAttemptsRequiredObservation(sendsRequi
 	nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -447,7 +596,7 @@ func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType Nod
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -468,7 +617,7 @@ func (m *basePrometheusManager) SentMessage(nodeId string, sendLatency time.Dura
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"JupyterMessagesSent\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"JupyterMessagesSent\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -496,7 +645,7 @@ func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeTy
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"JupyterUniqueMessagesSent\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"JupyterUniqueMessagesSent\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 
@@ -514,7 +663,7 @@ func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeTy
 // AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
 func (m *basePrometheusManager) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	if !m.metricsInitialized {
-		m.log.Error("Cannot record \"AckLatencyMicroseconds\" observation as metrics have not yet been initialized...")
+		m.log.Warn("Cannot record \"AckLatencyMicroseconds\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized
 	}
 

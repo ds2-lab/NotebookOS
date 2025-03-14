@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
+	context2 "golang.org/x/net/context"
 	"time"
 )
 
@@ -49,9 +50,9 @@ type SessionManager interface {
 	ClearSessions()            // ClearSessions clears all sessions.
 }
 
-// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
-// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
+// ExecutionLatencyCallback is provided by the internalCluster Gateway to each Kernel.
+// When a Kernel receives a notification that a kernel has started execution user-submitted code,
+// the Kernel will check if its Execution struct has the original "sent-at" timestamp
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
@@ -63,9 +64,9 @@ type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.Jupyter
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type CallbackProvider interface {
-	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
-	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-	// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
+	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each Kernel.
+	// When a Kernel receives a notification that a kernel has started execution user-submitted code,
+	// the Kernel will check if its Execution struct has the original "sent-at" timestamp
 	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
 	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 	// so that a relevant Prometheus metric can be updated.
@@ -143,6 +144,49 @@ type CreateReplicaContainersAttempt interface {
 	TimeElapsed() time.Duration
 }
 
+type RemoveReplicaContainersAttempt interface {
+	// KernelId returns the kernel ID of the scheduling.Kernel associated with the target RemoveReplicaContainersAttempt.
+	KernelId() string
+
+	// StartedAt returns the time at which the target RemoveReplicaContainersAttempt began.
+	StartedAt() time.Time
+
+	// TimeElapsed returns the amount of time that has elapsed since the target RemoveReplicaContainersAttempt began.
+	TimeElapsed() time.Duration
+
+	// Succeeded returns true if the container creation operation(s) succeeded.
+	Succeeded() bool
+
+	// FailureReason returns a non-nil value if there is an error associated with the failure of the
+	// container creation operation(s) succeeded.
+	FailureReason() error
+
+	// Kernel returns the scheduling.Kernel associated with the target RemoveReplicaContainersAttempt (i.e., the
+	// Kernel whose KernelContainer instances are being removed).
+	Kernel() Kernel
+
+	// Wait blocks until the target RemoveReplicaContainersAttempt is finished, or until the given
+	// context.Context is cancelled.
+	//
+	// If the operation completes in a failed state and there's a failure reason,
+	// then the failure reason will be returned.
+	Wait(ctx context2.Context) error
+
+	// IsComplete returns true if the target RemoveReplicaContainersAttempt has finished.
+	//
+	// Note that if IsComplete is true, that doesn't necessarily mean that the associated container removal operation
+	// finished successfully. It may have encountered errors or timed-out on its own.
+	IsComplete() bool
+
+	// SetDone records that the target RemoveReplicaContainersAttempt has finished.
+	//
+	// If the operation failed, then the reason, in the form of an error, should be passed to SetDone.
+	//
+	// If the target RemoveReplicaContainersAttempt has already been marked as having completed, then SetDone will
+	// return an error.
+	SetDone(failureReason error) error
+}
+
 type Kernel interface {
 	types.Contextable
 	SessionManager
@@ -159,13 +203,25 @@ type Kernel interface {
 
 	// ExecutionComplete(msg *messaging.JupyterMessage) error
 
-	RegisterActiveExecution(msg *messaging.JupyterMessage) error
+	RegisterActiveExecution(msg *messaging.JupyterMessage) (Execution, error)
 	ResetID(id string)
 	PersistentID() string
 	String() string
 	ID() string
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
+
+	// MigrationInProgress returns true if one or more of the target Kernel's replicas are being migrated.
+	MigrationInProgress() bool
+
+	// MigrationStarted records that a replica of the target Kernel is being migrated.
+	MigrationStarted() error
+
+	// WaitForMigrationsToComplete waits for any active migrations to complete.
+	WaitForMigrationsToComplete(ctx context.Context) error
+
+	// MigrationConcluded records that a replica of the target Kernel is done being migrated.
+	MigrationConcluded()
 
 	// NumContainersCreated returns the total number of KernelContainer instances that have been created or provisioned
 	// for the target Kernel over the target Kernel's entire lifetime. This includes the very first creation of any
@@ -184,7 +240,7 @@ type Kernel interface {
 	// for the target Kernel, the KernelReplica / KernelContainer was created using a cold KernelContainer.
 	NumColdContainersUsed() int32
 
-	// RecordContainerCreated records that a scheduling.KernelContainer was created for the target DistributedKernelClient.
+	// RecordContainerCreated records that a scheduling.KernelContainer was created for the target Kernel.
 	//
 	// The argument to RecordContainerCreated indicates whether the created container was warm or cold.
 	RecordContainerCreated(warm bool)
@@ -209,14 +265,19 @@ type Kernel interface {
 	// ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
 	// for the target Kernel.
 	ReplicaContainersAreBeingScheduled() bool
+	// ReplicaContainersAreBeingRemoved returns true if there is an active 'remove container(s)' operation
+	// for the target Kernel.
+	ReplicaContainersAreBeingRemoved() (bool, RemoveReplicaContainersAttempt)
 	// ReplicaContainersStartedAt returns the time at which the target Kernel's KernelContainer instances last started.
 	ReplicaContainersStartedAt() time.Time
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
+	// MissingReplicaIds returns the replica IDs of the replicas that the kernel is missing.
+	MissingReplicaIds() []int32
 	NumActiveMigrationOperations() int
-	AddOperationStarted()
-	AddOperationCompleted()
+	AddOperationStarted(replicaId int32)
+	AddOperationCompleted(replicaId int32)
 	Replicas() []KernelReplica
 	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
@@ -226,7 +287,7 @@ type Kernel interface {
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
 	RemoveAllReplicas(remover ReplicaRemover, noop bool, isIdleReclaim bool) error
 	// InitialContainerCreationFailed is called by the Cluster Gateway/Scheduler if the initial attempt to schedule
-	// the replica containers of the target DistributedKernelClient fails.
+	// the replica containers of the target Kernel fails.
 	InitialContainerCreationFailed()
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
@@ -244,11 +305,14 @@ type Kernel interface {
 	WaitClosed() jupyter.KernelStatus
 	DebugMode() bool
 
-	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
+	// IsShuttingDown returns true if the target Kernel is in the process of shutting down.
+	IsShuttingDown() bool
+
+	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the Kernel.
 	SetKernelKey(string)
 
 	// SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
-	// DistributedKernelClient.
+	// Kernel.
 	SetSignatureScheme(string)
 
 	// NumActiveExecutionOperations returns the number of ActiveExecution structs registered with
@@ -258,13 +322,13 @@ type Kernel interface {
 	// This method is thread safe.
 	NumActiveExecutionOperations() int
 
-	// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the DistributedKernelClient.
+	// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the Kernel.
 	//
 	// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
 	// of a given kernel is/are not scheduled, and that kernel receives a message.
 	TemporaryKernelReplicaClient() KernelReplicaInfo
 
-	// ActiveTrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
+	// ActiveTrainingStartedAt returns the time at which one of the target Kernel's replicas
 	// began actively training, if there is an actively-training replica.
 	ActiveTrainingStartedAt() time.Time
 
@@ -296,14 +360,23 @@ type Kernel interface {
 	// IsTraining returns true if one of the target Kernel's KernelReplica instances is actively training.
 	IsTraining() bool
 
-	// BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
+	// InitSchedulingReplicaContainersOperation attempts to take ownership over the next/current scheduling attempt.
 	//
 	// If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
 	// associated with the active/ongoing container creation operation.
 	//
 	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already scheduled, then
-	// BeginSchedulingReplicaContainers will return false and nil.
-	BeginSchedulingReplicaContainers() (bool, CreateReplicaContainersAttempt)
+	// InitSchedulingReplicaContainersOperation will return false and nil.
+	InitSchedulingReplicaContainersOperation() (bool, CreateReplicaContainersAttempt)
+
+	// InitRemoveReplicaContainersOperation attempts to take ownership over the next/current removal attempt.
+	//
+	// If there's another active operation, then this will return false along with the RemoveReplicaContainersAttempt
+	// associated with the active/ongoing container removal operation.
+	//
+	// If the KernelContainer instances for the KernelReplica instances of this Kernel are already removed, then
+	// RemoveReplicaContainersAttempt will return false and nil.
+	InitRemoveReplicaContainersOperation() (bool, RemoveReplicaContainersAttempt)
 
 	// RecordContainerPlacementStarted is called while scheduling the KernelContainer instances for the
 	// KernelReplica instances of the target Kernel.
@@ -312,6 +385,28 @@ type Kernel interface {
 	// been identified to serve the KernelContainer instances for the target Kernel, where N is the number of replicas
 	// of the target Kernel.
 	RecordContainerPlacementStarted()
+
+	// YieldedNextExecutionRequest is called after successfully yielding the next execution request.
+	// This flips the KernelReplicaClient::yieldNextExecutionRequest
+	// flag to false so that the kernel replica isn't forced to yield future requests.
+	YieldedNextExecutionRequest()
+
+	// SupposedToYieldNextExecutionRequest returns true if the target Kernel is supposed to yield its next
+	// execution request.
+	SupposedToYieldNextExecutionRequest() bool
+
+	// YieldNextExecutionRequest takes note that we should yield the next execution request.
+	YieldNextExecutionRequest()
+
+	// IsActivelyMigratingReplica returns true if the specified replica of the target DistributedKernelClient
+	// is actively being migrated right now.
+	IsActivelyMigratingReplica(replicaId int32) bool
+
+	// IsActivelyMigratingAnyReplica returns true if any replica of the target DistributedKernelClient
+	// is actively being migrated right now.
+	IsActivelyMigratingAnyReplica() bool
+
+	HandleExecuteStatisticsIoPubMessage(sender KernelReplica, msg *messaging.JupyterMessage) error
 }
 
 type KernelReplica interface {
@@ -327,15 +422,17 @@ type KernelReplica interface {
 	ReplicaID() int32
 
 	// KernelStoppedTraining is called when the Replica has stopped training.
-	KernelStoppedTraining(reason string) error
+	KernelStoppedTraining(reason string, activeExecution Execution) error
 
 	Container() KernelContainer
 	Host() Host
+	// SetHost sets the KernelReplica's Host. It also calls SetHost on the KernelContainer of the KernelReplica.
+	SetHost(Host)
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
 	KernelStartedTraining(trainingStartedAt time.Time) error
-	WaitForPendingExecuteRequests()
+	WaitForPendingExecuteRequests(nextRequestId string, nextJupyterMsgType string)
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
@@ -347,15 +444,17 @@ type KernelReplica interface {
 	ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool)
 	LastTrainingStartedAt() time.Time
 	WorkloadId() string
-	SetWorkloadId(workloadId string) error
+	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
-	GetPodOrContainerName() string
 	NodeName() string
 	ShellListenPort() int
 	IOPubListenPort() int
 	YieldNextExecutionRequest()
+	SetPodOrContainerId(id string)
+	GetPodOrContainerId() string
 	SetPodOrContainerName(name string)
+	GetPodOrContainerName() string
 	SetNodeName(name string)
 	InitializeIOForwarder() (*messaging.Socket, error)
 	YieldedNextExecutionRequest()
@@ -404,7 +503,7 @@ type KernelReplica interface {
 	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
-	// IOSubSocketPort return the Port of the IO Socket of the target KernelReplica's client.
+	// IOSubSocketPort return the JupyterGrpcPort of the IO Socket of the target KernelReplica's client.
 	IOSubSocketPort() int
 
 	// WasPrewarmContainer returns true if the target KernelReplicaClient was originally a pre-warmed container.

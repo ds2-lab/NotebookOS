@@ -1,0 +1,6 @@
+---
+- hosts: vms
+  become: yes
+
+  roles:
+    - modify-kernel-core-pattern

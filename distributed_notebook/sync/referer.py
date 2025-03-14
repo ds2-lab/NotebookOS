@@ -8,6 +8,8 @@ import inspect
 from .log_pickler import SyncLogPickler
 from .protocols import SyncRID, SyncRIDProvider, SyncPRID, SyncPRIDProvider
 
+from pickle import _Unpickler as Unpickler
+
 EMPTY_TUPLE = ()
 
 
@@ -254,7 +256,23 @@ class SyncReferer:
         if unpickler is not None:
             self.unpickler = unpickler
 
-        def persistent_load(pid):
+        def persistent_load(*args):
+            if len(args) == 0:
+                raise ValueError("Persistent Load expects at least 1 argument")
+
+            pid = None
+
+            if len(args) == 1:
+                pid = args[0]
+
+            if len(args) >= 2:
+                pid = args[1]
+                print(f"persistent_load received {len(args)} args: {args}", flush = True)
+
+                if not isinstance(args[0], Unpickler):
+                    print(f"arg[0] is not an Unpickler...: {args[0]}", flush = True)
+
+            assert pid is not None 
             self.protocol = protocol
             return _dereference(pid, buff, _normalized_prmap)
 

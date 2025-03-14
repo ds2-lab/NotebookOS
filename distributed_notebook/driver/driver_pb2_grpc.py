@@ -12,7 +12,7 @@ class DistributedNotebookClusterStub(object):
         """Constructor.
 
         Args:
-            channel: A grpc.Channel.
+            channel: A rpc.Channel.
         """
         self.ListKernels = channel.unary_unary(
                 '/driver.DistributedNotebookCluster/ListKernels',

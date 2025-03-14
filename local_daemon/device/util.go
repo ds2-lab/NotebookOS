@@ -15,7 +15,7 @@ import (
 
 // waitForDevicePluginServer checks if the DevicePlugin gRPC server is alive.
 // This is done by creating a blocking gRPC connection to the server's socket.
-// by making grpc blocking connection to the server socket.
+// by making rpc blocking connection to the server socket.
 func waitForDevicePluginServer(sock string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
