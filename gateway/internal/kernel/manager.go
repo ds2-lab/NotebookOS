@@ -1333,6 +1333,35 @@ func (km *Manager) processExecuteRequestMetadata(msg *messaging.JupyterMessage, 
 	return nil
 }
 
+// updateKernelResourceSpec attempts to update the resource spec of the specified kernel.
+//
+// updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
+// presently has resources committed to it, and the adjustment cannot occur due to resource contention.
+func (km *Manager) updateKernelResourceSpec(kernel scheduling.Kernel, newSpec types.CloneableSpec) error {
+	if !km.schedulingPolicy.SupportsDynamicResourceAdjustments() {
+		km.log.Debug("Cannot update resource spec of kernel \"%s\" as \"%s\" scheduling policy prohibits this.",
+			kernel.ID(), km.schedulingPolicy.Name())
+		return nil
+	}
+
+	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
+		km.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
+			kernel.ID(), newSpec.String())
+		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
+	}
+
+	if newSpec.Equals(kernel.ResourceSpec()) {
+		km.log.Debug("Current spec [%v] and new spec [%v] for kernel \"%s\" are equal. No need to update.",
+			newSpec.String(), kernel.ResourceSpec().String(), kernel.ID())
+		return nil
+	}
+
+	km.log.Debug("Attempting to update resource request for kernel %s from %s to %s.",
+		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
+
+	return kernel.UpdateResourceSpec(newSpec)
+}
+
 // ShellHandler is responsible for forwarding a message received on the CONTROL socket to
 // the appropriate/targeted scheduling.Kernel.
 func (km *Manager) shellHandlerWrapper(kernel scheduling.KernelInfo, socketTyp messaging.MessageType, msg *messaging.JupyterMessage) error {
@@ -2119,22 +2148,22 @@ func (km *Manager) processExecuteRequest(msg *messaging.JupyterMessage, kernel s
 	if targetReplica != nil {
 		// If we're using a long-running, replica-based scheduling policy, then we'll
 		// increment the metric about a kernel replica being available right away.
-		if km.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
-			km.clusterStatisticsMutex.Lock()
-			km.ClusterStatistics.NumTimesKernelReplicaAvailableImmediately.Add(1)
-			km.clusterStatisticsMutex.Unlock()
+		if km.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning {
+			km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+				statistics.NumTimesKernelReplicaAvailableImmediately.Add(1)
+			})
 		}
 
 		// If the kernel has a valid (i.e., non-nil) "previous primary replica", then we'll update another statistic...
 		if kernel.LastPrimaryReplica() != nil {
-			km.clusterStatisticsMutex.Lock()
-			// If we selected the same replica again, then update the corresponding metric.
-			if kernel.LastPrimaryReplica().ReplicaID() == targetReplica.ReplicaID() {
-				km.ClusterStatistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively.Add(1)
-			} else {
-				km.ClusterStatistics.NumTimesPreviousPrimaryReplicaUnavailable.Add(1)
-			}
-			km.clusterStatisticsMutex.Unlock()
+			km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+				// If we selected the same replica again, then update the corresponding metric.
+				if kernel.LastPrimaryReplica().ReplicaID() == targetReplica.ReplicaID() {
+					statistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively.Add(1)
+				} else {
+					statistics.NumTimesPreviousPrimaryReplicaUnavailable.Add(1)
+				}
+			})
 		}
 
 		activeExecution.SetMigrationRequired(false) // Record that we didn't have to migrate a replica.
@@ -2178,12 +2207,10 @@ func (km *Manager) processExecuteRequest(msg *messaging.JupyterMessage, kernel s
 		activeExecution.SetNumViableReplicas(0)
 	}
 
-	// If we're using a long-running, replica-based scheduling policy, then we'll
-	// increment the metric about a kernel replica not being available right away.
-	if km.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
-		km.clusterStatisticsMutex.Lock()
-		km.ClusterStatistics.NumTimesKernelReplicaNotAvailableImmediately.Add(1)
-		km.clusterStatisticsMutex.Unlock()
+	if km.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning {
+		km.metricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+			statistics.NumTimesKernelReplicaNotAvailableImmediately.Add(1)
+		})
 	}
 
 	// TODO: Update this code.

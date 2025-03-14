@@ -4832,6 +4832,7 @@ func (d *ClusterGatewayImpl) updateKernelResourceSpec(kernel scheduling.Kernel, 
 	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
 		d.log.Debug("Cannot update resource spec of kernel \"%s\" as \"%s\" scheduling policy prohibits this.",
 			kernel.ID(), d.Scheduler().Policy().Name())
+		return nil
 	}
 
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
