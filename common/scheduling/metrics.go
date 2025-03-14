@@ -19,6 +19,19 @@ type StatisticsProvider interface {
 }
 
 type PrometheusMetricsProvider interface {
+	SpecGpuGaugeVec() *prometheus.GaugeVec
+	CommittedGpuGaugeVec() *prometheus.GaugeVec
+	PendingGpuGaugeVec() *prometheus.GaugeVec
+	IdleGpuGaugeVec() *prometheus.GaugeVec
+	SpecCpuGaugeVec() *prometheus.GaugeVec
+	CommittedCpuGaugeVec() *prometheus.GaugeVec
+	PendingCpuGaugeVec() *prometheus.GaugeVec
+	IdleCpuGaugeVec() *prometheus.GaugeVec
+	SpecMemoryGaugeVec() *prometheus.GaugeVec
+	CommittedMemoryGaugeVec() *prometheus.GaugeVec
+	PendingMemoryGaugeVec() *prometheus.GaugeVec
+	IdleMemoryGaugeVec() *prometheus.GaugeVec
+	
 	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram
 	GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram
 	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec

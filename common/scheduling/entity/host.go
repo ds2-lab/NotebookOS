@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/utils"
@@ -92,7 +91,6 @@ type Host struct {
 
 	allocationManager scheduling.AllocationManager         // allocationManager manages the resources of the Host.
 	meta              hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	metricsProvider   scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
 	indexUpdater      IndexUpdater
 	schedulingPolicy  scheduling.Policy // schedulingPolicy is the scheduling policy configured for the cluster.
 
@@ -178,7 +176,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
 func NewHost(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
-	metricsProvider *metrics.ClusterMetricsProvider, localGatewayClient proto.LocalGatewayClient,
+	metricsProvider scheduling.PrometheusMetricsProvider, localGatewayClient proto.LocalGatewayClient,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -224,7 +222,6 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		resourceSpec:                resourceSpec,
 		numReplicasPerKernel:        numReplicasPerKernel,
 		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
-		metricsProvider:             metricsProvider,
 		log:                         config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                  hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
 		trainingContainers:          make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
@@ -270,13 +267,14 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 
 // NewHostWithConn creates and returns a new *Host.
 func NewHostWithConn(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier,
-	indexUpdater IndexUpdater, metricsProvider *metrics.ClusterMetricsProvider, conn *grpc.ClientConn,
+	indexUpdater IndexUpdater, metricsProvider scheduling.PrometheusMetricsProvider, conn *grpc.ClientConn,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, numReplicasPerKernel, querier, indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
+	host, err := NewHost(id, addr, numReplicasPerKernel, querier, indexUpdater, metricsProvider,
+		localGatewayClient, schedulingPolicy, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.

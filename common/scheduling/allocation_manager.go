@@ -1,7 +1,6 @@
 package scheduling
 
 import (
-	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
@@ -94,7 +93,7 @@ type AllocationManager interface {
 	GetNodeId() string
 	ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot
 	DebugSetIdleGPUs(value float64)
-	RegisterMetricsManager(metricsManager *metrics.ClusterMetricsProvider)
+	RegisterMetricsManager(metricsManager PrometheusMetricsProvider)
 	SpecGPUs() decimal.Decimal
 	SpecCPUs() decimal.Decimal
 	SpecMemoryMB() decimal.Decimal

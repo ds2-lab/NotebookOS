@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/yamux"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -20,37 +22,36 @@ import (
 type DashboardGatewayHandler interface {
 	ID() string
 	GetSerializedClusterStatistics() []byte
-	HandlePanic(identity string, fatalErr interface{})
-	SpoofNotifications(ctx context.Context, in *proto.Void) (*proto.Void, error)
-	InducePanic(_ context.Context, _ *proto.Void) (*proto.Void, error)
-	Listen(transport string, addr string) (net.Listener, error)
-	Accept() (net.Conn, error)
+	SpoofNotifications() (*proto.Void, error)
 	Close() error
-	Addr() net.Addr
-	GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error)
-	GetClusterVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterVirtualGpuInfo, error)
-	SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error)
-	ListKernels(ctx context.Context) (*proto.ListKernelsResponse, error)
+	ListKernels() ([]*proto.DistributedJupyterKernel, error)
 	MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error)
-	Ping(_ context.Context, _ *proto.Void) (*proto.Pong, error)
-	RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.DashboardRegistrationResponse, error)
 	PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error)
-	FailNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error)
-	GetVirtualDockerNodes(ctx context.Context, in *proto.Void) (*proto.GetVirtualDockerNodesResponse, error)
-	GetDockerSwarmNodes(ctx context.Context, in *proto.Void) (*proto.GetDockerSwarmNodesResponse, error)
-	GetNumNodes(ctx context.Context, in *proto.Void) (*proto.NumNodesResponse, error)
+	FailNextExecution(kernelId string) error
+	GetVirtualDockerNodes() ([]*proto.VirtualDockerNode, error)
+	GetNumNodes() int
 	SetNumClusterNodes(ctx context.Context, in *proto.SetNumClusterNodesRequest) (*proto.SetNumClusterNodesResponse, error)
-	AddClusterNodes(ctx context.Context, in *proto.AddClusterNodesRequest) (*proto.AddClusterNodesResponse, error)
+	AddClusterNodes(ctx context.Context, n int32) (*proto.AddClusterNodesResponse, error)
 	RemoveSpecificClusterNodes(ctx context.Context, in *proto.RemoveSpecificClusterNodesRequest) (*proto.RemoveSpecificClusterNodesResponse, error)
 	RemoveClusterNodes(ctx context.Context, in *proto.RemoveClusterNodesRequest) (*proto.RemoveClusterNodesResponse, error)
-	ClusterAge(ctx context.Context, in *proto.Void) (*proto.ClusterAgeResponse, error)
+	ClusterAge() int64
 	ModifyClusterNodes(ctx context.Context, in *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error)
 	QueryMessage(ctx context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error)
-	ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error)
-	ClusterStatistics(_ context.Context, req *proto.ClusterStatisticsRequest) (*proto.ClusterStatisticsResponse, error)
-	ClearClusterStatistics(_ context.Context) ([]byte, error)
-	SetClusterDashboardClient(clusterDashboardClient proto.ClusterDashboardClient)
-	IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error)
+	ForceLocalDaemonToReconnect(hostId string, delay bool) error
+
+	// ClearClusterStatistics clears the current metrics.ClusterStatistics struct.
+	//
+	// ClearClusterStatistics returns the serialized metrics.ClusterStatistics struct before it was cleared.
+	ClearClusterStatistics() []byte
+	IsKernelActivelyTraining(kernelId string) (bool, error)
+
+	DeploymentMode() types.DeploymentMode
+	PolicyKey() scheduling.PolicyKey
+	NumReplicasPerKernel() int
+}
+
+type ClusterDashboardClientConsumer interface {
+	SetClusterDashboardClient(client proto.ClusterDashboardClient)
 }
 
 // DashboardGateway fulfills a different gRPC interface required by the Admin/Workload Dashboard.
@@ -59,15 +60,17 @@ type DashboardGatewayHandler interface {
 type DashboardGateway struct {
 	proto.UnimplementedDistributedClusterServer
 	clusterDashboardClient proto.ClusterDashboardClient
+	consumer               ClusterDashboardClientConsumer
 	handler                DashboardGatewayHandler
 	listener               net.Listener
 	log                    logger.Logger
 	closed                 int32
 }
 
-func NewDistributedCluster(handler DashboardGatewayHandler) *DashboardGateway {
+func NewDistributedGateway(handler DashboardGatewayHandler, consumer ClusterDashboardClientConsumer) *DashboardGateway {
 	dg := &DashboardGateway{
-		handler: handler,
+		handler:  handler,
+		consumer: consumer,
 	}
 
 	config.InitLogger(&dg.log, dg)
@@ -102,8 +105,8 @@ func (dg *DashboardGateway) HandlePanic(identity string, fatalErr interface{}) {
 }
 
 // SpoofNotifications is used to test notifications.
-func (dg *DashboardGateway) SpoofNotifications(ctx context.Context, in *proto.Void) (*proto.Void, error) {
-	return dg.handler.SpoofNotifications(ctx, in)
+func (dg *DashboardGateway) SpoofNotifications(_ context.Context, _ *proto.Void) (*proto.Void, error) {
+	return dg.handler.SpoofNotifications()
 }
 
 // InducePanic is used for debugging/testing. Causes a Panic.
@@ -179,7 +182,11 @@ func (dg *DashboardGateway) Accept() (net.Conn, error) {
 
 	// Create a cluster Dashboard client and register it.
 	dg.clusterDashboardClient = proto.NewClusterDashboardClient(gConn)
-	dg.handler.SetClusterDashboardClient(dg.clusterDashboardClient)
+
+	if dg.consumer != nil {
+		dg.consumer.SetClusterDashboardClient(dg.clusterDashboardClient)
+	}
+
 	return conn, nil
 }
 
@@ -209,12 +216,12 @@ func (dg *DashboardGateway) Addr() net.Addr {
 }
 
 // GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
-func (dg *DashboardGateway) GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error) {
-	return dg.handler.GetClusterActualGpuInfo(ctx, in)
+func (dg *DashboardGateway) GetClusterActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.ClusterActualGpuInfo, error) {
+	return nil, ErrNotImplemented
 }
 
 // GetClusterVirtualGpuInfo returns the current vGPU (or "deflated GPU") resource metrics on the node.
-func (dg *DashboardGateway) GetClusterVirtualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterVirtualGpuInfo, error) {
+func (dg *DashboardGateway) GetClusterVirtualGpuInfo(_ context.Context, _ *proto.Void) (*proto.ClusterVirtualGpuInfo, error) {
 	return nil, ErrNotImplemented
 }
 
@@ -229,16 +236,31 @@ func (dg *DashboardGateway) SetTotalVirtualGPUs(ctx context.Context, in *proto.S
 }
 
 // IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
-func (dg *DashboardGateway) IsKernelActivelyTraining(ctx context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
-	return dg.handler.IsKernelActivelyTraining(ctx, in)
+func (dg *DashboardGateway) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
+	isTraining, err := dg.handler.IsKernelActivelyTraining(in.Id)
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return &proto.IsKernelTrainingReply{IsTraining: isTraining, KernelId: in.Id}, nil
 }
 
-func (dg *DashboardGateway) ListKernels(ctx context.Context) (*proto.ListKernelsResponse, error) {
-	return dg.handler.ListKernels(ctx)
+func (dg *DashboardGateway) ListKernels(_ context.Context, _ *proto.Void) (*proto.ListKernelsResponse, error) {
+	kernels, err := dg.handler.ListKernels()
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return &proto.ListKernelsResponse{Kernels: kernels}, nil
 }
 
 func (dg *DashboardGateway) MigrateKernelReplica(ctx context.Context, in *proto.MigrationRequest) (*proto.MigrateKernelResponse, error) {
-	return dg.handler.MigrateKernelReplica(ctx, in)
+	resp, err := dg.handler.MigrateKernelReplica(ctx, in)
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return resp, err
 }
 
 func (dg *DashboardGateway) Ping(_ context.Context, _ *proto.Void) (*proto.Pong, error) {
@@ -248,8 +270,14 @@ func (dg *DashboardGateway) Ping(_ context.Context, _ *proto.Void) (*proto.Pong,
 // RegisterDashboard is called by the cluster Dashboard backend server to both verify that a connection has been
 // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 // Kubernetes), from the cluster Gateway.
-func (dg *DashboardGateway) RegisterDashboard(ctx context.Context, in *proto.Void) (*proto.DashboardRegistrationResponse, error) {
-	return dg.handler.RegisterDashboard(ctx, in)
+func (dg *DashboardGateway) RegisterDashboard(_ context.Context, _ *proto.Void) (*proto.DashboardRegistrationResponse, error) {
+	resp := &proto.DashboardRegistrationResponse{
+		DeploymentMode:   string(dg.handler.DeploymentMode()),
+		SchedulingPolicy: string(dg.handler.PolicyKey()),
+		NumReplicas:      int32(dg.handler.NumReplicasPerKernel()),
+	}
+
+	return resp, nil
 }
 
 func (dg *DashboardGateway) PingKernel(ctx context.Context, in *proto.PingInstruction) (*proto.Pong, error) {
@@ -258,8 +286,13 @@ func (dg *DashboardGateway) PingKernel(ctx context.Context, in *proto.PingInstru
 
 // FailNextExecution ensures that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
-func (dg *DashboardGateway) FailNextExecution(ctx context.Context, in *proto.KernelId) (*proto.Void, error) {
-	return dg.handler.FailNextExecution(ctx, in)
+func (dg *DashboardGateway) FailNextExecution(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
+	err := dg.handler.FailNextExecution(in.Id)
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return proto.VOID, nil
 }
 
 // GetVirtualDockerNodes returns a (pointer to a) proto.GetVirtualDockerNodesResponse struct describing the virtual,
@@ -272,8 +305,17 @@ func (dg *DashboardGateway) FailNextExecution(ctx context.Context, in *proto.Ker
 // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
 //
 // If the cluster is not running in Docker mode, then this will return an error.
-func (dg *DashboardGateway) GetVirtualDockerNodes(ctx context.Context, in *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
-	return dg.handler.GetVirtualDockerNodes(ctx, in)
+func (dg *DashboardGateway) GetVirtualDockerNodes(_ context.Context, _ *proto.Void) (*proto.GetVirtualDockerNodesResponse, error) {
+	nodes, err := dg.handler.GetVirtualDockerNodes()
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	resp := &proto.GetVirtualDockerNodesResponse{
+		Nodes: nodes,
+	}
+
+	return resp, nil
 }
 
 // GetDockerSwarmNodes returns a (pointer to a) proto.GetDockerSwarmNodesResponse struct describing the Docker Swarm
@@ -286,48 +328,95 @@ func (dg *DashboardGateway) GetVirtualDockerNodes(ctx context.Context, in *proto
 // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
 //
 // If the cluster is not running in Docker mode, then this will return an error.
-func (dg *DashboardGateway) GetDockerSwarmNodes(ctx context.Context, in *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
-	return dg.handler.GetDockerSwarmNodes(ctx, in)
+func (dg *DashboardGateway) GetDockerSwarmNodes(_ context.Context, _ *proto.Void) (*proto.GetDockerSwarmNodesResponse, error) {
+	return nil, ErrNotImplemented
 }
 
-func (dg *DashboardGateway) GetNumNodes(ctx context.Context, in *proto.Void) (*proto.NumNodesResponse, error) {
-	return dg.handler.GetNumNodes(ctx, in)
+func (dg *DashboardGateway) GetNumNodes(_ context.Context, _ *proto.Void) (*proto.NumNodesResponse, error) {
+	numNodes := dg.handler.GetNumNodes()
+
+	return &proto.NumNodesResponse{NumNodes: int32(numNodes)}, nil
 }
 
 func (dg *DashboardGateway) SetNumClusterNodes(ctx context.Context, in *proto.SetNumClusterNodesRequest) (*proto.SetNumClusterNodesResponse, error) {
-	return dg.handler.SetNumClusterNodes(ctx, in)
+	resp, err := dg.handler.SetNumClusterNodes(ctx, in)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return resp, err
 }
 
 func (dg *DashboardGateway) AddClusterNodes(ctx context.Context, in *proto.AddClusterNodesRequest) (*proto.AddClusterNodesResponse, error) {
-	return dg.handler.AddClusterNodes(ctx, in)
+	resp, err := dg.handler.AddClusterNodes(ctx, in.NumNodes)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	resp.RequestId = in.RequestId
+	return resp, nil
 }
 
 func (dg *DashboardGateway) RemoveSpecificClusterNodes(ctx context.Context, in *proto.RemoveSpecificClusterNodesRequest) (*proto.RemoveSpecificClusterNodesResponse, error) {
-	return dg.handler.RemoveSpecificClusterNodes(ctx, in)
+	resp, err := dg.handler.RemoveSpecificClusterNodes(ctx, in)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return resp, err
 }
 
 func (dg *DashboardGateway) RemoveClusterNodes(ctx context.Context, in *proto.RemoveClusterNodesRequest) (*proto.RemoveClusterNodesResponse, error) {
-	return dg.handler.RemoveClusterNodes(ctx, in)
+	resp, err := dg.handler.RemoveClusterNodes(ctx, in)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return resp, err
 }
 
-func (dg *DashboardGateway) ClusterAge(ctx context.Context, in *proto.Void) (*proto.ClusterAgeResponse, error) {
-	return dg.handler.ClusterAge(ctx, in)
+func (dg *DashboardGateway) ClusterAge(_ context.Context, _ *proto.Void) (*proto.ClusterAgeResponse, error) {
+	age := dg.handler.ClusterAge()
+
+	return &proto.ClusterAgeResponse{Age: age}, nil
 }
 
 func (dg *DashboardGateway) ModifyClusterNodes(ctx context.Context, in *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
-	return dg.handler.ModifyClusterNodes(ctx, in)
+	resp, err := dg.handler.ModifyClusterNodes(ctx, in)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return resp, err
 }
 
 // QueryMessage is used to query whether a given ZMQ message has been seen by any of the cluster components
 // and what the status of that message is (i.e., sent, response received, etc.)
 func (dg *DashboardGateway) QueryMessage(ctx context.Context, in *proto.QueryMessageRequest) (*proto.QueryMessageResponse, error) {
-	return dg.handler.QueryMessage(ctx, in)
+	resp, err := dg.handler.QueryMessage(ctx, in)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return resp, err
 }
 
 // ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the cluster Gateway.
 // This is mostly used for testing/debugging the reconnection process.
-func (dg *DashboardGateway) ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
-	return dg.handler.ForceLocalDaemonToReconnect(ctx, in)
+func (dg *DashboardGateway) ForceLocalDaemonToReconnect(_ context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
+	err := dg.handler.ForceLocalDaemonToReconnect(in.LocalDaemonId, in.Delay)
+
+	if err != nil {
+		return nil, errorf(err)
+	}
+
+	return proto.VOID, err
 }
 
 // ClusterStatistics is used to request a serialized ClusterStatistics struct.
@@ -349,11 +438,8 @@ func (dg *DashboardGateway) ClusterStatistics(_ context.Context, req *proto.Clus
 //
 // ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
 // ClusterStatistics is used to request a serialized ClusterStatistics struct.
-func (dg *DashboardGateway) ClearClusterStatistics(ctx context.Context, _ *proto.Void) (*proto.ClusterStatisticsResponse, error) {
-	serializedStatistics, err := dg.handler.ClearClusterStatistics(ctx)
-	if err != nil {
-		return nil, errorf(err)
-	}
+func (dg *DashboardGateway) ClearClusterStatistics(_ context.Context, _ *proto.Void) (*proto.ClusterStatisticsResponse, error) {
+	serializedStatistics := dg.handler.ClearClusterStatistics()
 
 	if serializedStatistics == nil {
 		return nil, status.Error(codes.Internal, "failed to generate, retrieve, or clear cluster Statistics")

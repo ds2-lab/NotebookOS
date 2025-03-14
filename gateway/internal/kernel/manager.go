@@ -511,6 +511,106 @@ func (km *Manager) MigrateKernelReplica(ctx context.Context, in *proto.Migration
 	return resp, err
 }
 
+func (km *Manager) ListKernels() ([]*proto.DistributedJupyterKernel, error) {
+	kernels := km.provider.ListKernels()
+	kernelsResp := make([]*proto.DistributedJupyterKernel, 0, len(kernels))
+
+	for _, kernel := range kernels {
+		respKernel := &proto.DistributedJupyterKernel{
+			KernelId:            kernel.ID(),
+			NumReplicas:         int32(kernel.Size()),
+			Status:              kernel.Status().String(),
+			AggregateBusyStatus: kernel.AggregateBusyStatus(),
+			KernelSpec:          kernel.KernelSpec(),
+		}
+
+		executionManager := kernel.GetExecutionManager()
+
+		lastPrimaryReplicaId := executionManager.LastPrimaryReplicaId()
+
+		replicas := make([]*proto.JupyterKernelReplica, 0, len(kernel.Replicas()))
+		kernelReplicas := kernel.Replicas()
+		for _, replica := range kernelReplicas {
+			kernelReplica := &proto.JupyterKernelReplica{
+				KernelId:              kernel.ID(),
+				ReplicaId:             replica.ReplicaID(),
+				PodId:                 replica.GetPodOrContainerId(),
+				NodeId:                replica.NodeName(),
+				WasLastPrimaryReplica: replica.ReplicaID() == lastPrimaryReplicaId,
+				NumExecutions:         int32(executionManager.NumExecutionsByReplica(replica.ReplicaID())),
+			}
+			replicas = append(replicas, kernelReplica)
+		}
+		respKernel.Replicas = replicas
+
+		kernelsResp = append(kernelsResp, respKernel)
+	}
+
+	return kernelsResp, nil
+}
+
+func (km *Manager) NumActiveKernels() int32 {
+	return km.numActiveKernels.Load()
+}
+
+func (km *Manager) Close() {
+	if km.idleSessionReclaimer != nil {
+		km.idleSessionReclaimer.Close()
+	}
+}
+
+func (km *Manager) FailNextExecution(kernelId string) error {
+	km.log.Debug("FailNextExecution[\"%s\"]", kernelId)
+
+	var (
+		kernel scheduling.Kernel
+		loaded bool
+	)
+
+	// Ensure that the kernel exists.
+	if kernel, loaded = km.provider.GetKernel(kernelId); !loaded {
+		km.log.Error("Could not find kernel %s specified in 'FailNextExecution' request...", kernelId)
+		return fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, kernelId)
+	}
+
+	for _, replica := range kernel.Replicas() {
+		hostId := replica.HostId()
+		host, ok := km.cluster.GetHost(hostId)
+
+		if !ok {
+			km.log.Error("Could not find host %s on which replica %d of kernel %s is supposedly running...",
+				hostId, replica.ReplicaID(), kernelId)
+			go km.notifier.NotifyDashboardOfError("'FailNextExecution' Request Failed",
+				fmt.Sprintf("Could not find host %s on which replica %d of kernel %s is supposedly running...",
+					hostId, replica.ReplicaID(), kernelId))
+
+			return fmt.Errorf("%w: \"%s\"", scheduling.ErrHostNotFound, hostId)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Even if there's an error here, we'll just keep trying. If only some of these succeed, then the system won't explode.
+		// The newKernels for which the `YieldNextExecution` succeeded will simply yield.
+		_, err := host.YieldNextExecution(ctx, &proto.KernelId{Id: kernelId})
+		if err != nil {
+			km.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s",
+				hostId, host.GetAddress(), err.Error())
+			go km.notifier.NotifyDashboardOfError("'FailNextExecution' Request Failed",
+				fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s",
+					hostId, host.GetAddress(), err.Error()))
+		} else {
+			km.log.Debug("Successfully issued 'FailNextExecution' to Local Daemon %s (%s) targeting kernel %s.",
+				hostId, host.GetAddress(), kernelId)
+		}
+
+		cancel()
+	}
+
+	kernel.YieldNextExecutionRequest()
+	return nil
+}
+
 func (km *Manager) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
 	return km.kernelProvisioner.NotifyKernelRegistered(ctx, in)
 }
@@ -707,21 +807,29 @@ func (km *Manager) SmrReady(_ context.Context, in *proto.SmrReadyNotification) (
 }
 
 // IsKernelActivelyTraining is used to query whether a particular kernel is actively training.
-func (km *Manager) IsKernelActivelyTraining(_ context.Context, in *proto.KernelId) (*proto.IsKernelTrainingReply, error) {
-	kernel, loaded := km.provider.Kernels.Load(in.Id)
+func (km *Manager) IsKernelActivelyTraining(kernelId string) (bool, error) {
+	kernel, loaded := km.provider.Kernels.Load(kernelId)
 
 	if !loaded {
-		km.log.Warn("IsKernelActivelyTraining: queried training status of unknown kernel \"%s\"", in.Id)
+		km.log.Warn("IsKernelActivelyTraining: queried training status of unknown kernel \"%s\"", kernelId)
 
-		return nil, errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, in.Id))
+		return false, errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, kernelId))
 	}
 
-	resp := &proto.IsKernelTrainingReply{
-		KernelId:   in.Id,
-		IsTraining: kernel.IsTraining(),
+	return kernel.IsTraining(), nil
+}
+
+// IsKernelActivelyMigrating is used to query whether a particular kernel is actively migrating any replicas.
+func (km *Manager) IsKernelActivelyMigrating(kernelId string) (bool, error) {
+	kernel, loaded := km.provider.Kernels.Load(kernelId)
+
+	if !loaded {
+		km.log.Warn("IsKernelActivelyTraining: queried training status of unknown kernel \"%s\"", kernelId)
+
+		return false, errorf(fmt.Errorf("%w: \"%s\"", types.ErrKernelNotFound, kernelId))
 	}
 
-	return resp, nil
+	return kernel.IsActivelyMigratingAnyReplica(), nil
 }
 
 // SmrNodeAdded is an RPC function called by the Local Daemon to the Cluster Gateway when the Local Daemon

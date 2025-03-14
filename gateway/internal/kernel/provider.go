@@ -27,6 +27,17 @@ func (p Provider) StoreKernelByKernelId(kernelId string, kernel scheduling.Kerne
 	p.KernelIdToKernel.Store(kernelId, kernel)
 }
 
+func (p Provider) ListKernels() []scheduling.Kernel {
+	kernels := make([]scheduling.Kernel, 0, p.KernelIdToKernel.Len())
+
+	p.KernelIdToKernel.Range(func(_ string, kernel scheduling.Kernel) (contd bool) {
+		kernels = append(kernels, kernel)
+		return true
+	})
+
+	return kernels
+}
+
 func (p Provider) GetKernel(kernelId string) (scheduling.Kernel, bool) {
 	return p.Kernels.Load(kernelId)
 }

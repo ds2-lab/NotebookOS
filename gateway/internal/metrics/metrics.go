@@ -12,8 +12,14 @@ import (
 	"time"
 )
 
+type NumActiveKernelProvider interface {
+	NumActiveKernels() int32
+}
+
 type Manager struct {
 	id string
+
+	lastFullStatisticsUpdate time.Time
 
 	metricsProvider *metrics.ClusterMetricsProvider
 
@@ -23,18 +29,21 @@ type Manager struct {
 
 	cluster scheduling.Cluster
 
+	numActiveKernelProvider NumActiveKernelProvider
+
 	log logger.Logger
 
 	mu sync.RWMutex
 }
 
 func NewManager(id string, localDaemonProvider metrics.LocalDaemonNodeProvider, prometheusPort int,
-	cluster scheduling.Cluster, numActiveTrainings *atomic.Int32) *Manager {
+	cluster scheduling.Cluster, numActiveTrainings *atomic.Int32, provider NumActiveKernelProvider) *Manager {
 
 	mgr := &Manager{
-		id:                  id,
-		cluster:             cluster,
-		localDaemonProvider: localDaemonProvider,
+		id:                      id,
+		cluster:                 cluster,
+		localDaemonProvider:     localDaemonProvider,
+		numActiveKernelProvider: provider,
 	}
 
 	metricsProvider := metrics.NewClusterMetricsProvider(prometheusPort, mgr, numActiveTrainings)
@@ -43,6 +52,22 @@ func NewManager(id string, localDaemonProvider metrics.LocalDaemonNodeProvider, 
 	config.InitLogger(&mgr.log, mgr)
 
 	return mgr
+}
+
+// ClearClusterStatistics clears the current ClusterStatistics struct.
+func (m *Manager) ClearClusterStatistics() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.clusterStatistics = metrics.NewClusterStatistics()
+}
+
+func (m *Manager) GetClusterStatistics() *metrics.ClusterStatistics {
+	return m.clusterStatistics
+}
+
+func (m *Manager) LastFullStatisticsUpdate() time.Time {
+	return m.lastFullStatisticsUpdate
 }
 
 func (m *Manager) GetLocalDaemonNodeIDs(ctx context.Context, in *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error) {
@@ -75,6 +100,116 @@ func (m *Manager) DecrementResourceCountsForRemovedHost(host metrics.Host) {
 
 	m.decrIdleResourcesForHost(host)
 	m.decrSpecResourcesForHost(host)
+}
+
+// GatherClusterStatistics updates all the values in the ClusterStatistics field.
+//
+// GatherClusterStatistics is thread-safe.
+func (m *Manager) GatherClusterStatistics() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	var lastTime time.Time // Last update time
+
+	if m.lastFullStatisticsUpdate.IsZero() {
+		lastTime = now // We're doing the first update
+	} else {
+		lastTime = m.lastFullStatisticsUpdate
+	}
+
+	//var cpuUtil, gpuUtil, memUtil, vramUtil, demandGpus float64
+	var demandCpus, demandMem, demandGpus, demandVram float64
+
+	numNonEmptyHosts, numEmptyHosts := m.RecomputeResourceCounts()
+
+	activeTime := time.Since(lastTime) * time.Duration(numNonEmptyHosts)
+	idleTime := time.Since(lastTime) * time.Duration(numEmptyHosts)
+
+	///////////
+	// Hosts //
+	///////////
+
+	m.clusterStatistics.Hosts.Store(int32(m.cluster.Len()))
+	m.clusterStatistics.NumDisabledHosts.Store(int32(m.cluster.NumDisabledHosts()))
+	m.clusterStatistics.NumEmptyHosts.Store(int32(numEmptyHosts))
+
+	m.clusterStatistics.CumulativeHostActiveTime.Add(activeTime.Seconds())
+	m.clusterStatistics.CumulativeHostIdleTime.Add(idleTime.Seconds())
+	m.clusterStatistics.AggregateHostLifetime.Add(time.Since(lastTime).Seconds() * float64(m.cluster.Len()))
+
+	var numRunning, numIdle, numTraining, numStopped int
+	m.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
+		if value.IsIdle() {
+			numIdle += 1
+			numRunning += 1
+		} else if value.IsTraining() {
+			numTraining += 1
+			numRunning += 1
+		} else if value.IsMigrating() {
+			numRunning += 1
+		} else if value.IsStopped() {
+			numStopped += 1
+			return true // Return here so that we don't increment the demand values for stopped sessions.
+		}
+
+		demandCpus += value.ResourceSpec().CPU()
+		demandMem += value.ResourceSpec().MemoryMB()
+		demandGpus += value.ResourceSpec().GPU()
+		demandVram += value.ResourceSpec().VRAM()
+
+		return true
+	})
+
+	m.clusterStatistics.NumSeenSessions.Store(int32(m.cluster.Sessions().Len()))
+	m.clusterStatistics.NumRunningSessions.Store(int32(numRunning))
+	m.clusterStatistics.NumIdleSessions.Store(int32(numIdle))
+	m.clusterStatistics.NumTrainingSessions.Store(int32(numTraining))
+	m.clusterStatistics.NumStoppedSessions.Store(int32(numStopped))
+
+	m.clusterStatistics.DemandGPUs.Store(demandCpus)
+	m.clusterStatistics.DemandMemMb.Store(demandMem)
+	m.clusterStatistics.DemandGPUs.Store(demandGpus)
+	m.clusterStatistics.DemandVRAMGb.Store(demandVram)
+
+	///////////
+	// Hosts //
+	///////////
+
+	m.clusterStatistics.Hosts.Store(int32(m.cluster.Len()))
+	m.clusterStatistics.NumDisabledHosts.Store(int32(m.cluster.NumDisabledHosts()))
+
+	/////////////////////////////////
+	// Static & Dynamic Scheduling //
+	/////////////////////////////////
+	m.clusterStatistics.SubscriptionRatio.Store(m.cluster.Scheduler().SubscriptionRatio())
+
+	////////////////////////
+	// Dynamic Scheduling //
+	////////////////////////
+
+	//////////////
+	// sessions //
+	//////////////
+	m.clusterStatistics.NumNonTerminatedSessions.Store(m.numActiveKernelProvider.NumActiveKernels())
+	m.clusterStatistics.NumRunningSessions.Store(int32(m.cluster.Sessions().Len()))
+
+	m.lastFullStatisticsUpdate = time.Now()
+
+	m.log.Debug("=== Updated cluster Statistics ===")
+	m.log.Debug("Idle CPUs: %.0f, Idle Mem: %.0f, Idle GPUs: %.0f, Idle VRAM: %.0f",
+		m.clusterStatistics.IdleCPUs.Load(), m.clusterStatistics.IdleMemory.Load(), m.clusterStatistics.IdleGPUs.Load(), m.clusterStatistics.IdleVRAM.Load())
+	m.log.Debug("Pending CPUs: %.0f, Pending Mem: %.0f, Pending GPUs: %.0f, Pending VRAM: %.0f",
+		m.clusterStatistics.PendingCPUs.Load(), m.clusterStatistics.PendingMemory.Load(), m.clusterStatistics.PendingGPUs.Load(), m.clusterStatistics.PendingVRAM.Load())
+	m.log.Debug("Committed CPUs: %.0f, Committed Mem: %.0f, Committed GPUs: %.0f, Committed VRAM: %.0f",
+		m.clusterStatistics.CommittedCPUs.Load(), m.clusterStatistics.CommittedMemory.Load(), m.clusterStatistics.CommittedGPUs.Load(), m.clusterStatistics.CommittedVRAM.Load())
+	m.log.Debug("Spec CPUs: %.0f, Spec Mem: %.0f, Spec GPUs: %.0f, Spec VRAM: %.0f",
+		m.clusterStatistics.SpecCPUs.Load(), m.clusterStatistics.SpecMemory.Load(), m.clusterStatistics.SpecGPUs.Load(), m.clusterStatistics.SpecVRAM.Load())
+	m.log.Debug("NumSeenSessions: %d, NumRunningSessions: %d, NumNonTerminatedSessions: %d, NumTraining: %d, NumIdle: %d, NumStopped: %m.",
+		m.clusterStatistics.NumSeenSessions.Load(), m.clusterStatistics.NumRunningSessions.Load(), m.clusterStatistics.NumNonTerminatedSessions.Load(),
+		m.clusterStatistics.NumTrainingSessions.Load(), m.clusterStatistics.NumIdleSessions.Load(), m.clusterStatistics.NumStoppedSessions.Load())
+	m.log.Debug("NumHosts: %d, NumDisabledHosts: %d, NumEmptyHosts: %d",
+		m.clusterStatistics.Hosts.Load(), m.clusterStatistics.NumDisabledHosts.Load(), m.clusterStatistics.NumEmptyHosts.Load())
 }
 
 // resetResourceCounts sets all resource counts in the ClusterStatistics to 0.
@@ -260,14 +395,14 @@ func (m *Manager) decrementResourceCountsForHost(host scheduling.Host) {
 	m.decrSpecResourcesForHost(host)
 }
 
-// recomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
+// RecomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
 //
-// Important: recomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
+// Important: RecomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
 //
-// recomputeResourceCounts returns a tuple such that:
+// RecomputeResourceCounts returns a tuple such that:
 // - 1st element is the number of non-empty hosts
 // - 2nd element is the number of empty hosts
-func (m *Manager) recomputeResourceCounts() (int, int) {
+func (m *Manager) RecomputeResourceCounts() (int, int) {
 	m.resetResourceCounts()
 
 	var numNonEmptyHosts, numEmptyHosts int

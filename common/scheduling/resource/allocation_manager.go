@@ -7,7 +7,6 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -230,7 +229,7 @@ type AllocationManager struct {
 	// availableGpuDevices is a queue.ThreadsafeFifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
-	metricsManager *metrics.ClusterMetricsProvider
+	metricsManager scheduling.PrometheusMetricsProvider
 
 	updateIndex func(replicaId int32, kernelId string) error
 
@@ -458,7 +457,7 @@ func (m *AllocationManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapsho
 }
 
 // RegisterMetricsManager is used to set the metricsManager field of the AllocationManager.
-func (m *AllocationManager) RegisterMetricsManager(metricsManager *metrics.ClusterMetricsProvider) {
+func (m *AllocationManager) RegisterMetricsManager(metricsManager scheduling.PrometheusMetricsProvider) {
 	if m.metricsManager != nil {
 		m.log.Warn("AllocationManager already has metrics manager assigned... will replace existing metrics manager.")
 	}

@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"strings"
 	"time"
@@ -96,6 +97,50 @@ func NewForwarder(connectionOptions *jupyter.ConnectionInfo, kernelForwarder Ker
 		metrics.ClusterGateway, forwarder.DebugMode, forwarder.MetricsProvider.GetGatewayPrometheusManager())
 
 	return forwarder
+}
+
+func (f *Forwarder) HasRequestLog() bool {
+	return f.RequestLog == nil
+}
+
+func (f *Forwarder) RequestLogLength() int {
+	return f.RequestLog.Len()
+}
+
+func (f *Forwarder) GetRequestTraces() []*proto.RequestTrace {
+	if f.RequestLog == nil {
+		return nil
+	}
+
+	requestTraces := make([]*proto.RequestTrace, 0, f.RequestLog.EntriesByJupyterMsgId.Len())
+
+	f.RequestLog.Lock()
+	f.RequestLog.EntriesByJupyterMsgId.Range(func(msgId string, wrapper *metrics.RequestLogEntryWrapper) (contd bool) {
+		wrapper.EntriesByNodeId.Range(func(i int32, entry *metrics.RequestLogEntry) (contd bool) {
+			requestTraces = append(requestTraces, entry.RequestTrace)
+			return true
+		})
+		return true
+	})
+	f.RequestLog.Unlock()
+
+	return requestTraces
+}
+
+func (f *Forwarder) GetRequestLogEntryByJupyterMessageId(msgId string) (*metrics.RequestLogEntryWrapper, bool) {
+	if f.RequestLog == nil {
+		return nil, false
+	}
+
+	return f.RequestLog.EntriesByJupyterMsgId.Load(msgId)
+}
+
+func (f *Forwarder) NumRequestLogEntriesByJupyterMsgId() int {
+	if f.RequestLog == nil {
+		return 0
+	}
+
+	return f.RequestLog.EntriesByJupyterMsgId.Len()
 }
 
 // ControlHandler is responsible for forwarding a message received on the CONTROL socket to

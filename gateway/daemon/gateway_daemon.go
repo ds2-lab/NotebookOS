@@ -213,7 +213,6 @@ type ClusterGatewayImpl struct {
 
 	DistributedClientProvider DistributedClientProvider
 
-	// cluster provisioning related members
 	listener net.Listener
 	cluster  scheduling.Cluster
 
@@ -6320,45 +6319,6 @@ func (d *ClusterGatewayImpl) decrementResourceCountsForHost(host scheduling.Host
 	d.decrSpecResourcesForHost(host)
 }
 
-// recomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
-//
-// Important: recomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
-//
-// recomputeResourceCounts returns a tuple such that:
-// - 1st element is the number of non-empty hosts
-// - 2nd element is the number of empty hosts
-func (d *ClusterGatewayImpl) recomputeResourceCounts() (int, int) {
-	d.resetResourceCounts()
-
-	var numNonEmptyHosts, numEmptyHosts int
-
-	// The aggregate, cumulative lifetime of the hosts that are currently running.
-	var aggregateHostLifetimeOfRunningHosts float64
-
-	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
-		if !host.Enabled() {
-			// If the host is not enabled, then just continue to the next host.
-			return true
-		}
-
-		d.incrementResourceCountsForHost(host)
-
-		if host.NumContainers() == 0 {
-			numEmptyHosts += 1
-		} else {
-			numNonEmptyHosts += 1
-		}
-
-		aggregateHostLifetimeOfRunningHosts += time.Since(host.GetCreatedAt()).Seconds()
-
-		return true
-	})
-
-	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts.Store(aggregateHostLifetimeOfRunningHosts)
-
-	return numNonEmptyHosts, numEmptyHosts
-}
-
 // gatherClusterStatistics updates all the values in the ClusterStatistics field.
 //
 // gatherClusterStatistics is thread-safe.
@@ -6600,4 +6560,43 @@ func (d *ClusterGatewayImpl) getSmrLeadTaskMessage(kernel scheduling.Kernel, in 
 	}
 
 	return resp, nil
+}
+
+// recomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
+//
+// Important: recomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
+//
+// recomputeResourceCounts returns a tuple such that:
+// - 1st element is the number of non-empty hosts
+// - 2nd element is the number of empty hosts
+func (d *ClusterGatewayImpl) recomputeResourceCounts() (int, int) {
+	d.resetResourceCounts()
+
+	var numNonEmptyHosts, numEmptyHosts int
+
+	// The aggregate, cumulative lifetime of the hosts that are currently running.
+	var aggregateHostLifetimeOfRunningHosts float64
+
+	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
+		if !host.Enabled() {
+			// If the host is not enabled, then just continue to the next host.
+			return true
+		}
+
+		d.incrementResourceCountsForHost(host)
+
+		if host.NumContainers() == 0 {
+			numEmptyHosts += 1
+		} else {
+			numNonEmptyHosts += 1
+		}
+
+		aggregateHostLifetimeOfRunningHosts += time.Since(host.GetCreatedAt()).Seconds()
+
+		return true
+	})
+
+	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts.Store(aggregateHostLifetimeOfRunningHosts)
+
+	return numNonEmptyHosts, numEmptyHosts
 }

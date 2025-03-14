@@ -25,6 +25,10 @@ func NewDashboardNotifier(clusterDashboard proto.ClusterDashboardClient) *Dashbo
 	}
 }
 
+func (n *DashboardNotifier) SetClusterDashboardClient(clusterDashboardClient proto.ClusterDashboardClient) {
+	n.clusterDashboard = clusterDashboardClient
+}
+
 func (n *DashboardNotifier) NotificationCallback(name string, content string, typ messaging.NotificationType) {
 	n.NotifyDashboard(name, content, typ)
 }
