@@ -181,11 +181,11 @@ class S3Provider(RemoteStorageProvider):
             raise e # re-raise
 
         self.log.debug(f'{size_bytes} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{key}" '
-                       f'in {round(time_elapsed, 3):,}ms.')
+                       f'in {round(time_elapsed*1.0e3, 3):,}ms.')
 
         # Update internal metrics.
         self.update_write_stats(
-            time_elapsed_ms=time_elapsed,
+            time_elapsed_ms=time_elapsed*1.0e3,
             size_bytes=size_bytes,
             num_values=1
         )
@@ -269,7 +269,7 @@ class S3Provider(RemoteStorageProvider):
 
         # Update internal metrics.
         self.update_read_stats(
-            time_elapsed_ms=time_elapsed,
+            time_elapsed_ms=time_elapsed_ms,
             size_bytes=value_size,
             num_values=1
         )
@@ -330,7 +330,7 @@ class S3Provider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
-        self.update_delete_stats(time_elapsed, 1)
+        self.update_delete_stats(time_elapsed_ms, 1)
 
         self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
         

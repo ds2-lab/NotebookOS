@@ -15,6 +15,7 @@ import time
 from distributed_notebook.kernel.iopub_notifier import IOPubNotification
 from .checkpoint import Checkpoint
 from .election import Election, ElectionAlreadyDecidedError, ElectionNotStartedError
+from .election_handler import ElectionHandler
 from .errors import (
     print_trace,
     SyncError,
@@ -145,12 +146,20 @@ class RaftLog(object):
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
         self._restore_namespace_time_seconds: float = 0.0
-        # self._received_vote_future: Optional[asyncio.Future] = None
         self._fast_forward_execution_count_handler: Callable[[], None] = fast_forward_execution_count_handler
         self._set_execution_count_handler: Callable[[int], None] = set_execution_count_handler
         self._handled_sync_values: set[str] = set()
         self._loaded_serialized_state_callback: Callable[
             [dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
+
+        self._election_handler: ElectionHandler = ElectionHandler(
+            kernel_id=kernel_id,
+            node_id=node_id,
+            num_replicas=num_replicas,
+            election_timeout_sec=election_timeout_seconds,
+            send_iopub_notification=send_iopub_notification,
+            io_loop=shell_io_loop,
+        )
 
         self._catchup_cond: Optional[asyncio.Condition] = None
 
@@ -2647,8 +2656,8 @@ class RaftLog(object):
                                       f"for election {target_term_number} should be discarded, "
                                       f"as that election was skipped.")
 
-        if self._current_election.election_finished_condition_waiter_loop is None:
-            self._current_election.election_finished_condition_waiter_loop = asyncio.get_running_loop()
+        if self._current_election._election_finished_condition_waiter_loop is None:
+            self._current_election._election_finished_condition_waiter_loop = asyncio.get_running_loop()
 
         try:
             if self._current_election.is_inactive:
@@ -2926,11 +2935,9 @@ class RaftLog(object):
         """Add a node to the etcd-raft  cluster."""
         self.log.info("Updating node %d with new addr %s." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"update_node[{node_id}]")
-        # self.logger.info(">> CALLING INTO GO CODE (_log_node.UpdateNode)")
         sys.stderr.flush()
         sys.stdout.flush()
         self._log_node.UpdateNode(node_id, address, resolve)
-        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.UpdateNode)")
         sys.stderr.flush()
         sys.stdout.flush()
         res = await future.result()

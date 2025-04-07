@@ -91,42 +91,42 @@ class RemoteStorageProvider(ABC):
     @property
     def read_time(self) -> float:
         """
-        Return the total time spent reading data from remote storage in seconds.
+        Return the total time spent reading data from remote storage in milliseconds.
         """
         return self._read_time
 
     @property
     def write_time(self) -> float:
         """
-        Return the total time spent writing data to remote storage in seconds.
+        Return the total time spent writing data to remote storage in milliseconds.
         """
         return self._write_time
 
     @property
     def delete_time(self) -> float:
         """
-        Return the total time spent deleting data from remote storage in seconds.
+        Return the total time spent deleting data from remote storage in milliseconds.
         """
         return self._delete_time
 
     @property
     def read_times(self) -> List[float]:
         """
-        Return the individual times spent reading data from remote storage in seconds.
+        Return the individual times spent reading data from remote storage in milliseconds.
         """
         return self._read_times
 
     @property
     def write_times(self) -> List[float]:
         """
-        Return the individual times spent writing data to remote storage in seconds.
+        Return the individual times spent writing data to remote storage in milliseconds.
         """
         return self._write_times
 
     @property
     def delete_times(self) -> List[float]:
         """
-        Return the individual times spent deleting data from remote storage in seconds.
+        Return the individual times spent deleting data from remote storage in milliseconds.
         """
         return self._delete_times
 

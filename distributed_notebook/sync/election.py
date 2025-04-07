@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import logging
+import threading
 from enum import IntEnum
 from typing import Dict, Optional, List, MutableMapping, Any
 
@@ -93,15 +94,15 @@ class Election(object):
         # Term numbers monotonically increase over time.
         self._term_number: int = term_number
 
-        # The number of replicas in the SMR cluster, so we know how many proposals to expect.
         self._num_replicas: int = num_replicas
+        """ # The number of replicas in the SMR cluster, so we know how many proposals to expect. """
 
-        # Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term.
         self._proposals: Dict[int, LeaderElectionProposal] = {}
+        """ Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term. """
 
-        # Mapping from attempt number to the associated ElectionTimestamps object.
         self._election_timestamps: Dict[int, ElectionTimestamps] = {
             1: ElectionTimestamps(proposal_phase_start_time=time.time() * 1.0e3)}
+        """ Mapping from attempt number to the associated ElectionTimestamps object. """
         self._current_election_timestamps: ElectionTimestamps = self._election_timestamps[1]
 
         # Set of node IDs for which we're missing proposals.
@@ -111,8 +112,8 @@ class Election(object):
         for node_id in range(1, num_replicas + 1):
             self._missing_proposals.add(node_id)
 
-        # Mapping from SMR Node ID to the LeaderElectionVote that it proposed during this election term.
         self._vote_proposals: Dict[int, LeaderElectionVote] = {}
+        """ Mapping from SMR Node ID to the LeaderElectionVote that it proposed during this election term. """
 
         # Mapping from SMR node ID to an inner mapping.
         # The inner mapping is a mapping from attempt number to the associated LeaderElectionProposal proposed by that node (during that attempt) during this election term.
@@ -122,15 +123,25 @@ class Election(object):
         # The inner mapping is a mapping from attempt number to the associated LeaderElectionVote proposed by that node (during that attempt) during this election term.
         self._discarded_vote_proposals: Dict[int, Dict[int, LeaderElectionVote]] = {}
 
-        # The current state/status of the election.
         self._election_state: ElectionState = ElectionState.INACTIVE
+        """ The current state/status of the election. """
 
         if future_io_loop is None:
             self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
         else:
             self._future_io_loop: asyncio.AbstractEventLoop = future_io_loop
 
-        self._received_vote_future: asyncio.Future[Any] = self._future_io_loop.create_future()
+        self._received_vote_future: Optional[asyncio.Future[Any]] = self._future_io_loop.create_future()
+        self._received_vote_future_lock: threading.Lock = threading.Lock()
+
+
+        self._leading_future_lock: threading.Lock = threading.Lock()
+        self._leading_future: Optional[asyncio.Future[int]] = self._future_io_loop.create_future()
+        """
+        This is the future that we'll use to inform the local kernel replica if
+        it has been selected to "lead" the election (and therefore execute the user-submitted code).
+        Create local references.
+        """
 
         # Flag mostly used for debugging/sanity-checking.
         # If we see that we've received 3 'YIELD' proposals, then the election already knows that it is going to fail.
@@ -149,56 +160,81 @@ class Election(object):
         # This field is reset if the election is restarted.
         self._proposed_winner: int = 0
 
-        # The first 'LEAD' proposal we received during this election.
-        # This field is reset if the election is restarted.
         self._first_lead_proposal: Optional[LeaderElectionProposal] = None
+        """ 
+        The first 'LEAD' proposal we received during this election.
+        This field is reset if the election is restarted.        
+        """
 
-        # The number of proposals that have been discarded (due to being received after the timeout period).
-        # This value is reset if the election fails and is restarted.
         self._num_discarded_proposals: int = 0
+        """ 
+        The number of proposals that have been discarded (due to being received after the timeout period).
+        This value is reset if the election fails and is restarted.        
+        """
 
-        # The total number of proposals that have been discarded (due to being received after the timeout period) across all attempts/failures.
         self._lifetime_num_discarded_proposals: int = 0
+        """
+        The total number of proposals that have been discarded (due to being received after the timeout period) 
+        across all attempts/failures.
+        """
 
-        # The number of 'vote' proposals that have been discarded (due to being received after the timeout period).
         self._num_discarded_vote_proposals: int = 0
+        """ The number of 'vote' proposals that have been discarded (due to being received after the timeout period). """
 
-        # The number of 'LEAD' proposals that we've received, excluding any proposals that were discarded.
-        # If the election fails (i.e., everybody proposes 'YIELD') and is later restarted, then this value is reset to 0.
         self._num_lead_proposals_received: int = 0
+        """ 
+        The number of 'LEAD' proposals that we've received, excluding any proposals that were discarded.
+        If the election fails (i.e., everybody proposes 'YIELD') and is later restarted, then this value is reset to 0.        
+        """
 
-        # The number of 'YIELD' proposals that we've received, excluding any proposals that were discarded.
-        # If the election fails (i.e., everybody proposes 'YIELD') and is later restarted, then this value is reset to 0.
         self._num_yield_proposals_received: int = 0
+        """ 
+        The number of 'YIELD' proposals that we've received, excluding any proposals that were discarded.
+        If the election fails (i.e., everybody proposes 'YIELD') and is later restarted, then this value is reset to 0.        
+        """
 
-        # The time at which we will start discarding new proposals.
         self._discard_after: float = -1
+        """ The time at which we will start discarding new proposals. """
 
-        # The duration of time that must elapse before we start discarding new proposals.
         self._timeout: float = timeout_seconds
+        """ The duration of time that must elapse before we start discarding new proposals. """
 
-        # The SMR node ID Of the winner of the last election.
-        # A value of -1 indicates that the winner has not been chosen/identified yet.
         self._winner_id: int = -1
+        """ 
+        The SMR node ID Of the winner of the last election.
+        A value of -1 indicates that the winner has not been chosen/identified yet.        
+        """
 
-        # The number of times that the election has been restarted.
         self._num_restarts: int = 0
+        """ The number of times that the election has been restarted. """
 
-        # The current attempt number of proposals (i.e., the largest attempt number we've received).
         self._current_attempt_number: int = 0
+        """ The current attempt number of proposals (i.e., the largest attempt number we've received). """
 
-        # Future created when the first 'LEAD' proposal for the current election is received.
         self._pick_and_propose_winner_future: Optional[asyncio.Future[Any]] = None
+        """ Future created when the first 'LEAD' proposal for the current election is received. """
 
-        # Condition that can be awaited until a notification is received that the leader has finished
-        # executing the user-submitted code for this election term.
-        #
-        # This condition is also marked as complete if a notification is received that all replicas
-        # proposed yield.
         self.election_finished_event: Optional[asyncio.Event] = asyncio.Event()
-        self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+        """
+        Condition that can be awaited until a notification is received that the leader has finished
+        executing the user-submitted code for this election term.
+        
+        This condition is also marked as complete if a notification is received that all replicas
+        proposed yield.
+        """
 
-        self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
+        self._election_waiter_mutex: Optional[threading.Lock] = threading.Lock()
+        self._election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+        """
+        The asyncio IO loop that any entity waiting for the election to complete is expected to be running within.
+        """
+
+        self._election_decision_future_mutex: Optional[asyncio.Lock] = asyncio.Lock()
+        self._election_decision_future: Optional[asyncio.Future[Any]] = self._future_io_loop.create_future()
+        """
+        This is the future we'll use to submit a formal vote for who should lead,
+        based on the proposals that are committed to the etcd-raft log.
+        """
 
         # Used with the self.election_waiter_cond variable.
         # self.election_waiter_mutex: Optional[asyncio.Lock] = asyncio.Lock()
@@ -269,8 +305,9 @@ class Election(object):
 
         keys_to_remove: List[str] = [
             "_pick_and_propose_winner_future", "election_finished_event",
-            "log", "_future_io_loop", "_received_vote_future",
-            "election_finished_condition_waiter_loop",
+            "log", "_future_io_loop", "_received_vote_future", "_received_vote_future_lock",
+            "_leading_future", "_leading_future_lock", "election_finished_condition_waiter_loop",
+            "_election_decision_future", "_election_decision_future_mutex", "election_waiter_mutex",
         ]
 
         for key in keys_to_remove:
@@ -294,7 +331,7 @@ class Election(object):
         try:
             getattr(self, "election_finished_condition_waiter_loop")
         except AttributeError:
-            self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+            self._election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
         try:
             getattr(self, "log")
@@ -500,6 +537,20 @@ class Election(object):
         return self._proposals
 
     @property
+    def election_decision_future(self) -> Optional[asyncio.Future[Any]]:
+        """
+        This is the future we'll use to submit a formal vote for who should lead,
+        based on the proposals that are committed to the etcd-raft log.
+        """
+        return self._election_decision_future
+
+    async def get_and_clear_election_decision_future(self) -> Optional[asyncio.Future[Any]]:
+        async with self._election_decision_future_mutex:
+            tmp: Optional[asyncio.Future[Any]] = self._election_decision_future
+            self._election_decision_future = None
+            return tmp
+
+    @property
     def all_proposals_received(self) -> bool:
         """
         True if we've received a proposal from every node.
@@ -681,6 +732,9 @@ class Election(object):
         # We pass -1 for `proposer_id` because we want to wipe away ALL proposals from ALL nodes.
         self._discard_old_proposals(proposer_id=-1, latest_attempt_number=latest_attempt_number)
 
+        # Re-create this Future.
+        self._election_decision_future = self._future_io_loop.create_future()
+
         self._proposals.clear()
         self._vote_proposals.clear()
 
@@ -708,7 +762,7 @@ class Election(object):
 
         self.completion_reason = AllReplicasProposedYield
 
-        if self.election_finished_condition_waiter_loop is None:
+        if self._election_finished_condition_waiter_loop is None:
             raise ValueError("Reference to EventLoop on which someone should be waiting on the "
                              "Election Finished condition is None...")
 
@@ -722,16 +776,41 @@ class Election(object):
         except RuntimeError:
             pass
 
-        if current_event_loop != self.election_finished_condition_waiter_loop:
-            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
+        if current_event_loop != self._election_finished_condition_waiter_loop:
+            self._election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
         else:
             self.election_finished_event.set()
 
         self.log.debug(f"Election {self.term_number} has failed (in attempt {self.current_attempt_number}).")
 
     @property
-    def received_vote_future(self)->asyncio.Future:
+    def received_vote_future(self)->Optional[asyncio.Future]:
         return self._received_vote_future
+
+    def get_and_clear_received_vote_future(self)->Optional[asyncio.Future]:
+        """
+        Return the current value of the "Received Vote" asyncio.Future, and then
+        set the value of the instance variable to None.
+        """
+        with self._received_vote_future_lock:
+            future: asyncio.Future = self._received_vote_future
+            self._received_vote_future = None
+            return future
+
+    @property
+    def leading_future(self)->Optional[asyncio.Future]:
+        with self._leading_future_lock:
+            return self._leading_future
+
+    def get_and_clear_leading_future(self)->Optional[asyncio.Future[int]]:
+        """
+        Return the current value of the "Leading" asyncio.Future, and then
+        set the value of the instance variable to None.
+        """
+        with self._leading_future_lock:
+            future: asyncio.Future = self._leading_future
+            self._leading_future = None
+            return future
 
     @received_vote_future.setter
     def received_vote_future(self, future: asyncio.Future):
@@ -754,17 +833,18 @@ class Election(object):
                              f"different loop for election {self.term_number}.")
 
     def set_election_finished_condition_waiter_loop(self, loop: asyncio.AbstractEventLoop):
-        self.election_finished_condition_waiter_loop = loop
+        with self._election_waiter_mutex:
+            self._election_finished_condition_waiter_loop = loop
 
     async def wait_for_election_to_end(self):
         """
         Wait for the election to end (or enter the failed state), either because the elected leader of this election
         successfully finished executing the user-submitted code, or because all replicas proposed YIELD.
         """
-        if self.election_finished_condition_waiter_loop is not None:
-            assert self.election_finished_condition_waiter_loop == asyncio.get_running_loop()
+        if self._election_finished_condition_waiter_loop is not None:
+            assert self._election_finished_condition_waiter_loop == asyncio.get_running_loop()
         else:
-            self.election_finished_condition_waiter_loop = asyncio.get_running_loop()
+            self._election_finished_condition_waiter_loop = asyncio.get_running_loop()
 
         if self.code_execution_completed_successfully:
             return
@@ -809,7 +889,7 @@ class Election(object):
 
         # As mentioned above, we only care if the condition is None if fast_forwarding and catching_up are False.
         # If we're fast-forwarding or catching up after a migration, then we expect the condition to be None.
-        if self.election_finished_condition_waiter_loop is None and not fast_forwarding and not catching_up:
+        if self._election_finished_condition_waiter_loop is None and not fast_forwarding and not catching_up:
             raise ValueError("Reference to EventLoop on which someone should be waiting on the "
                              "Election Finished condition is None...")
 
@@ -823,8 +903,8 @@ class Election(object):
         # then we can call self.election_finished_event.set() directly.
         #
         # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_event.set method.
-        if self.election_finished_condition_waiter_loop is not None and current_event_loop != self.election_finished_condition_waiter_loop:
-            self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
+        if self._election_finished_condition_waiter_loop is not None and current_event_loop != self._election_finished_condition_waiter_loop:
+            self._election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
         elif self.election_finished_event is not None:
             self.election_finished_event.set()
 
