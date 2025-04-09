@@ -63,18 +63,6 @@ class ElectionHandler(object):
         self._elections: Dict[int, Election] = {}
         self._elections_lock: threading.Lock = threading.Lock()
 
-        self._buffered_votes: Dict[int, typing.List[LeaderElectionVote]] = {}
-        """
-        _buffered_votes serves the same purpose as _buffered_proposals, but _buffered_votes is for LeaderElectionVote
-        objects, whereas _buffered_proposals is for LeaderElectionProposal objects.        
-        """
-
-        self._buffered_votes_lock: threading.Lock = threading.Lock()
-        """
-        Ensures atomic access to the _buffered_votes dictionary (required because we may be switching between
-        multiple Python threads/goroutines that are accessing the _buffered_votes dictionary).        
-        """
-
         self._buffered_proposals: dict[int, List[LeaderElectionProposal]] = {}
         """
         If we receive a proposal with a larger term number than our current election, then it is possible
@@ -172,7 +160,6 @@ class ElectionHandler(object):
 
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
-        buffered_votes: List[LeaderElectionVote] = self._buffered_votes.get(term_number, [])
         buffered_proposals: List[LeaderElectionProposal] = self._buffered_proposals.get(term_number, [])
 
         # If skip_proposals is True, then we'll skip both any buffered proposals, and we'll just elect not to
@@ -182,17 +169,13 @@ class ElectionHandler(object):
 
         num_buffered_votes_processed: int = 0
 
-        self.log.debug(f"There are {len(buffered_proposals)} buffered proposal_or_vote(s) and {len(buffered_votes)} "
-                       f"buffered vote(s) for election {term_number}.")
+        self.log.debug(f"There are {len(buffered_proposals)} buffered proposal_or_vote(s) and "
+                       f"{len(election.buffered_votes)} buffered vote(s) for election {term_number}.")
 
-        if len(buffered_votes) > 0:
-            skip_proposals, num_buffered_votes_processed = await self._process_buffered_votes(buffered_votes,
-                                                                                              term_number)
+        if len(election.buffered_votes) > 0:
+            skip_proposals, num_buffered_votes_processed = await self._process_buffered_votes(election)
 
-        if skip_proposals:
-            self.log.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
-                           f"for election {term_number}.")
-        else:
+        if not skip_proposals:
             done, is_leading = await self._process_proposals(
                 buffered_proposals,
                 term_number,
@@ -211,6 +194,9 @@ class ElectionHandler(object):
 
             self.log.debug(f"Not yet finished handling election {term_number} after processing "
                            f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
+        else:
+            self.log.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
+                           f"for election {term_number}.")
 
         # Validate the term
         wait, is_leading = self._is_leading(term_number)
@@ -237,6 +223,83 @@ class ElectionHandler(object):
             return False, self._leader_id == self._node_id
         else:
             return True, False
+
+    async def _process_proposals(
+            self,
+            buffered_proposals: list[LeaderElectionProposal],
+            election_term: int,
+            num_buffered_votes_processed: int,
+            proposalOrVote: LeaderElectionProposal | LeaderElectionVote,
+            target_replica_id: int = -1,
+    ) -> Tuple[bool, bool]:
+        """
+        Process any buffered proposals, and propose our own value if necessary.
+
+        :param buffered_proposals: the buffered proposals for the current election term.
+        :param election_term: the current election term.
+        :param num_buffered_votes_processed: the number of buffered votes that were processed.
+        :param proposalOrVote: the proposal or vote that we will propose.
+        :param target_replica_id: the ID of the target replica, as specified by the kernel scheduler(s).
+
+        :return: a tuple where 1st element indicates if we're done processing the election, and 2nd is result if so.
+        """
+        pass
+
+    async def _process_buffered_votes(self, election: Election) -> Tuple[bool, int]:
+        """
+        :param election: the term of the election for which the buffered votes are to be processed.
+
+        :return: a tuple in which the first element is a boolean indicating whether proposals should be processed,
+                 and the second element is an integer encoding the number of buffered votes that were processed.
+
+        :raises ValueError: if the election argument is None.
+        """
+        if election is None:
+            raise ValueError("Received null election.")
+
+        self.log.debug(f"ElectionHandler::_process_buffered_votes: processing {len(election.buffered_votes)} "
+                       f"buffered vote(s) for election {election.term_number}.")
+
+        if len(election.buffered_votes) == 0:
+            return False, 0
+
+        skip_proposals: bool = False
+        num_buffered_votes_processed: int = 0
+
+        for i, buffered_vote in enumerate(election.buffered_votes):
+            self.log.debug(f"ElectionHandler::_process_buffered_votes: processing vote "
+                           f"{i+1}/{len(election.buffered_votes)} for election {election.term_number}: {buffered_vote}")
+
+            # TODO: Is it OK to just pass the current time for `received_at`?
+            #       Or should I save the time at which it was received and buffered, and pass that instead?
+            self._handle_vote(buffered_vote.vote, received_at=buffered_vote.received_at)
+
+            self.log.debug(f"ElectionHandler::_process_buffered_votes: handled buffered vote "
+                           f"{i + 1}/{len(election.buffered_votes)} election {election.term_number}.")
+
+            num_buffered_votes_processed += 1
+
+            if election.voting_phase_completed_successfully:
+                self.log.debug(f"ElectionHandler::_process_buffered_votes: "
+                               f"voting phase completed for election ({election.term_number}).")
+                skip_proposals = True
+                break
+
+        self.log.debug(f"Finished processing buffered votes for election {election.term_number}. "
+                       f"Processed {num_buffered_votes_processed}/{len(election.buffered_votes)} buffered vote(s).")
+
+        return skip_proposals, num_buffered_votes_processed
+
+    def _handle_vote(self, vote: LeaderElectionVote, received_at: float = time.time(), buffered: bool = False) -> None:
+        """
+        Process a LeaderElectionVote that was appended to the RaftLog.
+
+        :param vote: the vote that was appended to the RaftLog.
+        :param received_at: the time at which we received the LeaderElectionVote.
+        :param buffered: indicates whether the specified LeaderElectionVote was buffered.
+        """
+        # TODO: Implement me.
+        raise NotImplementedError("ElectionHandler::_handle_vote is not implemented yet")
 
     def _validate_proposal(
             self,
@@ -565,13 +628,11 @@ class ElectionHandler(object):
         self.log.debug(f"Buffering vote. Term={vote.election_term}. Proposer={vote.proposer_id}. "
                        f"Target={vote.proposed_node_id}. JupyterId={vote.jupyter_message_id}.")
 
-        with self._buffered_votes_lock:
-            buffered_votes: List[LeaderElectionVote] = self._buffered_votes.get(vote.election_term, [])
+        with self._election_timeout_sec:
+            election: Election = self._get_or_create_election(
+                vote.election_term, vote.jupyter_message_id, vote.attempt_number)
 
-            buffered_votes.append(vote)
-
-            if vote.election_term not in self._buffered_votes:
-                self._buffered_votes[vote.election_term] = buffered_votes
+        election.buffer_vote(vote)
 
 class ElectionHandler2(object):
     def __init__(

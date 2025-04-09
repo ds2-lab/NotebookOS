@@ -97,6 +97,32 @@ class Election(object):
         self._num_replicas: int = num_replicas
         """ # The number of replicas in the SMR cluster, so we know how many proposals to expect. """
 
+        self._buffered_votes: List[LeaderElectionVote] = []
+        """
+        _buffered_votes serves the same purpose as _buffered_proposals, but _buffered_votes is for LeaderElectionVote
+        objects, whereas _buffered_proposals is for LeaderElectionProposal objects.        
+        """
+
+        self._buffered_votes_lock: threading.Lock = threading.Lock()
+        """
+        Ensures atomic access to the _buffered_votes dictionary (required because we may be switching between
+        multiple Python threads/goroutines that are accessing the _buffered_votes dictionary).        
+        """
+
+        self._buffered_proposals: List[LeaderElectionProposal]
+        """
+        If we receive a proposal with a larger term number than our current election, then it is possible
+        that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message
+        that would've prompted us to start the election locally. So, we'll just buffer the proposal for now, and when
+        we receive the "execute_request" or "yield_request" message, we'll process any buffered proposals at that point.     
+        """
+
+        self._buffered_proposals_lock: threading.Lock = threading.Lock()
+        """
+        Ensures atomic access to the _buffered_proposals dictionary (required because we may be switching between
+        multiple Python threads/goroutines that are accessing the _buffered_proposals dictionary).
+        """
+
         self._proposals: Dict[int, LeaderElectionProposal] = {}
         """ Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term. """
 
@@ -133,7 +159,6 @@ class Election(object):
 
         self._received_vote_future: Optional[asyncio.Future[Any]] = self._future_io_loop.create_future()
         self._received_vote_future_lock: threading.Lock = threading.Lock()
-
 
         self._leading_future_lock: threading.Lock = threading.Lock()
         self._leading_future: Optional[asyncio.Future[int]] = self._future_io_loop.create_future()
@@ -269,14 +294,23 @@ class Election(object):
                 f"NumProposalsAccepted={self.num_proposals_accepted}"
                 f"]")
 
-    def get_election_metadata(self) -> dict[str, any]:
+    def buffer_vote(self, vote: LeaderElectionVote) -> None:
+        """
+        Append the specified LeaderElectionVote object to the list of buffered LeaderElectionVote objects.
+
+        :param vote: the LeaderElectionVote to buffer.
+        """
+        with self._buffered_votes_lock:
+            self._buffered_votes.append(vote)
+
+    def get_election_metadata(self) -> Dict[str, Any]:
         """
         Returns: a dictionary of JSON-serializable metadata to be embedded in the "execute_reply" message
         that is sent back to the client following the conclusion of this election.
         """
 
         # Update "test_get_election_metadata" unit test if any fields are added/removed.
-        metadata: dict[str, any] = {
+        metadata: Dict[str, Any] = {
             "term_number": self._term_number,
             "election_state": self._election_state,
             "election_state_string": self._election_state.get_name(),
@@ -308,6 +342,7 @@ class Election(object):
             "log", "_future_io_loop", "_received_vote_future", "_received_vote_future_lock",
             "_leading_future", "_leading_future_lock", "election_finished_condition_waiter_loop",
             "_election_decision_future", "_election_decision_future_mutex", "election_waiter_mutex",
+            "_buffered_proposals_lock", "_buffered_votes_lock"
         ]
 
         for key in keys_to_remove:
@@ -342,6 +377,13 @@ class Election(object):
             ch.setLevel(logging.DEBUG)
             ch.setFormatter(ColoredLogFormatter())
             self.log.addHandler(ch)
+
+    @property
+    def buffered_votes(self) -> List[LeaderElectionVote]:
+        """
+        The LeaderElectionVote instances that were received before this election was started.
+        """
+        return self._buffered_votes
 
     @property
     def jupyter_message_id(self) -> str:
