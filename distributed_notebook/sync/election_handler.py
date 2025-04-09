@@ -379,7 +379,12 @@ class ElectionHandler(object):
                 return self._buffer_proposal(proposal=proposal, received_at=received_at, election=election)
 
             # val will only be non-None if this is the first LEAD proposal we're receiving for this election term.
-            election.add_proposal(proposal, self._io_loop, received_at=received_at)
+            was_first: bool = election.add_proposal(proposal, self._io_loop, received_at=received_at)
+
+        if not was_first:
+            fut: Optional[asyncio.Future[Any]] = asyncio.run_coroutine_threadsafe(
+                election.try_decide_election(last_winner_id=0), loop=self._io_loop)
+            fut.result()
 
         sys.stderr.flush()
         sys.stdout.flush()
