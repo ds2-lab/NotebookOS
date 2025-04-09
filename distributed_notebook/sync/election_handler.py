@@ -164,11 +164,14 @@ class ElectionHandler(object):
         # This is the future that we'll use to inform the local kernel replica if
         # it has been selected to "lead" the election (and therefore execute the user-submitted code).
         # Create local references.
-        leading_future: Optional[asyncio.Future[int]] = election.get_and_clear_leading_future()
-        assert leading_future is not None
+        leading_future: Optional[asyncio.Future[int]] = election.leading_future
+        if leading_future is None:
+            self.log.warning(f'"Leading" future for election {election.term_number} is already None. '
+                             f'Election state: "{election.state.name}"')
 
-        received_vote_future: Optional[asyncio.Future[Any]] = election.get_and_clear_received_vote_future()
-        assert received_vote_future is not None
+            assert election.voting_phase_completed_successfully
+
+            return self._node_id == election.winner_id
 
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
@@ -187,30 +190,34 @@ class ElectionHandler(object):
         if len(election.buffered_votes) > 0:
             skip_proposals, num_buffered_votes_processed = await self._process_buffered_votes(election)
 
-        if not skip_proposals:
-            done, is_leading = await self._process_proposals(
-                buffered_proposals,
-                term_number,
-                num_buffered_votes_processed,
-                proposal_or_vote,
-                target_replica_id
-            )
-
-            if done:
-                self.log.debug(f"Finished handling election {term_number} while processing "
-                               f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
-                return is_leading
-
-            self.log.debug(f"Not yet finished handling election {term_number} after processing "
-                           f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
-        else:
+        if skip_proposals:
             self.log.debug(f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
                            f"for election {term_number}.")
 
+            return await self._wait_for_election_to_end(election, leading_future)
+
+        done, is_leading = await self._process_proposals(
+            buffered_proposals,
+            term_number,
+            num_buffered_votes_processed,
+            proposal_or_vote,
+            target_replica_id
+        )
+
+        if done:
+            self.log.debug(f"Finished handling election {term_number} while processing "
+                           f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
+            return is_leading
+
+        self.log.debug(f"Not yet finished handling election {term_number} after processing "
+                       f"{len(buffered_proposals)} buffered proposal(s). is_leading={is_leading}")
+        return await self._wait_for_election_to_end(election, leading_future)
+
+    async def _wait_for_election_to_end(self, election: Election, leading_future: asyncio.Future[int]):
         # Validate the term
-        wait, is_leading = self._is_leading(term_number)
+        wait, is_leading = self._is_leading(election.term_number)
         if not wait:
-            self.log.debug(f"RaftLog {self._node_id}: returning for term {term_number} "
+            self.log.debug(f"RaftLog {self._node_id}: returning for term {election.term_number} "
                            f"without waiting, is_leading={is_leading}")
             return is_leading
 
@@ -220,7 +227,7 @@ class ElectionHandler(object):
         self.log.debug("ElectionHandler::handle_election: Successfully waited for resolution of _leading_future.")
 
         # Validate the term
-        wait, is_leading = self._is_leading(term_number)
+        wait, is_leading = self._is_leading(election.term_number)
         assert wait == False
         return is_leading
 
@@ -252,7 +259,99 @@ class ElectionHandler(object):
 
         :return: a tuple where 1st element indicates if we're done processing the election, and 2nd is result if so.
         """
-        pass
+        num_buffered_proposals_processed: int = 0
+
+        # TODO: Refactor this. 
+
+        if len(buffered_proposals) > 0:
+            self.log.debug(f"Processing {len(buffered_proposals)} buffered proposal(s) for election {election_term}.")
+
+            for i, buffered_proposal in enumerate(buffered_proposals):
+                self.log.debug(f"Handling buffered proposal {i + 1}/{len(buffered_proposals)} "
+                               f"during election term {election_term}: {buffered_proposal}")
+
+                self._handle_proposal(buffered_proposal.proposal, received_at=buffered_proposal.received_at)
+
+                self.log.debug(f"Handled buffered proposal {i + 1}/{len(buffered_proposals)} "
+                               f"during election term {election_term}.")
+                num_buffered_proposals_processed += 1
+
+        if isinstance(proposalOrVote, LeaderElectionProposal):
+            isDone, isLeading, voteProposal = await self._propose_election_proposal(
+                proposalOrVote, election_term,
+                num_buffered_proposals_processed=num_buffered_proposals_processed,
+                num_buffered_votes_processed=num_buffered_votes_processed)
+
+            if voteProposal is None or isDone:
+                return isDone, isLeading
+
+            assert isinstance(voteProposal, LeaderElectionVote)
+        else:
+            assert isinstance(proposalOrVote, LeaderElectionVote)
+            voteProposal: LeaderElectionVote = proposalOrVote
+
+        self.log.debug(f"Finished waiting on 'election decision' future for term {election_term}: {voteProposal}")
+        # self._received_vote_future = None
+        self._current_election.received_vote_future = None
+        self._election_decision_future = None
+
+        # Validate that the term number matches the current election.
+        if voteProposal.election_term != election_term:
+            raise ValueError(f"Received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) "
+                             f"compared to current election term number ({election_term})")
+
+        # Are we proposing that the election failed?
+        if voteProposal.election_failed:
+            self.log.debug(f"RaftLog {self._node_id}: Got decision to propose: election failed. "
+                           f"No replicas proposed 'LEAD'.")
+
+            with self._election_lock:
+                self._current_election.set_election_failed()
+
+            # None of the replicas proposed 'LEAD'
+            # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
+            return True, False
+
+        self.log.debug(f"RaftLog {self._node_id}: Appending vote proposal "
+                       f"for term {voteProposal.election_term} now.")
+
+        await self._append_election_vote(voteProposal)
+
+        self.log.debug(f"RaftLog {self._node_id}: Successfully appended vote "
+                       f"proposal for term {voteProposal.election_term} now.")
+
+        return False, False
+
+    async def _propose_election_proposal(
+            self,
+            proposal: LeaderElectionProposal,
+            election_term: int,
+            num_buffered_proposals_processed: int = 0,
+            num_buffered_votes_processed: int = 0,
+            _election_decision_future: Optional[asyncio.Future] = None,
+            _received_vote_future: Optional[asyncio.Future] = None,
+    ) -> Tuple[bool, bool, Optional[LeaderElectionVote]]:
+        """
+
+        :param proposal:
+        :param election_term:
+        :param num_buffered_proposals_processed:
+        :param num_buffered_votes_processed:
+        :param _election_decision_future:
+        :param _received_vote_future:
+        :return:
+        """
+        # TODO: Implement me.
+        raise NotImplementedError("_propose_election_proposal has not been implemented yet")
+
+    def _handle_proposal(self, proposal: LeaderElectionProposal, received_at: float = 0) -> bytes:
+        """
+        Handle a committed LEAD/YIELD proposal.
+
+        Args:
+            proposal (LeaderElectionProposal): the committed proposal.
+            received_at (float): the time at which we received this proposal.
+        """
 
     async def _process_buffered_votes(self, election: Election) -> Tuple[bool, int]:
         """

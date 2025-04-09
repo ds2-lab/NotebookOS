@@ -837,7 +837,7 @@ class Election(object):
     def received_vote_future(self)->Optional[asyncio.Future]:
         return self._received_vote_future
 
-    def get_and_clear_received_vote_future(self)->Optional[asyncio.Future[LeaderElectionVote]]:
+    def _get_and_clear_received_vote_future(self)->Optional[asyncio.Future[LeaderElectionVote]]:
         """
         Return the current value of the "Received Vote" asyncio.Future, and then
         set the value of the instance variable to None.
@@ -852,7 +852,7 @@ class Election(object):
         with self._leading_future_lock:
             return self._leading_future
 
-    def get_and_clear_leading_future(self)->Optional[asyncio.Future[int]]:
+    def _get_and_clear_leading_future(self)->Optional[asyncio.Future[int]]:
         """
         Return the current value of the "Leading" asyncio.Future, and then
         set the value of the instance variable to None.
@@ -985,13 +985,13 @@ class Election(object):
         self.log.debug(f"The voting phase for election {self.term_number} "
                        f"has completed successfully with winner: node {winner_id}.")
 
-        received_vote_future = self.get_and_clear_received_vote_future()
+        received_vote_future = self._get_and_clear_received_vote_future()
         if received_vote_future and not received_vote_future.done():
             assert self._first_vote_received is not None
             self.log.debug(f"Scheduled call to received_vote_future.set_result with result: {self._first_vote_received}")
             self.future_io_loop.call_soon_threadsafe(received_vote_future.set_result, self._first_vote_received)
 
-            leading_future: Optional[asyncio.Future] = self.get_and_clear_received_vote_future()
+            leading_future: Optional[asyncio.Future] = self._get_and_clear_leading_future()
             if leading_future is not None:
                 self.log.debug(f"Scheduled call to leading_future.set_result with result: {self.term_number}")
                 self.future_io_loop.call_soon_threadsafe(leading_future.set_result, self.term_number)
