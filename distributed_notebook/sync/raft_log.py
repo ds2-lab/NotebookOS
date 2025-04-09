@@ -801,6 +801,7 @@ class RaftLog(object):
                 election_term,
                 self._num_replicas,
                 jupyter_message_id,
+                local_node_id=self._node_id,
                 timeout_seconds=self._election_timeout_sec,
                 io_loop=self._shell_io_loop,
             )
@@ -2085,7 +2086,7 @@ class RaftLog(object):
         )
         await self._serialize_and_append_value(notification)
 
-    async def _serialize_and_append_value(self, value: SynchronizedValue):
+    async def _serialize_and_append_value(self, value: SynchronizedValue) -> None:
         """
         Serialize the SynchronizedValue (using the pickle module) and explicitly propose and append it to the synchronized etcd-raft log.
         """
@@ -2196,6 +2197,7 @@ class RaftLog(object):
             term_number,
             self._num_replicas,
             jupyter_message_id,
+            local_node_id=self._node_id,
             timeout_seconds=self._election_timeout_sec,
             io_loop=self._shell_io_loop,
         )

@@ -3,11 +3,11 @@ import datetime
 import logging
 import threading
 from enum import IntEnum
-from typing import Dict, Optional, List, MutableMapping, Any
+from typing import Dict, Optional, List, MutableMapping, Any, Tuple
 
 import time
 
-from .log import LeaderElectionVote, LeaderElectionProposal, BufferedLeaderElectionVote
+from .log import LeaderElectionVote, LeaderElectionProposal, BufferedLeaderElectionVote, BufferedLeaderElectionProposal
 from ..logs import ColoredLogFormatter
 
 # Indicates that the election was completed because the elected leader finished executing the user-submitted code.
@@ -84,6 +84,7 @@ class Election(object):
             term_number: int,
             num_replicas: int,
             jupyter_message_id: str,
+            local_node_id: int = 1,
             timeout_seconds: float = 10,
             io_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
@@ -93,6 +94,9 @@ class Election(object):
         # Each election has a unique term number.
         # Term numbers monotonically increase over time.
         self._term_number: int = term_number
+
+        self._local_node_id: int = local_node_id
+        """ The SMR node ID of the node in which this Election object exists. """
 
         self._num_replicas: int = num_replicas
         """ # The number of replicas in the SMR cluster, so we know how many proposals to expect. """
@@ -109,7 +113,7 @@ class Election(object):
         multiple Python threads/goroutines that are accessing the _buffered_votes dictionary).        
         """
 
-        self._buffered_proposals: List[LeaderElectionProposal]
+        self._buffered_proposals: List[BufferedLeaderElectionProposal] = []
         """
         If we receive a proposal with a larger term number than our current election, then it is possible
         that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message
@@ -262,7 +266,7 @@ class Election(object):
         The asyncio IO loop that any entity waiting for the election to complete is expected to be running within.
         """
 
-        self._election_decision_future_mutex: Optional[asyncio.Lock] = asyncio.Lock()
+        self._election_decision_future_mutex: Optional[threading.Lock] = threading.Lock()
         self._election_decision_future: Optional[asyncio.Future[Any]] = self._future_io_loop.create_future()
         """
         This is the future we'll use to submit a formal vote for who should lead,
@@ -302,14 +306,29 @@ class Election(object):
                 f"NumProposalsAccepted={self.num_proposals_accepted}"
                 f"]")
 
-    def buffer_vote(self, vote: BufferedLeaderElectionVote) -> None:
+    def buffer_vote(self, vote: LeaderElectionVote, received_at:float = time.time()) -> None:
         """
         Append the specified LeaderElectionVote object to the list of buffered LeaderElectionVote objects.
 
         :param vote: the LeaderElectionVote to buffer.
+        :param received_at: the time at which the LeaderElectionVote was received.
         """
         with self._buffered_votes_lock:
-            self._buffered_votes.append(vote)
+            buffered_vote: BufferedLeaderElectionVote = BufferedLeaderElectionVote(
+                vote=vote, received_at=received_at)
+            self._buffered_votes.append(buffered_vote)
+
+    def buffer_proposal(self, proposal: LeaderElectionProposal, received_at:float = time.time()) -> None:
+        """
+        Append the specified LeaderElectionProposal object to the list of buffered LeaderElectionProposal objects.
+
+        :param proposal: the LeaderElectionProposal to buffer.
+        :param received_at: the time at which the LeaderElectionProposal was received.
+        """
+        with self._buffered_proposals_lock:
+            buffered_proposal: BufferedLeaderElectionProposal = BufferedLeaderElectionProposal(
+                proposal=proposal, received_at=received_at)
+            self._buffered_proposals.append(buffered_proposal)
 
     def get_election_metadata(self) -> Dict[str, Any]:
         """
@@ -387,11 +406,20 @@ class Election(object):
             self.log.addHandler(ch)
 
     @property
+    def buffered_proposals(self) -> List[BufferedLeaderElectionProposal]:
+        """
+        The BufferedLeaderElectionProposal instances that were received before this election was started.
+        """
+        with self._buffered_proposals_lock:
+            return self._buffered_proposals
+
+    @property
     def buffered_votes(self) -> List[BufferedLeaderElectionVote]:
         """
         The BufferedLeaderElectionVote instances that were received before this election was started.
         """
-        return self._buffered_votes
+        with self._buffered_votes_lock:
+            return self._buffered_votes
 
     @property
     def jupyter_message_id(self) -> str:
@@ -594,8 +622,8 @@ class Election(object):
         """
         return self._election_decision_future
 
-    async def get_and_clear_election_decision_future(self) -> Optional[asyncio.Future[Any]]:
-        async with self._election_decision_future_mutex:
+    def get_and_clear_election_decision_future(self) -> Optional[asyncio.Future[Any]]:
+        with self._election_decision_future_mutex:
             tmp: Optional[asyncio.Future[Any]] = self._election_decision_future
             self._election_decision_future = None
             return tmp
@@ -1199,7 +1227,7 @@ class Election(object):
             return True
 
     def add_proposal(self, proposal: LeaderElectionProposal, future_io_loop: asyncio.AbstractEventLoop,
-                     received_at: float = time.time()) -> Optional[tuple[asyncio.Future[Any], float]]:
+                     received_at: float = time.time()) -> Tuple[Optional[asyncio.Future[Any]], float]:
         """
         Register a proposed LeaderElectionProposal.
 
@@ -1254,7 +1282,7 @@ class Election(object):
                 f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} "
                 f"because new proposal has attempt number ({proposal.attempt_number}) <= existing proposal "
                 f"from same node's attempt number ({existing_proposal.attempt_number}).")
-            return None
+            return None, -1
 
         # Check if we need to discard the proposal due to it being received late.
         if 0 < self._discard_after < received_at:  # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
@@ -1262,7 +1290,7 @@ class Election(object):
             self._lifetime_num_discarded_proposals += 1
             self.log.warning(
                 f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
-            return None
+            return None, -1
 
         # We're not discarding the proposal, so let's officially store the new proposal.
         self._proposals[proposal.proposer_id] = proposal
@@ -1290,15 +1318,60 @@ class Election(object):
             f"Received proposals from node(s): {', '.join([str(k) for k in self._proposals.keys()])}. "
             f"Missing proposals from node(s): {', '.join([str(k) for k in self._missing_proposals])}")
 
+        # TODO: This is where we could put the decide_election from RaftLog
+
         # Check if this is the first 'LEAD' proposal that we've received.
         # If so, we'll return a future that can be used to ensure we make a decision after the timeout period, even if we've not received all other proposals.
         if self._first_lead_proposal is None and proposal.is_lead:
             self._first_lead_proposal = proposal
             self._discard_after = time.time() + self._timeout
 
-            self._pick_and_propose_winner_future = asyncio.Future(loop=future_io_loop)
+            self._pick_and_propose_winner_future: asyncio.Future = asyncio.Future(loop=future_io_loop)
 
             return self._pick_and_propose_winner_future, self._discard_after
 
         # It wasn't the first 'LEAD' proposal, so we just return None.
-        return None
+        return None, -1
+
+    def _conclude_voting_phase(self, last_winner_id: int = -1) -> bool:
+        """
+        Try to select a winner to propose for the current election.
+
+        Returns:
+            True if a winner was selected for proposal (including just proposing 'FAILURE' due to all nodes
+            proposing 'YIELD'); otherwise, return False.
+        """
+        if self.voting_phase_completed_successfully:
+            self.log.debug("Voting phase already completed.")
+            return False
+
+        assert self._future_io_loop is not None
+
+        try:
+            winner_id: int = self.pick_winner_to_propose(last_winner_id=last_winner_id)
+        except ElectionAlreadyDecidedError:
+            self.log.debug(f"Winner already selected for election {self._term_number}.")
+            return False
+        except ElectionNotStartedError as ex:
+            self.log.error(f"ElectionNotStartedError encountered while trying "
+                           f"to pick winner for election {self._term_number}: {ex}")
+            raise ex  # Re-raise.
+        except ValueError as ex:
+            self.log.debug(f"No winner to propose yet for election in term "
+                           f"{self._term_number} because: {ex}")
+            return False
+
+        vote: LeaderElectionVote = LeaderElectionVote(
+            proposed_node_id=winner_id,
+            jupyter_message_id=self.jupyter_message_id,
+            proposer_id=self._local_node_id,
+            election_term=self._term_number,
+            attempt_number=self.current_attempt_number,
+        )
+
+        election_decision_future: asyncio.Future[Any] = self.get_and_clear_election_decision_future()
+        assert election_decision_future is not None
+
+        self._future_io_loop.call_soon_threadsafe(election_decision_future.set_result, vote)
+
+        return True
