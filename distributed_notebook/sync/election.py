@@ -7,7 +7,7 @@ from typing import Dict, Optional, List, MutableMapping, Any
 
 import time
 
-from .log import LeaderElectionVote, LeaderElectionProposal
+from .log import LeaderElectionVote, LeaderElectionProposal, BufferedLeaderElectionVote
 from ..logs import ColoredLogFormatter
 
 # Indicates that the election was completed because the elected leader finished executing the user-submitted code.
@@ -85,7 +85,7 @@ class Election(object):
             num_replicas: int,
             jupyter_message_id: str,
             timeout_seconds: float = 10,
-            future_io_loop: Optional[asyncio.AbstractEventLoop] = None,
+            io_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self._jupyter_message_id: str = jupyter_message_id
 
@@ -97,10 +97,10 @@ class Election(object):
         self._num_replicas: int = num_replicas
         """ # The number of replicas in the SMR cluster, so we know how many proposals to expect. """
 
-        self._buffered_votes: List[LeaderElectionVote] = []
+        self._buffered_votes: List[BufferedLeaderElectionVote] = []
         """
-        _buffered_votes serves the same purpose as _buffered_proposals, but _buffered_votes is for LeaderElectionVote
-        objects, whereas _buffered_proposals is for LeaderElectionProposal objects.        
+        _buffered_votes serves the same purpose as _buffered_proposals, but _buffered_votes is for 
+        BufferedLeaderElectionVote objects, whereas _buffered_proposals is for LeaderElectionProposal objects.        
         """
 
         self._buffered_votes_lock: threading.Lock = threading.Lock()
@@ -131,6 +131,9 @@ class Election(object):
         """ Mapping from attempt number to the associated ElectionTimestamps object. """
         self._current_election_timestamps: ElectionTimestamps = self._election_timestamps[1]
 
+        self._vote_lock: threading.Lock = threading.Lock()
+        """ Provides atomic access to the votes. """
+
         # Set of node IDs for which we're missing proposals.
         # The set of node IDs for which we've received proposals is simply `self._proposals.keys()`.
         # This field is reset if the election is restarted.
@@ -140,6 +143,9 @@ class Election(object):
 
         self._vote_proposals: Dict[int, LeaderElectionVote] = {}
         """ Mapping from SMR Node ID to the LeaderElectionVote that it proposed during this election term. """
+
+        self._first_vote_received: Optional[LeaderElectionVote] = None
+        """ The first LeaderElectionVote received during this Election. """
 
         # Mapping from SMR node ID to an inner mapping.
         # The inner mapping is a mapping from attempt number to the associated LeaderElectionProposal proposed by that node (during that attempt) during this election term.
@@ -152,12 +158,14 @@ class Election(object):
         self._election_state: ElectionState = ElectionState.INACTIVE
         """ The current state/status of the election. """
 
-        if future_io_loop is None:
+        if io_loop is None:
             self._future_io_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+            self._election_finished_condition_waiter_loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
         else:
-            self._future_io_loop: asyncio.AbstractEventLoop = future_io_loop
+            self._future_io_loop: asyncio.AbstractEventLoop = io_loop
+            self._election_finished_condition_waiter_loop: asyncio.AbstractEventLoop = io_loop
 
-        self._received_vote_future: Optional[asyncio.Future[Any]] = self._future_io_loop.create_future()
+        self._received_vote_future: Optional[asyncio.Future[LeaderElectionVote]] = self._future_io_loop.create_future()
         self._received_vote_future_lock: threading.Lock = threading.Lock()
 
         self._leading_future_lock: threading.Lock = threading.Lock()
@@ -294,7 +302,7 @@ class Election(object):
                 f"NumProposalsAccepted={self.num_proposals_accepted}"
                 f"]")
 
-    def buffer_vote(self, vote: LeaderElectionVote) -> None:
+    def buffer_vote(self, vote: BufferedLeaderElectionVote) -> None:
         """
         Append the specified LeaderElectionVote object to the list of buffered LeaderElectionVote objects.
 
@@ -379,9 +387,9 @@ class Election(object):
             self.log.addHandler(ch)
 
     @property
-    def buffered_votes(self) -> List[LeaderElectionVote]:
+    def buffered_votes(self) -> List[BufferedLeaderElectionVote]:
         """
-        The LeaderElectionVote instances that were received before this election was started.
+        The BufferedLeaderElectionVote instances that were received before this election was started.
         """
         return self._buffered_votes
 
@@ -829,7 +837,7 @@ class Election(object):
     def received_vote_future(self)->Optional[asyncio.Future]:
         return self._received_vote_future
 
-    def get_and_clear_received_vote_future(self)->Optional[asyncio.Future]:
+    def get_and_clear_received_vote_future(self)->Optional[asyncio.Future[LeaderElectionVote]]:
         """
         Return the current value of the "Received Vote" asyncio.Future, and then
         set the value of the instance variable to None.
@@ -955,12 +963,14 @@ class Election(object):
         else:
             self.log.debug(f"The code execution phase for election {self.term_number} has completed.")
 
-    def set_election_vote_completed(self, winner_id: int):
+    def set_election_vote_completed(self, winner_id: int) -> bool:
         """
         Take note that the voting phase of the election has been completed successfully.
 
         State Transition:
         ACTIVE --> VOTE_COMPLETE
+
+        :return: True if a call to received_vote_future.set_result was scheduled; otherwise, False.
         """
         if self._election_state != ElectionState.ACTIVE:
             raise ValueError(f"Election for term {self.term_number} is not active "
@@ -975,12 +985,22 @@ class Election(object):
         self.log.debug(f"The voting phase for election {self.term_number} "
                        f"has completed successfully with winner: node {winner_id}.")
 
+        received_vote_future = self.get_and_clear_received_vote_future()
+        if received_vote_future and not received_vote_future.done():
+            assert self._first_vote_received is not None
+            self.log.debug(f"Scheduled call to received_vote_future.set_result with result: {self._first_vote_received}")
+            self.future_io_loop.call_soon_threadsafe(received_vote_future.set_result, self._first_vote_received)
+
+            leading_future: Optional[asyncio.Future] = self.get_and_clear_received_vote_future()
+            if leading_future is not None:
+                self.log.debug(f"Scheduled call to leading_future.set_result with result: {self.term_number}")
+                self.future_io_loop.call_soon_threadsafe(leading_future.set_result, self.term_number)
+
+            return True
+
+        return False
+
     def format_accepted_proposals(self) -> str:
-        """
-
-        Returns:
-
-        """
         # TODO: Should this method be locked?
 
         if len(self._proposals) == 0:
@@ -1114,52 +1134,69 @@ class Election(object):
 
         That is, when overwriting an existing proposal with a new proposal, any other proposals (from other nodes) whose attempt numbers are lower than the new proposal will be discarded.
 
-        Returns:
-            (bool) True if this is the first vote proposal (of whatever attempt number the proposal has) that has been received during this election, otherwise False
+        Returns
+        -------
+        bool
+            True if this is the first vote proposal (of whatever attempt number the proposal has) that has been received during this election, otherwise False
         """
-        if vote.election_term != self.term_number:
-            self.log.error(
-                f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
-            raise ValueError(
-                f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
-
-        proposer_id: int = vote.proposer_id
-        current_attempt_number: int = vote.attempt_number
-
-        # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far.
-        if current_attempt_number > self._current_attempt_number:
-            self.log.debug(f"Received vote for node {vote.proposed_node_id} from node "
-                           f"{vote.proposer_id} with attempt number {vote.attempt_number}. "
-                           f"Current attempt number is {self._current_attempt_number}. "
-                           f"Setting attempt number to new value of {vote.attempt_number}.")
-            self._current_attempt_number = current_attempt_number
-
-        # Check if there's already an existing proposal.
-        # If so, and if overwrite is False, then we raise a ValueError.
-        existing_proposal: Optional[LeaderElectionVote] = self._vote_proposals.get(proposer_id, None)
-        if existing_proposal is not None:
-            prev_attempt_number: int = existing_proposal.attempt_number
-
-            # Raise an error if we've not been instructed to overwrite.
-            # If we have been instructed to overwrite, then we'll end up storing the new proposal at the end of this method.
-            if prev_attempt_number >= current_attempt_number and not overwrite:
+        with self._vote_lock:
+            if vote.election_term != self.term_number:
+                self.log.error(
+                    f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
                 raise ValueError(
-                    f"new proposal has attempt number {current_attempt_number}, whereas previous/existing proposal has attempt number {prev_attempt_number}")
+                    f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
 
-        # TODO: Modified this to only discard proposals if we've received at least one so far. If we haven't received any yet, then we still accept proposals after the delay.
-        if 0 < self._discard_after < received_at and len(
-                self._vote_proposals) >= 1:  # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
-            self._num_discarded_vote_proposals += 1
-            self.log.debug(
-                f"Discarding 'VOTE' proposal from node {vote.proposer_id}, as it was received after deadline. (Deadline: {datetime.datetime.fromtimestamp(self._discard_after).strftime('%Y-%m-%d %H:%M:%S.%f')}, Received at: {datetime.datetime.fromtimestamp(received_at).strftime('%Y-%m-%d %H:%M:%S.%f')})")
-            return False
+            proposer_id: int = vote.proposer_id
+            current_attempt_number: int = vote.attempt_number
 
-        # Store the new proposal.
-        self._vote_proposals[proposer_id] = vote
+            # Update the current attempt number if the newly-received proposal has a greater
+            # attempt number than any of the other proposals that we've seen so far.
+            if current_attempt_number > self._current_attempt_number:
+                self.log.debug(f"Received vote for node {vote.proposed_node_id} from node "
+                               f"{vote.proposer_id} with attempt number {vote.attempt_number}. "
+                               f"Current attempt number is {self._current_attempt_number}. "
+                               f"Setting attempt number to new value of {vote.attempt_number}.")
+                self._current_attempt_number = current_attempt_number
 
-        # If the length is 1, then this is the first "vote" proposal received.
-        # If the length is not 1, then this is not the first.
-        return len(self._vote_proposals) == 1
+            # Check if there's already an existing proposal.
+            # If so, and if overwrite is False, then we raise a ValueError.
+            existing_proposal: Optional[LeaderElectionVote] = self._vote_proposals.get(proposer_id, None)
+            if existing_proposal is not None:
+                prev_attempt_number: int = existing_proposal.attempt_number
+
+                # Raise an error if we've not been instructed to overwrite.
+                # If we have been instructed to overwrite, then we'll end up
+                # storing the new proposal at the end of this method.
+                if prev_attempt_number >= current_attempt_number and not overwrite:
+                    raise ValueError(f"new proposal has attempt number {current_attempt_number}, "
+                                     f"whereas previous/existing proposal has attempt number {prev_attempt_number}")
+
+            # TODO: Modified this to only discard proposals if we've received at least one so far.
+            #       If we haven't received any yet, then we still accept proposals after the delay.
+
+            # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
+            if 0 < self._discard_after < received_at and len(self._vote_proposals) >= 1:
+                self._num_discarded_vote_proposals += 1
+                self.log.debug(
+                    f"Discarding 'VOTE' proposal from node {vote.proposer_id}, as it was received after deadline. "
+                    f"(Deadline: {datetime.datetime.fromtimestamp(self._discard_after).strftime('%Y-%m-%d %H:%M:%S.%f')}, "
+                    f"Received at: {datetime.datetime.fromtimestamp(received_at).strftime('%Y-%m-%d %H:%M:%S.%f')})")
+                return False
+
+            # Store the new proposal.
+            self._vote_proposals[proposer_id] = vote
+
+            if self._first_vote_received is not None:
+                return False
+
+            self._first_vote_received = vote
+
+            try:
+                self.set_election_vote_completed(vote.proposed_node_id)
+            except ValueError:
+                self.log.warning(f"Election {self.term_number} has already completed the voting phase.")
+
+            return True
 
     def add_proposal(self, proposal: LeaderElectionProposal, future_io_loop: asyncio.AbstractEventLoop,
                      received_at: float = time.time()) -> Optional[tuple[asyncio.Future[Any], float]]:
@@ -1169,9 +1206,11 @@ class Election(object):
         Let P' be a new proposal from Node N. Let P be the existing proposal from Node N.
         If TERM_NUMBER(P') > TERM_NUMBER(P) and `overwrite` is True, then P will be replaced with P'.
 
-        Let X be the set of proposals from the other nodes (i.e., nodes whose ID != N). For each proposal x in X, if TERM_NUMBER(x) < TERM_NUMBER(P'), then x will be thrown out/discarded.
+        Let X be the set of proposals from the other nodes (i.e., nodes whose ID != N). For each proposal x in X,
+        if TERM_NUMBER(x) < TERM_NUMBER(P'), then x will be thrown out/discarded.
 
-        That is, when overwriting an existing proposal with a new proposal, any other proposals (from other nodes) whose attempt numbers are lower than the new proposal will be discarded.
+        That is, when overwriting an existing proposal with a new proposal, any other proposals (from other nodes)
+        whose attempt numbers are lower than the new proposal will be discarded.
 
         Returns:
             tuple:

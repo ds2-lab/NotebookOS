@@ -489,13 +489,14 @@ class RaftLog(object):
             sys.stderr.flush()
             sys.stdout.flush()
             return GoNilError()
-        else:
-            self.log.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
+
+        self.log.debug(f"Discarding old LeaderElectionVote from term {vote.election_term} "
                            f"with attempt number {vote.attempt_number}, "
                            f"as we need to catch-up: {vote}")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
+
+        sys.stderr.flush()
+        sys.stdout.flush()
+        return GoNilError()
 
     def __handle_old_vote(
             self,
@@ -801,7 +802,7 @@ class RaftLog(object):
                 self._num_replicas,
                 jupyter_message_id,
                 timeout_seconds=self._election_timeout_sec,
-                future_io_loop=self._shell_io_loop,
+                io_loop=self._shell_io_loop,
             )
             self._elections[election_term] = election
 
@@ -2196,7 +2197,7 @@ class RaftLog(object):
             self._num_replicas,
             jupyter_message_id,
             timeout_seconds=self._election_timeout_sec,
-            future_io_loop=self._shell_io_loop,
+            io_loop=self._shell_io_loop,
         )
         self._elections[term_number] = election
 

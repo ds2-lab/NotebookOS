@@ -366,10 +366,19 @@ class BufferedLeaderElectionVote(object):
     The purpose is so we can pass the correct timestamp when we eventually process the buffered vote.
     """
 
-    def __init__(self, vote: LeaderElectionVote, received_at: float = time.time(), jupyter_message_id:str = ""):
+    def __init__(
+            self,
+            vote: LeaderElectionVote,
+            received_at: float = time.time(),
+            jupyter_message_id:Optional[str] = None
+    ):
         self._vote: LeaderElectionVote = vote
         self._received_at: float = received_at
-        self._jupyter_message_id = jupyter_message_id
+
+        if jupyter_message_id is None or jupyter_message_id == "":
+            self._jupyter_message_id: str = vote.jupyter_message_id
+        else:
+            self._jupyter_message_id: str = jupyter_message_id
 
     @property
     def jupyter_message_id(self):

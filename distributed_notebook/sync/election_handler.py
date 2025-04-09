@@ -41,6 +41,8 @@ class ElectionHandler(object):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._leader_term: int = 0
+        self._leader_id: int = 0
         self._node_id: int = node_id
         self._kernel_id: str = kernel_id
         self._num_replicas: int = num_replicas
@@ -56,6 +58,8 @@ class ElectionHandler(object):
         self._term_to_jupyter_id: Dict[int, str] = {}
         self._jupyter_id_to_term: Dict[str, int] = {}
         self._term_lock: threading.Lock = threading.Lock()
+
+        self._needs_to_catch_up: bool = False
 
         self._proposed_values: OrderedDict[int, OrderedDict[int, LeaderElectionProposal]] = OrderedDict()
         """ Mapping from term number -> Dict. The inner map is attempt number -> proposal. """
@@ -78,6 +82,14 @@ class ElectionHandler(object):
         Ensures atomic access to the _buffered_proposals dictionary (required because we may be switching between
         multiple Python threads/goroutines that are accessing the _buffered_proposals dictionary).
         """
+
+    @property
+    def needs_to_catch_up(self) -> bool:
+        return self._needs_to_catch_up
+
+    @needs_to_catch_up.setter
+    def needs_to_catch_up(self, value: bool) -> None:
+        self._needs_to_catch_up = value
 
     async def handle_election(
             self,
@@ -181,9 +193,6 @@ class ElectionHandler(object):
                 term_number,
                 num_buffered_votes_processed,
                 proposal_or_vote,
-                election_decision_future,
-                leading_future,
-                received_vote_future,
                 target_replica_id
             )
 
@@ -270,9 +279,12 @@ class ElectionHandler(object):
             self.log.debug(f"ElectionHandler::_process_buffered_votes: processing vote "
                            f"{i+1}/{len(election.buffered_votes)} for election {election.term_number}: {buffered_vote}")
 
-            # TODO: Is it OK to just pass the current time for `received_at`?
-            #       Or should I save the time at which it was received and buffered, and pass that instead?
-            self._handle_vote(buffered_vote.vote, received_at=buffered_vote.received_at)
+            self._handle_vote(
+                election=election,
+                vote=buffered_vote.vote,
+                received_at=buffered_vote.received_at,
+                buffered=True
+            )
 
             self.log.debug(f"ElectionHandler::_process_buffered_votes: handled buffered vote "
                            f"{i + 1}/{len(election.buffered_votes)} election {election.term_number}.")
@@ -290,16 +302,69 @@ class ElectionHandler(object):
 
         return skip_proposals, num_buffered_votes_processed
 
-    def _handle_vote(self, vote: LeaderElectionVote, received_at: float = time.time(), buffered: bool = False) -> None:
+    def _handle_vote(
+            self,
+            election: Election,
+            vote: LeaderElectionVote,
+            received_at: float = time.time(),
+            buffered: bool = False
+    ) -> bytes:
         """
         Process a LeaderElectionVote that was appended to the RaftLog.
 
         :param vote: the vote that was appended to the RaftLog.
         :param received_at: the time at which we received the LeaderElectionVote.
         :param buffered: indicates whether the specified LeaderElectionVote was buffered.
+
+        :raises ValueError: if the term number of the specified Election does not match
+                            the election term  field of the specified LeaderElectionVote.
         """
-        # TODO: Implement me.
-        raise NotImplementedError("ElectionHandler::_handle_vote is not implemented yet")
+        self.log.debug(f"Handling committed LeaderElectionVote: {vote}, buffered={buffered}")
+
+        if election.term_number != vote.election_term:
+            raise ValueError(f"Inconsistent term number between election ({election.term_number}) "
+                             f"and LeaderElectionVote({vote.election_term}).")
+
+        if self.needs_to_catch_up:
+            return self._handle_vote_while_catching_up(election=election, vote=vote, received_at=received_at)
+
+        was_first_vote_proposal: bool = election.add_vote_proposal(vote, overwrite = True, received_at = received_at)
+
+        if not was_first_vote_proposal:
+            self.log.debug(f"Discarding vote for node {vote.proposed_node_id} from node {vote.proposer_id} "
+                           f"during term {election.term_number}, as it is not the first committed vote.")
+
+        sys.stderr.flush()
+        sys.stdout.flush()
+        return GoNilError()
+
+    def _handle_vote_while_catching_up(
+            self,
+            election: Election,
+            vote: LeaderElectionVote,
+            received_at: float = time.time(),
+    ) -> bytes:
+        """
+        Handle a vote received while catching up.
+
+        :param election: the associated Election.
+        :param vote: the vote that was received.
+        :param received_at: the time at which the vote was received.
+
+        :raises ValueError: if the term number of the specified Election does not match the election term field of
+                            the specified LeaderElectionVote.
+        """
+        self.log.debug(f"Vote for election {election.term_number} was received while catching up: {vote}")
+
+        if election.term_number != vote.election_term:
+            raise ValueError(f"Inconsistent term number between election ({election.term_number}) "
+                             f"and LeaderElectionVote({vote.election_term}).")
+
+        self._buffer_vote(vote=vote, election=election, received_at=received_at)
+
+        sys.stderr.flush()
+        sys.stdout.flush()
+        return GoNilError()
 
     def _validate_proposal(
             self,
@@ -334,7 +399,8 @@ class ElectionHandler(object):
         self.log.debug(f"Received Vote: {vote}")
 
         with self._elections_lock:
-            election: Optional[Election] = self._get_or_create_election(vote.election_term, vote.jupyter_message_id)
+            election: Optional[Election] = self._get_or_create_election(
+                vote.election_term, vote.jupyter_message_id, vote.attempt_number)
 
             if not election.has_been_started:
                 self._buffer_vote(vote)
@@ -343,29 +409,11 @@ class ElectionHandler(object):
                 sys.stdout.flush()
                 return GoNilError()
 
-            was_first_vote_proposal: bool = election.add_vote_proposal(vote, overwrite=True, received_at=received_at)
+        was_first_vote_proposal: bool = election.add_vote_proposal(vote, overwrite=True, received_at=received_at)
 
-            if not was_first_vote_proposal or election.voting_phase_completed_successfully:
-                self.log.debug(f"Ignoring vote [term={vote.election_term}, proposer={vote.proposer_id}, "
-                               f"proposed={vote.proposed_node_id}, jupyterId={vote.jupyter_message_id}].")
-
-                sys.stderr.flush()
-                sys.stdout.flush()
-                return GoNilError()
-
-            try:
-                election.set_election_vote_completed(vote.proposed_node_id)
-            except ValueError as ex:
-                self.log.error(f'Failed to transition election {election.term_number} to "voting completed": {ex}')
-
-            future: asyncio.Future[LeaderElectionVote] = election.get_and_clear_received_vote_future()
-            assert future is not None
-
-            self._io_loop.call_soon_threadsafe(future.set_result, vote)
-
-        leading_future: Optional[asyncio.Future] = election.get_and_clear_received_vote_future()
-        if leading_future is not None:
-            self._io_loop.call_soon_threadsafe(leading_future.set_result, election.term_number)
+        if not was_first_vote_proposal or election.voting_phase_completed_successfully:
+            self.log.debug(f"Ignoring vote [term={vote.election_term}, proposer={vote.proposer_id}, "
+                           f"proposed={vote.proposed_node_id}, jupyterId={vote.jupyter_message_id}].")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -376,7 +424,7 @@ class ElectionHandler(object):
 
         with self._elections_lock:
             election: Optional[Election] = self._get_or_create_election(
-                notification.election_term, notification.jupyter_message_id)
+                notification.election_term, notification.jupyter_message_id, notification.attempt_number)
 
             self._complete_election(election, notification)
 
@@ -527,11 +575,9 @@ class ElectionHandler(object):
             num_replicas=self._num_replicas,
             jupyter_message_id=jupyter_message_id,
             timeout_seconds=self._election_timeout_sec,
-            future_io_loop=self._io_loop,
+            io_loop=self._io_loop,
+            election_finished_condition_waiter_loop=self._io_loop,
         )
-
-        if election._election_finished_condition_waiter_loop is None:
-            election._election_finished_condition_waiter_loop = asyncio.get_running_loop()
 
         self._update_term_jupyter_id_mapping(election_term, jupyter_message_id)
 
@@ -621,18 +667,25 @@ class ElectionHandler(object):
             if jupyter_msg_id not in self._jupyter_id_to_term:
                 self._jupyter_id_to_term[jupyter_msg_id] = term_number
 
-    def _buffer_vote(self, vote: LeaderElectionVote) -> None:
+    def _buffer_vote(
+            self,
+            vote: LeaderElectionVote,
+            received_at: float = time.time(),
+            election: Optional[Election] = None,
+    ) -> None:
         """
         Buffer a LeaderElectionVote received before the associated Election was started.
         """
         self.log.debug(f"Buffering vote. Term={vote.election_term}. Proposer={vote.proposer_id}. "
                        f"Target={vote.proposed_node_id}. JupyterId={vote.jupyter_message_id}.")
 
-        with self._election_timeout_sec:
-            election: Election = self._get_or_create_election(
-                vote.election_term, vote.jupyter_message_id, vote.attempt_number)
+        if election is None:
+            with self._election_timeout_sec:
+                election: Election = self._get_or_create_election(
+                    vote.election_term, vote.jupyter_message_id, vote.attempt_number)
 
-        election.buffer_vote(vote)
+        buffered_vote: BufferedLeaderElectionVote = BufferedLeaderElectionVote(vote=vote, received_at=received_at)
+        election.buffer_vote(buffered_vote)
 
 class ElectionHandler2(object):
     def __init__(
