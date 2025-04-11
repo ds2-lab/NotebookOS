@@ -1,3 +1,5 @@
+![europa logo](./europa-logo.webp)
+
 # A Jupyter Notebooks-as-a-Service Platform (Project Name Pending)
 
 Welcome to the "A Jupyter Notebooks-as-a-Service Platform (Project Name Pending)" — a fully-featured prototype designed for GPU-based machine learning training workloads. 
