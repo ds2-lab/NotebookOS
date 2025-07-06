@@ -4,6 +4,8 @@ Welcome to the "A Jupyter Notebooks-as-a-Service Platform (Project Name Pending)
 This platform provides seamless integration with powerful monitoring and analytics tools, making it ideal for data scientists and machine learning engineers.
 It is also designed to provide a high degree of interactivity, making it well-suited for interactive programming sessions and thus a great tool for students.
 
+**Note:** there is a dashboard and workload orchestrator component intended to be deployed alongside NotebookOS. The repository for that is available [here](https://github.com/ds2-lab/NotebookOS-Dashboard).
+
 ## Key Features
 
 - **GPU-Accelerated Notebooks** 🚀: Leverage GPU power for machine learning and deep learning workloads.
