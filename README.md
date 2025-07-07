@@ -1,6 +1,6 @@
 # NotebookOS — a Jupyter Notebooks-as-a-Service Platform 
 
-Welcome to the NotebookOS — a fully-featured prototype designed for GPU-based machine learning training workloads. 
+NotebookOS is a fully-featured prototype designed for GPU-based machine learning training workloads. 
 This platform provides seamless integration with powerful monitoring and analytics tools, making it ideal for data scientists and machine learning engineers.
 It is also designed to provide a high degree of interactivity, making it well-suited for interactive programming sessions and thus a great tool for students.
 
