@@ -16,7 +16,7 @@ It is also designed to provide a high degree of interactivity, making it well-su
 
   - Prometheus for time-series data monitoring 🔍
 
-  - Promtail for log collection 🪵
+  - Promtail for log collection 📝
 
   - Loki for efficient log aggregation ♻️
 
