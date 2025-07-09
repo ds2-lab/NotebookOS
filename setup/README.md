@@ -17,6 +17,15 @@ DXCore version: 10.0.26100.1-240331-1435.ge-release
 Windows version: 10.0.19045.5011
 ```
 
+## Configuration
+
+Before running any playbooks, there are a few configuration-related steps that must be performed. First, create a file called `all.yaml` in the `setup/ansible/group_vars` directory. The `all.template.yaml` file is provided as a starting point. There are 5 configuration parameters that must be specified explicitly:
+- `ansible_ssh_private_key_file`: Path to a private SSH key on the computer that will be used to run the Ansible playbook(s). Used to enable access to the other VMs in the NotebookOS cluster.
+- `private_key_to_upload`: Path to a private SSH key on the computer that will be used to run the Ansible playbook(s). This SSH key will be uploaded to the VMs in the NotebookOS cluster to enable SSH connectivity between them. This is useful because you may want to run some scripts or Ansible playbooks from one of the VMs once NotebookOS has been deployed.
+- `public_key_to_upload`: Path to a public SSH key on the coputer that will be used to run the Ansible playbook(s). This SSH key will be uploaded to the VMs in the NotebookOS cluster to enable SSH connectivity between them. This is useful because you may want to run some scripts or Ansible playbooks from one of the VMs once NotebookOS has been deployed.
+- `gitbranch`: the branch of the NotebookOS GitHub repository to use when deploying NotebookOS. You can default to using ``main''.
+- `git_personal_access_token`: [GitHub personal access token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) with read access to the NotebookOS GitHub repository (or the fork of the NotebookOS source code that is being used).
+
 ## Python
 
 The latest version of the `distributed-notebook` system was developed and tested using Python 3.12.6. We have also
@@ -46,3 +55,13 @@ For details, see the `README` file in the `setup/ansible`directory.
 
 The `setup/docker compose (single-node)` directory contains a self-contained `docker compose` application suitable for 
 deploying the Distributed Jupyter Notebook Cluster on a single node.
+
+## Custom Docker Images
+There are seven configuration parameters that may need to be changed if you want to use Docker images that you built yourself:
+- `distributed_notebook_kernel_docker_image_name`: Docker image used by the distributed kernel replicas, which should be of the form "`DockerUser/ImageName`".
+- `gateway_docker_username`: Docker username of the account associated with the Global Scheduler Docker image.
+- `local_daemon_docker_username`: Docker username of the account associated with the Local Scheduler Docker image.
+- `jupyter_server_docker_username`: Docker username of the account associated with the Jupyter Server Docker image. (This Docker image is generally the same as that used by the distributed kernel replicas.)
+- `dashboard_backend_docker_username`: Docker username of the account associated with the cluster/admin dashboard Docker image.
+- `git_username`: The username of the GitHub account that owns the NotebookOS repository. If you would like to use a fork of the NotebookOS source code, then this parameter should be changed to be the account that owns the forked repository.
+- `gopy_image_name`: The username of the Docker account associated with the `gopy` Docker image, which is used to build the distributed kernel replica Docker image.
