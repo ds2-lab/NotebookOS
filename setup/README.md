@@ -70,22 +70,22 @@ There are seven configuration parameters that may need to be changed if you want
 
 Once the `all.yaml` file has been created in the correct directory (i.e., `setup/ansible/group_vars`), you can begin deploying NotebookOS. First, run the playbook to create the Docker Swarm cluster:
 ``` shell
-$ ansible-playbook -i inventory_file.ini create_docker_swarm_cluster.yaml --tags ``swarm''
+ansible-playbook -i inventory_file.ini create_docker_swarm_cluster.yaml --tags ``swarm''
 ```
 
 Next, deploy the [Traefik](https://traefik.io/traefik) Docker Stack onto the Docker Swarm cluster. Traefik is an open source reverse proxy and ingress controller that NotebookOS uses to route external web traffic to the appropriate internal component. Traefik can be deployed onto the Docker Swarm cluster by executing the following command:
 ``` shell
-  $ ansible-playbook -i inventory_file.ini redeploy_traefik_docker_stack.yaml
+ansible-playbook -i inventory_file.ini redeploy_traefik_docker_stack.yaml
 ```
 
 Finally, deploy the NotebookOS Docker Stack onto the Docker Swarm cluster:
 ``` shell
-  $ ansible-playbook -i inventory_file.ini deploy_distributed_notebook_docker_stack.yaml
+ansible-playbook -i inventory_file.ini deploy_distributed_notebook_docker_stack.yaml
 ```
 
 If desired, verbose Ansible logging can be enabled by setting the `ANSIBLE_STDOUT_CALLBACK` environment variable to `debug`. For example:
 ``` shell
-  $ ANSIBLE_STDOUT_CALLBACK=debug ansible-playbook -i inventory_file.ini deploy_distributed_notebook_docker_stack.yaml
+ANSIBLE_STDOUT_CALLBACK=debug ansible-playbook -i inventory_file.ini deploy_distributed_notebook_docker_stack.yaml
 ```
 
 ### Other Useful Playbooks 
@@ -96,3 +96,13 @@ The following is a list of other Ansible playbooks that may be useful while expe
 - `delete_docker_swarm_cluster.yaml`: Delete the NotebookOS Docker Swarm cluster. 
 - `create_docker_swarm_cluster.yaml`: Create (or re-create) the NotebookOS Docker Swarm cluster. 
 - `redeploy_traefik_docker_stack.yaml`: Redeploy Traefik on the Docker Swarm cluster.
+
+# Single-Node Deployments
+
+For development, NotebookOS supports [Docker Compose](https://docs.docker.com/compose/). Run `setup/install.sh` to install host dependencies. A `docker-compose.yml` template is provided in `deploy/docker-WSL2/`. Generate it via `generate-docker-compose-file.sh`. Once you have generated a `docker-compose.yml` file, you can deploy NotebookOS via Docker Compose using the following command:
+
+``` shell
+docker compose up -d --build --scale daemon=4
+```
+
+In order for NotebookOS to operate correctly with 3 replicas per distributed kernel, the minimum value of the `--scale daemon=` argument is 3; however, the recommended minimum is 4 to enable kernel replica migrations to occur.
