@@ -317,5 +317,7 @@ docker build -t $DOCKERUSER/gopy .
 popd
 
 pushd "$GOPATH_ENV/pkg/NotebookOS"
-cd smr && make build-linux-amd64
+pushd smr
+make build-linux-amd64
+popd
 make build-smr-linux-amd64
