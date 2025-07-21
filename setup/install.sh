@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
+sudo apt-get --assume-yes install unzip
 
 # Git
 if ! command -v git version &> /dev/null; then
