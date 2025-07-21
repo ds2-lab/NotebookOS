@@ -27,9 +27,9 @@ sudo apt-get update
 
 if [ "$1" != "" ]; then
     GIT_TOKEN=$1
-    git clone https://Scusemua@$(GIT_TOKEN)github.com/scusemua/distributed-notebook
+    git clone https://github.com/ds2-lab/NotebookOS/
 else 
-    git clone https://Scusemua@github.com/scusemua/distributed-notebook
+    git clone https://github.com/ds2-lab/NotebookOS/
 fi 
 
 popd
@@ -315,7 +315,7 @@ make
 docker build -t $DOCKERUSER/gopy .
 popd
 
-pushd "$GOPATH_ENV/pkg/distributed-notebook"
+pushd "$GOPATH_ENV/pkg/NotebookOS"
 cd smr && make build-linux-amd64
 git checkout ben/feature/docker
 make build-smr-linux-amd64
