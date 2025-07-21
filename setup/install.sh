@@ -248,8 +248,8 @@ if ! command stat gopy &> /dev/null; then
     git clone https://github.com/Scusemua/gopy.git
 fi 
 
-if ! command stat distributed-notebook &> /dev/null; then 
-    git clone https://github.com/scusemua/distributed-notebook.git
+if ! command stat NotebookOS &> /dev/null; then 
+    git clone https://github.com/ds2-lab/NotebookOS
 fi 
 
 popd
