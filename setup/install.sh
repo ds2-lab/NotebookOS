@@ -318,5 +318,4 @@ popd
 
 pushd "$GOPATH_ENV/pkg/NotebookOS"
 cd smr && make build-linux-amd64
-git checkout ben/feature/docker
 make build-smr-linux-amd64
