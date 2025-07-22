@@ -78,6 +78,7 @@ else
     make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG"
     sudo make altinstall
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/
+    echo export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/ >> $HOME/.bashrc
 
     # if ! command python$PYTHON_MAJOR_VERSION --version &> /dev/null; then
     if check_python_version; then
