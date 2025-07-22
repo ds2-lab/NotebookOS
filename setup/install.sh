@@ -40,8 +40,26 @@ if ! command ansible --version &> /dev/null; then
   sudo apt-get install --assume-yes ansible
 fi
 
+check_python_version() {
+    # Try different python commands
+    for cmd in python3.12 python3 python; do
+        if command -v $cmd >/dev/null 2>&1; then
+            version=$($cmd --version 2>&1 | awk '{print $2}')
+            if [ "$version" = $PYTHON_VERSION ]; then
+                echo "Python $PYTHON_VERSION is installed as $cmd"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
 # Python 3
-if ! command python3 --version &> /dev/null; then
+# if ! command python3 --version &> /dev/null; then
+if check_python_version; then
+    echo "Python $PYTHON_VERSION is already installed."
+else
+    printf "\n[WARNING] Python%s is not installed. Installing it now...\n" $PYTHON_VERSION
     printf "\n[WARNING] Python%s is not installed. Installing it now...\n" $PYTHON_VERSION
 
     sudo apt-get update
@@ -60,11 +78,12 @@ if ! command python3 --version &> /dev/null; then
     make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG"
     sudo make altinstall
 
-    if ! command python$PYTHON_MAJOR_VERSION --version &> /dev/null; then
+    # if ! command python$PYTHON_MAJOR_VERSION --version &> /dev/null; then
+    if check_python_version; then
+        echo "Successfully installed Python-$PYTHON_VERSION"
+    else 
         printf "\n[ERROR] Failed to install python%s.\n" $PYTHON_VERSION
         exit 
-    else 
-        echo "Successfully installed Python-$PYTHON_VERSION"
     fi 
 fi 
 
