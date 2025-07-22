@@ -151,7 +151,8 @@ if ! command -v docker run hello-world &> /dev/null; then
     fi 
 
     printf "Adding user %s to 'docker' group." "$USER"
-    sudo usermod -aG docker "$USER"
+    sudo usermod -aG docker $USER
+    newgrp docker
 
     if ! command -v docker run hello-world &> /dev/null; then 
         printf "\n[ERROR] Failed to enable non-root user %s to use Docker.\n" "$USER"
