@@ -438,6 +438,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		prometheusEnabled:              localDaemonOptions.PrometheusPort > 0,
 		HeapIndexes:                    make(map[types.HeapElementMetadataKey]int),
 		createdAt:                      time.Now(),
+		realGpusAvailable:              localDaemonOptions.RealGpusAvailable,
 	}
 
 	config.InitLogger(&daemon.log, daemon)
