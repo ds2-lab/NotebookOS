@@ -17,6 +17,8 @@ DXCore version: 10.0.26100.1-240331-1435.ge-release
 Windows version: 10.0.19045.5011
 ```
 
+Ensure that the repository is cloned into your existing `$GOPATH`, specifically within the `pkg` subdirectory, or where the `$GOPATH` will be (e.g., `/home/<username>/go/pkg`).
+
 ## Configuration
 
 Before running any playbooks, there are a few configuration-related steps that must be performed. First, create a file called `all.yaml` in the `setup/ansible/group_vars` directory. The `all.template.yaml` file is provided as a starting point. There are 5 configuration parameters that must be specified explicitly:
