@@ -77,6 +77,7 @@ else
     ../configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
     make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG"
     sudo make altinstall
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/
 
     # if ! command python$PYTHON_MAJOR_VERSION --version &> /dev/null; then
     if check_python_version; then
