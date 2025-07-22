@@ -21,6 +21,8 @@ Ensure that the repository is cloned into your existing `$GOPATH`, specifically 
 
 ## Configuration
 
+Make sure to set the `$DOCKERUSER` environment variable before running the script! 
+
 Before running any playbooks, there are a few configuration-related steps that must be performed. First, create a file called `all.yaml` in the `setup/ansible/group_vars` directory. The `all.template.yaml` file is provided as a starting point. There are 5 configuration parameters that must be specified explicitly:
 - `ansible_ssh_private_key_file`: Path to a private SSH key on the computer that will be used to run the Ansible playbook(s). Used to enable access to the other VMs in the NotebookOS cluster.
 - `private_key_to_upload`: Path to a private SSH key on the computer that will be used to run the Ansible playbook(s). This SSH key will be uploaded to the VMs in the NotebookOS cluster to enable SSH connectivity between them. This is useful because you may want to run some scripts or Ansible playbooks from one of the VMs once NotebookOS has been deployed.
