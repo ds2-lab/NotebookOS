@@ -37,7 +37,7 @@ popd
 
 # Ansible
 if ! command ansible --version &> /dev/null; then
-  sudo apt-get install ansible
+  sudo apt-get install --assume-yes ansible
 fi
 
 # Python 3
