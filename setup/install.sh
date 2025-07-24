@@ -153,14 +153,16 @@ if ! command -v docker run hello-world &> /dev/null; then
 
     printf "Adding user %s to 'docker' group." "$USER"
     sudo usermod -aG docker $USER
-    newgrp docker
 
-    if ! command -v docker run hello-world &> /dev/null; then 
-        printf "\n[ERROR] Failed to enable non-root user %s to use Docker.\n" "$USER"
-        exit 
-    else 
-        printf "Successfully enabled non-root user %s to use Docker.\n" "$USER"
-    fi 
+    echo -e "\nDocker installation and configuration complete!"
+    echo -e "You must start a new shell session for group changes to take effect."
+    echo -e "You can either:"
+    echo -e "1. Log out and log back in"
+    echo -e "2. Run this command now: exec sg docker -c \"bash -i\""
+    echo -e "3. Run this command now: newgrp docker"
+    echo -e "4. Or in your next terminal session, Docker will work without sudo"
+
+    exit 
 else 
     echo "Non-root user $USER can use Docker!"
 fi 
