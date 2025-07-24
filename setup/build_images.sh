@@ -10,6 +10,10 @@ if [ -z "${DOCKERUSER}" ]; then
     exit 1
 fi
 
+# Make sure the current user owns all the files and directories...
+pushd "$GOPATH_ENV/pkg/NotebookOS"
+sudo chown -R $CURRENT_USER .
+popd
 
 #################
 # scusemua/gopy #
