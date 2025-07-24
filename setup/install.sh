@@ -1,5 +1,7 @@
 #!/bin/bash
 
+CURRENT_USER=$(whoami)
+
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 sudo apt-get --assume-yes install unzip make
 
@@ -218,10 +220,10 @@ then
     cd /tmp && wget $GO_URL
     echo "[DEBUG] Downloaded Golang v$TARGET_GO_VERSION from $GO_URL. Installing now..."
     sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go$TARGET_GO_VERSION.linux-amd64.tar.gz
-    export PATH=$PATH:/usr/local/go/bin
+    export PATH=$PATH:/usr/local/go/bin:/home/$CURRENT_USER/go/bin
 
-    echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.profile
-    echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.bashrc
+    echo export PATH=$PATH:/usr/local/go/bin:/home/$CURRENT_USER/go/bin >> $HOME/.profile
+    echo export PATH=$PATH:/usr/local/go/bin:/home/$CURRENT_USER/go/bin >> $HOME/.bashrc
 
     echo "[DEBUG] Checking if Golang installed successfully..."
 
