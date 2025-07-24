@@ -1,5 +1,6 @@
 #!/bin/bash
 
+CURRENT_USER=$(whoami)
 GOPATH_ENV=$(go env GOPATH)
 
 #################
@@ -8,7 +9,8 @@ GOPATH_ENV=$(go env GOPATH)
 pushd "$GOPATH_ENV/pkg/gopy"
 python3.12 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
-make 
+go install github.com/scusemua/gopy@go-python-master
+make
 docker build -t $DOCKERUSER/gopy .
 popd
 
