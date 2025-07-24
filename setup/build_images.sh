@@ -1,5 +1,7 @@
 #!/bin/bash
 
+GOPATH_ENV=$(go env GOPATH)
+
 #################
 # scusemua/gopy #
 #################
