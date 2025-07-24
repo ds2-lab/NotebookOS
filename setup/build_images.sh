@@ -3,6 +3,14 @@
 CURRENT_USER=$(whoami)
 GOPATH_ENV=$(go env GOPATH)
 
+# Check if environment variable is set
+if [ -z "${DOCKERUSER}" ]; then
+    echo "Error: DOCKERUSER environment variable is not set" >&2
+    echo "Please set the DOCKERUSER variable before running the script" >&2
+    exit 1
+fi
+
+
 #################
 # scusemua/gopy #
 #################
