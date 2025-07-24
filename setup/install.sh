@@ -142,6 +142,8 @@ if ! command protoc --version &> /dev/null; then
     popd 
 fi
 
+print_docker_info=false
+
 # Docker, non-root user.
 if ! command -v docker run hello-world &> /dev/null; then 
     printf "\n[WARNING] Failed to enable non-root user to use Docker. Enabling non-root user to use Docker now...\n"
@@ -162,7 +164,7 @@ if ! command -v docker run hello-world &> /dev/null; then
     echo -e "3. Run this command now: newgrp docker"
     echo -e "4. Or in your next terminal session, Docker will work without sudo"
 
-    exit 
+    print_docker_info=true
 else 
     echo "Non-root user $USER can use Docker!"
 fi 
@@ -330,18 +332,13 @@ sudo chown -R hadoop /home/hadoop/hadoop/etc/hadoop/
 # Format the file system.
 ssh -i ~/.ssh/hadoop.key hadoop@localhost 'env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 ~/hadoop/bin/hdfs namenode -format'
 
-#################
-# scusemua/gopy #
-#################
-pushd "$GOPATH_ENV/pkg/gopy"
-python3.12 -m pip install pybindgen
-go install golang.org/x/tools/cmd/goimports@latest
-make 
-docker build -t $DOCKERUSER/gopy .
-popd
+echo -e "\n\nThis portion of the installation phase has completed."
+echo -e "[IMPORTANT] Please run the 'build_images.sh' script to complete the installation process."
 
-pushd "$GOPATH_ENV/pkg/NotebookOS"
-pushd smr
-make build-linux-amd64
-popd
-make build-smr-linux-amd64
+if [ "$should_print" = true ]; then
+    echo -e "[IMPORTANT] You must start a new shell session for Docker-related group changes to take effect."
+    echo -e "You can either:"
+    echo -e "1. Log out and log back in"
+    echo -e "2. Or run this command now: newgrp docker"
+    echo -e "Please perform one of those two options before executing the 'build_images.sh' script."
+fi
