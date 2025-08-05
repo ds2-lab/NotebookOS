@@ -208,4 +208,29 @@ re-verify
 hash -r
 ```
 
+## (4) Download NotebookOS
 
+```  bash
+# (4a) Create an example Golang project and init `~/go/pkg` directory.
+# You can manually create it, but be aware of the permissions of hte home directory (~/).
+mkdir test
+cd test
+go mod init example.com/test
+go get github.com/google/uuid
+
+# (4b) Clean the test project.
+rm -rf test
+
+# (4c) cd to ~/go/pkg
+cd ~/go/pkg
+
+# (4d) Download the source code.
+git clone https://github.com/ds2-lab/NotebookOS.git
+
+# (4e) Go to NotebookOS/setup/, run `install.sh` (before `hadoop` installation, everything should work)
+./install.sh
+
+# (4f) Small fix in case the script fails to set the ROOT_DIR environment variable. Get the correct value and set it in ~/.bashrc
+export ROOT_DIR=/home/ubuntu/go/pkg/NotebookOS
+echo "export ROOT_DIR=/home/ubuntu/go/pkg/NotebookOS" >> ~/.bashrc
+```
