@@ -19,6 +19,8 @@ Windows version: 10.0.19045.5011
 
 Ensure that the repository is cloned into your existing `$GOPATH`, specifically within the `pkg` subdirectory, or where the `$GOPATH` will be (e.g., `/home/<username>/go/pkg`).
 
+**Note:** please refer to the manual AWS EC2 installation instructions (found in the `setup/manual_aws_ec2_install_instructions.md` file) for instructions on how to manually set up the environment required to run NotebookOS on a fresh AWS EC2 virtual machine. These instructions have been independently tested and validated to be working/complete.
+
 ## Configuration
 
 Make sure to set the `$DOCKERUSER` environment variable before running the script! 
