@@ -1,6 +1,8 @@
 # AWS EC2 Installation Instructions
 The following document provides instructions for manually setting up the environment required to deploy and run NotebookOS on an AWS EC2 virtual machine.
 
+Special "thank you" to the ASPLOS'26 Artifact Evaluation reviewers for helping to improve the setup/installation documentation and instructions.
+
 ## Prerequisites
 
 ### (1) Install Golang
