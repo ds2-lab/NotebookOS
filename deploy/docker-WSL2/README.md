@@ -1,7 +1,5 @@
 # Deploying via Docker Compose
-This directory contains the files necessary to deploy the Distributed Jupyter Cluster using `docker compose`. 
-
-Simply execute the following command:
+For development, NotebookOS supports [Docker Compose](https://docs.docker.com/compose/). Run `setup/install.sh` to install host dependencies. A `docker-compose.yml` template is provided in `deploy/docker-WSL2/`. Generate it via `generate-docker-compose-file.sh`. Once you have generated a `docker-compose.yml` file, you can deploy NotebookOS via Docker Compose using the following command:
 ``` sh
 docker compose up -d --build --scale daemon=4`
 ```
